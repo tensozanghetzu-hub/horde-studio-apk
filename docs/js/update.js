@@ -151,7 +151,7 @@
     reset: function () {
       if (!can()) throw new Error('Self-update needs the newest APK.');
       native().clearWebUpdate();
-      try { localStorage.removeItem('hs.pendingRev'); localStorage.removeItem('hs.blockedRev'); } catch (e) { }
+      try { localStorage.removeItem('hs.pendingRev'); localStorage.removeItem('hs.blockedRev'); localStorage.removeItem('hs.remote'); } catch (e) { }
       lastRemote = null;
     },
 

@@ -99,7 +99,9 @@ def pages_url():
     if os.environ.get("PAGES_URL"):
         return os.environ["PAGES_URL"].rstrip("/") + "/"
     try:
-        remote = os.popen("git -C %s remote get-url origin" % ROOT).read().strip()
+        remote = os.popen(
+            "git -C %s remote get-url origin 2>/dev/null" % ROOT
+        ).read().strip()
     except Exception:
         remote = ""
     m = re.search(r"github\.com[:/]([^/]+)/([^/\s]+?)(\.git)?$", remote or "")

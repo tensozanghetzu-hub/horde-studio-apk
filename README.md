@@ -398,13 +398,16 @@ A URL you control (GitHub Pages, a home server, a NAS) removes the problem entir
 `version.json` describes what is current:
 
 ```json
-{ "apk": "1.4.4", "apkCode": 9, "web": "1.4.4", "webRev": 1789334024,
-  "apkSize": 223975, "webSize": 134651, "files": 18, "note": "…" }
+{ "apk": "1.4.7", "apkCode": 12, "web": "1.4.7", "webRev": "8b2ce2946e96",
+  "apkUrl": "https://you.github.io/repo/HordeStudio-latest.apk",
+  "apkSize": 223975, "webSize": 136237, "files": 18, "note": "…" }
 ```
 
 - `apkCode` is compared with the installed `versionCode`; higher means offer the APK.
-- `webRev` is any integer that grows when the files change — the newest file's mtime
-  works. Different from the installed revision means offer the bundle.
+- `webRev` is any value that changes when the files change — a timestamp, or a hash of
+  the files. Different from the installed revision means offer the bundle.
+- `apkUrl` is optional. Send it and the app fetches the APK from exactly there; leave it
+  out and the app uses `<address>/app`, which is what older servers serve.
 - `web.zip` holds `index.html`, `css/`, `js/`, `icons/`, `sw.js` and
   `manifest.webmanifest` at the zip root, with no wrapper folder.
 
@@ -412,6 +415,56 @@ A URL you control (GitHub Pages, a home server, a NAS) removes the problem entir
 source on every request, so editing a file in `horde-studio-mobile/` is enough to publish
 an update.
 </details>
+
+## Hosting the update channel on GitHub
+
+The update address baked into the APK is this workspace's preview URL, which dies with the
+sandbox. A GitHub Pages site does not. This project is set up to publish itself to one, so
+*Check for update* keeps working from any network after this workspace is gone.
+
+**How it fits together**
+
+- `docs/` is the published folder. `tools/build-channel.py` regenerates it from
+  `horde-studio-mobile/`: the app files, plus `version.json`, `web.zip` and
+  `HordeStudio-latest.apk`.
+- The address lives in exactly one place — it is derived from the git remote, so
+  `git@github.com:you/repo.git` becomes `https://you.github.io/repo/`. Rename the repo and
+  the next sync re-bakes it; there is nothing to edit by hand.
+- `bash sync-github.sh "what changed"` rebuilds the channel, commits and pushes. That is
+  the whole workflow: change a file, run it, press *Check for update* on the phone.
+- `webRev` is a hash of the file contents, not a clock reading, so a sync that changes
+  nothing does not offer you an update you already have.
+- Nothing private can leak into the push: the script stages named folders only, never
+  `git add -A`, and refuses to commit if anything staged looks like a key, a cache or a
+  photo. `.ssh/` — which holds the push key — is git-ignored.
+
+**Setting it up, once**
+
+1. Create an empty **public** repository on GitHub. Pages needs a public repo on a free
+   account. Nothing personal is published: your characters, chats and settings live in the
+   app's private storage on the phone and are never uploaded.
+2. Add this sandbox's key to your account: **Settings → SSH and GPG keys → New SSH key**.
+   The public key is `~/.ssh/id_ed25519.pub` in this workspace. Nothing expires, so the
+   sync keeps working across restarts with no re-authorisation.
+3. In the repo: **Settings → Pages → Source: Deploy from a branch**, branch `main`,
+   folder `/docs`.
+4. Point the local repo at it and publish:
+
+```bash
+git remote add origin git@github.com:YOUR-USER/YOUR-REPO.git
+bash sync-github.sh "first publish"
+```
+
+Then on the phone: **Settings → App updates → Update address** →
+`https://YOUR-USER.github.io/YOUR-REPO/`. Pages needs a minute or two to rebuild the
+first time; after that it follows the push within seconds.
+
+**Why it cannot be fully automatic.** Two hard limits: this sandbox only runs while you
+are in a session, so there is no cron to fire when you are away; and nothing outside can
+read from it, because the preview URL answers `403` to anything but a browser. A GitHub
+Action polling this workspace would hit that wall. A push from here is the only direction
+that works — which is fine, because the only time the files change is during a session,
+when the sync is one command away.
 
 ## When text runs off the side of the screen
 

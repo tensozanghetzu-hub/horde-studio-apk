@@ -28,9 +28,13 @@ mkdir -p "$OUT/res-flat" "$OUT/obj" "$OUT/dex"
 # The sandbox address changes whenever this workspace restarts, and a stale one
 # answers 502 "sandbox was not found". Re-point the baked default at the sandbox
 # we are standing in right now, so a fresh build always aims somewhere real.
-if [ -n "${E2B_SANDBOX_ID:-}" ]; then
-  sed -i "s|https://8010-[a-z0-9]*\\.e2b\\.app|https://8010-${E2B_SANDBOX_ID}.e2b.app|g" "$APP/js/update.js"
-  echo "==> update address pointed at sandbox ${E2B_SANDBOX_ID}"
+if grep -q "https://8010-[a-z0-9]*\.e2b\.app" "$APP/js/update.js"; then
+  # only while the channel is still this sandbox
+  [ -n "${E2B_SANDBOX_ID:-}" ] && \
+    sed -i "s|https://8010-[a-z0-9]*\\.e2b\\.app|https://8010-${E2B_SANDBOX_ID}.e2b.app|g" "$APP/js/update.js" && \
+    echo "==> update address pointed at sandbox ${E2B_SANDBOX_ID}"
+else
+  echo "==> update address is the GitHub channel, not a sandbox - left alone"
 fi
 
 echo "==> copying web app into assets"
