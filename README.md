@@ -4,11 +4,27 @@ A phone-native build of the Horde Studio idea: a local-first AI roleplay studio 
 characters, persistent chats, story memory, lorebooks and AI-generated images —
 rewritten from the ground up for a 6-inch screen and packaged as an installable APK.
 
+## Download
+
+**The APK lives in `docs/`**, not in the top-level listing — which is easy to miss
+when you open the repo:
+
+> **[`docs/HordeStudio-latest.apk`](https://github.com/tensozanghetzu-hub/horde-studio-apk/blob/main/docs/HordeStudio-latest.apk)** — v1.4.8, 223 KB, Android 7.0 (API 24) and up.
+
+Open this link on your phone and it downloads straight away:
+
+```
+https://tensozanghetzu-hub.github.io/horde-studio-apk/HordeStudio-latest.apk
+```
+
+Then tap the download and install. Same signing key as before, so installing over
+an earlier version keeps your characters and chats.
+
 **What you got**
 
-| File | What it is |
+| Path | What it is |
 |---|---|
-| `HordeStudio-v1.4.7.apk` | The Android app. Signed, ~180 KB, Android 7.0 (API 24) and up. |
+| `docs/HordeStudio-latest.apk` | The Android app. Signed, ~223 KB, Android 7.0 (API 24) and up. |
 | `horde-studio-mobile/` | The full web/PWA source that the APK wraps (also hostable anywhere). |
 | `apk-build/` | Android wrapper source + `build.sh` / `setup-sdk.sh` to rebuild the APK. |
 | Live preview | The same app running as a website — test it in your browser first. |
@@ -58,7 +74,8 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Install on your phone
 
-1. Download `HordeStudio-v1.4.7.apk` from this workspace onto your phone.
+1. Download the APK — from [`docs/HordeStudio-latest.apk`](https://github.com/tensozanghetzu-hub/horde-studio-apk/blob/main/docs/HordeStudio-latest.apk) in this repo,
+   or open `https://tensozanghetzu-hub.github.io/horde-studio-apk/HordeStudio-latest.apk` on your phone.
 2. Open it. Android will say **“Install unknown apps” / “Allow from this source”** —
    grant it for the app you downloaded with (Chrome / Files).
 3. Tap **Install**. Play Protect may warn that the app is unverified — that’s expected
@@ -73,7 +90,7 @@ No account, no signup, no data leaves your phone except the model calls you conf
 <summary>Installing from a computer instead (adb)</summary>
 
 ```bash
-adb install -r HordeStudio-v1.4.7.apk
+adb install -r HordeStudio-latest.apk
 ```
 </details>
 
