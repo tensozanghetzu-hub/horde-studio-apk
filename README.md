@@ -398,8 +398,8 @@ A URL you control (GitHub Pages, a home server, a NAS) removes the problem entir
 `version.json` describes what is current:
 
 ```json
-{ "apk": "1.4.7", "apkCode": 12, "web": "1.4.7", "webRev": "8b2ce2946e96",
-  "apkUrl": "https://you.github.io/repo/HordeStudio-latest.apk",
+{ "apk": "1.4.7", "apkCode": 12, "web": "1.4.7", "webRev": "c28cee49c93f",
+  "apkUrl": "HordeStudio-latest.apk",
   "apkSize": 223975, "webSize": 136237, "files": 18, "note": "…" }
 ```
 
@@ -451,13 +451,25 @@ sandbox. A GitHub Pages site does not. This project is set up to publish itself 
 4. Point the local repo at it and publish:
 
 ```bash
-git remote add origin git@github.com:YOUR-USER/YOUR-REPO.git
+git remote add origin git@github.com:tensozanghetzu-hub/horde-studio-apk.git
 bash sync-github.sh "first publish"
 ```
 
 Then on the phone: **Settings → App updates → Update address** →
-`https://YOUR-USER.github.io/YOUR-REPO/`. Pages needs a minute or two to rebuild the
-first time; after that it follows the push within seconds.
+`https://tensozanghetzu-hub.github.io/horde-studio-apk/`. Pages needs a minute or two to
+rebuild the first time; after that it follows the push within seconds.
+
+**Before Pages is switched on**, the same files are already reachable through
+`raw.githubusercontent.com`, which needs no setup at all. Paste this instead and updates
+work immediately:
+
+```
+https://raw.githubusercontent.com/tensozanghetzu-hub/horde-studio-apk/main/docs/
+```
+
+That is why `apkUrl` is a bare filename rather than a full URL: the app reads it relative
+to the update address, so the one channel works from Pages, from raw, from a NAS or from
+a home server without being rewritten for each.
 
 **Why it cannot be fully automatic.** Two hard limits: this sandbox only runs while you
 are in a session, so there is no cron to fire when you are away; and nothing outside can

@@ -35,4 +35,29 @@ Needs the static server on port 8000: `python3 -m http.server 8000 --bind 0.0.0.
   (Playwright's browser lives in `.cache`, which is not durable). Run:
   `node /home/user/tests/apkurl-test.js`.
 - `GITHUB-SETUP.md` is the user-facing 3-step sheet (SSH key + repo + Pages).
-- Blocker: waiting on the user's GitHub username / repo name to set the remote.
+- Repo: **https://github.com/tensozanghetzu-hub/horde-studio-apk** (public), branch main,
+  publishing `docs/`. Channel address https://tensozanghetzu-hub.github.io/horde-studio-apk/
+  Immediate fallback with no Pages config:
+  https://raw.githubusercontent.com/tensozanghetzu-hub/horde-studio-apk/main/docs/
+- PUSHED. Pages itself is NOT enabled yet - only the user can flip it in repo Settings.
+- **apkUrl is a bare filename**, resolved against the update address, so one channel
+  works from Pages, raw.githubusercontent, a NAS or a home server.
+- Current APK: HordeStudio-v1.4.7.apk, 228,071 B, sha256 ef2fa2233d493bf84e54b1a3cd266630
+  a4591c986aeaec5d4a38d5642f11ea58, code 12. Dex-verified: all 9 bridge methods present.
+
+
+## HAZARD: snapshots silently revert MainActivity.java
+
+Found on 2026-09-14: a restore dropped `pickUpdateZip`, `openDownload`, `finishSwap`,
+`revFromBundle`, REQ_UPDATE/updateJob and put `return "1.0.0"` back in `version()`. This
+is the **third** time (v1.4.5, v1.4.7, and this session). The web sources were untouched.
+
+- **The source tree is not evidence of what shipped.** Grep the compiled dex:
+  `unzip -q -o HordeStudio-*.apk -d /tmp/x && grep -a -c pickUpdateZip /tmp/x/classes.dex`
+- Recompile before rebuilding: `javac --release 8 -encoding UTF-8 -cp $SDK/android.jar`.
+  `--release` and `-bootclasspath` cannot be combined.
+- `finishSwap`/`revFromBundle` live on `NativeBridge`, so `onActivityResult` (an outer
+  method) reaches them through the `bridge` field. Static methods are illegal in an
+  inner class under Java 8.
+- Other reverts seen this session: `tests/vendor/` came back empty (the Playwright browser
+  was in `.cache`, which is excluded), and both servers were down. Probe, never assume.
