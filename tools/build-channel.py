@@ -8,9 +8,11 @@ the app files themselves, plus the three things the updater fetches -
     docs/web.zip                 the bundle for an in-place update
     docs/HordeStudio-latest.apk  the APK, for when the wrapper changed
 
-Everything is content-addressed: webRev is a hash of the files, so a build
-that changes nothing produces the same revision and the phone is never
-offered an update it already has.
+It is content-addressed and reproducible. webRev is a hash of the files, zip
+entries carry a fixed timestamp, and "updated" comes from the source files
+rather than the clock - so rebuilding something that has not changed produces
+byte-identical output, the phone is never offered an update it already has,
+and git stays clean instead of recording a no-op every time.
 """
 
 import hashlib
@@ -28,6 +30,9 @@ SRC = os.path.join(ROOT, "horde-studio-mobile")
 OUT = os.path.join(ROOT, "docs")
 MANIFEST = os.path.join(ROOT, "apk-build", "AndroidManifest.xml")
 APK_NAME = "HordeStudio-latest.apk"
+
+# zip timestamps would change the bytes on every build for no reason
+EPOCH = (1980, 1, 1, 0, 0, 0)
 
 SKIP = {"icons/icon-source.png", "version.json", "web.zip", ".nojekyll"}
 
@@ -134,6 +139,15 @@ def bake_default_url(url):
     return True
 
 
+def zip_entry(z, arcname, data):
+    """Add a file with a fixed timestamp, so identical content gives
+    identical bytes no matter when it was built."""
+    info = zipfile.ZipInfo(arcname, date_time=EPOCH)
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    z.writestr(info, data)
+
+
 def main():
     url = pages_url()
     moved = bake_default_url(url)
@@ -143,6 +157,15 @@ def main():
     rev = hashlib.sha256(
         "".join("%s %s\n" % kv for kv in manifest).encode()
     ).hexdigest()[:12]
+
+    # when the files last changed, not when we happened to build
+    stamp = 0
+    for rel in names:
+        try:
+            stamp = max(stamp, int(os.path.getmtime(os.path.join(SRC, rel))))
+        except OSError:
+            pass
+    updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(stamp or 0))
 
     version, code = app_version()
 
@@ -165,11 +188,12 @@ def main():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for rel in names:
-            z.write(os.path.join(SRC, rel), rel)
-        z.writestr("version.json", json.dumps({
+            with open(os.path.join(SRC, rel), "rb") as f:
+                zip_entry(z, rel, f.read())
+        zip_entry(z, "version.json", (json.dumps({
             "apk": version, "apkCode": code, "web": version, "webRev": rev,
-            "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }, indent=2) + "\n")
+            "updated": updated,
+        }, indent=2) + "\n").encode())
     zip_bytes = buf.getvalue()
     with open(os.path.join(OUT, "web.zip"), "wb") as f:
         f.write(zip_bytes)
@@ -192,7 +216,7 @@ def main():
         "apkSize": apk_size,
         "webSize": len(zip_bytes),
         "files": len(names),
-        "updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "updated": updated,
         "note": "Fixes to the interface arrive as a small download, no reinstall. "
                 "Only a change to the app wrapper itself needs Android to install it.",
     }
@@ -208,8 +232,7 @@ def main():
     if moved:
         print("baked    DEFAULT_URL -> %s" % url)
     if not url:
-        print("warning: no git remote yet, so apkUrl is relative and the app")
-        print("         has no baked-in address. Add the remote and build again.")
+        print("warning: no git remote yet, so the app has no baked-in address.")
 
 
 if __name__ == "__main__":
