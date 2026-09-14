@@ -13,7 +13,7 @@
 (function (global) {
   'use strict';
 
-  var DEFAULT_URL = 'https://8010-i7nlfw0lsd86vnlhldpcm.e2b.app/';
+  var DEFAULT_URL = 'https://tensozanghetzu-hub.github.io/horde-studio-apk/';
 
   function native() { return global.HSAndroid; }
   function can() { return !!(native() && native().jobStatus && native().updateInfo); }

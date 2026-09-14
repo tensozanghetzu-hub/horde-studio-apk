@@ -12,3 +12,27 @@ Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd
 Deps are vendored in `tests/vendor` (run with NODE_PATH=tests/vendor); chromium in ~/.cache does not survive a restart.
 The sandbox ID changes on restart — `build.sh` re-bakes the update address from $E2B_SANDBOX_ID, and a stale one 502s.
 Needs the static server on port 8000: `python3 -m http.server 8000 --bind 0.0.0.0 --directory /home/user/horde-studio-mobile`.
+
+
+## GitHub update channel (set up in progress)
+
+- Repo: the workspace itself is the git repo (`/home/user/.git`). `docs/` is what
+  GitHub Pages publishes; `tools/build-channel.py` regenerates it from
+  `horde-studio-mobile/`.
+- `bash /home/user/sync-github.sh "message"` = rebuild channel + commit + push over SSH.
+- Push key: `~/.ssh/id_ed25519` (ed25519). **`.ssh/` is git-ignored** and the sync script
+  refuses to commit anything matching a key/cache/photo pattern. `~/.ssh` is NOT in the
+  snapshot exclusion list, so it survives restarts — but re-`chmod 600` if ssh complains.
+- The channel address is derived from `git remote get-url origin`
+  (`git@github.com:u/r.git` -> `https://u.github.io/r/`), so it is written in one place.
+  Override with `PAGES_URL=... python3 tools/build-channel.py`.
+- `version.json` gained **`apkUrl`**; the app uses it for the APK and falls back to
+  `<address>/app` when it is absent. GitHub cannot serve `/app`, hence the field.
+- `webRev` in the GitHub channel is a **content hash** (12 hex of sha256 over the file
+  manifest), not a timestamp — rebuilding with no changes produces no update offer.
+  `apk-download/server.py` still uses mtime; harmless, it is the fallback channel.
+- `tests/apkurl-test.js` — 8 assertions, pure node via `vm`, no browser needed
+  (Playwright's browser lives in `.cache`, which is not durable). Run:
+  `node /home/user/tests/apkurl-test.js`.
+- `GITHUB-SETUP.md` is the user-facing 3-step sheet (SSH key + repo + Pages).
+- Blocker: waiting on the user's GitHub username / repo name to set the remote.
