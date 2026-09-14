@@ -43,3 +43,7 @@ dl/
 Thumbs.db
 
 .sudo_as_admin_successful
+
+# never commit: too large / scratch
+android-sdk/
+research/
