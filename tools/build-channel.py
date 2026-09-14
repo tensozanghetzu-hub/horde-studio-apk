@@ -35,6 +35,8 @@ APK_NAME = "HordeStudio-latest.apk"
 EPOCH = (1980, 1, 1, 0, 0, 0)
 
 SKIP = {"icons/icon-source.png", "version.json", "web.zip", ".nojekyll"}
+# static data: carried in docs/ and in the APK, but not in an update
+SKIP_DIRS = ("worlds",)
 
 
 def die(msg):
@@ -58,7 +60,7 @@ def bundle_files():
     for f in sorted(os.listdir(SRC)):
         if os.path.isfile(os.path.join(SRC, f)) and f not in SKIP:
             out.append(f)
-    for sub in sorted(("css", "js", "icons")):
+    for sub in sorted(("css", "js", "icons", "worlds")):
         root = os.path.join(SRC, sub)
         if not os.path.isdir(root):
             continue
@@ -153,7 +155,8 @@ def main():
     moved = bake_default_url(url)
 
     names = bundle_files()
-    manifest = [(rel, sha256_file(os.path.join(SRC, rel))) for rel in names]
+    shipped = [r for r in names if r.split("/")[0] not in SKIP_DIRS]
+    manifest = [(rel, sha256_file(os.path.join(SRC, rel))) for rel in shipped]
     rev = hashlib.sha256(
         "".join("%s %s\n" % kv for kv in manifest).encode()
     ).hexdigest()[:12]
@@ -187,7 +190,7 @@ def main():
     # (no network at all) still knows which revision it is
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for rel in names:
+        for rel in shipped:
             with open(os.path.join(SRC, rel), "rb") as f:
                 zip_entry(z, rel, f.read())
         zip_entry(z, "version.json", (json.dumps({
@@ -215,7 +218,7 @@ def main():
         "webRev": rev,
         "apkSize": apk_size,
         "webSize": len(zip_bytes),
-        "files": len(names),
+        "files": len(shipped),
         "updated": updated,
         "note": "Fixes to the interface arrive as a small download, no reinstall. "
                 "Only a change to the app wrapper itself needs Android to install it.",
@@ -225,7 +228,7 @@ def main():
 
     print("channel  %s" % (url or "(no Pages address yet)"))
     print("app      %s (code %d)" % (version, code))
-    print("files    %d" % len(names))
+    print("files    %d shipped (+%d static)" % (len(shipped), len(names) - len(shipped)))
     print("webRev   %s" % rev)
     print("web.zip  %d bytes" % len(zip_bytes))
     print("apk      %s" % (os.path.basename(apk) if apk else "none found"))

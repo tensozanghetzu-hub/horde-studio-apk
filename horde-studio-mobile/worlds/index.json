@@ -1,0 +1,13 @@
+{
+  "packs": [
+    {
+      "id": "tempe-core",
+      "name": "Tempe core · OpenStreetMap",
+      "description": "120 real places and walking routes in Tempe, Arizona, from an OpenStreetMap snapshot.",
+      "placeCount": 120,
+      "routeCount": 918,
+      "attribution": "ODbL 1.0 — © OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+      "file": "tempe-core.json"
+    }
+  ]
+}

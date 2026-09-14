@@ -19,7 +19,7 @@ JAVAC="$JAVA_HOME/bin/javac"
 
 OUT="$ROOT/build"
 KEY="$ROOT/horde-studio.keystore"
-FINAL="/home/user/HordeStudio-v1.4.8.apk"
+FINAL="/home/user/HordeStudio-v1.4.9.apk"
 
 echo "==> cleaning"
 rm -rf "$OUT"
@@ -40,6 +40,8 @@ fi
 echo "==> copying web app into assets"
 mkdir -p "$OUT/assets"
 cp -r "$APP/index.html" "$APP/css" "$APP/js" "$APP/icons" "$OUT/assets/"
+# world packs are static data: they ship in the APK, not in an update
+[ -d "$APP/worlds" ] && cp -r "$APP/worlds" "$OUT/assets/worlds"
 cp "$APP/manifest.webmanifest" "$OUT/assets/manifest.webmanifest"
 cp "$APP/sw.js" "$OUT/assets/sw.js"
 rm -f "$OUT/assets/icons/icon-source.png"
@@ -57,8 +59,8 @@ echo "==> linking APK (resources + manifest + assets)"
   -o "$OUT/app-nodex.apk" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
-  --version-code 13 \
-  --version-name 1.4.8 \
+  --version-code 14 \
+  --version-name 1.4.9 \
   --auto-add-overlay \
   -R $(ls "$OUT"/res-flat/*.flat | tr '\n' ' ')
 

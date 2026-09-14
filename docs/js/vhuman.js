@@ -96,6 +96,7 @@
           { id: 'town', name: 'Town', kind: 'outdoor', note: '' }
         ],
         place: 'home',                     // where they are right now
+        worldId: null,                     // world pack these places came from, if any
         travel: null,                      // {from, to, startedAt, arriveAt}
         needs: { energy: 0.8, hunger: 0.25, social: 0.5, comfort: 0.7 },
         people: [],                        // [{id,name,relation,closeness,note}]
@@ -115,6 +116,8 @@
       Object.keys(d).forEach(function (k) {
         if (char.vh[k] === undefined) char.vh[k] = d[k];
       });
+      /* a life bound to a world pack needs it in memory before it travels */
+      if (char.vh.worldId && global.Worlds) global.Worlds.preload(char.vh.worldId);
       /* v1.x lives get the v18 furniture without losing anything they had */
       if (!Array.isArray(char.vh.places) || !char.vh.places.length) char.vh.places = d.places;
       if (!char.vh.needs) char.vh.needs = d.needs;
@@ -231,7 +234,12 @@
       now = now || Date.now();
       if (!VH.place(vh, placeId)) return null;
       if (vh.place === placeId && !vh.travel) return null;
-      var mins2 = minutes || (10 + Math.floor(Math.random() * 35));
+      var mins2 = minutes;
+      if (!mins2 && vh.worldId && global.Worlds) {
+        var wp = global.Worlds.cached(vh.worldId);
+        if (wp) mins2 = global.Worlds.minutes(wp, vh.place, placeId);
+      }
+      if (!mins2) mins2 = 10 + Math.floor(Math.random() * 35);
       vh.travel = {
         from: vh.place, to: placeId,
         startedAt: now, arriveAt: now + mins2 * 60000

@@ -881,7 +881,9 @@
           '<div class="field"><div class="field-head"><label>Places in their life</label></div>' +
             '<div id="vh-places"></div>' +
             '<button class="btn ghost sm block" id="vh-add-place" style="margin-top:8px">' + icon('plus') + ' Add a place</button>' +
-            '<div class="hint">Where their day happens. They travel between these in real time, and being somewhere else is why they took so long to answer.</div></div>' +
+            '<div class="hint">Where their day happens. They travel between these in real time, and being somewhere else is why they took so long to answer.</div>' +
+            '<div id="vh-world"></div>' +
+            '<button class="btn ghost sm block" id="vh-world-pack" style="margin-top:8px">' + icon('download') + ' Load a world pack</button></div>' +
           '<div class="field"><div class="field-head"><label>People in their life</label></div>' +
             '<div id="vh-people"></div>' +
             '<button class="btn ghost sm block" id="vh-add-person" style="margin-top:8px">' + icon('plus') + ' Add a person</button>' +
@@ -1126,8 +1128,55 @@
     }
 
     renderPlaces();
+    renderWorld();
     renderPeople();
     renderCal();
+
+    function renderWorld() {
+      var box = $('#vh-world', body);
+      if (!box) return;
+      var W = global.Worlds;
+      if (!vh.worldId) {
+        box.innerHTML = '<div class="hint">No world pack loaded. Add a pack to give them a real city to move through.</div>';
+        return;
+      }
+      var pack = W && W.cached(vh.worldId);
+      box.innerHTML = '<div class="hint">World: <b>' + esc(vh.worldId) + '</b> — ' +
+        (pack ? pack.placeCount + ' places, ' + pack.routeCount +
+                ' walking routes. Journeys take as long as they really take.'
+              : 'journey times will be estimated until it loads.') +
+        ' <button class="chip" id="vh-world-off">remove</button></div>';
+      var off = $('#vh-world-off', box);
+      if (off) off.onclick = function () {
+        if (pack) W.remove(vh, pack); else vh.worldId = null;
+        renderWorld(); renderPlaces(); renderCal();
+        UI.toast('World pack removed');
+      };
+    }
+
+    var worldBtn = $('#vh-world-pack', body);
+    if (worldBtn) worldBtn.onclick = function () {
+      var W = global.Worlds;
+      if (!W) return UI.toast('World packs are not available in this build');
+      W.available().then(function (packs) {
+        if (!packs.length) return UI.toast('No world packs are installed');
+        var p = packs[0];   /* one pack ships today; a picker if more arrive */
+        var msg = p.description + ' That is ' + p.placeCount + ' places and ' +
+          p.routeCount + ' walking routes. Their home and work are kept, and ' +
+          'journeys take as long as the walk really takes. ' + (p.attribution || '');
+        return UI.confirm('Load ' + p.name + '?', msg, { okLabel: 'Load' })
+          .then(function (yes) {
+            if (!yes) return;
+            return W.load(p.id).then(function (pack) {
+              var n = W.apply(vh, pack);
+              renderWorld(); renderPlaces(); renderCal();
+              UI.toast(n + ' places loaded');
+            });
+          });
+      }).catch(function (e) {
+        UI.toast(e && e.message ? e.message : 'Could not load that world pack');
+      });
+    };
 
     var addPlace = $('#vh-add-place', body);
     if (addPlace) addPlace.onclick = function () {

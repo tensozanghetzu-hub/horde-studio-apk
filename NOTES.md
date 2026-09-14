@@ -1,6 +1,6 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.4.8.apk` (versionCode 13), sha256 a134739efb7a68179c37a549bc0b2c6fa88279a83890b51ac352075aedb02fb7.
+Current build: `HordeStudio-v1.4.9.apk` (versionCode 14), sha256 af92e3c55a2e37aaf0ba38855f0a268487672460770a43a8ea9bf85eb5be7971.
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
 Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on purpose — it makes Play Protect warn; user accepts 'install anyway'), storage (maxSdk 28).
@@ -104,3 +104,21 @@ is the **third** time (v1.4.5, v1.4.7, and this session). The web sources were u
   the workflow would never have reached the repo otherwise.
 - Releases are for humans; `docs/` is for the app's updater. Do not point the
   updater at a release - the tag changes every version.
+
+
+## World packs (v1.4.9)
+
+- Upstream `world-packs/` = real OpenStreetMap places + walking routes. NOT a
+  lorebook. Our "World" screen is a lorebook; the packs feed VH **places/travel**.
+- `tools/build-worldpack.py` converts upstream -> `horde-studio-mobile/worlds/`:
+  drops route geometry (maps only, 1.1 MB of 1.3 MB) and dedupes routes to one
+  per pair. Result: 120 places + 918 routes = 70 KB.
+- `js/worlds.js` = loader. `Worlds.minutes(pack,a,b)` uses a measured route when
+  known, else haversine/80m-per-min x1.3 for detours.
+- `apply()` is NON-DESTRUCTIVE on purpose: it keeps every existing place and
+  appends the pack's. A test caught the first version, which kept only home/work
+  and silently deleted anything the user had written.
+- The pack is in `docs/` and the APK, but **excluded from web.zip** (SKIP_DIRS)
+  so updates stay ~139 KB. Consequence: a pack cannot be delivered by a web
+  update - it needs the APK, hence the bump to code 14.
+- ODbL 1.0: attribution is carried in the pack and shown in the load dialog.

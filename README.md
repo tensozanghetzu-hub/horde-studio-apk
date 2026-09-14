@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.4.8
+# Horde Studio — Mobile (Android) · v1.4.9
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -240,6 +240,38 @@ are never split.
 relay and MCP (need a host machine), and map/live feeds. Upstream also needs Python and
 Node running for background life; this build has no background service at all, so life
 only advances while the app is open — the same catch-up model as v1.2, just deeper.
+
+## World packs
+
+Upstream Horde Studio ships `world-packs/` — real places taken from
+OpenStreetMap, with walking routes between them, so a virtual human's journey
+takes a believable number of minutes instead of an invented one. They were not
+in the original port; one is now included.
+
+| Pack | What it is |
+|---|---|
+| **Tempe core · OpenStreetMap** | 120 places and 918 walking routes in Tempe, Arizona. © OpenStreetMap contributors, ODbL 1.0. |
+
+**Cast → a virtual human → Places in their life → Load a world pack.**
+
+- **Nothing you wrote is lost.** Your own places stay exactly as they were and
+  the pack's are added alongside. Loading a pack should never cost you
+  something you made, and *remove* puts the life back as it was.
+- **Journeys take real time.** For the 918 pairs the pack knows, that is the
+  measured walking route. For any other pair it is worked out from the
+  coordinates — a straight line, plus an allowance for following streets —
+  rather than a random number.
+- **Without a pack, nothing changes.** The three default places and invented
+  journey times still work as they always did.
+
+Two things worth knowing:
+
+- **The pack ships inside the APK, not in updates.** It is static data, so
+  keeping it out of the update bundle holds an update at ~139 KB instead of
+  ~209 KB. It cannot be added by a web update — it needs the APK.
+- **It is a real city, which may not be yours.** Tempe is upstream's own data.
+  `tools/build-worldpack.py` rebuilds a pack in the same format from
+  OpenStreetMap, so any covered city can be substituted later.
 
 ## Empty replies (“job empty”)
 
@@ -514,6 +546,23 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.4.9
+
+**Prebuilt worlds.** Upstream ships `world-packs/` and nothing in this app used
+them — the "World" screen here is a per-character lorebook, which is a different
+thing. The port had the places-and-travel machinery all along, so the packs plug
+straight into it.
+
+- **Load a world pack** from a virtual human's *Places in their life*. Your own
+  places are preserved; the pack's are added alongside.
+- **Journeys take as long as the walk really takes** — 918 measured walking
+  routes, with a coordinate-based estimate for any pair the pack does not know.
+- **The pack is in the APK, not in updates**, so an update stays ~139 KB instead
+  of ~209 KB. That does mean it arrives with the install, not with a web update.
+- 18 assertions in `tests/worldpack-test.js` cover the conversion, the route
+  lookups in both directions, the estimate, and that loading a pack is
+  non-destructive.
 
 ## What's new in v1.4.8
 
