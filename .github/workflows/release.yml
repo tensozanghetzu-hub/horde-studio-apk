@@ -33,15 +33,19 @@ jobs:
           echo "rev=$R"  >> "$GITHUB_OUTPUT"
           echo "App $V (code $C), web revision $R"
 
-      - name: Name the asset after its version
-        run: cp docs/HordeStudio-latest.apk "HordeStudio-v${{ steps.ver.outputs.name }}.apk"
+      - name: Name the assets
+        run: |
+          # one named for the version, one stable name so that a single URL
+          # keeps working after the next release
+          cp docs/HordeStudio-latest.apk "HordeStudio-v${{ steps.ver.outputs.name }}.apk"
+          cp docs/HordeStudio-latest.apk "HordeStudio-latest.apk"
 
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: v${{ steps.ver.outputs.name }}
         run: |
-          ASSET="HordeStudio-v${{ steps.ver.outputs.name }}.apk"
+          ASSETS="HordeStudio-v${{ steps.ver.outputs.name }}.apk HordeStudio-latest.apk"
           NOTES="Signed Android app, Android 7.0 (API 24) and up.
           Install it over an earlier version - same signing key, your chats and characters survive.
 
@@ -52,9 +56,9 @@ jobs:
           Settings -> App updates -> Check for update."
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$ASSET" --clobber
+            gh release upload "$TAG" $ASSETS --clobber
             gh release edit "$TAG" --title "Horde Studio v${{ steps.ver.outputs.name }}" --notes "$NOTES"
           else
             gh release create "$TAG" --title "Horde Studio v${{ steps.ver.outputs.name }}" \
-              --notes "$NOTES" --target main "$ASSET"
+              --notes "$NOTES" --target main $ASSETS
           fi

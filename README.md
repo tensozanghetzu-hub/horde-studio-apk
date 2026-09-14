@@ -9,13 +9,23 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 **The APK lives in `docs/`**, not in the top-level listing — which is easy to miss
 when you open the repo:
 
-> **[`docs/HordeStudio-latest.apk`](https://github.com/tensozanghetzu-hub/horde-studio-apk/blob/main/docs/HordeStudio-latest.apk)** — v1.4.8, 223 KB, Android 7.0 (API 24) and up.
+**Releases → [Horde Studio v1.4.8](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+— 223 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
+**Releases** box on the repo's front page, so nobody has to go looking.
 
-Open this link on your phone and it downloads straight away:
+Tap this on your phone and it downloads without any further clicking:
 
 ```
-https://tensozanghetzu-hub.github.io/horde-studio-apk/HordeStudio-latest.apk
+https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/HordeStudio-latest.apk
 ```
+
+That URL never changes — it follows whatever release is newest. (The release also
+carries a copy named `HordeStudio-v1.4.8.apk`, so you can tell which version you
+have after downloading.)
+
+The app's own updater does **not** use releases. It reads the channel in `docs/`,
+which is what GitHub Pages serves, because that is how it can check for updates
+quietly. Releases are for people; `docs/` is for the app.
 
 Then tap the download and install. Same signing key as before, so installing over
 an earlier version keeps your characters and chats.
