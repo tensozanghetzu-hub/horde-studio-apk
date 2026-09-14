@@ -29,6 +29,9 @@ uploads/
 *.log
 nohup.out
 
+dl/
+.android/
+
 # --- build output that lands in docs/ instead ----------------------------
 /horde-studio-web.zip
 /horde-studio-version.json

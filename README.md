@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.4.7
+# Horde Studio — Mobile (Android) · v1.4.8
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -488,6 +488,41 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.4.8
+
+**Check for update now works.** It never did, on any server, and the symptom was
+misleading: `Could not check: the server did not answer with a version file`.
+
+The cause was in the wrapper, not the network. When a background job finished,
+its result was passed to the web UI through a small JSON envelope. The string
+going into that envelope was run through a routine written for human-readable
+messages, which swaps every double quote for an apostrophe. That is harmless for
+a sentence like *Downloading the update*, but `checkUpdate` carries the entire
+`version.json` as its result — so
+
+```json
+{ "apk": "1.4.7", "apkCode": 12, ... }
+```
+
+arrived as
+
+```
+{ 'apk': '1.4.7', 'apkCode': 12, ... }
+```
+
+which is not JSON. The envelope itself was still valid, so the app got as far as
+*the server answered us* and then failed to read its own copy. The wrapper now
+escapes properly instead of substituting, so a result survives intact.
+
+Two smaller things in the same build:
+
+- Builds already installed cannot be reached by a web update, so the app also
+  tolerates the mangled form and repairs it. Your current install starts working
+  immediately, before you reinstall anything.
+- The APK address in `version.json` is now a bare filename resolved against the
+  update address, so one channel works from GitHub Pages, from
+  `raw.githubusercontent.com`, from a NAS or from a home server.
 
 ## What's new in v1.4.7
 

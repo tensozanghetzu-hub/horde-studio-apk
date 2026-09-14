@@ -42,8 +42,16 @@ Needs the static server on port 8000: `python3 -m http.server 8000 --bind 0.0.0.
 - PUSHED. Pages itself is NOT enabled yet - only the user can flip it in repo Settings.
 - **apkUrl is a bare filename**, resolved against the update address, so one channel
   works from Pages, raw.githubusercontent, a NAS or a home server.
-- Current APK: HordeStudio-v1.4.7.apk, 228,071 B, sha256 ef2fa2233d493bf84e54b1a3cd266630
-  a4591c986aeaec5d4a38d5642f11ea58, code 12. Dex-verified: all 9 bridge methods present.
+- Current APK: **HordeStudio-v1.4.8.apk**, 228,071 B, sha256 a134739efb7a68179c37a549bc0b2c6fa882
+  79a83890b51ac352075aedb02fb7, code 13. Dex-verified: all 10 bridge methods present.
+- **THE 1.4.8 BUG (root-caused, fixed):** `jobStatus` embedded `j.result` via
+  `jsonEscape()`, which replaces every `"` with `'`. `checkUpdate` puts the whole
+  version.json body in `result`, so it arrived unparseable and the app reported
+  "the server did not answer with a version file" - for EVERY server, always.
+  Fixed by adding `jsonString()` (real escaping) and using it for message+result.
+  `jsonEscape()` is kept only for the overlay revision, which nobody parses.
+- `update.js` also grew `parseVersionFile()`, which repairs the mangled form, so
+  already-installed builds work without a reinstall. Covered by 2 new assertions.
 
 
 ## HAZARD: snapshots silently revert MainActivity.java

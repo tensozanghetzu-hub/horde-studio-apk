@@ -5,8 +5,8 @@
   "web": "1.4.8",
   "webRev": "f8c44de4c6ef",
   "apkSize": 228071,
-  "webSize": 136617,
+  "webSize": 136615,
   "files": 18,
-  "updated": "2026-09-14T05:14:07Z",
+  "updated": "2026-09-14T05:15:12Z",
   "note": "Fixes to the interface arrive as a small download, no reinstall. Only a change to the app wrapper itself needs Android to install it."
 }
