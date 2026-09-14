@@ -89,6 +89,14 @@
    * the example dialogue.
    * ------------------------------------------------------------------ */
   var CONTEXT_CAP = 128000;   // bytes, provider-bound messages
+
+  /* The Horde is the tight one. horde.js asks for a context of
+     min(HORDE_CTX_TOKENS, prompt + reply + 64) and the worker window really is
+     that size, so a prompt that is comfortable for a chat provider can still be
+     too big here. When the worker truncates, a backend that keeps the head of
+     the prompt leaves the model answering the start of the conversation forever,
+     whatever you type next. So budget the prompt against this, not CONTEXT_CAP. */
+  var HORDE_CTX_TOKENS = 8192;
   function bytesOf(s) {
     try { return new TextEncoder().encode(s || '').length; } catch (e) { return String(s || '').length; }
   }
@@ -132,7 +140,7 @@
   }
 
   /** Build a plain-text prompt for AI Horde / non-chat backends. */
-  function buildPrompt(character, session, history, s, note) {
+  function buildPrompt(character, session, history, s, note, budgetTokens) {
     var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
     var head = macros(s.systemPrompt, character, s) + '\n\n' + charSheet(character, s, session, recent);
     if (note) head += '\n\n' + note;
@@ -147,7 +155,11 @@
         character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */
-    while (hist.length > 6 && bytesOf(join(hist)) > CONTEXT_CAP) hist.shift();
+    /* Drop the OLDEST turns first, so the newest thing you typed always survives.
+       With a budget we trim harder than CONTEXT_CAP would, because the Horde's
+       window is far smaller than a chat provider's. */
+    var capBytes = budgetTokens ? budgetTokens * 4 : CONTEXT_CAP;
+    while (hist.length > 2 && bytesOf(join(hist)) > capBytes) hist.shift();
     return join(hist);
   }
 
@@ -533,7 +545,10 @@
       if (s.provider === 'horde') {
         /* buildPrompt ends with "Name:" — for a continuation we append what we have
            so the model carries on from that exact point. */
-        var base = buildPrompt(char, session, o.history, s, o.note);
+        /* A continuation round re-sends what we already have on top of the
+           prompt, so it has to leave room for two replies, not one. */
+        var budget = HORDE_CTX_TOKENS - (s.maxTokens || 200) * (idx > 0 ? 2 : 1) - 64;
+        var base = buildPrompt(char, session, o.history, s, o.note, budget);
         var prompt = idx === 0 ? base : base + ' ' + full;
         return guardModel('text', s.hordeTextModel).then(function () {
           return Horde.generateText({
@@ -694,6 +709,7 @@
     isMetaLine: isMetaLine,
     isProseLine: isProseLine,
     CONTEXT_CAP: CONTEXT_CAP,
+    HORDE_CTX_TOKENS: HORDE_CTX_TOKENS,
     summarize: summarize, listModels: listModels, testConnection: testConnection,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); }

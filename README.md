@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.4.9
+# Horde Studio — Mobile (Android) · v1.4.10
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -546,6 +546,44 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.4.10
+
+**Long chats on the Horde stopped following the conversation.** Once a chat grew
+past about thirty messages, every reply came back as though you had just said
+hello - the model answered the start of the conversation instead of what you had
+just typed.
+
+Two numbers disagreed, and nothing connected them:
+
+- `api.js` trimmed history only past **128,000 bytes** - roughly 32,000 tokens
+- `horde.js` asked for a context of at most **8,192 tokens**, because that is
+  what volunteer workers advertise
+
+So a long chat produced a prompt larger than the worker's window. The worker
+truncated it, and a backend that keeps the *head* of the prompt leaves the model
+reading the character sheet and the first few turns, with the newest message cut
+off the end. The cut point stays at about the same place as the chat grows, so
+the reply stayed anchored to the beginning - whatever you typed.
+
+- **The prompt is now budgeted against the context actually requested.** One
+  constant, `HORDE_CTX_TOKENS` in `api.js`, read by `horde.js`, so the two cannot
+  drift apart again.
+- **Oldest turns are dropped first**, so the newest thing you typed always
+  survives.
+- A continuation round reserves room for two replies rather than one.
+- `tests/hordectx-test.js` reproduces it - a 9,772-token prompt against an
+  8,192-token cap - and `tests/history-test.js` checks every turn reaches the
+  model on both the chat and Horde paths.
+
+This arrives as an ordinary update: **Settings -> App updates -> Check for
+update.** No reinstall, and your chats and characters are untouched.
+
+On a chat provider rather than the Horde, the equivalent knob is **Settings ->
+Messages in context**, if a model ever seems to lose the thread.
+
+Sorting the built APKs by filename also picked the *older* one for the update
+channel, because `"v1.4.10" < "v1.4.9"` as text. It now compares version numbers.
 
 ## What's new in v1.4.9
 

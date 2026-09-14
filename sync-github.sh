@@ -21,12 +21,18 @@ MSG="${1:-Update $(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 python3 tools/build-channel.py
 echo
 
-# 2. first run: make the repo
+# 2. make the repo if needed. The identity and the remote are re-asserted on
+#    EVERY run, not just the first: .git/config is excluded from workspace
+#    snapshots, so both silently vanish whenever the sandbox is restored and
+#    the push would otherwise fail with "Author identity unknown" or "no remote".
 if [ ! -d .git ]; then
   git init -q
   git branch -M main
-  git config user.name  "Horde Studio"
-  git config user.email "hordestudio@users.noreply.github.com"
+fi
+git config user.name  "Horde Studio"
+git config user.email "hordestudio@users.noreply.github.com"
+if ! git remote get-url origin >/dev/null 2>&1; then
+  git remote add origin "${ORIGIN:-git@github.com:tensozanghetzu-hub/horde-studio-apk.git}"
 fi
 
 # 3. stage explicitly. Never `git add -A`: this workspace also holds the push

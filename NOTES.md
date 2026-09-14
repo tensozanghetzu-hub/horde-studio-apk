@@ -1,6 +1,6 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.4.9.apk` (versionCode 14), sha256 af92e3c55a2e37aaf0ba38855f0a268487672460770a43a8ea9bf85eb5be7971.
+Current build: `HordeStudio-v1.4.10.apk` (versionCode 15), sha256 0cce669062ae9fc32d995e575b2051ded3d037f8a26a526f2eded55c9eca90d9.
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
 Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on purpose — it makes Play Protect warn; user accepts 'install anyway'), storage (maxSdk 28).
@@ -122,3 +122,53 @@ is the **third** time (v1.4.5, v1.4.7, and this session). The web sources were u
   so updates stay ~139 KB. Consequence: a pack cannot be delivered by a web
   update - it needs the APK, hence the bump to code 14.
 - ODbL 1.0: attribution is carried in the pack and shown in the load dialog.
+
+## The Horde context bug (v1.4.10)
+
+Symptom the user reported: "no matter what I type, the response is always the
+first message from the start of the conversation."
+
+Not a history bug. `tests/history-test.js` proves all six turns of a
+conversation reach the model, on both the chat-completions and Horde paths.
+
+The cause was two caps that were never connected:
+
+- `api.js` trimmed history past `CONTEXT_CAP` = 128,000 bytes (~32,000 tokens)
+- `horde.js` requested `min(8192, promptTokens + maxLength + 64)`
+
+A chat of ~40 roleplay turns produces ~9,772 tokens. The worker's window is
+8,192, so ~1,580 tokens get truncated. A backend that keeps the head of the
+prompt leaves the model reading the character sheet and the earliest turns, so
+the answer is anchored to the start of the conversation - and stays there as the
+chat grows, because the cut point barely moves.
+
+Fix: `buildPrompt` takes a `budgetTokens` argument, and `generate()` passes
+`HORDE_CTX_TOKENS - maxTokens - 64` (twice the reply room on a continuation
+round). History is trimmed oldest-first down to that budget. `horde.js` reads
+the same `API.HORDE_CTX_TOKENS` instead of its own literal 8192.
+
+## HAZARD: `.git/config` is excluded from snapshots
+
+The remote disappears after every turn boundary, so `sync-github.sh` fails with
+"no remote yet" and `build-channel.py` prints "no Pages address yet". Re-add it
+in the same command as the sync:
+
+    git remote add origin git@github.com:tensozanghetzu-hub/horde-studio-apk.git
+
+The baked-in `DEFAULT_URL` in `update.js` survives, because `build-channel.py`
+only rewrites it when a remote is found - so the app never loses its address.
+
+## HAZARD: the Android SDK does not survive a turn boundary
+
+Snapshots are capped around 128 MB and the SDK is ~400 MB, so it is silently
+dropped. Downloading it and building the APK have to happen in **one** command:
+
+    bash apk-build/setup-sdk.sh && bash apk-build/build.sh
+
+Otherwise the build dies at `aapt2: No such file or directory`.
+
+## HAZARD: `newest_apk()` sorted by filename
+
+`max(cands, key=lambda p: (os.path.basename(p), mtime))` picked `v1.4.9` over
+`v1.4.10`, because "1.4.10" < "1.4.9" as text - so the OLD apk was copied into
+docs/ for the update channel. Now compares a parsed version triple.

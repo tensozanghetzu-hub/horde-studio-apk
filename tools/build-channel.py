@@ -97,7 +97,12 @@ def newest_apk():
     cands = [p for p in glob.glob(os.path.join(ROOT, "HordeStudio-*.apk"))]
     if not cands:
         return None
-    return max(cands, key=lambda p: (os.path.basename(p), os.path.getmtime(p)))
+    # compare as a version triple, not as text: "v1.4.10" sorts before
+    # "v1.4.9" as a string, which picked the OLD apk for the channel
+    def vkey(p):
+        m = re.search(r"v(\d+)\.(\d+)\.(\d+)", os.path.basename(p))
+        return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+    return max(cands, key=vkey)
 
 
 def pages_url():

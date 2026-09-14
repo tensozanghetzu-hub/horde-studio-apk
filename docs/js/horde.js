@@ -239,7 +239,9 @@
        plus the reply, rounded up, within the range workers advertise. */
     var promptTokens = Math.ceil((o.prompt || '').length / 4);
     var wanted = promptTokens + (o.maxLength || 200) + 64;
-    var ctx = Math.min(8192, Math.max(1024, wanted));
+    /* same ceiling api.js budgets the prompt against - one number, one place */
+    var cap = (global.API && global.API.HORDE_CTX_TOKENS) || 8192;
+    var ctx = Math.min(cap, Math.max(1024, wanted));
 
     var payload = {
       prompt: o.prompt,
