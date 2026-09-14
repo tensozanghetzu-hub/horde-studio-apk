@@ -83,3 +83,22 @@ is the **third** time (v1.4.5, v1.4.7, and this session). The web sources were u
   user pressing Check for update. No reinstall, no address typing, no sandbox.
 - Next session: probe before assuming. Servers (8000/8010) and the SDK do not survive a
   restart, and `dl/` reappears whenever `setup-sdk.sh` runs (it is gitignored now).
+
+
+## APK visibility: GitHub Releases (2026-09-14)
+
+- The user could not find the APK on the repo front page. It lives in `docs/`
+  because **Pages publishes `docs/`**, and the updater resolves `apkUrl` against
+  the channel address - so it cannot simply be moved without breaking updates.
+- Instead: `.github/workflows/release.yml` publishes a GitHub Release on every
+  push to main, using the built-in `GITHUB_TOKEN` (no PAT needed). Releases show
+  in the front-page **Releases** box + "Latest" badge.
+- Each release carries two assets, both the same file:
+  - `HordeStudio-v<version>.apk`  (you can tell which version you downloaded)
+  - `HordeStudio-latest.apk`      (permanent URL that never changes)
+- Permanent direct download:
+  `https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/HordeStudio-latest.apk`
+- **sync-github.sh now also stages `.github/`** - it only adds named folders, so
+  the workflow would never have reached the repo otherwise.
+- Releases are for humans; `docs/` is for the app's updater. Do not point the
+  updater at a release - the tag changes every version.
