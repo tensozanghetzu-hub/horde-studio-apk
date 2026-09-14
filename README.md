@@ -663,7 +663,9 @@ Two smaller things in the same build:
 ```bash
 cd apk-build
 ./setup-sdk.sh      # once: downloads cmdline-tools + platform 34 + build-tools 34 (~400 MB)
-./build.sh          # -> /home/user/HordeStudio-v1.1.0.apk
+                    # NB it leaves ~/android-sdk and ~/dl behind (~530 MB) - delete
+                    # both afterwards, they are gitignored and not needed to run
+./build.sh          # -> /home/user/HordeStudio-v<version>.apk
 ```
 
 `build.sh` uses only the SDK command line tools (`aapt2`, `javac`, `d8`, `zipalign`,
