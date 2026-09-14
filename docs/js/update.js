@@ -49,13 +49,17 @@
   }
 
   /** Where to fetch the APK from: the version file if it said, else the old
-   *  sandbox-style address, so older servers keep working. */
+   *  sandbox-style address, so older servers keep working.
+   *  A bare filename is read as relative to the update address, so one channel
+   *  works from GitHub Pages, raw.githubusercontent, a NAS or a home server
+   *  without being rewritten for each. */
   function apkUrl() {
     var r = cachedRemote();
-    var u = (r && r.apkUrl) || '';
-    if (u) return u;
+    var u = ((r && r.apkUrl) || '').trim();
     var base = baseUrl();
-    return base ? base + '/app' : '';
+    if (!u) return base ? base + '/app' : '';
+    if (/^https?:\/\//i.test(u)) return u;
+    return base ? base + '/' + u.replace(/^\/+/, '') : u;
   }
 
   /* Poll a native background job until it finishes. */

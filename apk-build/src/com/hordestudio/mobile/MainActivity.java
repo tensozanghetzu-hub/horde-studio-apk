@@ -30,6 +30,7 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -45,6 +46,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.zip.ZipFile;
 
 /**
  * Offline-first WebView host for Horde Studio Mobile.
@@ -60,6 +62,7 @@ public class MainActivity extends Activity {
     private static final String APP_HOST = "localhost";
     private static final int REQ_FILE = 1001;
     private static final int REQ_PERM = 1002;
+    private static final int REQ_UPDATE = 1003;
 
     /* ---- self-update ----
      * The UI is HTML/CSS/JS in assets, which are read-only. An update is a small
@@ -72,6 +75,10 @@ public class MainActivity extends Activity {
     private static final String OVERLAY_APK = "web/.apk";
     private static final String OVERLAY_PENDING = "web/.pending";
     private static final long ROLLBACK_AFTER_MS = 60000L;
+
+    /* the job waiting on the file picker, for Apply from a file */
+    private int updateJob = 0;
+    private NativeBridge bridge = null;
 
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
@@ -128,7 +135,8 @@ public class MainActivity extends Activity {
             }
         });
 
-        web.addJavascriptInterface(new NativeBridge(), "HSAndroid");
+        bridge = new NativeBridge();
+        web.addJavascriptInterface(bridge, "HSAndroid");
 
         if (Build.VERSION.SDK_INT < 29 &&
                 checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
@@ -166,6 +174,44 @@ public class MainActivity extends Activity {
             }
             fileCallback.onReceiveValue(results);
             fileCallback = null;
+        } else if (requestCode == REQ_UPDATE) {
+            Job picked = null;
+            synchronized (jobs) { picked = jobs.get(updateJob); }
+            updateJob = 0;
+            final Job job = picked;
+            if (job == null) return;
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+                jobFail(job, "No file chosen");
+                return;
+            }
+            final Uri uri = data.getData();
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    File zip = new File(getCacheDir(), "hs-picked.zip");
+                    zip.delete();
+                    InputStream in = null;
+                    OutputStream os = null;
+                    try {
+                        in = getContentResolver().openInputStream(uri);
+                        if (in == null) { jobFail(job, "Could not read that file"); return; }
+                        os = new FileOutputStream(zip);
+                        byte[] buf = new byte[16384];
+                        int n;
+                        while ((n = in.read(buf)) > 0) os.write(buf, 0, n);
+                    } catch (Exception e) {
+                        jobFail(job, "Could not read that file: " + e.getMessage());
+                        return;
+                    } finally {
+                        try { if (in != null) in.close(); } catch (Exception ignored) { }
+                        try { if (os != null) { os.flush(); os.close(); } } catch (Exception ignored) { }
+                    }
+                    job.progress = 40;
+                    if (bridge == null) { jobFail(job, "Update is not ready yet"); return; }
+                    String rev = bridge.revFromBundle(zip);
+                    if (rev == null || rev.length() == 0) rev = String.valueOf(System.currentTimeMillis());
+                    bridge.finishSwap(zip, rev, job);
+                }
+            }).start();
         }
     }
 
@@ -382,7 +428,8 @@ public class MainActivity extends Activity {
             c.setRequestProperty("User-Agent", "HordeStudioMobile");
             int code = c.getResponseCode();
             if (code == 401 || code == 403) return "The server refused the request (" + code +
-                    "). That address looks protected - put one you control in Settings.";
+                    "). That address looks protected - put one you control in Settings, "
+                    + "or use Apply from a file, which needs no network at all.";
             if (code >= 400) return "The server answered " + code;
             int len = c.getContentLength();
             in = new BufferedInputStream(c.getInputStream());
@@ -520,7 +567,13 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public String version() { return "1.0.0"; }
+        public String version() {
+            try {
+                return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            } catch (Exception e) {
+                return "?";
+            }
+        }
 
         /* ---- self-update ---- */
 
@@ -567,38 +620,11 @@ public class MainActivity extends Activity {
             new Thread(new Runnable() {
                 @Override public void run() {
                     File zip = new File(getCacheDir(), "hs-update.zip");
-                    File tmp = new File(getFilesDir(), "web.tmp");
-                    deleteDir(tmp);
-                    String err = httpGet(zipUrl, zip, job);
-                    if (err != null) { jobFail(job, err); return; }
-                    String un = unzip(zip, tmp);
                     zip.delete();
-                    if (un != null) { deleteDir(tmp); jobFail(job, un); return; }
-                    if (!new File(tmp, "index.html").isFile() || !new File(tmp, "js/app.js").isFile()) {
-                        deleteDir(tmp);
-                        jobFail(job, "That download is not a Horde Studio bundle");
-                        return;
-                    }
-                    File live = overlayDir();
-                    File keep = new File(getFilesDir(), "web.old");
-                    deleteDir(keep);
-                    if (live.exists()) live.renameTo(keep);
-                    if (!tmp.renameTo(live)) {
-                        if (keep.exists()) keep.renameTo(live);
-                        jobFail(job, "Could not swap in the new files");
-                        return;
-                    }
-                    deleteDir(keep);
-                    String code = "0";
-                    try {
-                        code = String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).versionCode);
-                    } catch (Exception ignored) { }
-                    String safeRev = rev == null ? "" : jsonEscape(rev);
-                    writeFile(new File(getFilesDir(), OVERLAY_REV), safeRev);
-                    writeFile(new File(getFilesDir(), OVERLAY_APK), code);
-                    writeFile(new File(getFilesDir(), OVERLAY_PENDING), String.valueOf(System.currentTimeMillis()));
-                    job.progress = 100;
-                    jobDone(job, safeRev);
+                    String err = httpGet(zipUrl, zip, job);
+                    if (err != null) { zip.delete(); jobFail(job, err); return; }
+                    job.progress = 40;
+                    finishSwap(zip, rev, job);
                 }
             }).start();
             return job.id;
@@ -681,6 +707,120 @@ public class MainActivity extends Activity {
                 }, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
             } catch (Exception e) {
                 toast("Install failed: " + e.getMessage());
+            }
+        }
+
+        /** Apply an update from a zip already on the phone - downloaded in a
+         *  browser, sent over chat, copied from a computer. Needs no network at
+         *  all, which is what makes it work when the update address is dead. */
+        @JavascriptInterface
+        public int pickUpdateZip() {
+            final Job job = newJob();
+            updateJob = job.id;
+            runOnUiThread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+                        i.setType("application/zip");
+                        i.addCategory(Intent.CATEGORY_OPENABLE);
+                        startActivityForResult(
+                                Intent.createChooser(i, "Choose a Horde Studio update"), REQ_UPDATE);
+                    } catch (Exception e) {
+                        try {
+                            Intent j = new Intent(Intent.ACTION_GET_CONTENT);
+                            j.setType("*/*");
+                            j.addCategory(Intent.CATEGORY_OPENABLE);
+                            startActivityForResult(
+                                    Intent.createChooser(j, "Choose a Horde Studio update"), REQ_UPDATE);
+                        } catch (Exception e2) {
+                            updateJob = 0;
+                            jobFail(job, "No file picker is available on this device");
+                        }
+                    }
+                }
+            });
+            return job.id;
+        }
+
+        /** Fallback when the in-app download is blocked: let the browser deal
+         *  with it. Android's installer still asks before anything installs. */
+        @JavascriptInterface
+        public void openDownload(final String url) {
+            try {
+                Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(i);
+            } catch (Exception e) {
+                toast("Could not open the browser: " + e.getMessage());
+            }
+        }
+
+        /** Validate a bundle and switch to it. Shared by the network route and
+         *  the pick-a-file route, so both get exactly the same guarantees: the
+         *  bundle is checked before anything moves, the swap is a single rename,
+         *  and the rollback watchdog is armed. */
+        private void finishSwap(File zip, String rev, Job job) {
+            File tmp = new File(getFilesDir(), "web.tmp");
+            deleteDir(tmp);
+            String un = unzip(zip, tmp);
+            zip.delete();
+            if (un != null) { deleteDir(tmp); jobFail(job, un); return; }
+            if (!new File(tmp, "index.html").isFile() || !new File(tmp, "js/app.js").isFile()) {
+                deleteDir(tmp);
+                jobFail(job, "That download is not a Horde Studio bundle");
+                return;
+            }
+            File live = overlayDir();
+            File keep = new File(getFilesDir(), "web.old");
+            deleteDir(keep);
+            if (live.exists()) live.renameTo(keep);
+            if (!tmp.renameTo(live)) {
+                if (keep.exists()) keep.renameTo(live);
+                jobFail(job, "Could not swap in the new files");
+                return;
+            }
+            deleteDir(keep);
+            String code = "0";
+            try {
+                code = String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).versionCode);
+            } catch (Exception ignored) { }
+            String safeRev = (rev == null || rev.length() == 0)
+                    ? String.valueOf(System.currentTimeMillis()) : jsonEscape(rev);
+            writeFile(new File(getFilesDir(), OVERLAY_REV), safeRev);
+            writeFile(new File(getFilesDir(), OVERLAY_APK), code);
+            writeFile(new File(getFilesDir(), OVERLAY_PENDING), String.valueOf(System.currentTimeMillis()));
+            job.progress = 100;
+            jobDone(job, safeRev);
+        }
+
+        /** The revision a bundle claims, read without a JSON parser. Empty if
+         *  the bundle does not say, in which case the caller invents one. */
+        private String revFromBundle(File zip) {
+            ZipFile zf = null;
+            try {
+                zf = new ZipFile(zip);
+                ZipEntry e = zf.getEntry("version.json");
+                if (e == null) return "";
+                InputStream in = zf.getInputStream(e);
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buf = new byte[4096];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+                in.close();
+                String body = new String(out.toByteArray(), "UTF-8");
+                int i = body.indexOf("webRev");
+                if (i < 0) return "";
+                int c = body.indexOf(':', i);
+                if (c < 0) return "";
+                int q = body.indexOf('"', c + 1);
+                if (q < 0) return "";
+                int end = body.indexOf('"', q + 1);
+                if (end < 0) return "";
+                return body.substring(q + 1, end);
+            } catch (Exception ignored) {
+                return "";
+            } finally {
+                if (zf != null) try { zf.close(); } catch (Exception ignored) { }
             }
         }
 

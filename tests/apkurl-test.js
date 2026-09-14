@@ -129,6 +129,20 @@ function return_run(phone) {
       eq('reset forgets the version file',
         phone.Updates.apkUrl(), 'https://you.github.io/horde-studio-mobile/app');
 
+      /* 6 - a bare filename is read relative to the address, so one channel
+         works from Pages, raw.githubusercontent, a NAS or a home server */
+      var rel = makePhone(JSON.stringify({
+        apk: '1.4.7', apkCode: 12, apkUrl: 'HordeStudio-latest.apk',
+        web: '1.4.7', webRev: '907db45367a0'
+      }));
+      rel.Updates.saveUrl('https://raw.githubusercontent.com/you/repo/main/docs/');
+      return rel.Updates.check().then(function () {
+        eq('a relative apkUrl is joined to the update address',
+          rel.Updates.apkUrl(),
+          'https://raw.githubusercontent.com/you/repo/main/docs/HordeStudio-latest.apk');
+      });
+    })
+    .then(function () {
       console.log('\n  ' + pass + ' passed, ' + fail + ' failed\n');
       process.exit(fail ? 1 : 0);
     })

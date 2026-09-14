@@ -1,12 +1,12 @@
 {
   "apk": "1.4.7",
   "apkCode": 12,
-  "apkUrl": "https://tensozanghetzu-hub.github.io/horde-studio-apk/HordeStudio-latest.apk",
+  "apkUrl": "HordeStudio-latest.apk",
   "web": "1.4.7",
-  "webRev": "907db45367a0",
-  "apkSize": 223975,
-  "webSize": 136241,
+  "webRev": "c28cee49c93f",
+  "apkSize": 228071,
+  "webSize": 136361,
   "files": 18,
-  "updated": "2026-09-14T04:46:45Z",
+  "updated": "2026-09-14T04:53:23Z",
   "note": "Fixes to the interface arrive as a small download, no reinstall. Only a change to the app wrapper itself needs Android to install it."
 }

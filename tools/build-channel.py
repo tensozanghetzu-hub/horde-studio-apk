@@ -183,7 +183,10 @@ def main():
     info = {
         "apk": version,
         "apkCode": code,
-        "apkUrl": url + APK_NAME if url else APK_NAME,
+        # a bare filename: the app reads it relative to the update address, so
+        # this channel works from Pages, raw.githubusercontent or a home server
+        # without being rewritten for each
+        "apkUrl": APK_NAME,
         "web": version,
         "webRev": rev,
         "apkSize": apk_size,
