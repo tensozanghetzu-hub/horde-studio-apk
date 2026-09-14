@@ -98,6 +98,7 @@
         place: 'home',                     // where they are right now
         worldId: null,                     // world pack these places came from, if any
         travel: null,                      // {from, to, startedAt, arriveAt}
+        maxTravelMinutes: 60,              // they will not walk further than this
         needs: { energy: 0.8, hunger: 0.25, social: 0.5, comfort: 0.7 },
         people: [],                        // [{id,name,relation,closeness,note}]
         calendar: [],                      // [{id,label,t,day,placeId}] day 0-6, or null = daily
@@ -237,7 +238,12 @@
       var mins2 = minutes;
       if (!mins2 && vh.worldId && global.Worlds) {
         var wp = global.Worlds.cached(vh.worldId);
-        if (wp) mins2 = global.Worlds.minutes(wp, vh.place, placeId);
+        if (wp) {
+          /* routed across the walking graph, so a place that is not a direct
+             neighbour still gets a real time instead of a guess */
+          var r = global.Worlds.route(wp, vh.place, placeId);
+          if (r && r.minutes) mins2 = r.minutes;
+        }
       }
       if (!mins2) mins2 = 10 + Math.floor(Math.random() * 35);
       vh.travel = {
@@ -247,14 +253,41 @@
       return vh.travel;
     },
 
-    /** Choose somewhere to go: evening pulls home, daytime pulls out. */
+    /* What a need asks of a place. Upstream's geography engine does the same:
+       a full stomach wants food, misery wants rest, otherwise go do something. */
+    needCaps: function (vh) {
+      var n = vh.needs || {};
+      if ((n.hunger || 0) >= 0.55) return ['food'];
+      if ((n.comfort || 1) <= 0.4) return ['rest'];
+      return ['leisure', 'food'];
+    },
+
+    /** Choose somewhere to go: the need, what's open, and how far. */
     pickDestination: function (vh, when) {
+      var at = when || Date.now();
       var list = (vh.places || []).filter(function (p) { return p.id !== vh.place; });
       if (!list.length) return null;
-      var hour = new Date(when || Date.now()).getHours();
+
+      var hour = new Date(at).getHours();
       var evening = hour >= 18 || hour < 6;
       var homes = list.filter(function (p) { return p.kind === 'home'; });
       var out = list.filter(function (p) { return p.kind !== 'home'; });
+
+      /* With a world pack loaded, ask it: somewhere that serves this need,
+         open now, within walking distance. */
+      var wp = (vh.worldId && global.Worlds) ? global.Worlds.cached(vh.worldId) : null;
+      if (wp && !evening) {
+        var want = VH.needCaps(vh);
+        var hit = global.Worlds.search(wp, {
+          from: vh.place, caps: want, at: at,
+          maxMinutes: vh.maxTravelMinutes || 60
+        });
+        if (hit) {
+          var found = VH.place(vh, hit.id);
+          if (found) return found;
+        }
+      }
+
       if (evening && homes.length) return homes[0];
       if (!evening && out.length) return pick(out);
       return pick(list);

@@ -2,14 +2,21 @@
 """Turn an upstream Horde Studio world pack into the shape the mobile app uses.
 
 Upstream ships world-packs/ as real OpenStreetMap data: places with coordinates
-and OSM tags, plus walking routes with polyline geometry. The mobile app needs
-much less than that:
+and OSM tags, plus walking routes with polyline geometry.
 
-  - places as {id, name, kind, note, ll} - the list a virtual human can be in
-  - routes as {f, t, m} - how many minutes between two of them
+What this converter deliberately keeps, because the life engine uses it:
 
-Geometry is dropped: it exists to draw maps, and there is no map on the phone.
-Without it the pack is ~66 KB instead of 1.3 MB.
+  - caps[]      every capability a place has. Upstream gives a cafe
+                ["food","leisure"], so it can answer hunger *and* boredom.
+                Collapsing that to one "kind" was the bug that made places
+                single-purpose.
+  - hours[]     upstream's opening-hours shape, when the pack has it
+  - oh          the raw OSM opening_hours string, parsed on the device
+  - routes      as an undirected walking graph, so journeys route across
+                several hops instead of only between direct neighbours
+
+What it drops: polyline geometry, which exists to draw maps and is ~87% of the
+pack. There is no map on the phone.
 
 Usage:  python3 tools/build-worldpack.py
 """
@@ -27,8 +34,14 @@ PACKS = [("tempe-core", "Tempe core · OpenStreetMap",
           "120 real places and walking routes in Tempe, Arizona, from an "
           "OpenStreetMap snapshot.")]
 
-# OSM capability -> the kinds the app's place editor offers
-KINDS = {"home", "work", "food", "rest", "exercise", "leisure", "social", "other"}
+# The place editor's list, used to pick a primary kind for display only.
+KINDS = ("home", "work", "food", "rest", "exercise", "leisure", "social", "other")
+
+# Walking speed used when no route covers a pair (metres per minute).
+# Upstream builds routes at 4.5 km/h = 75 m/min; the straight-line fallback is
+# scaled up to allow for following streets rather than crossing them.
+WALK_MPM = 75.0
+DETOUR = 1.3
 
 
 def fetch(url):
@@ -38,20 +51,28 @@ def fetch(url):
 
 
 def convert_place(p):
-    caps = (p.get("capabilities") or {}).get("capabilities") or []
-    kind = next((c for c in caps if c in KINDS), None)
-    if kind is None:
-        kind = "other"
+    cap = p.get("capabilities") or {}
+    caps = [c for c in (cap.get("capabilities") or []) if c]
     tags = p.get("sourceTags") or {}
+
     bits = [tags.get("addr:street"), tags.get("addr:housenumber")]
     bits = [b for b in bits if b]
-    return {
+
+    out = {
         "id": p["id"],
         "name": p.get("label") or "Place",
-        "kind": kind,
+        # every capability, in upstream's order
+        "caps": caps,
+        # one primary kind, purely so the place editor can group them
+        "kind": next((c for c in caps if c in KINDS), "other"),
         "note": " ".join(bits),
         "ll": p.get("mapCoordinates"),
     }
+    if cap.get("hours"):
+        out["hours"] = cap["hours"]
+    if tags.get("opening_hours"):
+        out["oh"] = tags["opening_hours"]
+    return out
 
 
 def main():
@@ -63,25 +84,27 @@ def main():
 
         places = [convert_place(p) for p in raw.get("places", [])]
         places = [p for p in places if p["ll"]]
+        ids = {p["id"] for p in places}
 
-        # one entry per pair, keeping the quicker direction
+        # Upstream stores each direction separately; walking times are
+        # symmetric, so one undirected edge per pair is lossless and half the
+        # size. The app routes across these as a graph.
         best = {}
         for r in raw.get("routes", []):
             a, b = r.get("from"), r.get("to")
-            if not a or not b or a == b:
+            if not a or not b or a == b or a not in ids or b not in ids:
                 continue
             try:
-                mins = round(float(r.get("minutes")), 1)
+                mins = round(float(r.get("minutes")), 2)
             except (TypeError, ValueError):
+                continue
+            if mins <= 0:
                 continue
             key = tuple(sorted((a, b)))
             if key not in best or mins < best[key]:
                 best[key] = mins
 
-        ids = {p["id"] for p in places}
-        routes = [{"f": a, "t": b, "m": m}
-                  for (a, b), m in sorted(best.items())
-                  if a in ids and b in ids]
+        routes = [{"f": a, "t": b, "m": m} for (a, b), m in sorted(best.items())]
 
         pack = {
             "id": slug,
@@ -91,6 +114,7 @@ def main():
             # ODbL requires this be passed on; the app shows it when a pack is loaded
             "attribution": raw.get("license",
                                    "© OpenStreetMap contributors, ODbL 1.0"),
+            "bbox": raw.get("bbox"),
             "placeCount": len(places),
             "routeCount": len(routes),
             "places": places,

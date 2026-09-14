@@ -1326,5 +1326,199 @@
   Views.initials = initials;
   Views.avatarHtml = avatarHtml;
 
+  /* ================= AUTHORED WORLDS ================= */
+  /* Upstream .horde_world files: a place with streets and rooms, a cast,
+     factions, lore and a set of rules. Artwork is stripped on import, so a
+     2.5 MB world arrives at about 50 KB. */
+
+  function worldBubble(m, world) {
+    var isMe = m.role === 'user';
+    var who = isMe ? (Store.settings.userName || 'You') : (world.name || 'Referee');
+    return '<div class="msg' + (isMe ? ' me' : '') + '">' +
+      '<div class="av"><div class="ph">' + esc(initials(who)) + '</div></div>' +
+      '<div style="min-width:0;max-width:calc(100% - 44px)">' +
+        '<div class="bubble">' +
+          (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +
+          '<div class="mtext">' + md(m.content || '') + '</div>' +
+        '</div>' +
+      '</div></div>';
+  }
+
+  /* Time, stats, purse, pockets and tasks - whatever the world switches on. */
+  Views.worldHud = function (world, run, changes) {
+    var gr = world.gameRules || {}, hud = world.hudConfig || {};
+    var loc = HW.location(world, run.locationId);
+    var out = '<span class="wr-at">' + esc(loc ? loc.name : 'Somewhere') + '</span>';
+
+    if (hud.showClock !== false) {
+      out += '<span><b>' + esc(HW.clockOf(run, hud).text) + '</b> · turn ' + (run.turn || 0) + '</span>';
+    }
+    (hud.stats || []).forEach(function (st) {
+      var v = run.stats[st.id];
+      if (v === undefined) return;
+      out += '<span>' + esc(st.name) + ' <b>' + esc(String(v)) + '</b>' +
+             (st.max ? '/' + esc(String(st.max)) : '') + '</span>';
+    });
+    if ((gr.modules || {}).commerce !== false && run.stats[run.cashId] !== undefined) {
+      out += '<span><b>' + esc(String(run.stats[run.cashId])) + '</b> ' +
+             esc(gr.currencyName || 'cash') + '</span>';
+    }
+    if ((gr.modules || {}).inventory !== false && run.inventory.length) {
+      out += '<span>' + esc(run.inventory.join(', ')) + '</span>';
+    }
+    if ((gr.modules || {}).quests !== false) {
+      var open = (run.quests || []).filter(function (q) { return !q.done; });
+      if (open.length) {
+        out += '<span>tasks: ' + esc(open.map(function (q) { return q.text; }).join('; ')) + '</span>';
+      }
+    }
+    if (changes && changes.length) {
+      out += '<div class="wr-changes">' + changes.map(function (c) {
+        return '<span class="chip">' + esc(c) + '</span>';
+      }).join('') + '</div>';
+    }
+    return out;
+  };
+
+  Views.worldRun = function (world, run, changes) {
+    var hud = $('#wr-hud'), thread = $('#wr-thread');
+    if (hud) { hud.hidden = false; hud.innerHTML = Views.worldHud(world, run, changes); }
+    if (!thread) return;
+    thread.innerHTML = (run.log || []).map(function (m) { return worldBubble(m, world); }).join('');
+    thread.scrollTop = thread.scrollHeight;
+  };
+
+  Views.worlds = function (root) {
+    var body = $('#worlds-body');
+    if (!body) return;
+
+    Promise.all([HW.all(), HW.allRuns(), HW.bundled()]).then(function (res) {
+      var list = res[0] || [], runs = res[1] || [], shipped = res[2] || [];
+      var have = {};
+      list.forEach(function (w) { have[w.id] = 1; });
+      var offered = shipped.filter(function (e) { return !have[e.id]; });
+      var html = '';
+
+      if (runs.length) {
+        html += '<div class="group"><div class="group-title">In progress</div>' +
+          runs.map(function (r) {
+            return '<div class="wr-card" data-run="' + esc(r.id) + '">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div class="wr-name">' + esc(r.worldName || 'World') + '</div>' +
+                '<div class="wr-sub">' + esc(r.lifeName ? 'as ' + r.lifeName : '') +
+                  (r.lifeName ? ' · ' : '') + 'turn ' + (r.turn || 0) + '</div>' +
+              '</div>' +
+              '<button class="chip" data-act="wr-del" data-run="' + esc(r.id) + '">' + icon('trash') + '</button>' +
+            '</div>';
+          }).join('') + '</div>';
+      }
+
+      html += '<div class="group"><div class="group-title">Installed worlds</div>';
+      if (!list.length) {
+        html += '<div class="empty" style="padding:16px 4px"><p>No worlds yet. Import a ' +
+          '<b>.horde_world</b> file. The artwork is stripped out on the way in, so a ' +
+          '2.5 MB world arrives at about 50 KB.</p></div>';
+      } else {
+        html += list.map(function (w) {
+          var sum = HW.summarise(w);
+          return '<div class="wr-card" data-world="' + esc(w.id) + '">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div class="wr-name">' + esc(w.name) + '</div>' +
+              '<div class="wr-sub">' + sum.locations + ' places · ' + sum.people + ' people · ' +
+                sum.factions + ' factions · ' + sum.lore + ' lore</div>' +
+              (w.description
+                ? '<div class="wr-sub" style="margin-top:4px">' +
+                  esc(String(w.description).slice(0, 160)) + '</div>' : '') +
+            '</div>' +
+            '<button class="chip" data-act="world-del" data-world="' + esc(w.id) + '">' + icon('trash') + '</button>' +
+          '</div>';
+        }).join('');
+      }
+      if (offered.length) {
+        html += '<div class="group"><div class="group-title">Available to install</div>' +
+          offered.map(function (e) {
+            return '<div class="wr-card" data-install="' + esc(e.id) + '">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div class="wr-name">' + esc(e.name) + '</div>' +
+                '<div class="wr-sub">' + (e.places || 0) + ' places · ' + (e.people || 0) +
+                  ' people · ' + (e.factions || 0) + ' factions · ' + (e.roles || 0) + ' ways to begin</div>' +
+                (e.description ? '<div class="wr-sub" style="margin-top:4px">' +
+                  esc(e.description) + '</div>' : '') +
+                (e.attribution ? '<div class="wr-sub" style="margin-top:4px;opacity:.7">' +
+                  esc(e.attribution) + '</div>' : '') +
+              '</div>' +
+              '<button class="chip" data-act="world-install" data-install="' + esc(e.id) + '">Install</button>' +
+            '</div>';
+          }).join('') + '</div>';
+      }
+
+      html += '</div>';
+      html += '<div class="field"><button class="btn ghost block sm" data-act="world-import">' +
+        icon('plus') + ' Import a world file</button></div>';
+
+      body.innerHTML = html;
+
+      on(body, '[data-act=world-import]', 'click', function () { App.importWorld(); });
+      on(body, '[data-world]', 'click', function (e) {
+        if (e.target.closest('[data-act]')) return;
+        App.startWorld(this.getAttribute('data-world'));
+      });
+      on(body, '[data-run]', 'click', function (e) {
+        if (e.target.closest('[data-act]')) return;
+        App.openWorldRun(this.getAttribute('data-run'));
+      });
+      on(body, '[data-act=world-install]', 'click', function () {
+        var id = this.getAttribute('data-install');
+        HW.installBundled(id).then(function (w) {
+          UI.toast('Installed ' + (w && w.name), 3200);
+          App.go('worlds');
+        }).catch(function (e) {
+          UI.toast((e && e.message) || 'Could not install that world', 4500);
+        });
+      });
+      on(body, '[data-act=world-del]', 'click', function () {
+        var id = this.getAttribute('data-world');
+        UI.confirm('Delete this world?', 'Any playthroughs in it are removed too.',
+          { danger: true, okLabel: 'Delete' }).then(function (yes) {
+          if (!yes) return;
+          HW.remove(id).then(function () { App.go('worlds'); });
+        });
+      });
+      on(body, '[data-act=wr-del]', 'click', function () {
+        var id = this.getAttribute('data-run');
+        UI.confirm('Abandon this run?', 'The story so far is deleted.',
+          { danger: true, okLabel: 'Abandon' }).then(function (yes) {
+          if (!yes) return;
+          HW.removeRun(id).then(function () { App.go('worlds'); });
+        });
+      });
+    });
+  };
+
+  /* The roles a world lets you begin as, when it offers more than one. */
+  Views.worldRoles = function (world) {
+    var body = $('#worlds-body');
+    if (!body) return;
+    var lives = world.startingLives || [];
+    body.innerHTML =
+      '<div class="group"><div class="group-title">Begin as…</div>' +
+      lives.map(function (l) {
+        return '<div class="wr-card" data-life="' + esc(l.id) + '">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="wr-name">' + esc(l.name || l.role || 'Someone') + '</div>' +
+            (l.role ? '<div class="wr-sub">' + esc(l.role) +
+              (l.socialRank ? ' · ' + esc(l.socialRank) : '') + '</div>' : '') +
+            (l.description ? '<div class="wr-sub" style="margin-top:4px">' +
+              esc(l.description) + '</div>' : '') +
+          '</div></div>';
+      }).join('') + '</div>' +
+      '<div class="field"><button class="btn ghost block sm" data-act="worlds-back">Back to worlds</button></div>';
+
+    on(body, '[data-life]', 'click', function () {
+      App.beginWorld(world.id, this.getAttribute('data-life'));
+    });
+    on(body, '[data-act=worlds-back]', 'click', function () { App.go('worlds'); });
+  };
+
   global.Views = Views;
 })(window);

@@ -33,7 +33,7 @@
     $$('.nav-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-go') === name); });
 
     var back = $('#btn-back'), act = $('#btn-bar-action');
-    back.hidden = !(name === 'chat' || name === 'editor');
+    back.hidden = !(name === 'chat' || name === 'editor' || name === 'worldrun');
     act.hidden = !(name === 'chat' || name === 'characters');
     if (name === 'chat') act.setAttribute('aria-label', 'Conversation options');
 
@@ -62,6 +62,14 @@
       $('#bar-title').textContent = 'World & Memory';
       $('#bar-sub').textContent = '';
       Views.world($('.screen'));
+    } else if (name === 'worlds') {
+      $('#bar-title').textContent = 'Worlds';
+      $('#bar-sub').textContent = '';
+      Views.worlds($('.screen'));
+    } else if (name === 'worldrun') {
+      var wrun = App.state.worldRun;
+      $('#bar-title').textContent = (App.state.world && App.state.world.name) || 'World';
+      $('#bar-sub').textContent = wrun ? ('turn ' + (wrun.turn || 0)) : '';
     } else if (name === 'chat') {
       var ch = App.state.char;
       $('#bar-title').textContent = (ch && ch.name) || 'Chat';
@@ -495,6 +503,116 @@
     b.innerHTML = on
       ? '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>'
       : '<svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg>';
+  };
+
+  /* ---------------- authored worlds ---------------- */
+
+  App.importWorld = function () {
+    Views.pickFile('.horde_world,.json,application/json').then(function (file) {
+      if (!file) return null;
+      return file.text().then(function (txt) {
+        var raw = null;
+        try { raw = JSON.parse(txt); } catch (e) { raw = null; }
+        if (!raw) { UI.toast('That file is not readable JSON', 4000); return null; }
+        var world = HW.parse(raw);
+        if (!world) { UI.toast('That is not a .horde_world file', 4500); return null; }
+        return HW.save(world).then(function () {
+          UI.toast('Imported ' + world.name, 3200);
+          App.go('worlds');
+        });
+      });
+    }).catch(function (e) {
+      UI.toast('Could not read that file: ' + (e && e.message), 4500);
+    });
+  };
+
+  /** Begin a world: pick a role first, if it offers a choice. */
+  App.startWorld = function (worldId) {
+    HW.get(worldId).then(function (world) {
+      if (!world) { UI.toast('That world is not installed'); return; }
+      var lives = world.startingLives || [];
+      if (lives.length > 1) { Views.worldRoles(world); return; }
+      App.beginWorld(worldId, lives.length === 1 ? lives[0].id : null);
+    });
+  };
+
+  App.beginWorld = function (worldId, lifeId) {
+    HW.get(worldId).then(function (world) {
+      if (!world) return;
+      var run = HW.start(world, lifeId);
+      return HW.saveRun(run).then(function () { App.openWorldRun(run.id); });
+    });
+  };
+
+  App.openWorldRun = function (runId) {
+    HW.allRuns().then(function (runs) {
+      var run = null;
+      (runs || []).forEach(function (r) { if (r.id === runId) run = r; });
+      if (!run) { UI.toast('That run is gone'); App.go('worlds'); return; }
+      return HW.get(run.worldId).then(function (world) {
+        if (!world) { UI.toast('That world is not installed'); App.go('worlds'); return; }
+        App.state.world = world;
+        App.state.worldRun = run;
+        /* a world nobody has entered yet opens with its own words */
+        if (!run.log.length && world.intro) {
+          run.log.push({ role: 'assistant', content: world.intro, at: Date.now() });
+          HW.saveRun(run);
+        }
+        App.go('worldrun');
+        Views.worldRun(world, run);
+      });
+    });
+  };
+
+  /** One turn: ask the referee, then let the world apply what it reported. */
+  App.worldTurn = function () {
+    var world = App.state.world, run = App.state.worldRun;
+    var input = $('#wr-input');
+    if (!world || !run || !input) return;
+
+    var text = input.value.trim();
+    if (!text || App.state.worldBusy) return;
+
+    var s = Store.settings;
+    if (!s.provider || (s.provider !== 'horde' && !s.model && !s.apiKey)) {
+      UI.toast('Set up a provider in Settings first', 3500);
+      App.go('settings');
+      return;
+    }
+
+    input.value = '';
+    var built = HW.buildPrompt(world, run, text);
+    run.log.push({ role: 'user', content: text, at: Date.now() });
+    Views.worldRun(world, run);
+
+    App.state.worldBusy = true;
+    var typing = $('#wr-typing');
+    if (typing) typing.hidden = false;
+
+    API.generate({
+      settings: s,
+      /* the world is the referee: its own prompt is the whole system prompt */
+      character: {
+        id: world.id, name: world.name, persona: '', scenario: '',
+        examples: '', lorebook: [], systemPrompt: built.system
+      },
+      session: { id: run.id },
+      history: built.messages.map(function (m) {
+        return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
+      })
+    }).then(function (reply) {
+      var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
+      HW.commit(run, text, applied.text, applied);
+      return HW.saveRun(run).then(function () {
+        Views.worldRun(world, run, applied.changes);
+      });
+    }).catch(function (e) {
+      if (e && e.name === 'AbortError') { UI.toast('Stopped'); return; }
+      UI.toast('The referee could not answer: ' + (e && e.message), 5000);
+    }).then(function () {
+      App.state.worldBusy = false;
+      if (typing) typing.hidden = true;
+    });
   };
 
   App.send = function () {
@@ -1458,6 +1576,12 @@
       }
       App.send();
     };
+
+    var wrSend = $('#wr-send'), wrInput = $('#wr-input');
+    if (wrSend) wrSend.onclick = function () { App.worldTurn(); };
+    if (wrInput) wrInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); App.worldTurn(); }
+    });
     $('#btn-img').onclick = App.imageSheet;
 
     /* Cancel inside the progress banner stops whichever job is running. */

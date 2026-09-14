@@ -86,6 +86,11 @@
     <div id="world-body"></div>
   </section>
 
+  <!-- ---------- AUTHORED WORLDS ---------- -->
+  <section class="screen" data-screen="worlds" hidden>
+    <div id="worlds-body"></div>
+  </section>
+
   <!-- ---------- SETTINGS ---------- -->
   <section class="screen" data-screen="settings" hidden>
     <div id="settings-body" class="settings"></div>
@@ -102,6 +107,19 @@
       </button>
       <textarea id="input" rows="1" placeholder="Message…" autocomplete="off"></textarea>
       <button id="btn-send" class="send-btn" aria-label="Send">
+        <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ---------- WORLD RUN ---------- -->
+  <section class="screen screen-chat" data-screen="worldrun" hidden>
+    <div id="wr-hud" class="wr-hud" hidden></div>
+    <div id="wr-thread" class="thread"></div>
+    <div id="wr-typing" class="typing" hidden><span></span><span></span><span></span></div>
+    <div class="composer">
+      <textarea id="wr-input" rows="1" placeholder="What do you do?" autocomplete="off"></textarea>
+      <button id="wr-send" class="send-btn" aria-label="Send">
         <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 8 6 8z"/></svg>
       </button>
     </div>
@@ -130,7 +148,11 @@
   </button>
   <button class="nav-btn" data-go="world">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 010 18a15 15 0 010-18z"/></svg>
-    <span>World</span>
+    <span>Lore</span>
+  </button>
+  <button class="nav-btn" data-go="worlds">
+    <svg viewBox="0 0 24 24"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg>
+    <span>Worlds</span>
   </button>
   <button class="nav-btn" data-go="settings">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.6 1.6 0 00-2.7 1.1V21a2 2 0 11-4 0v-.1A1.6 1.6 0 006.9 19l-.1.1a2 2 0 11-2.8-2.8l.1-.1A1.6 1.6 0 003 14.6H3a2 2 0 110-4h.1A1.6 1.6 0 004.7 7.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.6 1.6 0 002.7-1.1V3a2 2 0 114 0v.1a1.6 1.6 0 002.7 1.1l.1-.1a2 2 0 112.8 2.8l-.1.1a1.6 1.6 0 001.1 2.7H21a2 2 0 110 4h-.1a1.6 1.6 0 00-1.5 1z"/></svg>
@@ -163,6 +185,7 @@
 <script src="js/horde.js"></script>
 <script src="js/worlds.js"></script>
 <script src="js/vhuman.js"></script>
+<script src="js/hordeworld.js"></script>
 <script src="js/views.js"></script>
 <script src="js/update.js"></script>
 <script src="js/app.js"></script>

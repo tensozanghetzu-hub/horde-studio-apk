@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.4.10
+# Horde Studio — Mobile (Android) · v1.4.11
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -242,6 +242,56 @@ Node running for background life; this build has no background service at all, s
 only advances while the app is open — the same catch-up model as v1.2, just deeper.
 
 ## World packs
+
+Real geography, from OpenStreetMap. A pack gives a virtual human somewhere
+actual to walk: 120 places in Tempe, Arizona, and the measured walking times
+between them.
+
+- **Load a world pack** from a virtual human's *Places in their life*. Your own
+  places are preserved; the pack's are added alongside.
+- **Journeys are routed across the walking graph.** 87% of pairs in the pack
+  are not directly connected, so the app finds a route through the streets
+  rather than guessing from a straight line. Only one place in the pack is
+  genuinely unreachable, and that one falls back to an estimate.
+- **A place serves every need it can.** A cafe is `food` *and* `leisure` in the
+  source data, so it can answer hunger or boredom. The app used to keep only
+  one, which made every place single-purpose.
+- **Opening hours are respected** where the pack records them. A place with no
+  hours is treated as "probably open", never as shut.
+- **They won't walk further than their budget**, 60 minutes by default.
+- The pack ships in the APK, not in updates, so an update stays small.
+
+## Authored worlds (.horde_world)
+
+The other kind of world, and the bigger one: a place someone wrote, with rooms
+and streets, a cast, factions, lore and a set of rules.
+
+**Policy Panic at Bramble & Pike** ships with the install — 23 locations, 8
+colleagues, 6 factions, 15 lore entries, and a clock that starts at 8:57 on a
+Monday. It is 2.5 MB as published and about 50 KB here, because the artwork is
+stripped on the way in.
+
+Open **Worlds → Available to install → Install**, pick a role, and play. Each
+turn the model acts as referee and reports what changed at the end of its
+reply, in tags the app strips before you read the prose:
+
+| Tag | Effect |
+| --- | --- |
+| `[[move:loc_bullpen]]` | walk somewhere reachable from here |
+| `[[clock:+30]]` | time passes |
+| `[[cash:-15]]` | money, named by the world |
+| `[[stat:performance:-5]]` | any stat the world defines |
+| `[[item:Brass key]]` / `[[drop:...]]` | pockets |
+| `[[quest:...]]` / `[[quest-done:...]]` | tasks |
+| `[[roll:2d6+1]]` | dice, shown as they fall |
+
+The HUD shows what the world says to show: the clock, its own stats, the purse,
+your pockets and your tasks. Lore surfaces when you mention its keywords.
+
+You can also import any `.horde_world` file. **Deliberately not ported:** the
+turn-based Dungeon-Master kernel, faction reputation ledgers, NPC schedules and
+seasons. They need a host process and a durable simulation loop, not a phone.
+
 
 Upstream Horde Studio ships `world-packs/` — real places taken from
 OpenStreetMap, with walking routes between them, so a virtual human's journey
@@ -546,6 +596,36 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.4.11
+
+**Worlds, done properly.** The earlier pass shipped the geography and called it
+worlds. Reading upstream properly showed two separate things, and that the
+geography half was wrong in ways that mattered.
+
+**Geography, corrected:**
+
+- Journeys now route across the walking **graph**. 87% of place pairs in the
+  Tempe pack have no direct route, so the old direct-only lookup was estimating
+  almost every journey from a straight line. It now walks the streets.
+- Places keep **every capability** they were given. A cafe is food and leisure;
+  the app had been keeping one, so no place could serve two needs.
+- **Opening hours** are preserved and respected, parsed from OSM
+  `opening_hours` where the pack records it.
+- A **travel budget** (60 minutes) is honoured when choosing where to go.
+- The one genuinely unreachable place still falls back to an estimate rather
+  than refusing to move.
+
+**Authored worlds, added.** Open a `.horde_world`: locations with exits that
+cost minutes, a cast with personas and goals, factions, keyword-triggered lore,
+starting roles with their kit, stats, currency, dice, and a clock. The referee
+reports changes in tags; the app keeps the ledgers and strips the tags.
+*Policy Panic at Bramble & Pike* ships with the install, artwork removed.
+
+Also fixed: `newest_apk()` compared filenames, so `"v1.4.10" < "v1.4.9"` as
+text picked the older APK for the update channel.
+
+Tests: `worldgraph-test.js` (40) and `hordeworld-test.js` (76) join the suite.
 
 ## What's new in v1.4.10
 

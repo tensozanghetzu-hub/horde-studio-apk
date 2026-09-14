@@ -1,0 +1,17 @@
+{
+  "worlds": [
+    {
+      "id": "world_policy-panic",
+      "name": "Policy Panic at Bramble & Pike",
+      "description": "A living small-town workplace comedy inside a dysfunctional regional insurance branch: 23 rooms, 8 colleagues, 6 factions, and a clock that starts at 8:57 on a Monday.",
+      "file": "policy-panic.horde_world",
+      "places": 23,
+      "people": 8,
+      "factions": 6,
+      "lore": 15,
+      "roles": 7,
+      "bytes": 50634,
+      "attribution": "Authored world from Horde Studio (github.com/ddkhan24/hordestudio). Artwork stripped for size."
+    }
+  ]
+}

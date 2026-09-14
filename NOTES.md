@@ -1,6 +1,6 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.4.10.apk` (versionCode 15), sha256 0cce669062ae9fc32d995e575b2051ded3d037f8a26a526f2eded55c9eca90d9.
+Current build: `HordeStudio-v1.4.11.apk` (versionCode 16), sha256 f225bd980ca1b3a92e53da206fea5863189bda72e5712f5de17bc8b42c36d057.
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
 Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on purpose — it makes Play Protect warn; user accepts 'install anyway'), storage (maxSdk 28).
@@ -172,3 +172,64 @@ Otherwise the build dies at `aapt2: No such file or directory`.
 `max(cands, key=lambda p: (os.path.basename(p), mtime))` picked `v1.4.9` over
 `v1.4.10`, because "1.4.10" < "1.4.9" as text - so the OLD apk was copied into
 docs/ for the update channel. Now compares a parsed version triple.
+
+## Worlds, researched properly (v1.4.11)
+
+Upstream "worlds" is TWO subsystems. The v1.4.9 pass shipped one of them and
+called it worlds.
+
+1. `world-packs/*.json` (schema v1) - real OSM geography. 120 places, 1836
+   directed routes (== 918 undirected pairs; walking times are symmetric, so
+   upstream's reverse edge carries the same minutes and deduping is lossless).
+   Consumed by `vh2-geography-engine.js`, `vh2-travel-engine.js`,
+   `vh2-npc-travel.js`.
+2. `.horde_world` (format v2) - authored worlds. `vh-world-engine.js` (50 KB),
+   `video-worlds.js` (112 KB). Policy Panic is 23 locations, 8 NPCs, 6 factions,
+   15 lorebook entries, 14 relationships, gameRules/hudConfig/sandboxConfig,
+   kernel + worldAgent (a turn-based DM loop). 2.5 MB, of which ~98% is base64
+   art.
+
+### What was actually wrong with the v1.4.9 geography port
+
+- capabilities collapsed to one `kind`. Upstream gives `["food","leisure"]` to a
+  cafe; ALL 120 places carry `leisure` and 94 also carry `food`. Every place had
+  become single-purpose.
+- `minutes()` only looked up direct pairs. 87% of pairs (6222 of 7140) have no
+  direct route, so nearly every journey was a haversine guess. Now Dijkstra over
+  the undirected route graph.
+- no travel budget. Upstream has `maxTravelMinutes` (default 60).
+- hours dropped. In truth only 2/120 places carry upstream's `hours` shape - the
+  builder only sets it for `24/7` - but 36 places carry a real
+  `sourceTags.opening_hours` string, which is now preserved and parsed.
+
+One place (`SDFC Field`, osm:way/65014628) has degree 0: upstream could not snap
+it to the walking network. It is unreachable by design and falls back to an
+estimate.
+
+### Authored-world scope decision
+
+Ported: locations + exits + travelTime, entities, factions, relationships,
+lorebook (keyword-triggered), startingLives with inventory, gameRules (stats,
+currency, dice, module flags), hudConfig (clock, stats, timeStep), sandboxConfig
+principles, dmPrompt/authorNote/intro.
+
+Not ported: the DM kernel (`kernel`/`worldAgent`), NPC schedules, faction
+reputation ledgers, seasons/growth, video. These need a host process and a
+durable turn loop. `vh-world-engine.js` also depends on activity, plans, people,
+transport, exploration and humanDynamics engines that do not exist here.
+
+Art is stripped by key at any depth: `visuals`, `banner`, `mediaAssets`,
+`_mediaManifest`, `presentation`, plus any `data:` string. 2.5 MB -> 50 KB.
+
+### The referee tag protocol
+
+The model ends its reply with `[[move:id]]`, `[[clock:+N]]`, `[[cash:+N]]`,
+`[[stat:id:+N]]`, `[[item:x]]`, `[[drop:x]]`, `[[quest:x]]`, `[[quest-done:x]]`,
+`[[roll:2d6+1]]`. Unknown tags are LEFT VISIBLE on purpose, so a typo shows up
+instead of silently doing nothing.
+
+### Storage
+
+DB_VERSION 1 -> 2, adding `worlds` and `worldRuns` stores. The upgrade is
+additive (createObjectStore guarded by `objectStoreNames.contains`), so existing
+characters, sessions and messages survive.

@@ -3,7 +3,8 @@
   'use strict';
 
   var DB_NAME = 'horde-studio';
-  var DB_VERSION = 1;
+  /* v2 adds authored worlds (.horde_world) and their playthroughs */
+  var DB_VERSION = 2;
 
   function open() {
     return new Promise(function (resolve, reject) {
@@ -23,6 +24,14 @@
         if (!db.objectStoreNames.contains('messages')) {
           var m = db.createObjectStore('messages', { keyPath: 'id' });
           m.createIndex('sessionId', 'sessionId');
+        }
+        if (!db.objectStoreNames.contains('worlds')) {
+          var w = db.createObjectStore('worlds', { keyPath: 'id' });
+          w.createIndex('importedAt', 'importedAt');
+        }
+        if (!db.objectStoreNames.contains('worldRuns')) {
+          var wr = db.createObjectStore('worldRuns', { keyPath: 'id' });
+          wr.createIndex('worldId', 'worldId');
         }
       };
       req.onsuccess = function () { resolve(req.result); };
