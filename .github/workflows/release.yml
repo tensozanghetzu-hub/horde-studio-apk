@@ -1,0 +1,60 @@
+name: Publish APK release
+
+# Puts the APK where anyone opening the repo can see it: under Releases,
+# with a "Latest" badge on the front page. The file itself lives in docs/
+# because that is the folder GitHub Pages publishes, and the updater reads
+# the address from version.json - so it cannot simply be moved.
+#
+# Runs on every push to main and is idempotent: the release for the current
+# version is updated in place, not duplicated.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the version out of the manifest
+        id: ver
+        run: |
+          V=$(grep -o 'android:versionName="[^"]*"' apk-build/AndroidManifest.xml | head -1 | sed 's/.*="//;s/"//')
+          C=$(grep -o 'android:versionCode="[^"]*"' apk-build/AndroidManifest.xml | head -1 | sed 's/.*="//;s/"//')
+          R=$(python3 -c "import json;print(json.load(open('docs/version.json'))['webRev'])")
+          echo "name=$V" >> "$GITHUB_OUTPUT"
+          echo "code=$C" >> "$GITHUB_OUTPUT"
+          echo "rev=$R"  >> "$GITHUB_OUTPUT"
+          echo "App $V (code $C), web revision $R"
+
+      - name: Name the asset after its version
+        run: cp docs/HordeStudio-latest.apk "HordeStudio-v${{ steps.ver.outputs.name }}.apk"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.ver.outputs.name }}
+        run: |
+          ASSET="HordeStudio-v${{ steps.ver.outputs.name }}.apk"
+          NOTES="Signed Android app, Android 7.0 (API 24) and up.
+          Install it over an earlier version - same signing key, your chats and characters survive.
+
+          - App version: ${{ steps.ver.outputs.name }} (code ${{ steps.ver.outputs.code }})
+          - Web revision: \`${{ steps.ver.outputs.rev }}\`
+
+          Once installed, updates arrive from inside the app:
+          Settings -> App updates -> Check for update."
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --clobber
+            gh release edit "$TAG" --title "Horde Studio v${{ steps.ver.outputs.name }}" --notes "$NOTES"
+          else
+            gh release create "$TAG" --title "Horde Studio v${{ steps.ver.outputs.name }}" \
+              --notes "$NOTES" --target main "$ASSET"
+          fi

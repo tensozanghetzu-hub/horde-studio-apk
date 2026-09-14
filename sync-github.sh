@@ -32,7 +32,7 @@ fi
 # 3. stage explicitly. Never `git add -A`: this workspace also holds the push
 #    key, a browser cache and the Playwright vendor bundle.
 git add .gitignore README.md NOTES.md GITHUB-SETUP.md sync-github.sh 2>/dev/null || true
-git add tools apk-build apk-download horde-studio-mobile tests 2>/dev/null || true
+git add tools apk-build apk-download horde-studio-mobile tests .github 2>/dev/null || true
 git add docs 2>/dev/null || true
 
 # 4. refuse to publish anything that looks like a key, a cache or a photo
