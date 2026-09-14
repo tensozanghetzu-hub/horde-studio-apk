@@ -37,7 +37,7 @@ an earlier version keeps your characters and chats.
 | `docs/HordeStudio-latest.apk` | The Android app. Signed, ~223 KB, Android 7.0 (API 24) and up. |
 | `horde-studio-mobile/` | The full web/PWA source that the APK wraps (also hostable anywhere). |
 | `apk-build/` | Android wrapper source + `build.sh` / `setup-sdk.sh` to rebuild the APK. |
-| Live preview | The same app running as a website — test it in your browser first. |
+| Live preview | [The same app running as a website](https://tensozanghetzu-hub.github.io/horde-studio-apk/) — try it in your browser before installing. |
 
 > **v1.4.4 updates itself from inside the app.** Settings → App updates → Check for
 > update. Fixes to the interface download as a small bundle and are applied without a
@@ -399,16 +399,17 @@ APK install.
 
 Two things worth knowing:
 
-- **The address is a setting.** It ships pointing at this workspace's preview URL, which
-  only works while this sandbox is alive. Point it anywhere you control — a GitHub Pages
-  site, a home server, a NAS — and it keeps working after this workspace is gone. The
-  server needs to answer `/version.json` and `/web.zip`; both are described below.
+- **The address is a setting.** It ships pointing at this project's GitHub Pages site,
+  which never moves. Point it anywhere else you control — a home server, a NAS — and it
+  works just as well. The server needs to answer `/version.json` and `/web.zip`; both
+  are described below.
 - **Nothing phones home on its own.** It checks only when you press the button.
 
-**When the address does not work.** The address baked into the app is this workspace's
-preview URL, and that URL dies whenever the sandbox is restarted — the app then reports
-`502 sandbox was not found`, and a proxy in front of it answers `403` to anything without
-a session token. Neither is something the app can fix. Two ways through:
+**When the address does not work.** The address baked into the app is a GitHub Pages
+site, so it should always answer. Trouble only comes from pointing the setting somewhere
+temporary — a sandbox preview URL, say. Those die when the sandbox restarts (the app then
+reports `502 sandbox was not found`) and the proxy in front of them answers `403` to
+anything without a session token. Neither is something the app can fix. Two ways through:
 
 1. **Apply from a file** — download the bundle in your browser (the browser can always
    reach it), then tap *Apply from a file* in Settings → App updates and pick that zip.
@@ -425,9 +426,9 @@ A URL you control (GitHub Pages, a home server, a NAS) removes the problem entir
 `version.json` describes what is current:
 
 ```json
-{ "apk": "1.4.7", "apkCode": 12, "web": "1.4.7", "webRev": "c28cee49c93f",
+{ "apk": "1.4.8", "apkCode": 13, "web": "1.4.8", "webRev": "f8c44de4c6ef",
   "apkUrl": "HordeStudio-latest.apk",
-  "apkSize": 223975, "webSize": 136237, "files": 18, "note": "…" }
+  "apkSize": 228071, "webSize": 136617, "files": 18, "note": "…" }
 ```
 
 - `apkCode` is compared with the installed `versionCode`; higher means offer the APK.
@@ -445,9 +446,10 @@ an update.
 
 ## Hosting the update channel on GitHub
 
-The update address baked into the APK is this workspace's preview URL, which dies with the
-sandbox. A GitHub Pages site does not. This project is set up to publish itself to one, so
-*Check for update* keeps working from any network after this workspace is gone.
+The update address baked into the APK is this project's GitHub Pages site, which never
+moves — a sandbox URL would die with the sandbox, as earlier builds proved. This project
+publishes itself to Pages, so *Check for update* keeps working from any network, and long
+after this workspace is gone.
 
 **How it fits together**
 

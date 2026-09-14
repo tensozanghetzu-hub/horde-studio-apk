@@ -76,7 +76,7 @@ After that the address is remembered, so every future update is just
 *Check for update → Apply now*.
 
 **The one thing worth checking afterwards:** open **About**. It must say
-**1.4.7**. If it says `1.0.0`, the update did not take and I need to know.
+**1.4.8**. If it says `1.0.0`, the update did not take and I need to know.
 
 <details>
 <summary>Why the baked-in address died, and why this fixes it for good</summary>

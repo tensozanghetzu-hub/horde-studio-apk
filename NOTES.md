@@ -1,6 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.4.7.apk` (versionCode 12), sha256 896429f5ea6919be7ea22d97976076ddfe76619b11b864bb789456a46f0f55fd.
+Current build: `HordeStudio-v1.4.8.apk` (versionCode 13), sha256 a134739efb7a68179c37a549bc0b2c6fa88279a83890b51ac352075aedb02fb7.
+Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
+reads the channel in `docs/`, not the release.
 Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on purpose — it makes Play Protect warn; user accepts 'install anyway'), storage (maxSdk 28).
 
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` (SDK is deleted after each build).
