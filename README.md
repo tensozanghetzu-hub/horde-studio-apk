@@ -6,9 +6,6 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**The APK lives in `docs/`**, not in the top-level listing — which is easy to miss
-when you open the repo:
-
 **Releases → [Horde Studio v1.4.8](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — 223 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
