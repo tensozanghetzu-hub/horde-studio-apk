@@ -9,7 +9,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.4.11';
+  var VERSION = '1.5.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -38,6 +38,18 @@
     systemPrompt: DEFAULT_SYSTEM,
     userName: 'You',
     userPersona: '',
+    /* Personas: settings.userName / userPersona always hold the *effective*
+       identity — the one every existing code path already reads. Switching a
+       persona swaps these two in place, so nothing else has to change.
+       defaultName / defaultPersona are the fallback identity used when no
+       persona is selected, and are what the Settings fields edit in that case. */
+    activePersona: '',
+    defaultName: 'You',
+    defaultPersona: '',
+    /* 0 = not yet migrated. Bumped whenever the persona fields change shape;
+       the migration seeds the fallback identity from userName/userPersona.
+       We key on this rather than on undefined because DEFAULTS supplies keys. */
+    personaSchema: 0,
     streaming: true,
     bursts: true,
     stripThinking: true,
@@ -58,6 +70,7 @@
   var Store = {
     settings: null,
     characters: [],
+    personas: [],
     PRESETS: PRESETS,
     VERSION: VERSION,
 
@@ -68,7 +81,22 @@
         if (!self.settings.baseUrl && self.settings.provider && PRESETS[self.settings.provider]) {
           self.settings.baseUrl = PRESETS[self.settings.provider].url;
         }
-        return self.refreshCharacters();
+        /* v1.5.0 migration: seed the fallback identity from the legacy fields,
+           so an existing install behaves exactly as it did before. Keyed on
+           personaSchema, not on undefined — DEFAULTS supplies these keys. */
+        var s = self.settings, dirty = false;
+        if (s.personaSchema !== 1) {
+          s.defaultName = s.userName || 'You';
+          s.defaultPersona = s.userPersona || '';
+          s.activePersona = '';
+          s.personaSchema = 1;
+          dirty = true;
+        }
+        var saved = dirty ? self.saveSettings() : Promise.resolve();
+        return saved
+          .then(function () { return self.refreshPersonas(); })
+          .then(function () { return self.applyPersona(); })
+          .then(function () { return self.refreshCharacters(); });
       });
     },
 
@@ -117,10 +145,105 @@
       }).then(function () { return self.refreshCharacters(); });
     },
 
+    /* ---------------- personas ---------------- */
+    refreshPersonas: function () {
+      var self = this;
+      return IDB.getAll('personas').then(function (list) {
+        self.personas = (list || []).sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+        return self.personas;
+      });
+    },
+
+    blankPersona: function () {
+      return { id: UI.uid('p'), name: '', text: '', createdAt: Date.now(), updatedAt: Date.now() };
+    },
+
+    putPersona: function (p) {
+      p.updatedAt = Date.now();
+      var self = this;
+      return IDB.put('personas', p).then(function () { return self.refreshPersonas(); });
+    },
+
+    /** Deleting a persona also removes its chats, mirroring character deletion.
+        Resolves with the number of chats that went with it. */
+    delPersona: function (id) {
+      var self = this;
+      return IDB.getAll('sessions').then(function (all) {
+        var mine = (all || []).filter(function (s) { return (s.personaId || '') === id; });
+        return Promise.all(mine.map(function (s) { return self.delSession(s.id); }))
+          .then(function () { return mine.length; });
+      }).then(function (n) {
+        if (self.settings.activePersona === id) {
+          self.settings.activePersona = '';
+          self.settings.userName = self.settings.defaultName || 'You';
+          self.settings.userPersona = self.settings.defaultPersona || '';
+          return self.saveSettings().then(function () { return n; });
+        }
+        return n;
+      }).then(function (n) {
+        return IDB.del('personas', id)
+          .then(function () { return self.refreshPersonas(); })
+          .then(function () { return n; });
+      });
+    },
+
+    activePersonaObj: function () {
+      var id = (this.settings && this.settings.activePersona) || '';
+      if (!id) return null;
+      return (this.personas || []).find(function (p) { return p.id === id; }) || null;
+    },
+
+    /** Switch identity. Pass '' to return to the default (Settings) identity. */
+    switchPersona: function (id) {
+      var s = this.settings;
+      /* Leaving the default identity — stash it so we can come back. */
+      if (!s.activePersona) { s.defaultName = s.userName; s.defaultPersona = s.userPersona; }
+      var p = id ? (this.personas || []).find(function (x) { return x.id === id; }) : null;
+      if (id && !p) return Promise.resolve(null);
+      s.activePersona = p ? p.id : '';
+      s.userName = p ? (p.name || 'You') : (s.defaultName || 'You');
+      s.userPersona = p ? (p.text || '') : (s.defaultPersona || '');
+      return IDB.put('kv', { key: 'settings', value: s }).then(function () { return p || null; });
+    },
+
+    /** Re-apply the active persona's name/text — used on boot. */
+    applyPersona: function () {
+      var p = this.activePersonaObj(), s = this.settings;
+      if (!p) return Promise.resolve(null);
+      s.userName = p.name || 'You';
+      s.userPersona = p.text || '';
+      return Promise.resolve(p);
+    },
+
+    /** Who you are right now — the persona name, or the default. */
+    personaLabel: function () {
+      var p = this.activePersonaObj();
+      return p ? (p.name || 'Unnamed') : ((this.settings && this.settings.defaultName) || 'You');
+    },
+
+    /** Editing the identity in Settings has to land in the right place:
+        the persona record when one is active, otherwise the default pair. */
+    setIdentity: function (patch) {
+      var s = this.settings, p = this.activePersonaObj();
+      if (patch.name !== undefined) s.userName = patch.name;
+      if (patch.text !== undefined) s.userPersona = patch.text;
+      var chain = Promise.resolve();
+      if (p) {
+        if (patch.name !== undefined) p.name = patch.name;
+        if (patch.text !== undefined) p.text = patch.text;
+        chain = this.putPersona(p);
+      } else {
+        if (patch.name !== undefined) s.defaultName = patch.name;
+        if (patch.text !== undefined) s.defaultPersona = patch.text;
+      }
+      return chain.then(function () { return s; });
+    },
+
     /* ---------------- sessions ---------------- */
     newSession: function (charId, title) {
       return {
         id: UI.uid('s'), charId: charId, title: title || 'New chat',
+        personaId: (this.settings && this.settings.activePersona) || '',
         summary: '', facts: [], messageCount: 0,
         timeline: 'main', pending: null,
         createdAt: Date.now(), updatedAt: Date.now()
@@ -132,15 +255,23 @@
       return IDB.put('sessions', s);
     },
 
+    /* Every persona gets its own threads with a character. Sessions written
+       before v1.5.0 carry no personaId and belong to the default identity. */
     getSessions: function (charId) {
+      var active = (this.settings && this.settings.activePersona) || '';
       return IDB.getAllByIndex('sessions', 'charId', charId).then(function (list) {
-        return (list || []).sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+        return (list || []).filter(function (s) {
+          return (s.personaId || '') === active;
+        }).sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
       });
     },
 
     allSessions: function () {
+      var active = (this.settings && this.settings.activePersona) || '';
       return IDB.getAll('sessions').then(function (list) {
-        return (list || []).sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
+        return (list || []).filter(function (s) {
+          return (s.personaId || '') === active;
+        }).sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
       });
     },
 
@@ -177,26 +308,35 @@
     /* ---------------- import / export ---------------- */
     exportAll: function () {
       var self = this;
-      return Promise.all([IDB.getAll('characters'), IDB.getAll('sessions'), IDB.getAll('messages')])
-        .then(function (r) {
-          var s = Object.assign({}, self.settings);
-          delete s.apiKey; delete s.hordeKey;   // credentials never leave the device
-          return JSON.stringify({
-            format: 'horde-studio-mobile', version: 1, exportedAt: new Date().toISOString(),
-            settings: s, characters: r[0] || [], sessions: r[1] || [], messages: r[2] || []
-          }, null, 2);
-        });
+      return Promise.all([
+        IDB.getAll('characters'), IDB.getAll('sessions'),
+        IDB.getAll('messages'), IDB.getAll('personas')
+      ]).then(function (r) {
+        var s = Object.assign({}, self.settings);
+        delete s.apiKey; delete s.hordeKey;   // credentials never leave the device
+        return JSON.stringify({
+          format: 'horde-studio-mobile', version: 1, exportedAt: new Date().toISOString(),
+          settings: s, characters: r[0] || [], sessions: r[1] || [],
+          messages: r[2] || [], personas: r[3] || []
+        }, null, 2);
+      });
     },
 
     importAll: function (text) {
       var data = JSON.parse(text);
       if (!data || !data.characters) throw new Error('Not a Horde Studio backup');
+      var self = this;
       var chars = data.characters || [], sessions = data.sessions || [], msgs = data.messages || [];
+      var personas = data.personas || [];
       return Promise.all([
         IDB.putMany('characters', chars),
         IDB.putMany('sessions', sessions),
-        IDB.putMany('messages', msgs)
-      ]).then(function () { return { characters: chars.length, sessions: sessions.length, messages: msgs.length }; });
+        IDB.putMany('messages', msgs),
+        personas.length ? IDB.putMany('personas', personas) : Promise.resolve()
+      ]).then(function () { return self.refreshPersonas(); })
+        .then(function () {
+          return { characters: chars.length, sessions: sessions.length, messages: msgs.length, personas: personas.length };
+        });
     },
 
     /* SillyTavern-style card -> internal character */
@@ -302,7 +442,11 @@
     },
 
     wipe: function () {
-      return Promise.all([IDB.clear('characters'), IDB.clear('sessions'), IDB.clear('messages')]);
+      var self = this;
+      return Promise.all([
+        IDB.clear('characters'), IDB.clear('sessions'),
+        IDB.clear('messages'), IDB.clear('personas')
+      ]).then(function () { return self.refreshPersonas(); });
     }
   };
 

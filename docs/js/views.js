@@ -37,6 +37,39 @@
 
   var Views = {};
 
+  /* ================= PERSONA SWITCHER ================= */
+  /* One-tap identity switching on the Characters tab. Editing lives in
+     Settings — this bar answers only "who am I right now?". Hidden entirely
+     until you have created at least one persona, so nothing changes for
+     anyone who never touches it. */
+  function renderPersonaBar() {
+    var bar = $('#persona-bar');
+    if (!bar) return;
+    var list = Store.personas || [];
+    var active = (Store.settings && Store.settings.activePersona) || '';
+
+    bar.hidden = list.length === 0;
+    if (bar.hidden) { bar.innerHTML = ''; return; }
+
+    var defName = (Store.settings && Store.settings.defaultName) || 'You';
+    bar.innerHTML =
+      '<span class="persona-lbl">You are</span>' +
+      '<button class="pchip' + (active ? '' : ' on') + '" data-persona="">' +
+        icon('user') + esc(defName) + '</button>' +
+      list.map(function (p) {
+        return '<button class="pchip' + (active === p.id ? ' on' : '') + '" data-persona="' +
+          esc(p.id) + '">' + icon('user') + esc(p.name || 'Unnamed') + '</button>';
+      }).join('') +
+      '<button class="pchip add" data-persona-new="1">' + icon('plus') + 'New</button>';
+
+    on(bar, '.pchip', 'click', function (e) {
+      var el = e.currentTarget;
+      if (el.getAttribute('data-persona-new')) return App.newPersona();
+      App.switchTo(el.getAttribute('data-persona') || '');
+    });
+  }
+  Views.renderPersonaBar = function () { renderPersonaBar(); };
+
   /* ================= CAST ================= */
   Views.characters = function (root) {
     var q = (App.state.query || '').toLowerCase();
@@ -64,6 +97,8 @@
       App.state.tag = e.currentTarget.getAttribute('data-tag');
       Views.characters(root);
     });
+
+    renderPersonaBar();
 
     var grid = $('#char-grid');
     var empty = $('#char-empty');
@@ -429,6 +464,25 @@
     }
     var preset = Store.PRESETS[s.provider] || Store.PRESETS.custom;
 
+    /* ---- personas ---- */
+    var personas = Store.personas || [];
+    var activeId = s.activePersona || '';
+    var personaRows = personas.length
+      ? personas.map(function (p) {
+          var on = activeId === p.id;
+          return '<div class="field" data-prow="' + esc(p.id) + '">' +
+            '<div class="field-head"><label>' + esc(p.name || 'Unnamed persona') + '</label>' +
+              '<span class="spacer"></span>' +
+              (on ? '<span class="pill ok">active</span>'
+                  : '<button class="chip" data-persona-use="' + esc(p.id) + '">Switch to</button>') +
+              '<button class="chip" data-persona-del="' + esc(p.id) + '" aria-label="Delete persona">' + icon('trash') + '</button>' +
+            '</div>' +
+            '<input type="text" data-persona-name="' + esc(p.id) + '" value="' + esc(p.name || '') + '" placeholder="Persona name">' +
+            '<textarea data-persona-text="' + esc(p.id) + '" style="margin-top:6px" placeholder="Who this persona is — appearance, background, goals.">' + esc(p.text || '') + '</textarea>' +
+          '</div>';
+        }).join('')
+      : '<div class="field"><span class="hint">No personas yet. Add one to switch between identities — each keeps its own chats with every character and its own relationship with each virtual human.</span></div>';
+
     $('#settings-body').innerHTML =
       /* --- connection --- */
       '<div class="group">' +
@@ -496,10 +550,23 @@
       /* --- you --- */
       '<div class="group">' +
         '<div class="group-title">You</div>' +
+        '<div class="field"><div class="hint" style="margin:0 0 6px">' +
+          (activeId
+            ? 'Editing the <b>' + esc(Store.personaLabel()) + '</b> persona. These two fields always follow whichever identity is active.'
+            : 'Your default identity — used whenever no persona is selected.') +
+        '</div></div>' +
         '<div class="field"><div class="field-head"><label>Your name</label></div>' +
           '<input type="text" id="set-uname" value="' + esc(s.userName) + '"></div>' +
         '<div class="field"><div class="field-head"><label>Your persona</label></div>' +
           '<textarea id="set-upersona" placeholder="Who you are in the story — appearance, background, goals.">' + esc(s.userPersona) + '</textarea></div>' +
+      '</div>' +
+
+      /* --- personas --- */
+      '<div class="group">' +
+        '<div class="group-title">Personas</div>' +
+        '<div class="field"><div class="hint" style="margin:0 0 8px">Switchable identities. Each persona keeps its own chats with every character, and builds its own separate relationship with each virtual human. Switching is also one tap away at the top of the Characters tab.</div></div>' +
+        personaRows +
+        '<button class="btn ghost sm" id="btn-persona-add" style="margin-top:8px">' + icon('plus') + ' Add persona</button>' +
       '</div>' +
 
       /* --- system prompt --- */
@@ -593,8 +660,26 @@
     });
     bind('#set-url', 'change', function (e) { set({ baseUrl: e.target.value.trim() }); });
     bind('#set-key', 'change', function (e) { set({ apiKey: e.target.value.trim() }); });
-    bind('#set-uname', 'change', function (e) { set({ userName: e.target.value.trim() || 'You' }); });
-    bind('#set-upersona', 'change', function (e) { set({ userPersona: e.target.value }); });
+    /* Identity edits land on the persona when one is active, else on the default. */
+    bind('#set-uname', 'change', function (e) {
+      Store.setIdentity({ name: e.target.value.trim() || 'You' }).then(function () { Views.settings(root); });
+    });
+    bind('#set-upersona', 'change', function (e) { Store.setIdentity({ text: e.target.value }); });
+
+    /* ---- personas ---- */
+    on(body, '[data-persona-use]', 'click', function (e) {
+      App.switchTo(e.currentTarget.getAttribute('data-persona-use'));
+    });
+    on(body, '[data-persona-del]', 'click', function (e) {
+      App.deletePersona(e.currentTarget.getAttribute('data-persona-del'));
+    });
+    on(body, '[data-persona-name]', 'change', function (e) {
+      App.editPersona(e.currentTarget.getAttribute('data-persona-name'), { name: e.target.value.trim() });
+    });
+    on(body, '[data-persona-text]', 'change', function (e) {
+      App.editPersona(e.currentTarget.getAttribute('data-persona-text'), { text: e.target.value });
+    });
+    bind('#btn-persona-add', 'click', function () { App.newPersona(); });
     bind('#set-system', 'change', function (e) { set({ systemPrompt: e.target.value }); });
     bind('#set-hkey', 'change', function (e) { set({ hordeKey: e.target.value.trim() }); });
 

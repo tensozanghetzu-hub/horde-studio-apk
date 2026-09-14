@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.4.11
+# Horde Studio — Mobile (Android) · v1.5.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -240,6 +240,31 @@ are never split.
 relay and MCP (need a host machine), and map/live feeds. Upstream also needs Python and
 Node running for background life; this build has no background service at all, so life
 only advances while the app is open — the same catch-up model as v1.2, just deeper.
+
+## Personas
+
+A persona is who *you* are in the story. You can have as many as you like and
+switch between them in one tap — the switcher sits at the top of the Characters
+tab, and the full list lives in **Settings → Personas**.
+
+Each persona is fully separate from the others:
+
+- **Its own chats.** Switching to Elena shows you Elena's conversations with a
+  character; switch back to Marcus and his are exactly as you left them. Nothing
+  is shared and nothing is overwritten.
+- **Its own relationships.** Virtual humans remember each persona independently.
+  A character can trust Elena and barely tolerate Marcus, with separate
+  affinity, trust and tension for each.
+- **Its own name and description.** The persona's name is what the model sees as
+  `{{user}}`, and its description is what fills `{{persona}}`.
+
+Creating a persona never disturbs what you already have. Chats you made before
+updating stay with your *default* identity, which is the name and description in
+**Settings → You**. Selecting no persona means the default is in use.
+
+Deleting a persona removes its chats with every character, the same way deleting
+a character removes theirs. Your default identity and your other personas are
+untouched. Backups include personas.
 
 ## World packs
 
@@ -596,6 +621,45 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.5.0
+
+**Personas — you can be more than one person.**
+
+Until now the app had a single identity: one name, one description, set in
+Settings. If you wanted to play a different character in the same world you had
+to retype it every time, and every chat you had ever had with every character
+stayed in one shared thread.
+
+A persona is a saved identity — a name and a description — and you can have as
+many as you like.
+
+- **One-tap switching.** The switcher lives at the top of the Characters tab:
+  tap a name, you are them. The full list is edited in **Settings → Personas**.
+- **Each persona gets its own chats.** Switch to Elena and you see Elena's
+  conversations with a character; switch back to Marcus and his are exactly as
+  you left them. Neither overwrites the other.
+- **Each persona builds its own relationships.** Virtual humans have always
+  tracked bonds per person — that part existed but was unreachable, because
+  there was only ever one of you. Now a character can warmly trust Elena and
+  barely tolerate Marcus, with separate affinity, trust and tension for each,
+  and it remembers which is which.
+- **The chat header says who you are**, so there is no ambiguity about whose
+  conversation you are reading.
+
+**Nothing you already have changes.** Chats made before this update stay with
+your default identity — the name and description in **Settings → You** — and
+that default remains in force whenever no persona is selected. The persona bar
+stays hidden until you create your first persona, so the screen is unchanged for
+anyone who never touches the feature.
+
+Also in this release:
+
+- Backups now carry personas, so a restore brings your identities and their
+  chats with them.
+- The build no longer writes the APK under a stale filename. The name is derived
+  from the manifest, so a version bump cannot silently overwrite the previous
+  release.
 
 ## What's new in v1.4.11
 

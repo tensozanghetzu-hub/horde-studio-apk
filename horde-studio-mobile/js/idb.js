@@ -3,8 +3,11 @@
   'use strict';
 
   var DB_NAME = 'horde-studio';
-  /* v2 adds authored worlds (.horde_world) and their playthroughs */
-  var DB_VERSION = 2;
+  /* v2 adds authored worlds (.horde_world) and their playthroughs
+     v3 adds personas — switchable player identities, each with its own
+     chats per character and its own relationship ledger with every
+     virtual human. */
+  var DB_VERSION = 3;
 
   function open() {
     return new Promise(function (resolve, reject) {
@@ -32,6 +35,10 @@
         if (!db.objectStoreNames.contains('worldRuns')) {
           var wr = db.createObjectStore('worldRuns', { keyPath: 'id' });
           wr.createIndex('worldId', 'worldId');
+        }
+        if (!db.objectStoreNames.contains('personas')) {
+          var pe = db.createObjectStore('personas', { keyPath: 'id' });
+          pe.createIndex('updatedAt', 'updatedAt');
         }
       };
       req.onsuccess = function () { resolve(req.result); };

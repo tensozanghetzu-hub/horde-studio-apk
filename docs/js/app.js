@@ -74,6 +74,9 @@
       var ch = App.state.char;
       $('#bar-title').textContent = (ch && ch.name) || 'Chat';
       var sub = App.state.session ? (App.state.session.title || 'New chat') : '';
+      /* Who you are in this thread — worth stating, since switching personas
+         swaps which of a character's conversations you are looking at. */
+      if (Store.settings.activePersona) sub = 'as ' + Store.personaLabel() + ' · ' + sub;
       if (ch && ch.vh && ch.vh.enabled) {
         var st = VH.status(ch);
         sub = st.text + ' · ' + sub;
@@ -172,6 +175,81 @@
   };
 
   App.characterMenu = function (id) { App.openCharacter(id); };
+
+  /* ---------------- personas ---------------- */
+  /* Personas are switchable player identities. Each keeps its own chats with
+     every character, and — because bonds are keyed by user name — its own
+     separate relationship ledger with each virtual human. */
+
+  App.newPersona = function () {
+    var was = App.state.screen;
+    UI.input('New persona', {
+      message: 'Each persona gets its own chats with every character, and its own relationships.',
+      placeholder: 'Name — e.g. Marcus',
+      okLabel: 'Create'
+    }).then(function (name) {
+      if (!name) return;
+      name = String(name).trim();
+      if (!name) return UI.toast('A persona needs a name');
+      var p = Store.blankPersona();
+      p.name = name;
+      Store.putPersona(p)
+        .then(function () { return Store.switchPersona(p.id); })
+        .then(function () {
+          UI.toast('Now playing as ' + name);
+          App.state.screen = null;
+          /* Stay where we were — this is reachable from Settings too. */
+          App.go(was === 'settings' ? 'settings' : 'characters');
+        });
+    });
+  };
+
+  App.switchTo = function (id) {
+    var was = App.state.screen;
+    Store.switchPersona(id || '').then(function (p) {
+      UI.toast(p ? 'Now playing as ' + (p.name || 'Unnamed')
+                 : 'Back to ' + (Store.settings.defaultName || 'You'));
+      App.state.screen = null;
+      App.go(was === 'settings' ? 'settings' : 'characters');
+    });
+  };
+
+  App.deletePersona = function (id) {
+    var p = (Store.personas || []).find(function (x) { return x.id === id; });
+    if (!p) return;
+    UI.confirm('Delete persona “' + (p.name || 'Unnamed') + '”?',
+      'Every chat this persona had with every character goes too. Your other personas are untouched.',
+      { danger: true, okLabel: 'Delete' }).then(function (ok) {
+        if (!ok) return;
+        Store.delPersona(id).then(function (n) {
+          UI.toast('Persona deleted' + (n ? ' · ' + n + (n === 1 ? ' chat' : ' chats') + ' removed' : ''));
+          App.state.screen = null;
+          App.go('settings');
+        });
+      });
+  };
+
+  App.editPersona = function (id, patch) {
+    var p = (Store.personas || []).find(function (x) { return x.id === id; });
+    if (!p) return;
+    Object.assign(p, patch);
+    Store.putPersona(p).then(function () {
+      /* Keep the live identity in step when editing the persona in use. */
+      if (Store.settings.activePersona === id) {
+        return Store.applyPersona().then(function () { return Store.saveSettings(); });
+      }
+      return null;
+    }).then(function () {
+      if (App.state.screen === 'characters') return Views.renderPersonaBar();
+      /* In Settings, refresh just the row heading instead of re-rendering the
+         whole screen, which would throw away the caret and scroll position. */
+      if (App.state.screen === 'settings' && patch.name !== undefined) {
+        var row = document.querySelector('[data-prow="' + id + '"]');
+        var lbl = row && row.querySelector('label');
+        if (lbl) lbl.textContent = p.name || 'Unnamed persona';
+      }
+    });
+  };
 
   App.importCard = function () {
     Views.pickFile('.json,.png,application/json,image/png').then(function (f) {

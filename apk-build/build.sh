@@ -19,7 +19,10 @@ JAVAC="$JAVA_HOME/bin/javac"
 
 OUT="$ROOT/build"
 KEY="$ROOT/horde-studio.keystore"
-FINAL="/home/user/HordeStudio-v1.4.11.apk"
+# Derived from the manifest, so bumping the version can never ship an APK
+# under a stale filename (it used to overwrite the previous release).
+APK_VERSION="$(grep -o 'android:versionName="[^"]*"' "$ROOT/AndroidManifest.xml" | head -1 | sed 's/.*="//;s/"//')"
+FINAL="/home/user/HordeStudio-v${APK_VERSION}.apk"
 
 echo "==> cleaning"
 rm -rf "$OUT"

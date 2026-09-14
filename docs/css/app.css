@@ -128,6 +128,21 @@ h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
 }
 .tag.on{background:var(--accent-soft);border-color:rgba(139,92,246,.55);color:#ddd3ff}
 
+/* ---------- persona switcher ---------- */
+.persona-bar{display:flex;gap:7px;align-items:center;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none}
+.persona-bar::-webkit-scrollbar{display:none}
+.persona-lbl{flex:0 0 auto;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted);opacity:.65;padding-right:1px}
+.pchip{flex:0 0 auto;display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:999px;
+  border:1px solid var(--line);background:var(--surface);color:var(--muted);
+  font-size:12.5px;cursor:pointer;white-space:nowrap}
+.pchip svg{width:13px;height:13px;stroke:currentColor;fill:none;opacity:.7}
+.pchip.on{background:rgba(232,121,249,.14);border-color:rgba(232,121,249,.5);color:#f3ddff}
+.pchip.on svg{opacity:1}
+.pchip.add{border-style:dashed;opacity:.85}
+.pchip .dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:.45}
+.pchip.on .dot{opacity:1}
+
 /* ---------- character cards ---------- */
 .char-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
 @media(min-width:560px){.char-grid{grid-template-columns:repeat(3,1fr)}}

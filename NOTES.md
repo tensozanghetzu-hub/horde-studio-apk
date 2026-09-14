@@ -1,6 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.4.11.apk` (versionCode 16), sha256 f225bd980ca1b3a92e53da206fea5863189bda72e5712f5de17bc8b42c36d057.
+Current build: `HordeStudio-v1.5.0.apk` (versionCode 17), sha256 b3ec66a373f328af8c8b22659d5afcc858452a606d59c304e7ba7e058e345f27 (277,659 B).
+Channel `webRev c2812024342e`, 20 files, web.zip 157,639 B.
+
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
 Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on purpose — it makes Play Protect warn; user accepts 'install anyway'), storage (maxSdk 28).
@@ -233,3 +235,76 @@ instead of silently doing nothing.
 DB_VERSION 1 -> 2, adding `worlds` and `worldRuns` stores. The upgrade is
 additive (createObjectStore guarded by `objectStoreNames.contains`), so existing
 characters, sessions and messages survive.
+
+## Personas (v1.5.0, 2026-09-14)
+
+The app had exactly one player identity: `settings.userName` + `settings.userPersona`,
+edited in Settings. Virtual humans already tracked bonds **per persona**
+(`vhuman.js` `bonds{}`, keyed by the user's name) — that half existed since the
+v18 port, but was unreachable, because there was only ever one of you. v1.5.0
+makes personas a first-class thing.
+
+User's two decisions (asked, not assumed): switcher in **both** places (a chip
+bar on the Characters tab for switching, a full list in Settings for managing),
+and each persona keeps **its own resumable thread** per character.
+
+### The key design choice: swap in place, don't add a resolver
+
+~25 call sites read `Store.settings.userName` / `userPersona` directly, across
+`api.js`, `vhuman.js`, `views.js` and `app.js`. Introducing a `Store.who()`
+resolver would have been cleaner on paper but meant touching all of them, on an
+app I cannot test on a device.
+
+Instead the **existing** fields always hold the *effective* identity, and
+switching swaps them:
+
+- `settings.userName` / `userPersona` — effective identity; every existing path
+  keeps working untouched
+- `settings.defaultName` / `defaultPersona` — the fallback, stashed when you
+  leave the default and restored when you come back
+- `settings.activePersona` — persona id, or `''` for the default
+
+Zero call sites changed. `setIdentity()` routes Settings edits to the persona
+record when one is active, else to the default pair.
+
+### Migration: key on a schema number, not on `undefined`
+
+First attempt checked `if (s.defaultName === undefined)` and **silently never
+fired**, because `DEFAULTS` supplies `defaultName` — so `Object.assign` always
+populates it and it is never undefined. Same trap with a `personaSchema: 1`
+marker that lives in `DEFAULTS`.
+
+The rule: **a migration marker must default to the un-migrated value (`0`), not
+the migrated one.** `personaSchema: 0` in DEFAULTS; `init()` migrates when
+`!== 1`. Existing installs keep `userName`/`userPersona` verbatim and gain
+`defaultName`/`defaultPersona` as copies — behaviour is bit-identical.
+
+### Session scoping without a schema change
+
+Sessions gained one optional field, `personaId`, written at creation. Reads
+filter with `(s.personaId || '') === active`, so pre-1.5.0 sessions (no field)
+naturally belong to the default identity. **No compound index, no backfill, no
+reindex** — deliberately, to keep the on-device upgrade failure surface at zero.
+
+### Traps hit while building
+
+- **`data-pdel` was already taken** by the virtual-human places editor in
+  `Views.editor`. A blanket rename then renamed *that* too, creating the very
+  collision being avoided. Persona attributes are now `data-persona-*`; the
+  editor keeps `data-pdel`.
+- **`build.sh` had `FINAL` hardcoded** to `v1.4.11`, so the 1.5.0 build silently
+  overwrote the previous release. Now derived from the manifest.
+- `allSessions()` (the Conversations tab) had to be scoped too, not just
+  `getSessions()` — otherwise the tab leaked every persona's chats.
+- Settings were never part of a backup (pre-existing). So a restore brings back
+  personas and their chats but starts on the default identity; switching to a
+  restored persona reveals its chats. Left as-is — importing settings would drag
+  provider and key config across devices.
+
+### Tests
+
+`tests/persona-test.js` — 62 assertions over a fake IndexedDB: migration leaves
+an existing install untouched, session scoping both ways, switching swaps what
+every code path reads and round-trips without losing the default, Settings edits
+land on the right record, deleting an inactive persona leaves you where you were
+while deleting the active one falls back, backup/restore, wipe.
