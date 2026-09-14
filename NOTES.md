@@ -69,3 +69,17 @@ is the **third** time (v1.4.5, v1.4.7, and this session). The web sources were u
   inner class under Java 8.
 - Other reverts seen this session: `tests/vendor/` came back empty (the Playwright browser
   was in `.cache`, which is excluded), and both servers were down. Probe, never assume.
+
+
+## CONFIRMED WORKING ON THE USER'S PHONE (2026-09-14)
+
+- User installed 1.4.8 via the GitHub channel and reported "works perfect".
+- **Check for update → Install app update → About shows 1.4.8**: verified end to end from
+  a real device over GitHub Pages. The update channel is no longer theoretical.
+- What this retires: the dead-sandbox 502, the hardcoded `1.0.0`, and the mangled
+  version file. All three were reported by the user and all three are now closed.
+- The phone is permanently on `https://tensozanghetzu-hub.github.io/horde-studio-apk/`.
+  From here, shipping a fix is `bash /home/user/sync-github.sh "what changed"` and the
+  user pressing Check for update. No reinstall, no address typing, no sandbox.
+- Next session: probe before assuming. Servers (8000/8010) and the SDK do not survive a
+  restart, and `dl/` reappears whenever `setup-sdk.sh` runs (it is gitignored now).
