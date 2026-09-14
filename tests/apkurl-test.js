@@ -129,6 +129,23 @@ function return_run(phone) {
       eq('reset forgets the version file',
         phone.Updates.apkUrl(), 'https://you.github.io/horde-studio-mobile/app');
 
+      /* 5b - a build that mangles the payload (pre-1.4.8) is still readable */
+      var Q = String.fromCharCode(34), BS = String.fromCharCode(92);
+      var mangle = function (v) {
+        return String(v).split(Q).join("'").split(BS).join("'")
+                        .split(String.fromCharCode(10)).join(" ")
+                        .split(String.fromCharCode(13)).join(" ");
+      };
+      var old = makePhone(mangle(GITHUB));
+      old.Updates.saveUrl('https://you.github.io/horde-studio-mobile/');
+      return old.Updates.check().then(function (out) {
+        ok('a quote-mangled version file still parses',
+          out.remote && out.remote.apkCode === 12 && out.remote.webRev === '8b2ce2946e96');
+        eq('and the APK address survives it',
+          old.Updates.apkUrl(),
+          'https://you.github.io/horde-studio-mobile/HordeStudio-latest.apk');
+        return null;
+      }).then(function () {
       /* 6 - a bare filename is read relative to the address, so one channel
          works from Pages, raw.githubusercontent, a NAS or a home server */
       var rel = makePhone(JSON.stringify({
@@ -140,6 +157,7 @@ function return_run(phone) {
         eq('a relative apkUrl is joined to the update address',
           rel.Updates.apkUrl(),
           'https://raw.githubusercontent.com/you/repo/main/docs/HordeStudio-latest.apk');
+      });
       });
     })
     .then(function () {

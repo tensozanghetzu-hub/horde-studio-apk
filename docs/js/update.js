@@ -86,6 +86,22 @@
     });
   }
 
+  /* Read a version file. Builds before 1.4.8 mangled every double quote on
+   * the way out of the Android bridge, so a perfectly good answer arrived as
+   * {'apk': '1.4.7'} - valid-looking, but not JSON. Try the strict read
+   * first, and only if that fails attempt to put the quotes back. */
+  function parseVersionFile(body) {
+    try { return JSON.parse(body); }
+    catch (e) { /* carry on to the repair below */ }
+    var repaired = String(body).replace(/'/g, '"');
+    try {
+      var obj = JSON.parse(repaired);
+      if (obj && typeof obj === 'object' &&
+          ('apkCode' in obj || 'webRev' in obj || 'apk' in obj)) return obj;
+    } catch (e2) { /* not repairable */ }
+    throw new Error('The server did not answer with a version file');
+  }
+
   var Updates = {
     DEFAULT_URL: DEFAULT_URL,
 
@@ -96,16 +112,14 @@
     baseUrl: baseUrl,
     apkUrl: apkUrl,
 
-    /** Ask the server what is current, and work out what that means for us. */
+  /** Ask the server what is current, and work out what that means for us. */
     check: function (onProgress) {
       if (!can()) return Promise.reject(new Error('Self-update needs the newest APK. Install it once, then this screen handles the rest.'));
       var base = baseUrl();
       if (!base) return Promise.reject(new Error('No update address is set.'));
       return runJob(function () { return native().checkUpdate(base + '/version.json'); }, onProgress)
         .then(function (body) {
-          var remote;
-          try { remote = JSON.parse(body); }
-          catch (e) { throw new Error('The server did not answer with a version file'); }
+          var remote = parseVersionFile(body);
           var local = info();
           remember(remote);
           var out = { remote: remote, local: local };

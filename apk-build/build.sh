@@ -19,7 +19,7 @@ JAVAC="$JAVA_HOME/bin/javac"
 
 OUT="$ROOT/build"
 KEY="$ROOT/horde-studio.keystore"
-FINAL="/home/user/HordeStudio-v1.4.7.apk"
+FINAL="/home/user/HordeStudio-v1.4.8.apk"
 
 echo "==> cleaning"
 rm -rf "$OUT"
@@ -57,8 +57,8 @@ echo "==> linking APK (resources + manifest + assets)"
   -o "$OUT/app-nodex.apk" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
-  --version-code 12 \
-  --version-name 1.4.7 \
+  --version-code 13 \
+  --version-name 1.4.8 \
   --auto-add-overlay \
   -R $(ls "$OUT"/res-flat/*.flat | tr '\n' ' ')
 

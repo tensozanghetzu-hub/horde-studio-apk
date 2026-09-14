@@ -518,6 +518,26 @@ public class MainActivity extends Activity {
     private static final String CR = String.valueOf((char) 13);
     private static final String BS = String.valueOf((char) 92);
 
+    /** Encode a string so it survives being embedded in a JSON string.
+     *  Escapes, rather than substitutes: a job result can be a whole JSON
+     *  document (the version file), and swapping its quotes out destroys it.
+     *  jsonEscape below is for text nobody has to parse. */
+    private static String jsonString(String v) {
+        if (v == null) return "";
+        StringBuilder sb = new StringBuilder(v.length() + 16);
+        for (int i = 0; i < v.length(); i++) {
+            char ch = v.charAt(i);
+            if (ch == '"') sb.append("\\\"");
+            else if (ch == '\\') sb.append("\\\\");
+            else if (ch == '\n') sb.append("\\n");
+            else if (ch == '\r') sb.append("\\r");
+            else if (ch == '\t') sb.append("\\t");
+            else if (ch < 0x20) sb.append(String.format("\\u%04x", (int) ch));
+            else sb.append(ch);
+        }
+        return sb.toString();
+    }
+
     private static String jsonEscape(String v) {
         if (v == null) return "";
         return v.replace(Q, "'").replace(BS, "'").replace(NL, " ").replace(CR, " ");
@@ -650,15 +670,15 @@ public class MainActivity extends Activity {
             if (j == null) return jsonError("no such job");
             String r = "{" + Q + "state" + Q + ":" + Q + j.state + Q
                     + "," + Q + "progress" + Q + ":" + j.progress
-                    + "," + Q + "message" + Q + ":" + Q + jsonEscape(j.message) + Q
-                    + "," + Q + "result" + Q + ":" + Q + jsonEscape(j.result) + Q + "}";
+                    + "," + Q + "message" + Q + ":" + Q + jsonString(j.message) + Q
+                    + "," + Q + "result" + Q + ":" + Q + jsonString(j.result) + Q + "}";
             if (!"running".equals(j.state)) synchronized (jobs) { jobs.remove(id); }
             return r;
         }
 
         private String jsonError(String msg) {
             return "{" + Q + "state" + Q + ":" + Q + "error" + Q
-                    + "," + Q + "message" + Q + ":" + Q + jsonEscape(msg) + Q
+                    + "," + Q + "message" + Q + ":" + Q + jsonString(msg) + Q
                     + "," + Q + "progress" + Q + ":0"
                     + "," + Q + "result" + Q + ":" + Q + Q + "}";
         }
