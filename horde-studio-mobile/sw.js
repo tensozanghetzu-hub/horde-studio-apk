@@ -1,0 +1,40 @@
+/* Horde Studio — offline app shell */
+var CACHE = 'horde-studio-v5';
+var SHELL = [
+  './', './index.html', './manifest.webmanifest',
+  './css/app.css',
+  './js/idb.js', './js/ui.js', './js/store.js', './js/api.js', './js/horde.js', './js/vhuman.js', './js/views.js', './js/update.js', './js/app.js',
+  './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'
+];
+
+self.addEventListener('install', function (e) {
+  e.waitUntil(caches.open(CACHE).then(function (c) {
+    return c.addAll(SHELL).catch(function () {});
+  }).then(function () { return self.skipWaiting(); }));
+});
+
+self.addEventListener('activate', function (e) {
+  e.waitUntil(caches.keys().then(function (keys) {
+    return Promise.all(keys.map(function (k) { return k === CACHE ? null : caches.delete(k); }));
+  }).then(function () { return self.clients.claim(); }));
+});
+
+self.addEventListener('fetch', function (e) {
+  var req = e.request;
+  if (req.method !== 'GET') return;
+  var url = new URL(req.url);
+  if (url.origin !== self.location.origin) return;   // never cache provider / Horde traffic
+
+  e.respondWith(
+    caches.match(req).then(function (hit) {
+      var net = fetch(req).then(function (res) {
+        if (res && res.status === 200 && res.type === 'basic') {
+          var copy = res.clone();
+          caches.open(CACHE).then(function (c) { c.put(req, copy); });
+        }
+        return res;
+      }).catch(function () { return hit; });
+      return hit || net;
+    })
+  );
+});

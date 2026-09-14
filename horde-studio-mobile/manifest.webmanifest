@@ -1,0 +1,23 @@
+{
+  "name": "Horde Studio",
+  "short_name": "Horde",
+  "description": "Mobile AI roleplay studio — characters, persistent worlds and story memory.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0b0a12",
+  "theme_color": "#0b0a12",
+  "categories": ["entertainment", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ],
+  "shortcuts": [
+    { "name": "New character", "url": "./index.html#new" },
+    { "name": "Conversations", "url": "./index.html#chats" }
+  ]
+}

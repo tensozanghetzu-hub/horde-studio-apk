@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cleartext is allowed so you can point the app at a local model server on your LAN
+     (Ollama / LM Studio / KoboldCpp) which is usually plain http on 192.168.x.x. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true"/>
+</network-security-config>
