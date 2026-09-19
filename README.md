@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.5.1
+# Horde Studio — Mobile (Android) · v1.5.2
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -621,6 +621,25 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.5.2
+
+**The world character sheet no longer swallows the screen.** In a world with a
+big sheet (an FF14-style one carries ~70 stat lines), the HUD rendered taller
+than several phone screens, stuck to the top of the world-run screen, and the
+"What do you do?" input sat unreachable below it.
+
+- **The sheet folds.** Above six stats, the HUD collapses to one line —
+  place, world clock and turn, purse, open tasks — with a `sheet (n)` button
+  that expands the full stats and inventory. Tap again to fold. Small sheets
+  stay flat, exactly as before.
+- **The input is always on screen.** The HUD is now capped at 45% of the
+  viewport and scrolls internally when expanded, so the chat thread and the
+  input can never be pushed off screen again — no scrolling required to play.
+- Last-turn change chips (gil, XP, items…) stay visible even while the sheet
+  is folded.
+- Service-worker cache bumped to `horde-studio-v7`; without it a phone keeps
+  the old `views.js`/`app.css` from disk (the worker is cache-first).
 
 ## What's new in v1.5.1
 

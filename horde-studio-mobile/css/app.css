@@ -441,16 +441,27 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .post-text{font-size:14px;line-height:1.5;white-space:pre-wrap;word-break:break-word}
 
 /* ---------- authored worlds ---------- */
+/* The HUD is capped at 45vh and scrolls internally when expanded, so the
+   sheet can never push the thread or the "What do you do?" input off screen. */
 .wr-hud{
-  position:sticky;top:0;z-index:6;display:flex;flex-wrap:wrap;gap:6px 14px;
+  position:sticky;top:0;z-index:6;display:flex;flex-direction:column;
+  max-height:45vh;overflow-y:auto;-webkit-overflow-scrolling:touch;
   padding:9px 14px;font-size:12px;color:var(--dim);
   background:rgba(15,13,25,.94);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
   border-bottom:1px solid var(--line-soft);
 }
 .wr-hud b{color:var(--text);font-weight:600}
+.wr-hud-row{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.wr-hud-more{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px}
+.wr-hud-more[hidden]{display:none}
 .wr-hud .wr-at{flex:1 1 100%;color:var(--text);font-size:13px;font-weight:600}
+.wr-hud-toggle{
+  border:1px solid var(--line);border-radius:999px;background:var(--surface);
+  color:var(--muted);font-size:11px;line-height:1.6;padding:0 9px;cursor:pointer;
+}
+.wr-hud-toggle:active{background:var(--surface-2)}
 .wr-changes{
-  flex:1 1 100%;display:flex;flex-wrap:wrap;gap:4px 6px;
+  display:flex;flex-wrap:wrap;gap:4px 6px;margin-top:6px;
 }
 .wr-changes .chip{font-size:11px;padding:2px 8px;border-radius:999px;
   background:rgba(232,121,249,.12);color:var(--accent-2);border:1px solid rgba(232,121,249,.22)}

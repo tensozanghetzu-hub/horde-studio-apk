@@ -1429,33 +1429,54 @@
       '</div></div>';
   }
 
+  /* The sheet folds. A world with many stats (a job grid, say) would otherwise
+     render a HUD taller than several phone screens and bury the input under it
+     - one line always shows (place, time, purse, tasks, what just changed) and
+     the rest sits behind a tap. */
+  var wrHudOpen = false;
+  Views.wrHudOpen = function (v) { if (v === undefined) return wrHudOpen; wrHudOpen = !!v; };
+
   /* Time, stats, purse, pockets and tasks - whatever the world switches on. */
   Views.worldHud = function (world, run, changes) {
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var loc = HW.location(world, run.locationId);
-    var out = '<span class="wr-at">' + esc(loc ? loc.name : 'Somewhere') + '</span>';
+    var stats = hud.stats || [];
 
-    if (hud.showClock !== false) {
-      out += '<span><b>' + esc(HW.clockOf(run, hud).text) + '</b> · turn ' + (run.turn || 0) + '</span>';
-    }
-    (hud.stats || []).forEach(function (st) {
+    var sheet = '';
+    stats.forEach(function (st) {
       var v = run.stats[st.id];
       if (v === undefined) return;
-      out += '<span>' + esc(st.name) + ' <b>' + esc(String(v)) + '</b>' +
+      sheet += '<span>' + esc(st.name) + ' <b>' + esc(String(v)) + '</b>' +
              (st.max ? '/' + esc(String(st.max)) : '') + '</span>';
     });
-    if ((gr.modules || {}).commerce !== false && run.stats[run.cashId] !== undefined) {
-      out += '<span><b>' + esc(String(run.stats[run.cashId])) + '</b> ' +
-             esc(gr.currencyName || 'cash') + '</span>';
+    if ((gr.modules || {}).inventory !== false && run.inventory && run.inventory.length) {
+      sheet += '<span>' + esc(run.inventory.join(', ')) + '</span>';
     }
-    if ((gr.modules || {}).inventory !== false && run.inventory.length) {
-      out += '<span>' + esc(run.inventory.join(', ')) + '</span>';
+
+    var head = '<span class="wr-at">' + esc(loc ? loc.name : 'Somewhere') + '</span>';
+    if (hud.showClock !== false) {
+      head += '<span><b>' + esc(HW.clockOf(run, hud).text) + '</b> · turn ' + (run.turn || 0) + '</span>';
+    }
+    if ((gr.modules || {}).commerce !== false && run.stats[run.cashId] !== undefined) {
+      head += '<span><b>' + esc(String(run.stats[run.cashId])) + '</b> ' +
+             esc(gr.currencyName || 'cash') + '</span>';
     }
     if ((gr.modules || {}).quests !== false) {
       var open = (run.quests || []).filter(function (q) { return !q.done; });
       if (open.length) {
-        out += '<span>tasks: ' + esc(open.map(function (q) { return q.text; }).join('; ')) + '</span>';
+        head += '<span>tasks: ' + esc(open.map(function (q) { return q.text; }).join('; ')) + '</span>';
       }
+    }
+
+    var collapsible = stats.length > 6;
+    if (collapsible) {
+      head += '<button type="button" class="wr-hud-toggle" data-act="wr-hud-toggle">' +
+             (wrHudOpen ? 'hide sheet' : 'sheet (' + stats.length + ')') + '</button>';
+    }
+
+    var out = '<div class="wr-hud-row">' + head + '</div>';
+    if (sheet) {
+      out += '<div class="wr-hud-more"' + (collapsible && !wrHudOpen ? ' hidden' : '') + '>' + sheet + '</div>';
     }
     if (changes && changes.length) {
       out += '<div class="wr-changes">' + changes.map(function (c) {
@@ -1465,9 +1486,26 @@
     return out;
   };
 
+  /* Flip the folded sheet in place - no re-render, so the change chips
+     from the last turn stay visible. */
+  Views.bindWorldHud = function (hud, world) {
+    on(hud, '[data-act=wr-hud-toggle]', 'click', function () {
+      wrHudOpen = !wrHudOpen;
+      var more = hud.querySelector('.wr-hud-more');
+      if (more) more.hidden = !wrHudOpen;
+      var btn = hud.querySelector('[data-act=wr-hud-toggle]');
+      if (btn) btn.textContent = wrHudOpen ? 'hide sheet' :
+        'sheet (' + ((world.hudConfig || {}).stats || []).length + ')';
+    });
+  };
+
   Views.worldRun = function (world, run, changes) {
     var hud = $('#wr-hud'), thread = $('#wr-thread');
-    if (hud) { hud.hidden = false; hud.innerHTML = Views.worldHud(world, run, changes); }
+    if (hud) {
+      hud.hidden = false;
+      hud.innerHTML = Views.worldHud(world, run, changes);
+      Views.bindWorldHud(hud, world);
+    }
     if (!thread) return;
     thread.innerHTML = (run.log || []).map(function (m) { return worldBubble(m, world); }).join('');
     thread.scrollTop = thread.scrollHeight;

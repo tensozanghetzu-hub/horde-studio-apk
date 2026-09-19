@@ -393,3 +393,63 @@ byte-identical to the local build.
 Coincidence worth noting, since size alone is used as a quick identity check
 elsewhere: 1.5.0 and 1.5.1 are both exactly 277,659 B. **Do not identify a
 build by size** — check the sha256.
+
+---
+
+## v1.5.2 — collapsible world HUD (2026-09-19)
+
+### The report
+
+A player imported an FF14-style world ("The Unwritten Adventurer"). Its
+character sheet carries ~70 stat lines (25 jobs × level/XP, gauges, gil,
+gear). On the world-run screen the HUD is `position:sticky; top:0` with
+`flex-wrap` and no height cap, so it rendered as a block roughly four phone
+screens tall. The "What do you do?" input sits *below* the HUD in the DOM;
+with the HUD eating the whole viewport it was unreachable. The player
+confirmed the scroll hard-stops at the sheet's last line — on their device
+the page simply does not scroll past it, so no amount of swiping reaches
+the input. They were unable to play at all.
+
+### The fix (two parts)
+
+1. **The sheet folds.** `Views.worldHud` (js/views.js) now renders a
+   permanent one-line summary — place, world clock + turn, purse, open
+   tasks — and, when the world defines more than six stats, moves the stats
+   and inventory into a `.wr-hud-more` block that is hidden by default,
+   behind a `sheet (n)` / `hide sheet` toggle. `Views.bindWorldHud` flips
+   the block in place (no re-render, so the last-turn change chips survive).
+   Small worlds (≤6 stats) render flat, exactly as before. The open/closed
+   state persists across per-turn re-renders.
+2. **The input can never be buried again.** `.wr-hud` is capped at
+   `max-height:45vh` with internal scrolling (css/app.css). Even fully
+   expanded, the HUD can cover at most 45% of the viewport; the thread and
+   the composer always have the rest. On the player's screen no scrolling
+   is needed at all to reach the input.
+
+`sw.js` cache bumped `horde-studio-v6` → `horde-studio-v7` — the worker is
+cache-first (`return hit || net`), so a SHELL change without a new cache
+name would silently no-op on phones that already ran the previous web
+bundle.
+
+### Verification
+
+New suite `tests/worldhud-test.js` (24 checks, zero dependencies, real
+`hordeworld.js` + real `views.js` in a VM with a stubbed UI/Store/document,
+fake HUD element for the toggle binding):
+
+- 7-stat sheet folds by default; summary carries place/clock/turn/purse/tasks
+- toggle label and `hidden` state flip correctly, in place, no re-render
+- state survives a re-render; re-binding on a fresh element does not
+  double-flip
+- ≤6-stat sheet stays flat with no toggle
+- change chips render outside the fold
+
+Full suite after the change: **257 passed, 0 failed** — hordeworld 76,
+persona 62, worldgraph 40, worldpack 18, apkurl 11, history 7, hordectx 4,
+world-compat 15, worldhud 24. `node --check` clean on every js file and
+sw.js. The 45vh cap is layout and is confirmed on device, not in the VM.
+
+Not covered here: on-device confirmation on the POCO X3 Pro (the screen that
+failed), and a live-provider turn. The player's existing run (turn 0) is
+untouched — the fix is purely presentational; the web-channel update
+applies it without an APK reinstall.

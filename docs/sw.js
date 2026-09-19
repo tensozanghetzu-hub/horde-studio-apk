@@ -1,9 +1,9 @@
 /* Horde Studio — offline app shell */
-/* Bumped for the 1.5.1 world-prompt / reply-duplication / backup fixes.
-   This worker is cache-first (`return hit || net`), so without a new cache
-   name a phone keeps running the previous api.js and store.js from disk even
-   after the web channel has replaced them. */
-var CACHE = 'horde-studio-v6';
+/* Bumped for the 1.5.2 collapsible world HUD. This worker is cache-first
+   (`return hit || net`), so without a new cache name a phone keeps running
+   the previous views.js and app.css from disk even after the web channel
+   has replaced them. */
+var CACHE = 'horde-studio-v7';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
