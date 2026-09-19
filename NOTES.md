@@ -375,9 +375,21 @@ evidence the report was accurate. Existing suites unchanged afterwards:
 hordeworld 76, persona 62, worldgraph 40, worldpack 18, apkurl 11, history 7,
 hordectx 4 — 228 total, 0 failures.
 
-### State at the end of this turn
+### Published
 
-Source, tests and changelog are done and versioned **1.5.1 / code 18**.
-**Nothing was built, rebuilt, committed or published** — the handoff explicitly
-withholds that permission, and `docs/` still serves 1.5.0. Publishing needs a
-fresh `build.sh` + `build-channel.py` + push, and the user's go-ahead.
+Done in two steps, as the handoff required. The first turn stopped at source
+only — no build, commit or push — because the handoff withholds that
+permission until it is asked for. The user then approved it explicitly.
+
+`49e16d0..7fc1467` — **v1.5.1 / code 18**, `HordeStudio-v1.5.1.apk`,
+277,659 B, sha256 `0de0a87d73456a15ba4763e4edfc92b1a8ffb5d05e0aa6264b19c29ec89bb398`.
+Channel `webRev f58a67a46396`, web.zip 158,417 B, 20 files.
+
+Verified after publishing: Pages serves 1.5.1; the served `sw.js` carries
+`horde-studio-v6`, `api.js` carries `wantStream`, `store.js` carries the worlds
+export; release `v1.5.1` holds both APK assets; the downloaded APK is
+byte-identical to the local build.
+
+Coincidence worth noting, since size alone is used as a quick identity check
+elsewhere: 1.5.0 and 1.5.1 are both exactly 277,659 B. **Do not identify a
+build by size** — check the sha256.
