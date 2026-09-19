@@ -116,7 +116,9 @@
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note) {
     var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
-    var system = macros(s.systemPrompt, character, s);
+    /* A world run (and any caller that knows better) supplies character.systemPrompt
+       with the narrator rules plus live state. Fall back to the global prompt. */
+    var system = macros(character.systemPrompt || s.systemPrompt, character, s);
     var sheet = charSheet(character, s, session, recent);
     if (sheet) system += '\n\n' + sheet;
     if (note) system += '\n\n' + note;
@@ -142,7 +144,8 @@
   /** Build a plain-text prompt for AI Horde / non-chat backends. */
   function buildPrompt(character, session, history, s, note, budgetTokens) {
     var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
-    var head = macros(s.systemPrompt, character, s) + '\n\n' + charSheet(character, s, session, recent);
+    var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
+      '\n\n' + charSheet(character, s, session, recent);
     if (note) head += '\n\n' + note;
     var ex = examplesToMessages(character.examples, character, s).map(function (m) {
       return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
@@ -209,13 +212,21 @@
 
   /** Stream a chat completion. onDelta(textChunk). Returns full text. */
   function streamChat(s, messages, onDelta, signal, override) {
+    /* The parser must follow the mode we actually asked for, not the global
+       setting. summarize() (auto-memory) and quickText() (AI persona draft)
+       force stream:false; when the user has streaming on, their JSON answer was
+       fed to the SSE parser and came back as '' — so memory silently never
+       updated. Derive one value and use it for both request and response. */
+    var wantStream = (override && override.stream !== undefined)
+      ? !!override.stream
+      : (s.streaming !== false);
     var body = Object.assign({
       model: s.model,
       messages: messages,
       temperature: s.temperature,
       top_p: s.topP,
       max_tokens: s.maxTokens,
-      stream: true
+      stream: wantStream
     }, override || {});
 
     return fetch(endpoint(s) + '/chat/completions', {
@@ -228,7 +239,7 @@
           throw new Error('API ' + r.status + ': ' + msg);
         });
       }
-      if (!s.streaming) {
+      if (!wantStream) {
         return r.json().then(function (d) {
           var txt = (d.choices && d.choices[0] && (d.choices[0].message ? d.choices[0].message.content : d.choices[0].text)) || '';
           if (onDelta) onDelta(txt);
@@ -569,9 +580,13 @@
       }
       var msgs = buildChat(char, session, o.history, s, o.note);
       if (idx > 0) msgs.push({ role: 'assistant', content: full });
+      /* Preview this pass in its own buffer. loop() cleans the returned text and
+         commits it to `full` exactly once — accumulating here as well left two
+         copies of every tag, so a single [[cash:+10]] settled as +20. */
+      var streamed = '';
       return streamChat(s, msgs, function (chunk) {
-        full += chunk;
-        if (o.onDelta) o.onDelta(chunk, full);
+        streamed += chunk;
+        if (o.onDelta) o.onDelta(chunk, full + (full ? ' ' : '') + streamed);
       }, o.signal, o.override);
     }
 

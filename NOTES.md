@@ -308,3 +308,76 @@ an existing install untouched, session scoping both ways, switching swaps what
 every code path reads and round-trips without losing the default, Settings edits
 land on the right record, deleting an inactive persona leaves you where you were
 while deleting the active one falls back, backup/restore, wipe.
+
+## v1.5.1 — authored-world compatibility repair (2026-09-19)
+
+A third party supplied a written handoff (`uploads/Horde_Studio_1.5.0_Developer_Handoff.md`)
+pinning baseline `49e16d0` — which is exactly the v1.5.0 commit pushed minutes
+earlier, so the findings applied to live code. It described four defects, gave a
+reference patch, and supplied a standalone VM regression test.
+
+I did **not** blindly apply the patch. I verified each finding in source, wrote
+the test first and reproduced the failures, then made the changes.
+
+### The four reported defects
+
+1. **World prompt never reached the model.** `App.worldTurn()` passes
+   `HW.buildPrompt(...).system` as `character.systemPrompt`, but `buildChat()`
+   and `buildPrompt()` read `settings.systemPrompt`. Every authored-world turn
+   went out with the narrator rules, location, stats, inventory, tasks and lore
+   missing. Fixed in both builders: `character.systemPrompt || s.systemPrompt`.
+2. **Chat replies were appended twice.** `round()` accumulated streamed chunks
+   into `full` via `onDelta`; `loop()` then cleaned the returned text and
+   appended it again. One `[[cash:+10]]` settled as **+20**. Fixed with a
+   separate `streamed` preview buffer; `full` is committed only in `loop()`.
+   The non-streaming branch had the same fault (`onDelta(txt)` with the whole
+   text) and is covered by the same fix.
+3. **`stream: true` was hardcoded.** Only the response side honoured
+   `settings.streaming`. Now derived from the setting.
+4. **Backups omitted `worlds` / `worldRuns`** while Settings claimed otherwise.
+   Added to export and import. Absent keys must never clear existing data, so
+   import guards on `Array.isArray(...)` and only writes when non-empty.
+
+### A fifth defect the handoff did not list
+
+While checking #3 I found `streamChat()` chose its **parser** from
+`s.streaming`, but its **request** could be forced to `stream: false` by an
+override. `summarize()` (auto-memory) and `quickText()` (AI persona draft) both
+force that override. With streaming **on** — the shipped default — their JSON
+response was fed to the SSE parser and returned `''`.
+
+So **auto-memory had never recorded anything** for a default user, and the
+"AI draft" persona button did nothing. Fixed by deriving one `wantStream` value
+and using it for both request and response.
+
+This is why the new tests assert the `streaming: true` and `streaming: false`
+cases separately: the bug only manifests when streaming is on.
+
+### Service worker cache is part of the fix, not decoration
+
+`sw.js` is **cache-first** (`return hit || net`). Without a new `CACHE` name a
+phone keeps running the previous `api.js` / `store.js` from disk even after the
+web channel has replaced the files. Bumped `horde-studio-v5` → `-v6`. Skip this
+and the web-channel update silently does nothing.
+
+### Verification
+
+`tests/world-compatibility-regression-test.js` (15 checks, no dependencies, no
+network). Run against a pristine `git archive` of the baseline:
+
+| | baseline | patched |
+|---|---:|---:|
+| handoff's own 10 checks | 2 passed / 8 failed | 10 / 0 |
+| full suite (incl. 5 added) | 4 passed / 11 failed | **15 / 0** |
+
+The baseline figures match the handoff's stated 2/8 exactly, which is good
+evidence the report was accurate. Existing suites unchanged afterwards:
+hordeworld 76, persona 62, worldgraph 40, worldpack 18, apkurl 11, history 7,
+hordectx 4 — 228 total, 0 failures.
+
+### State at the end of this turn
+
+Source, tests and changelog are done and versioned **1.5.1 / code 18**.
+**Nothing was built, rebuilt, committed or published** — the handoff explicitly
+withholds that permission, and `docs/` still serves 1.5.0. Publishing needs a
+fresh `build.sh` + `build-channel.py` + push, and the user's go-ahead.

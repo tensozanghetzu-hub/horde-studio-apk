@@ -9,7 +9,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.5.0';
+  var VERSION = '1.5.1';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -310,14 +310,16 @@
       var self = this;
       return Promise.all([
         IDB.getAll('characters'), IDB.getAll('sessions'),
-        IDB.getAll('messages'), IDB.getAll('personas')
+        IDB.getAll('messages'), IDB.getAll('personas'),
+        IDB.getAll('worlds'), IDB.getAll('worldRuns')
       ]).then(function (r) {
         var s = Object.assign({}, self.settings);
         delete s.apiKey; delete s.hordeKey;   // credentials never leave the device
         return JSON.stringify({
           format: 'horde-studio-mobile', version: 1, exportedAt: new Date().toISOString(),
           settings: s, characters: r[0] || [], sessions: r[1] || [],
-          messages: r[2] || [], personas: r[3] || []
+          messages: r[2] || [], personas: r[3] || [],
+          worlds: r[4] || [], worldRuns: r[5] || []
         }, null, 2);
       });
     },
@@ -328,14 +330,24 @@
       var self = this;
       var chars = data.characters || [], sessions = data.sessions || [], msgs = data.messages || [];
       var personas = data.personas || [];
+      /* Backups written before 1.5.0 have no worlds/worldRuns keys. An absent
+         key must leave whatever is installed alone — never clear it. */
+      var worlds = Array.isArray(data.worlds) ? data.worlds : [];
+      var worldRuns = Array.isArray(data.worldRuns) ? data.worldRuns : [];
       return Promise.all([
         IDB.putMany('characters', chars),
         IDB.putMany('sessions', sessions),
         IDB.putMany('messages', msgs),
-        personas.length ? IDB.putMany('personas', personas) : Promise.resolve()
+        personas.length ? IDB.putMany('personas', personas) : Promise.resolve(),
+        worlds.length ? IDB.putMany('worlds', worlds) : Promise.resolve(),
+        worldRuns.length ? IDB.putMany('worldRuns', worldRuns) : Promise.resolve()
       ]).then(function () { return self.refreshPersonas(); })
         .then(function () {
-          return { characters: chars.length, sessions: sessions.length, messages: msgs.length, personas: personas.length };
+          return {
+            characters: chars.length, sessions: sessions.length,
+            messages: msgs.length, personas: personas.length,
+            worlds: worlds.length, worldRuns: worldRuns.length
+          };
         });
     },
 

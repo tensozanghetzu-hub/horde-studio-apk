@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.5.0
+# Horde Studio — Mobile (Android) · v1.5.1
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -621,6 +621,48 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.5.1
+
+Four bugs that broke **authored worlds** (` .horde_world`), plus a fifth found
+while fixing them. All five are fixed at the source; none is a world-specific
+hack.
+
+**1. The narrator was never talking.** The world engine built the prompt —
+narrator rules, current location, stats, inventory, open tasks, matching lore —
+and handed it to the model layer, which then quietly used your *global* system
+prompt instead. Every authored-world turn reached the model with the world's
+rules missing. Both provider types (OpenAI-compatible and AI Horde) are fixed.
+
+**2. Every reply was counted twice.** In the chat path the streamed text was
+added to the reply buffer as it arrived, and then the finished text was added
+again. A single `[[cash:+10]]` settled as **+20**, and items were picked up
+twice. Streaming, non-streaming and continuation passes are each now committed
+exactly once.
+
+**3. "Streaming" was requested even when you turned it off.** The outgoing
+request always said `stream: true`; only the response side respected the
+setting. A provider honouring the request could answer with event-stream data
+to code expecting JSON. The request now follows the setting.
+
+**4. Backups dropped your worlds.** Export and import covered characters,
+chats, messages and personas — but not `worlds` or `worldRuns`, while Settings
+claimed the backup held everything except keys. Both are now included. Old
+backups still restore fine and never delete existing worlds.
+
+**5. Auto-memory had stopped working.** Found while checking #3: the memory
+summariser and the "AI draft" persona button both force a non-streaming
+request, but the response was parsed according to your global streaming
+setting. With streaming **on** — the default — their JSON answer was fed to the
+event-stream parser and came back empty. So memory never updated and the draft
+button did nothing. The parser now follows the mode actually requested.
+
+Also: the offline service worker cache is bumped. It is cache-first, so without
+a new cache name a phone would keep running the previous JavaScript from disk
+even after the web channel replaced it.
+
+Note that #4 does not repair backups you already made — worlds missing from an
+existing backup file stay missing.
 
 ## What's new in v1.5.0
 
