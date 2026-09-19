@@ -453,3 +453,17 @@ Not covered here: on-device confirmation on the POCO X3 Pro (the screen that
 failed), and a live-provider turn. The player's existing run (turn 0) is
 untouched — the fix is purely presentational; the web-channel update
 applies it without an APK reinstall.
+
+### Published
+
+`7509322..dad35aa` — **v1.5.2 / code 19**, `HordeStudio-v1.5.2.apk`,
+277,659 B, sha256 `ead9412a51408a998db7ffb87ccbb7341556c7ec0e8b1c32cf155a296aaabd03`.
+Channel `webRev 71f2b00cca9e`, web.zip 159,032 B, 20 files. Release `v1.5.2`
+holds both APK assets.
+
+Verified after publishing: Pages serves 1.5.2; the served `sw.js` carries
+`horde-studio-v7`, `views.js` carries the fold markers, `app.css` carries the
+45vh cap; all key files 200. The downloaded release APK is byte-identical to
+the local build (first download attempt raced the asset upload and returned
+empty — retry confirmed the hash). A third 277,659 B APK in the row: the
+sha256 remains the only identity.
