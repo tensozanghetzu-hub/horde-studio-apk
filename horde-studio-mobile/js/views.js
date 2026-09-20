@@ -598,7 +598,7 @@
           '<div class="hint">The Horde is a queue, not an API — busy models can hold a job for minutes. ' +
           'Jobs show queue position and ETA live, and you can cancel at any time.</div></div>' +
         '<div class="field"><div class="field-head"><label>Horde text model</label></div>' +
-          '<div class="row"><button class="btn ghost sm" id="btn-htext" style="flex:1;text-align:left">' + esc(s.hordeTextModel || 'Any available (recommended)') + '</button>' +
+          '<div class="row"><button class="btn ghost sm" id="btn-htext" style="flex:1;text-align:left">' + esc(Horde.modelLabel(s.hordeTextModel) || 'Any available (recommended)') + '</button>' +
           '<button class="btn ghost sm" id="btn-refresh-tmodels">' + icon('refresh') + '</button></div>' +
           '<div class="hint">Only used when the provider above is set to AI Horde.</div></div>' +
       '</div>' +

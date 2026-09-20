@@ -1463,6 +1463,12 @@
         value: '', label: 'Any available (fastest)',
         sub: 'no model filter — whichever worker is free picks it up'
       }];
+      if (type === 'text') {
+        items.push({
+          value: Horde.ANY_UNCENSORED, label: 'Any available (uncensored)',
+          sub: 'only uncensored / abliterated models, whichever is free'
+        });
+      }
       rows.forEach(function (r) {
         items.push({
           value: r.name, label: r.name, dim: !r.count,

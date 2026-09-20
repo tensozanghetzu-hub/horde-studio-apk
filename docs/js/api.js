@@ -290,7 +290,7 @@
 
   /** Refuse early (and clearly) when the chosen Horde model has no workers. */
   function guardModel(type, name) {
-    if (!name) return Promise.resolve();
+    if (!name || name === Horde.ANY_UNCENSORED) return Promise.resolve();
     return Horde.modelStatus(type, name).then(function (st) {
       if (st && st.count === 0) {
         var e = new Error('No workers are serving “' + name + '” right now. ' +

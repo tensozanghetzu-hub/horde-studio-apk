@@ -9,7 +9,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.6.0';
+  var VERSION = '1.7.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -60,7 +60,7 @@
     hordeSize: 640,
     hordeSteps: 20,
     hordeMaxWait: 600,       /* seconds before we give up on a queued job */
-    hordeTextModel: '',
+    hordeTextModel: '',      /* '' = any available; Horde.ANY_UNCENSORED = uncensored only */
     autoMemory: true,
     memoryEvery: 14,
     sendOnEnter: false,

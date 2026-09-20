@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.6.0
+# Horde Studio — Mobile (Android) · v1.7.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -115,6 +115,11 @@ Open **Settings → Connection → Provider**:
 | **Ollama / LM Studio / KoboldCpp** | Free, local | Point at your PC’s LAN IP (`http://192.168.1.50:11434/v1`). Phone must be on the same Wi-Fi; cleartext is enabled for this. |
 
 Then **Model → tap → choose**, hit **Test connection**, and go build a character.
+
+With **AI Horde** as the provider, the text model sheet offers two special
+entries: **Any available (fastest)** (no filter — whichever worker is free)
+and **Any available (uncensored)** (same, but only uncensored models — see
+the v1.7.0 notes below).
 
 ---
 
@@ -621,6 +626,32 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.7.0
+
+**“Any available (uncensored)” for the Horde text model.** The model sheet
+(**Settings → Model**, Horde text) now has a second special option under
+**Any available (fastest)**: **Any available (uncensored)**. Each message is
+sent to whichever uncensored model has a worker online at that moment — the
+same fastest-free-worker behaviour, restricted to uncensored models.
+
+The Horde's API does not tag models as uncensored, so the app decides by
+name: the community markers **abliterated / uncensored / heretic**, plus a
+short list of well-known uncensored families that ship without a marker
+(Forgotten-Safeword, Stheno, Magnum). It is a best-effort heuristic — a model
+that comes online with none of those in its name will not be picked, and a
+name that merely sounds right will be.
+
+Two rules keep it honest:
+
+- only models with workers **online** count, so it never queues behind a dead
+  model;
+- if **no** uncensored model has a worker online, the send is refused with a
+  clear error — it never silently falls back to a censored model.
+
+The option appears for the text model only (image models carry no such tag),
+and it applies to everything that uses the Horde text model: chat, persona
+drafts, memory summaries and virtual-human actions.
 
 ## What's new in v1.6.0
 

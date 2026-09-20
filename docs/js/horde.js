@@ -96,6 +96,39 @@
     });
   }
 
+  /* ---------- “Any available (uncensored)” ---------- */
+  /* The Horde API carries no uncensored flag on its model list, so this is a
+     best-effort name detector: the community markers (abliterated /
+     uncensored / heretic) plus a few well-known uncensored families that
+     ship without a marker in the name. */
+  var ANY_UNCENSORED = '__any_uncensored__';
+  var UNCENS_MARK = /abliterat|uncens|heretic/i;
+  var UNCENS_FAMILIES = ['forgotten-safeword', 'stheno', 'magnum'];
+
+  function isUncensored(name) {
+    var n = String(name || '');
+    if (UNCENS_MARK.test(n)) return true;
+    var low = n.toLowerCase();
+    for (var i = 0; i < UNCENS_FAMILIES.length; i++) {
+      if (low.indexOf(UNCENS_FAMILIES[i]) >= 0) return true;
+    }
+    return false;
+  }
+
+  /** Uncensored models with workers online right now (may be empty). */
+  function anyUncensored() {
+    return onlineModels('text').then(function (rows) {
+      return rows.filter(function (m) { return isUncensored(m.name); })
+        .map(function (m) { return m.name; });
+    });
+  }
+
+  /** Display name for a saved Horde text-model setting. */
+  function modelLabel(value) {
+    if (value === ANY_UNCENSORED) return 'Any available (uncensored)';
+    return value || '';
+  }
+
   /** Is a specific model actually being served right now? null if unknown. */
   function modelStatus(type, name) {
     if (!name) return Promise.resolve(null);
@@ -235,6 +268,21 @@
 
   /* ---------- text ---------- */
   function generateText(o) {
+    /* '' → let the Horde pick the fastest free worker.
+       ANY_UNCENSORED → any free worker, but only uncensored models. */
+    var modelsReady = o.model === ANY_UNCENSORED ? anyUncensored() : Promise.resolve(null);
+    return modelsReady.then(function (uncList) {
+      var models = o.model && o.model !== ANY_UNCENSORED ? [o.model] : [];
+      if (o.model === ANY_UNCENSORED) {
+        if (!uncList.length) throw new Error('No uncensored workers are online right now — ' +
+          'use “Any available (fastest)” or pick a specific model.');
+        models = uncList;
+      }
+      return generateTextCore(o, models);
+    });
+  }
+
+  function generateTextCore(o, models) {
     /* Ask for a context the workers can actually serve: prompt (≈4 chars/token)
        plus the reply, rounded up, within the range workers advertise. */
     var promptTokens = Math.ceil((o.prompt || '').length / 4);
@@ -260,7 +308,7 @@
         singleline: false
       }
     };
-    if (o.model) payload.models = [o.model];
+    if (models.length) payload.models = models;
     if (!payload.params.stop_sequence) delete payload.params.stop_sequence;
 
     /* Some workers answer a job with nothing in it. That is a property of the
@@ -298,6 +346,8 @@
 
   global.Horde = {
     BASE: BASE, ANON: ANON,
+    ANY_UNCENSORED: ANY_UNCENSORED,
+    isUncensored: isUncensored, anyUncensored: anyUncensored, modelLabel: modelLabel,
     listImageModels: function () { return listModels('image'); },
     listTextModels: function () { return listModels('text'); },
     onlineImageModels: function () { return onlineModels('image'); },

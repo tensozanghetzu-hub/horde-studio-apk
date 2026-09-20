@@ -470,6 +470,87 @@ sha256 remains the only identity.
 
 ---
 
+## v1.7.0 — “Any available (uncensored)” Horde text model (2026-09-20)
+
+### The ask
+
+“in horde text model theres an option that says Any available (fastest), can
+you make an option any available (Uncensored) that targets any available
+model but Uncensored ones only?” — a text-model option that uses any
+available Horde model, restricted to uncensored ones.
+
+### The API has no uncensored flag (verified empirically)
+
+`GET /api/v2/status/models?type=text&model_state=all`
+(Client-Agent + `apikey: 0000000000`) → 29 text models; each row carries
+exactly `{name,count,eta,jobs,performance,queued,type}`. No safety or
+uncensored field exists in the response, and the older endpoints
+(`/api/v2/models`, `/api/v2/text/models`) 404. So “uncensored” must be a
+name-pattern filter over the live model list — the community convention
+(abliterated / heretic / uncensored), the same tags used in the
+Termux/llama.cpp context.
+
+### Design decisions
+
+- **Sentinel value, not a model name.** `s.hordeTextModel =
+  '__any_uncensored__'` (`Horde.ANY_UNCENSORED`), alongside `''` = no
+  filter. All four Horde-text call sites in api.js (chat, memory summary,
+  persona quickText, VH generateFree) keep passing the stored value through;
+  resolution happens exactly once, inside `Horde.generateText`, before the
+  payload is built.
+- **Detection by name.** `Horde.isUncensored(name)`: marker
+  `/abliterat|uncens|heretic/i` plus a short curated family list for the
+  well-known uncensored models that ship without a marker
+  (forgotten-safeword, stheno, magnum). Against the live 29-model list of
+  2026-09-20 it flags exactly the marker models (Qwen3.8-27B-Uncensored,
+  gemma-4-31B-it-heretic, Gemma-4-E4B-it-Ultra-Uncensored-Heretic,
+  Judas-Uncensored, gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M,
+  Gemma-4-E4B-Uncensored-HauhauCS) plus Stheno ×3, Forgotten-Safeword and
+  mini-magnum — and skips plain instruct and unmarked RP models (Skyfall,
+  Behemoth, Cydonia, Angelic Eclipse, Nymphaea, Super-Nova).
+- **“Any available” = has workers right now.** `anyUncensored()` =
+  `onlineTextModels()` filtered by `isUncensored` — reuses the existing
+  5-minute model-list cache, so no extra requests.
+- **No silent censored fallback.** If zero uncensored models are online,
+  `generateText` rejects with “No uncensored workers are online right now —
+  use ‘Any available (fastest)’ or pick a specific model.” Falling back to a
+  random instruct model would defeat the purpose of the option.
+- **guardModel skips the sentinel** (it is not one model); the refusal lives
+  in generateText, where the list is known.
+
+### Where it landed
+
+- `horde.js` — `ANY_UNCENSORED`, `isUncensored`, `anyUncensored`,
+  `modelLabel`; `generateText` is now a thin wrapper over
+  `generateTextCore(o, models)` that resolves the model first;
+  `payload.models` is built from the resolved list.
+- `app.js` — model sheet gains a third entry (text type only):
+  value = sentinel, label “Any available (uncensored)”.
+- `api.js` — `guardModel` passes the sentinel through.
+- `views.js` — settings button shows `Horde.modelLabel(...)` so the sentinel
+  renders as its option name.
+- `store.js` — comment on `hordeTextModel`.
+- `tests/horde-uncensored-test.js` — new suite, 20 checks: detector
+  positives/negatives, availability filter (offline uncensored model
+  excluded), the exact payload for '' / sentinel / named model (captured
+  from the mocked `/generate/text/async` POST), and the refusal message.
+
+### Verification
+
+- Full suite 11/11 suites, 293 checks (273 + 20 new).
+- Live sanity: on today's live list the sentinel resolves to 10 models, all
+  count>0 (Qwen3.8-27B-Uncensored 4 workers, Forgotten-Safeword-22B 4,
+  L3-8B-Stheno-v3.2 4, gemma-4-31B-it-heretic 3, mini-magnum-12b-v1.1 2, …).
+
+### Limits / not ported
+
+- Heuristic only: a model with no marker in its name and no family on the
+  list is invisible to the option. `UNCENS_FAMILIES` is deliberately short;
+  extend it when a new staple appears.
+- No per-worker verification — the filter decides which *models* to ask for,
+  not what a worker actually serves.
+- Images: no equivalent option (the image model sheet is unchanged).
+
 ## v1.6.0 — upstream 18.1.0 alignment (2026-09-20)
 
 ### The ask
