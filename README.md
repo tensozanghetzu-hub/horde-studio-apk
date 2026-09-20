@@ -36,47 +36,6 @@ an earlier version keeps your characters and chats.
 | `apk-build/` | Android wrapper source + `build.sh` / `setup-sdk.sh` to rebuild the APK. |
 | Live preview | [The same app running as a website](https://tensozanghetzu-hub.github.io/horde-studio-apk/) — try it in your browser before installing. |
 
-> **v1.4.4 updates itself from inside the app.** Settings → App updates → Check for
-> update. Fixes to the interface download as a small bundle and are applied without a
-> reinstall — no Play Store, no install prompt. See [Updating the app](#updating-the-app).
-
-> **v1.4.3 keeps long lines inside the bubble.** When a model answers with a fenced block
-> — a status panel, a stat readout, a stanza — that text used to run off the right edge of
-> the screen and get cut off mid-word. Code and preformatted blocks now wrap like any
-> other text, and every screen was checked at 320, 360 and 412 px.
-
-> **v1.4.2 keeps the model's thinking out of the chat.** Some models plan out loud —
-> question headers, notes to self, “the prompt says…” — and used to answer with that
-> planning instead of the scene. Recognisable reasoning is now stripped before a reply
-> is shown. Settings → Generation → **Strip the model's thinking** (on by default). See
-> [When a model thinks out loud](#when-a-model-thinks-out-loud).
-
-> **v1.4.1 fixes “Error: The Horde returned no text (job empty)”.** Some workers answer a
-> job with nothing in it — about one in four on the public cluster — and the app used to
-> give up immediately. It now asks a different worker, up to 5 times inside a 45-second
-> budget, and tells you what it's doing. See [Empty replies](#empty-replies-job-empty).
-
-> **v1.4.0 brings Virtual Humans 2.0 from Horde Studio 18.** A life is no longer just a
-> clock and a mood: each one has places they go (with journeys that take real time),
-> needs that build up, other people, a diary, and a relationship with you that is kept
-> separate from anyone else's. Replies can arrive as separate texts, like messaging a
-> real person, and autonomous messages are capped per day so they can't eat your kudos.
-> See [Virtual Humans 2.0](#virtual-humans-20).
-
-> **v1.3.0 fixes replies that stop mid-sentence on the Horde.** Replies now end where a
-> character's turn ends (stop sequences), the model can't write your lines for you, and
-> if a reply is still cut off by the token limit the app quietly asks for the rest and
-> stitches it back together. See [Cut-off replies](#cut-off-replies).
-
-> **v1.2.0 adds Virtual Humans** — characters with their own clock, routine, mood and
-> relationship state, who sleep instead of answering, and who message you first.
-> See [Virtual humans](#virtual-humans).
-
-> **v1.1.0 fixes the “hangs on AI Horde” problem.** Jobs now show live queue position,
-> ETA and an elapsed clock, Cancel works, nothing waits on a request that isn't
-> answering, and picking a model with no workers online is refused up front instead of
-> queuing forever. Details in [Why it hung](#why-it-hung-and-what-changed).
-
 ---
 
 ## Install on your phone
