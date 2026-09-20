@@ -1,9 +1,9 @@
 /* Horde Studio — offline app shell */
-/* Bumped for the 1.5.2 collapsible world HUD. This worker is cache-first
-   (`return hit || net`), so without a new cache name a phone keeps running
-   the previous views.js and app.css from disk even after the web channel
-   has replaced them. */
-var CACHE = 'horde-studio-v7';
+/* Bumped for the 1.6.0 upstream-18.1.0 alignment. This worker is
+   cache-first (`return hit || net`), so without a new cache name a phone
+   keeps running the previous vhuman.js, views.js and app.js from disk even
+   after the web channel has replaced them. */
+var CACHE = 'horde-studio-v8';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',

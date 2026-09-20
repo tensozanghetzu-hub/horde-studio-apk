@@ -987,7 +987,10 @@
              writing our lines or handing the pen back */
           text = API.stripThinking(text, (Store.settings || {}).stripThinking !== false);
           text = API.cleanReply(text, char.name, (Store.settings || {}).userName);
-          if (!text) text = '…';
+          /* 18.0.3: a reply that comes back empty or malformed is a failed
+             request — it costs nothing, sends nothing, and falls into the
+             backoff below. Never auto-resubmit. */
+          if (!text) throw new Error('the model came back empty — nothing was sent, nothing was spent');
           if (!manual) VH.spendOne(vh);
           if (kind === 'photo') return App.vhPhoto(char, session, text, { manual: manual });
           return App.saveAutonomous(char, session, text, { manual: manual });

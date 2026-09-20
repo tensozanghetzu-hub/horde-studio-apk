@@ -62,6 +62,8 @@
 
   /* How likely they are to up and go somewhere, per hour awake. */
   var WANDER = { off: 0, low: 0.05, medium: 0.12, high: 0.22 };
+  /* How likely they are to spend time with one of their people, per hour awake. */
+  var CONTACT = { off: 0, low: 0.03, medium: 0.08, high: 0.16 };
   /* Autonomous generations allowed per day before the engine stops asking. */
   var DEFAULT_CAP = 12;
 
@@ -328,6 +330,53 @@
       return beats;
     },
 
+    /* ================= the people around them ================= */
+    /* How likely they are to spend real time with one of their people, per
+       hour awake. The 18.1.0 100-day test upstream showed what happens when
+       contact doesn't count: relationships with everyone but the player
+       flatline. So completed time together moves closeness — and only warmth
+       that was actually earned fades with silence. A family history that was
+       only ever written stays as written. */
+    tickPeople: function (vh, hours, asleep, at) {
+      var beats = [], people = vh.people || [];
+      if (!people.length || hours <= 0) return beats;
+      var now = at || Date.now();
+
+      if (hours >= 0.5) {
+        people.forEach(function (p) {
+          if (!p.lastContact) return;              /* never met: as authored */
+          if (now - p.lastContact < 14 * DAY) return;
+          var c = p.closeness || 0;
+          if (!c) return;
+          var fade = Math.min(Math.abs(c), 0.012 * (hours / 24));
+          p.closeness = clamp(c - Math.sign(c) * fade);
+        });
+      }
+
+      if (asleep || vh.autonomy === 'off') return beats;
+      var rate = (CONTACT[vh.autonomy] || 0) * hours;
+      if ((vh.needs.social || 0) > 0.7) rate *= 1.5;   /* lonely people seek company faster */
+      if (Math.random() >= rate) return beats;
+
+      /* weight toward whoever they are already close to */
+      var weights = people.map(function (p) { return 1 + Math.max(0, p.closeness || 0); });
+      var total = weights.reduce(function (a, b) { return a + b; }, 0);
+      var roll = Math.random() * total, p = people[0];
+      for (var i = 0; i < people.length; i++) { roll -= weights[i]; if (roll < 0) { p = people[i]; break; } }
+      if (!p || !p.name) return beats;
+
+      p.lastContact = now;
+      var minutes = 15 + Math.floor(Math.random() * 105);            /* 15–120 min */
+      var c = p.closeness || 0;
+      var base = minutes >= 45 ? 0.09 : 0.05;
+      var delta = c < -0.25
+        ? -base * (0.4 + 0.3 * Math.random())                        /* hostile: tense meeting */
+        : base * (0.5 + 0.5 * Math.random());
+      p.closeness = clamp(c + delta);
+      beats.push('spent time with ' + p.name);
+      return beats;
+    },
+
     /* ================= calendar ================= */
     /** The event happening now (within 45 min), if any. */
     eventNow: function (vh, when) {
@@ -494,6 +543,9 @@
 
       /* needs */
       VH.tickNeeds(vh, simHours, asleep, now).forEach(function (b) { beats.push(b); });
+
+      /* the people in their life: contact moves closeness, silence fades it */
+      VH.tickPeople(vh, simHours, asleep, now).forEach(function (b) { beats.push(b); });
 
       var act = VH.activity(vh, now);
       if (hours >= 1) {

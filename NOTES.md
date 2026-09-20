@@ -467,3 +467,97 @@ Verified after publishing: Pages serves 1.5.2; the served `sw.js` carries
 the local build (first download attempt raced the asset upload and returned
 empty — retry confirmed the hash). A third 277,659 B APK in the row: the
 sha256 remains the only identity.
+
+---
+
+## v1.6.0 — upstream 18.1.0 alignment (2026-09-20)
+
+### The ask
+
+"Update the APK to the latest version" — clarified to mean upstream
+`ddkhan24/hordestudio` 18.1.0, released 2026-09-20 08:22 UTC. Upstream
+18.1.0 is a Virtual Humans 2.0 desktop release: rebuilt creation forms
+(page builder, system map), three new engine subsystems (mind 685 lines,
+cognition 95, embodiment 138), 52 Python backend modules reorganised into
+`virtual_humans/backend/`, and behavioural fixes found by a 100-day
+end-to-end scenario (docs/vh2/complex-100-day-e2e-20260920). Scope decided
+with the user: **aligned port** — the behavioural fixes that make sense on
+a phone, the desktop-only subsystems documented as not ported.
+
+Method: GitHub compare API for `v18.0.4...v18.1.0` (2 commits, 296 files —
+the repo tarballs are ~320 MB each and /tmp is a 1 GB tmpfs, so no
+extracting), patches read for the simulation-relevant engines
+(vh2-social-bonds, vh2-lifestyle/geography, vh2-decision, vh2-transport,
+vh-simulation-core, vh-life-schema), plus the 18.0.2/18.0.3 release notes
+to close the gap since the mobile app's last port (18.0.1, context budget).
+
+### What the 100-day test actually found (and what the phone shared)
+
+- **Social bonds:** completed contact activities never counted as bond
+  evidence — only calendar-plan co-location did, so over 100 days
+  relationships with supporting people flatlined. **The mobile engine had
+  the identical bug**: `people[].closeness` was authored once and nothing
+  in the engine ever touched it. → Ported.
+- **Sleep:** urgent-sleep-pressure gate (pressure ≥ 85 → only sleep goals;
+  ≥ 75 at home → propose sleep). Mobile sleep is a fixed window
+  (`isAsleep` by time) — no pressure dynamics exist to fix. → Not
+  applicable.
+- **Meals:** poverty no longer suppresses essential meals (eat, record
+  debt; home meals free). Mobile lives have no money/cost model — meals
+  always happen. → Not applicable.
+- **Travel:** embodiment-aware mode filtering (new embodiment subsystem).
+  Mobile travel is a single walking/routed leg, no modes, no body profile.
+  → Not applicable.
+- **Decision temperature scaling** (uneven cognition) — mobile wander is a
+  plain probability, no temperature. → Not applicable.
+
+### Changes
+
+1. `js/vhuman.js` — `VH.tickPeople` (wired into `tick` after needs, so
+   travel/meal beats still win the chronicle slot): per-person
+   `lastContact`; contact probability per awake hour by autonomy
+   (off 0 / low 0.03 / medium 0.08 / high 0.16, ×1.5 when social need >
+   0.7); a meeting is 15–120 min and moves closeness by 0.025–0.135
+   (positive when the bond is not hostile, negative when it is); drift:
+   only people with a recorded meeting fade, 0.012/day after 14 days of
+   silence, capped at neutral. `CONTACT` table beside `WANDER`.
+2. `js/views.js` — AI persona draft: the tagline becomes the character's
+   direction with an explicit anti-normalisation instruction; "strengths,
+   flaws" reworded to "strengths and flaws as they actually are". Still
+   one bounded `quickText` request (320 tokens) filling the persona field
+   only.
+3. `js/app.js` — `vhOutreach`: a reply that is empty after
+   `stripThinking`/`cleanReply` now throws into the existing backoff
+   handler — no budget spent, no "…" bubble, no auto-resubmit. (18.0.3
+   class.)
+4. `js/views.js` — Life-editor place delete: cancels an ongoing trip to/from
+   the place, moves them if it's where they are, clears `placeId` from
+   diary events, and toasts exactly what happened.
+5. Audits with no change needed: outreach budget was already deducted only
+   on success with backoff (18.0.2/18.0.3 parity); no save-path truncation
+   of long character text (all `slice`s are display/prompt-context);
+   template + full portable-human export/import already v18-era. The
+   *interactive* reply path keeps its "…" placeholder on an empty reply
+   (app.js main generateReply): that flow has a built-in 3-attempt Horde
+   retry, no budget to burn, nothing to wedge, and the bubble is
+   re-rollable — so upstream's malformed-reply recovery changes behaviour
+   there only for the worse.
+6. `sw.js` cache `horde-studio-v7` → `horde-studio-v8` (SHELL changed;
+   cache-first worker).
+
+### Verification
+
+New suite `tests/vhuman-test.js` — 16 checks, real `vhuman.js` in a VM
+with a frozen `Date` (2026-09-20T10:00Z) and a steerable `Math.random`,
+so the 100-day-class behaviour is provable: authored unmet people stay
+exactly as written; met people drift gently and stop at neutral; a 24h
+high-autonomy tick guarantees a recorded meeting that warms a warm bond
+and sours a hostile one; no contact while asleep, at autonomy off, or when
+the low-autonomy roll fails.
+
+Full suite: **273 passed, 0 failed** (previous 257 + 16 new).
+
+Not ported (desktop-only, documented in README): mind/cognition/embodiment
+subsystems, embodiment-aware routing, sleep-pressure dynamics,
+money/debt model, page-builder creation form, Python live backend,
+worker-encoding/packaging fixes.

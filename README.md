@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.5.2
+# Horde Studio — Mobile (Android) · v1.6.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -621,6 +621,62 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.6.0
+
+**Aligned with upstream Horde Studio 18.1.0** — the Virtual Humans 2.0
+release. Upstream is a desktop app with a Python backend, media generation
+and a rebuilt creation form; the phone app is a compact port. This release
+ports the behavioural fixes that make sense on a phone, and records what it
+deliberately leaves behind.
+
+**Their relationships with everyone but you finally move.** Upstream's
+100-day simulation found that when completed contacts don't count as bond
+evidence, relationships flatline: people you write into a life stay at the
+closeness you gave them, forever. The mobile engine had the exact same bug.
+Now, over real time, they spend time with the people in their life:
+
+- a meeting moves closeness — warmer when the bond is already warm, tense
+  (and slightly worse) when it is hostile;
+- only warmth that was actually *earned* fades with long silence — a family
+  history you only ever wrote stays as written;
+- they don't seek company while asleep, and an `off` autonomy stays still.
+
+**AI drafts keep the direction you gave.** The persona AI draft is still one
+bounded request filling one field, but it now treats your tagline as the
+character's direction — an unsettling, obsessive, antagonistic, eccentric or
+solitary person is written as that person, not a likable version of them.
+(Upstream 18.1.0 retired whole-human generation and normalisation for the
+same reason.)
+
+**A failed autonomous message costs nothing.** An outreach that comes back
+empty or malformed now falls into the backoff without spending the daily
+autonomy budget and without sending a "…" bubble. (18.0.3 class; the budget
+was already deducted only on success — the empty-reply hole is closed.)
+
+**Removing a place in the Life editor says what it does.** Deleting a place
+that is in use cancels an ongoing trip, moves them if that's where they are,
+and clears the location from diary events — each with a toast saying exactly
+what happened, instead of references quietly dangling. (18.1.0 live-human
+controls: "clear dependency errors for active references".)
+
+**Audited and already at parity** — no change needed: the daily budget was
+already spent only on success and failures already back off (18.0.2/18.0.3
+classes); long persona/appearance text was never truncated on save (the
+`slice`s in the code are display previews); template + full portable-human
+export/import already shipped with the v18 life.
+
+**Not ported — desktop-only.** The new mind/cognition/embodiment subsystems
+(with uneven cognition and mobility/sensory profiles), embodiment-aware
+travel routing, sleep-pressure dynamics (sleep here is a fixed window), the
+money/debt model (no costs in the phone life), the page-builder creation
+form and its system map, the Python live backend (flights, ticketmaster,
+GTFS, weather, media), and the worker-encoding/packaging fixes. The phone
+engine has none of the machinery those sit on, and porting them would be a
+re-implementation, not an update.
+
+Service-worker cache bumped to `horde-studio-v8` (cache-first worker —
+without it phones keep the old `vhuman.js`/`views.js`/`app.js` from disk).
 
 ## What's new in v1.5.2
 

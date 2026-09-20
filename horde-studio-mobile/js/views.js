@@ -1047,10 +1047,15 @@
       var name = $('#e-name', body).value.trim();
       if (!name) { UI.toast('Add a name first'); return; }
       UI.toast('Asking the model…');
+      /* 18.1.0: a drafted persona keeps the direction the player gave instead
+         of being normalised into an agreeable template. One bounded request,
+         one field — the draft fills the persona box and nothing else. */
       API.quickText(Store.settings,
         'Write a roleplay character persona for a character named ' + name +
-        (draft.tagline ? ' (' + draft.tagline + ')' : '') + '. ' +
-        'Use third person, under 200 words. Cover: appearance, personality, strengths, flaws, wants, and how they speak. No headings.',
+        (draft.tagline
+          ? ' — their direction is "' + draft.tagline + '". Follow it exactly: if it describes an unsettling, obsessive, antagonistic, eccentric or solitary person, write that person, not a likable version of them. '
+          : '. ') +
+        'Use third person, under 200 words. Cover: appearance, personality (strengths and flaws as they actually are), wants, and how they speak. No headings.',
         320).then(function (txt) {
           $('#e-persona', body).value = txt.trim();
           UI.toast('Draft inserted — edit as you like');
@@ -1124,10 +1129,24 @@
       });
       box.querySelectorAll('[data-pdel]').forEach(function (el) {
         el.onclick = function () {
-          if ((vh.places || []).length <= 1) return UI.toast('They need at least one place');
-          vh.places.splice(+el.getAttribute('data-pdel'), 1);
-          if (!VH.place(vh, vh.place)) vh.place = vh.places[0].id;
+          var list = vh.places || [];
+          if (list.length <= 1) return UI.toast('They need at least one place');
+          var i = +el.getAttribute('data-pdel');
+          var gone = list[i];
+          /* 18.1.0: removing a place that life still references says so,
+             instead of the references quietly dangling. */
+          var notes = [];
+          if (vh.travel && (vh.travel.to === gone.id || vh.travel.from === gone.id)) {
+            vh.travel = null;
+            notes.push('trip to ' + gone.name + ' cancelled');
+          }
+          var moved = (vh.calendar || []).filter(function (e) { return e.placeId === gone.id; }).length;
+          list.splice(i, 1);
+          if (vh.place === gone.id) { vh.place = list[0].id; notes.push('now placed at ' + list[0].name); }
+          (vh.calendar || []).forEach(function (e) { if (e.placeId === gone.id) e.placeId = null; });
+          if (moved) notes.push(moved + ' diary event' + (moved > 1 ? 's' : '') + ' have no location');
           renderPlaces(); renderCal();
+          if (notes.length) UI.toast(notes.join(' · '), 4000);
         };
       });
       var at = $('#vh-at', box);
