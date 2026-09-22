@@ -252,6 +252,8 @@ pre,code{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
 .chip svg{width:14px;height:14px}
 .chip:active{background:var(--surface-2)}
 .chip.on{color:var(--accent-2);border-color:rgba(232,121,249,.4)}
+/* a failed send: the message you just wrote gets an offer to send it again */
+.chip.retry{color:var(--accent);border-color:rgba(139,92,246,.5);background:var(--accent-soft);font-weight:600}
 .swipe{display:flex;align-items:center;gap:6px;margin-top:5px;color:var(--dim);font-size:11.5px}
 .swipe button{background:transparent;border:0;color:var(--muted);cursor:pointer;padding:4px}
 .swipe svg{width:16px;height:16px}

@@ -470,6 +470,57 @@ sha256 remains the only identity.
 
 ---
 
+## v1.8.0 — Retry button on a failed send (2026-09-20)
+
+### The ask
+
+"In horde mode. After 5 tryes the process stops. Can you add a button to the
+last thing user send. To retry" — when a Horde send dies after the built-in
+5-worker empty retry, the process stops with an error toast and the user has
+to retype the message. They want a button on their last sent message to send
+it again.
+
+### Design
+
+- **Flag on the message, chip in the renderer.** On failure, `generateReply`
+  marks the last *user* message `retry = true` and re-renders the thread.
+  `Views.messageHtml` renders a highlighted `↻ Retry` chip (first in the
+  user bubble's `.msg-actions`) exactly when that flag is set. Assistant
+  messages never get it. The flag survives re-renders (navigate away and
+  back, the offer is still there) until it's cleared.
+- **Retry = same message, fresh attempt.** The chip's handler clears the
+  flag and calls `App.generateReply()` with no options — the existing user
+  message stays put (no duplicate bubble, context identical to the original
+  send) and a new assistant bubble is generated against the same history.
+  The Horde re-dispatches to whatever worker is free. If that also fails,
+  the catch flags it again — the chip stays, tap again.
+- **Cleared when moot.** Any successful reply (the `generateReply` success
+  path) and any fresh `App.send` clear all `retry` flags and remove any
+  leftover `.chip.retry` from the DOM.
+- **Only honest triggers.** The flag is set in the non-abort error branch,
+  and only when the last stored message is a user message — so a failed VH
+  outreach or a failed reroll (last message is an assistant bubble) never
+  stamps a stale Retry onto an old user message.
+
+### Where it landed
+
+- `app.js` — catch branch flags last user message + re-renders; `retry`
+  action in the thread click dispatcher; flag/DOM cleanup in the generate
+  success path and at the top of `App.send`.
+- `views.js` — chip in `messageHtml` (user bubbles only, `m.retry` gated);
+  `Views.messageHtml` exported for testing.
+- `css/app.css` — `.chip.retry` styling (accent colour, soft background).
+- `tests/retry-test.js` — new suite, 9 checks: chip rendered for flagged
+  user messages (with icon + highlight class + sibling chips intact), absent
+  when unflagged, absent on assistant messages even when flagged, present
+  for an empty message body.
+
+### Verification
+
+- Full suite 12/12, all green (293 + 9 checks).
+- APK content-checked after build (chip string in views.js, retry action in
+  app.js, `.chip.retry` in app.css, sw v10, store 1.8.0).
+
 ## v1.7.0 — “Any available (uncensored)” Horde text model (2026-09-20)
 
 ### The ask

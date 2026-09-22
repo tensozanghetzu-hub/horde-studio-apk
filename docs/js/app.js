@@ -481,6 +481,11 @@
       text = (text || '').trim();
       App.genStop();
       msg._stream = null;
+      /* A reply came through — a failed send is no longer failed: drop any
+         Retry chip still showing in the thread. */
+      for (var ri = 0; ri < st.messages.length; ri++) if (st.messages[ri].retry) st.messages[ri].retry = false;
+      var chips = document.querySelectorAll('#thread .chip.retry');
+      for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
       if (!text) { text = '…'; }
       if (opts.continueFor) {
         msg.text = (msg.text || '') + (msg.text ? '\n\n' : '') + text;
@@ -528,6 +533,16 @@
       } else {
         el.remove();
         App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+        /* The Horde already tried five workers and all came back blank — offer a
+           Retry on the message the user just wrote, so nothing has to be retyped. */
+        var lastUser = null;
+        for (var i = st.messages.length - 1; i >= 0; i--) {
+          if (st.messages[i].role === 'user') { lastUser = st.messages[i]; break; }
+        }
+        if (lastUser) {
+          lastUser.retry = true;
+          Views.thread(char, session, st.messages);
+        }
         UI.toast('Error: ' + e.message, 6000);
         console.error(e);
       }
@@ -698,6 +713,10 @@
     var text = input.value.trim();
     if (!text || App.state.busy) return;
     input.value = ''; input.style.height = 'auto';
+    /* A fresh send supersedes any earlier Retry offer. */
+    for (var ri = 0; ri < App.state.messages.length; ri++) if (App.state.messages[ri].retry) App.state.messages[ri].retry = false;
+    var chips = document.querySelectorAll('#thread .chip.retry');
+    for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
     var char = App.state.char, session = App.state.session;
     var msg = { sessionId: session.id, role: 'user', text: text, createdAt: Date.now() };
     Store.addMessage(msg).then(function (m) {
@@ -1712,6 +1731,12 @@
       } else if (act === 'reroll') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
         App.generateReply({ rerollFor: msg });
+      } else if (act === 'retry') {
+        if (App.state.busy) return UI.toast('Wait for the current reply');
+        /* Same message, fresh attempt: the Horde re-dispatches to whatever
+           worker is free. */
+        msg.retry = false;
+        App.generateReply();
       } else if (act === 'cont') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
         App.generateReply({ continueFor: msg });
