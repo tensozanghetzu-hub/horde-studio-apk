@@ -1382,7 +1382,8 @@
         '</div>' +
         '<div class="msg-actions">' +
           (isMe
-            ? '<button class="chip" data-act="edit">' + icon('edit') + ' Edit</button>' +
+            ? (m.retry ? '<button class="chip retry" data-act="retry">' + icon('refresh') + ' Retry</button>' : '') +
+              '<button class="chip" data-act="edit">' + icon('edit') + ' Edit</button>' +
               '<button class="chip" data-act="del">' + icon('trash') + '</button>'
             : '<button class="chip" data-act="reroll">' + icon('refresh') + ' Reroll</button>' +
               '<button class="chip" data-act="cont">Continue</button>' +
@@ -1429,6 +1430,7 @@
   Views.fileToDataUrl = fileToDataUrl;
   Views.initials = initials;
   Views.avatarHtml = avatarHtml;
+  Views.messageHtml = messageHtml;
 
   /* ================= AUTHORED WORLDS ================= */
   /* Upstream .horde_world files: a place with streets and rooms, a cast,

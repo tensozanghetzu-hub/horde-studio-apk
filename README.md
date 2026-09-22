@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.7.0
+# Horde Studio — Mobile (Android) · v1.8.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -585,6 +585,20 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.8.0
+
+**A Retry button when a send dies.** On the public Horde, about a quarter of
+workers answer a job with nothing in it, and the app already re-asks up to
+five of them per message. When all five come back blank, the send used to
+stop with an error toast — and you had to retype everything. Now the message
+you just wrote gets a **↻ Retry** chip right under it: tap it and the exact
+same message goes out again, fresh queue, fresh workers. No retyping, no
+duplicate messages, no changes to your settings.
+
+The chip appears only after a send actually fails (so you always know why
+it's there), it stays if the retry fails too (tap again), and it disappears
+as soon as a reply comes through or you send anything new.
 
 ## What's new in v1.7.0
 
