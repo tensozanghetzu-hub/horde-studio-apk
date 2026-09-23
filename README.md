@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.8.1
+# Horde Studio — Mobile (Android) · v1.8.2
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -585,6 +585,18 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.8.2
+
+**A reply no longer yanks the view to the last word.** The follow-scroll now
+behaves like a real messenger: while you're sitting at the bottom, incoming
+text follows along (so a streaming reply stays in view as it's written);
+the moment you scroll up to read something, nothing fights you — a
+finishing reply, an arriving burst part, an autonomous message, a photo,
+anything. Scroll back down near the bottom and following resumes.
+
+What stayed: opening a chat still lands on the last message, and sending
+your own message still always shows it.
 
 ## What's new in v1.8.1
 

@@ -462,8 +462,7 @@
         msg._stream = full || ((msg._stream || '') + chunk);
         var mt = el.querySelector('.mtext');
         if (mt) mt.innerHTML = UI.md(msg._stream);
-        var th = $('#thread');
-        if (th.scrollHeight - th.scrollTop - th.clientHeight < 260) th.scrollTop = th.scrollHeight;
+        Views.stickToBottom($('#thread'));
       },
       onProgress: function (info) {
         var txt;
@@ -515,8 +514,9 @@
       }
       return (opts.rerollFor || opts.continueFor ? Store.updateMessage(msg) : Store.addMessage(msg));
     }).then(function () {
-      var th = $('#thread');
-      th.scrollTop = th.scrollHeight;
+      /* A finished reply must not yank the view to the last word if the
+         user scrolled up to read it — follow only when they're at the bottom. */
+      Views.stickToBottom($('#thread'));
       App.afterReply();
     }).catch(function (e) {
       msg._stream = null;
@@ -722,7 +722,7 @@
     Store.addMessage(msg).then(function (m) {
       App.state.messages.push(m);
       Views.appendMessage(char, m);
-      $('#thread').scrollTop = $('#thread').scrollHeight;
+      Views.stickToBottom($('#thread'), true);   // your own send: always show it
 
       if (char.vh && char.vh.enabled) {
         VH.noteContact(char, {});
@@ -737,7 +737,7 @@
           return Store.addMessage(sys).then(function (sm) {
             App.state.messages.push(sm);
             Views.appendMessage(char, sm);
-            $('#thread').scrollTop = $('#thread').scrollHeight;
+            Views.stickToBottom($('#thread'), true);
             App.persistVH(char);
           });
         }
@@ -889,8 +889,6 @@
         App.state.messages.push(m);
         if (App.state.screen === 'chat' && App.state.session && App.state.session.id === m.sessionId) {
           Views.appendMessage(char, m);
-          var th = $('#thread');
-          if (th) th.scrollTop = th.scrollHeight;
         }
         return Store.addMessage(m);
       });
@@ -1049,8 +1047,6 @@
       if (App.state.session && App.state.session.id === session.id && App.state.screen === 'chat') {
         App.state.messages.push(m);
         Views.appendMessage(char, m);
-        var th = $('#thread');
-        if (th) th.scrollTop = th.scrollHeight;
       } else {
         UI.toast((char.name || 'They') + ' sent you a message');
         if (App.state.screen === 'chats') Views.chats($('.screen'));
@@ -1104,7 +1100,6 @@
       if (App.state.session && App.state.session.id === session.id && App.state.screen === 'chat') {
         App.state.messages.push(m);
         Views.appendMessage(char, m);
-        $('#thread').scrollTop = $('#thread').scrollHeight;
       } else {
         UI.toast((char.name || 'They') + ' sent you a photo');
       }
@@ -1348,7 +1343,6 @@
           return Store.addMessage(msg).then(function (m) {
             App.state.messages.push(m);
             Views.appendMessage(App.state.char, m);
-            $('#thread').scrollTop = $('#thread').scrollHeight;
           });
         });
     }).then(function () {

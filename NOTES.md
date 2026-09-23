@@ -470,6 +470,57 @@ sha256 remains the only identity.
 
 ---
 
+## v1.8.2 — don't fight the reader (2026-09-23)
+
+### The ask
+
+"Ok so now it scrolls down by itself. But the moment i get a message it
+scrolls to the last word. Then i need to scroll back up so i can read the
+recieved message from it start. Can you make it so it scrolls to last
+message. But when i send a message and i recieve the response, it doesant
+go to the bottom" — keep open-at-last-message; stop the view jumping to the
+last word while a reply is being read from its start.
+
+### Root cause
+
+Seven places in the chat path scrolled `#thread` unconditionally: the
+reply-finished handler (the main yank — a completed reply always jumped to
+its last word), the VH burst parts, autonomous outreach, photos, image
+replies, `appendMessage` itself, and (guarded but separately) the stream
+deltas. The streaming delta already respected a 260px near-bottom
+threshold; everything else didn't.
+
+### The fix
+
+- **One helper, one rule.** `Views.stickToBottom(thread, force)` — scroll
+  only if `force` or the user is within 260px of the bottom. Every
+  main-chat scroll in app.js/views.js now goes through it; no raw
+  `#thread.scrollTop` writes remain (only the open-time image re-jump and
+  the world-run log, both deliberate).
+- **Force** (always jump): opening a chat (forceBottom), your own send,
+  the "they're asleep/busy" system note right after a send.
+- **Guarded** (follow only if at the bottom): streaming deltas, a finished
+  reply, burst parts, autonomous outreach, photos, image replies, and
+  `appendMessage` (which now carries the guard, so the four call sites
+  that scrolled after it needed no scroll of their own anymore).
+
+### Where it landed
+
+- `views.js` — `stickToBottom` (exported, returns whether it scrolled);
+  `Views.thread` and `appendMessage` use it.
+- `app.js` — onDelta, reply-finished, send, VH-delay note, burst, outreach,
+  photo, image reply — all through the helper.
+- `tests/threadscroll-test.js` — extended to 11 checks: follows at the
+  bottom, follows within 260px, does NOT yank when 500px up, force still
+  wins, appendMessage keeps a reader at 1000px and follows at the bottom.
+
+### Verification
+
+- Full suite 13/13 (307 + 6 new checks).
+- Grepped the whole scroll inventory: zero unconditional `#thread`
+  scrolls left; worldrun's log (separate screen, turn-based) untouched.
+- CSS/layout: unchanged from 1.8.1 (no device re-verification needed).
+
 ## v1.8.1 — chats open on the last message (2026-09-22)
 
 ### The ask

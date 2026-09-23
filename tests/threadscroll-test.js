@@ -106,5 +106,60 @@ sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thr
 Views.thread(char, null, msgs, 'm2');
 ok('a streaming reply scrolls to the bottom', thread.scrollTop === BOTTOM, 'scrollTop=' + thread.scrollTop);
 
+console.log('\nincoming text must not fight a reader');
+
+/* The reported bug: scrolled up to read a reply from its start, and a
+   finished reply yanked the view to the last word. */
+thread = fakeThread();
+thread.innerHTML = 'old content';
+thread.scrollTop = 4500;               // at the bottom, watching
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thread : null; };
+ok('at the bottom: incoming text follows', Views.stickToBottom(thread) === true && thread.scrollTop === BOTTOM);
+
+thread = fakeThread();
+thread.innerHTML = 'old content';
+thread.scrollTop = 4400;               // 100px up — still effectively at the bottom
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thread : null; };
+ok('slightly scrolled up (<260px): still follows', Views.stickToBottom(thread) === true && thread.scrollTop === BOTTOM);
+
+thread = fakeThread();
+thread.innerHTML = 'old content';
+thread.scrollTop = 4000;               // 500px up — the user is reading
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thread : null; };
+ok('reading (scrolled up): a finished reply does NOT yank the view',
+  Views.stickToBottom(thread) === false && thread.scrollTop === 4000, 'scrollTop=' + thread.scrollTop);
+
+thread = fakeThread();
+thread.innerHTML = 'old content';
+thread.scrollTop = 4000;
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thread : null; };
+ok('…unless forced (opening a chat)', Views.stickToBottom(thread, true) === true && thread.scrollTop === BOTTOM);
+
+console.log('\nappending a message');
+
+/* appendMessage needs createElement */
+var created = { _h: '' };
+Object.defineProperty(created, 'innerHTML', {
+  set: function (h) { this._h = h; this.firstElementChild = { html: h }; },
+  get: function () { return this._h; }
+});
+thread.appendChild = function () {};
+sandbox.document.createElement = function () { return created; };
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thread : null; };
+
+thread = fakeThread();
+thread.innerHTML = 'old content';
+thread.scrollTop = 1000;               // the user is reading mid-history
+thread.appendChild = function () {};
+Views.appendMessage(char, { sessionId: 's1', id: 'm9', role: 'assistant', text: 'a new message', createdAt: 9 });
+ok('an incoming message keeps a reader where they are', thread.scrollTop === 1000, 'scrollTop=' + thread.scrollTop);
+
+thread = fakeThread();
+thread.innerHTML = 'old content';
+thread.scrollTop = 4500;               // the user is at the bottom
+thread.appendChild = function () {};
+Views.appendMessage(char, { sessionId: 's1', id: 'm10', role: 'assistant', text: 'a new message', createdAt: 10 });
+ok('an incoming message follows when the user is at the bottom', thread.scrollTop === BOTTOM, 'scrollTop=' + thread.scrollTop);
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
