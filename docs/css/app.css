@@ -223,7 +223,13 @@ pre,code{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
   background:linear-gradient(90deg,var(--accent),var(--accent-2));transition:width .2s var(--ease)}
 
 /* ---------- chat ---------- */
-.screen-chat{padding:0 0 0;display:flex;flex-direction:column;min-height:calc(100vh - var(--bar-h) - var(--safe-t) - var(--nav-h) - var(--safe-b))}
+/* Fixed height, not min-height: with min-height a long thread grows the page,
+   the WINDOW becomes the scroller, and every thread.scrollTop in the JS is a
+   silent no-op — which is why chats opened at the first message on restart. */
+.screen-chat{padding:0;display:flex;flex-direction:column;height:calc(100vh - var(--bar-h) - var(--safe-t) - var(--nav-h) - var(--safe-b))}
+@supports (height:100dvh){
+  .screen-chat{height:calc(100dvh - var(--bar-h) - var(--safe-t) - var(--nav-h) - var(--safe-b))}
+}
 .thread{
   flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 12px 6px;display:flex;flex-direction:column;gap:12px;
   -webkit-overflow-scrolling:touch;
