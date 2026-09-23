@@ -470,6 +470,66 @@ sha256 remains the only identity.
 
 ---
 
+## v1.8.1 — chats open on the last message (2026-09-22)
+
+### The ask
+
+"Every time you close the app and restart it. The chats start at the first
+message, and you need to scroll down until last message. Can you make it so
+it start at last message or a button that appears just at the start to
+scroll automatically to last message" — open chats should start on the
+latest message (or offer a jump-to-latest button).
+
+### Root cause (found by reading, not guessing)
+
+The chat screen was `.screen-chat{min-height:calc(100vh - bars)}` — a
+**minimum** height, so a long conversation grew `.view` (min-height:100vh)
+and the **window** became the scroller. The code, meanwhile, was written
+for the other case: `Views.thread`, `appendMessage` and the streaming
+`onDelta` all do `thread.scrollTop = thread.scrollHeight` on `#thread`,
+which is a silent no-op when `.thread` (flex:1, overflow-y:auto) never
+overflows because its container grew instead. And `App.go` ends with
+`window.scrollTo(0,0)` — so every chat open reset the window to the top.
+Short chats (content shorter than the viewport) never hit this, which is
+why it looked like a fresh-start problem.
+
+### The fix
+
+- **CSS:** `.screen-chat` — `min-height` → `height` (100vh, with a
+  `@supports (height:100dvh)` enhancement for mobile viewports). `.thread`
+  is now always the real scroller, and every existing scrollTop call in the
+  codebase works as written: bottom-on-open, follow-while-streaming,
+  near-bottom re-renders.
+- **JS:** `Views.thread(char, session, messages, streamingId, forceBottom)`
+  — new 5th parameter. `App.openSession` (the funnel for every chat open:
+  character card resume, chat list, new-chat greeting, fork) passes
+  `true`, so a fresh open always lands on the last message even if the
+  previous content's scroll position was mid-way. Images below the fold
+  (generated art, avatars) load after the first jump and push the content
+  down — a one-time `load` handler re-jumps as long as the user hasn't
+  scrolled away (<160 px from the bottom).
+- No jump button: with auto-scroll-on-open the button's job is done;
+  offering the alternative the user suggested would have added UI for a
+  state that no longer happens.
+
+### Where it landed
+
+- `css/app.css` — `.screen-chat` fixed height + comment explaining the trap.
+- `views.js` — `Views.thread` forceBottom param + image-load re-jump.
+- `app.js` — `App.openSession` passes forceBottom.
+- `tests/threadscroll-test.js` — new suite, 5 checks, on a fake `#thread`
+  with real scroll math: fresh open → bottom; top of a long previous chat →
+  bottom; mid-scroll re-render keeps position; near-bottom re-render
+  follows; streaming reply scrolls to bottom.
+
+### Verification
+
+- Full suite 13/13, all green (302 + 5 checks).
+- CSS half (the actual scroller swap) is layout — verified on device per
+  project convention, pinned in code comment + README.
+- Worldrun (`#wr-thread`, different screen) and every other screen
+  untouched — the change is scoped to `.screen-chat`.
+
 ## v1.8.0 — Retry button on a failed send (2026-09-20)
 
 ### The ask
