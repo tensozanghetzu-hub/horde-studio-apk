@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.8.3
+# Horde Studio — Mobile (Android) · v1.9.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -585,6 +585,36 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.9.0
+
+**You can now create your own virtual humans — and your own worlds —
+with the app's AI doing the drafting.**
+
+- **New people:** open a blank character sheet and a *Create with AI*
+  card asks for one or two lines about who the person is. One request
+  drafts the whole sheet — name, tagline, persona, scenario, opening
+  line, example dialogue — plus the life around it: 3–5 places, a daily
+  routine, sleep hours, 2–4 people in their life and a few diary beats.
+  Everything lands in the normal fields, so you edit it like anything
+  else before you save. The direction you give is kept exactly: a
+  grumpy, obsessive or solitary person comes back grumpy, obsessive or
+  solitary — not a tamed version of them.
+- **Per-field drafts:** the persona, scenario and greeting fields each
+  have an *AI draft* chip that fills just that field, one request at a
+  time.
+- **New worlds:** on the Worlds screen, *Create a world with AI* takes a
+  description and drafts a full world — a connected set of places you
+  can walk between, a cast with flaws and goals, factions,
+  relationships, lore, a referee prompt and an opening scene. The draft
+  goes through the same importer a `.horde_world` file uses, so what you
+  get is a real playable world, not a text blob.
+
+All of it runs on the provider you already configured (Horde by
+default). Every button says what it costs — *1 request* — and opening
+an editor or the world sheet spends nothing. If the model sends
+something unusable, the app says so and you press again; it never
+silently writes a half-world into place.
 
 ## What's new in v1.8.3
 
