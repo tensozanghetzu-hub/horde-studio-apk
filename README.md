@@ -507,9 +507,9 @@ A URL you control (GitHub Pages, a home server, a NAS) removes the problem entir
 - `web.zip` holds `index.html`, `css/`, `js/`, `icons/`, `sw.js` and
   `manifest.webmanifest` at the zip root, with no wrapper folder.
 
-`apk-download/server.py` in this workspace does all of this, recomputing both files from
-source on every request, so editing a file in `horde-studio-mobile/` is enough to publish
-an update.
+In this workspace `tools/build-channel.py` (run automatically by `sync-github.sh`)
+recomputes both files from source, so editing a file in `horde-studio-mobile/` and
+syncing is enough to publish an update.
 </details>
 
 ## Hosting the update channel on GitHub

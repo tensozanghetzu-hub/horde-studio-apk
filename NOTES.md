@@ -8,7 +8,6 @@ reads the channel in `docs/`, not the release.
 Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on purpose — it makes Play Protect warn; user accepts 'install anyway'), storage (maxSdk 28).
 
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` (SDK is deleted after each build).
-Download/update server: `python3 apk-download/server.py` → port 8010. `/app` = newest APK, `/version.json` + `/web.zip` = self-update (recomputed live from source).
 Tests: `/tmp/smoke2/` (not durable) — `smoke.js` (24), `think-test.js` (19), `retry-test.js` (9).
 Self-update test: `update-test.js` (26 checks, simulates the native bridge, real HTTP).
 Layout tests need chromium: `layout.js` (bubble overflow), `overflow-audit.js` (every screen at 320/360/412 px), `md-test.js` (formatter).
@@ -34,7 +33,6 @@ Needs the static server on port 8000: `python3 -m http.server 8000 --bind 0.0.0.
   `<address>/app` when it is absent. GitHub cannot serve `/app`, hence the field.
 - `webRev` in the GitHub channel is a **content hash** (12 hex of sha256 over the file
   manifest), not a timestamp — rebuilding with no changes produces no update offer.
-  `apk-download/server.py` still uses mtime; harmless, it is the fallback channel.
 - `tests/apkurl-test.js` — 8 assertions, pure node via `vm`, no browser needed
   (Playwright's browser lives in `.cache`, which is not durable). Run:
   `node /home/user/tests/apkurl-test.js`.
@@ -85,7 +83,7 @@ is the **third** time (v1.4.5, v1.4.7, and this session). The web sources were u
 - The phone is permanently on `https://tensozanghetzu-hub.github.io/horde-studio-apk/`.
   From here, shipping a fix is `bash /home/user/sync-github.sh "what changed"` and the
   user pressing Check for update. No reinstall, no address typing, no sandbox.
-- Next session: probe before assuming. Servers (8000/8010) and the SDK do not survive a
+- Next session: probe before assuming. The layout-test server (8000) and the SDK do not survive a
   restart, and `dl/` reappears whenever `setup-sdk.sh` runs (it is gitignored now).
 
 
