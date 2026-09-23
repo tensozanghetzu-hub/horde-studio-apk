@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.8.2
+# Horde Studio — Mobile (Android) · v1.8.3
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -585,6 +585,28 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.8.3
+
+**Updating is now one check and one button.** The old flow was
+Check → Apply now → Check → Install app update → Check → Apply again. Now a
+Check leads somewhere, depending on what is new:
+
+- **Only new files:** one button — *Apply now*. Done.
+- **Only a new app:** one button — *Install app update*. Done.
+- **Both:** one button — *Update everything*. Android asks you to confirm
+  the install, and when you reopen the app the new files apply
+  themselves. No second Check for it.
+
+A secondary option keeps the current app and takes only the files, if you
+prefer. The app never auto-downloads anything — a Check is still the only
+way anything gets fetched — and the files-apply-themselves step only ever
+uses the answer from the Check you pressed seconds earlier, never an old
+cached one.
+
+**The thinking dots can no longer get stuck.** The reply pipeline now
+guarantees its cleanup even if the error handling itself hits a problem —
+the one way the "working…" dots could run forever.
 
 ## What's new in v1.8.2
 

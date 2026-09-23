@@ -751,17 +751,40 @@
             (r.local.overlay ? 'update ' + esc(r.local.rev) : 'as shipped') + '.');
           return;
         }
+        /* One guided path, not a list of options to reason about:
+           - files only → Apply now
+           - app only → Install app update
+           - both → "Update everything" (the install), and the files apply
+             themselves on the next boot. No second Check for it. */
         var html = '';
-        if (r.newWeb) html += '<p>Fixes are ready to apply <b>without reinstalling anything</b>.</p>';
-        if (r.newApk) html += '<p>A new app version <b>' + esc(r.remote.apk || '') + '</b> is available. ' +
-          'It downloads the APK and opens the Android install screen.</p>';
+        if (r.newApk && r.newWeb) {
+          html += '<p><b>App ' + esc(r.remote.apk || '') + '</b> and new files are ready.</p>' +
+            '<p>Install the app, then reopen it — the new files apply themselves.</p>';
+          html += '<div class="row-gap" style="margin-top:8px">' +
+            '<button class="btn sm" id="btn-upd-all">Update everything</button> ' +
+            '<button class="btn ghost sm" id="btn-upd-apply">Files only — keep this app</button></div>';
+        } else if (r.newApk) {
+          html += '<p>App <b>' + esc(r.remote.apk || '') + '</b> is ready. ' +
+            'It downloads the APK and opens the Android install screen.</p>';
+          html += '<div class="row-gap" style="margin-top:8px">' +
+            '<button class="btn sm" id="btn-upd-install">Install app update</button> ' +
+            '<button class="btn ghost sm" id="btn-upd-browser">Or in browser</button></div>';
+        } else {
+          html += '<p>Fixes are ready to apply <b>without reinstalling anything</b>.</p>';
+          html += '<div class="row-gap" style="margin-top:8px">' +
+            '<button class="btn sm" id="btn-upd-apply">Apply now</button></div>';
+        }
         if (r.remote.note) html += '<p>' + esc(r.remote.note) + '</p>';
-        html += '<div class="row-gap" style="margin-top:8px">' +
-          (r.newWeb ? '<button class="btn sm" id="btn-upd-apply">Apply now</button> ' : '') +
-          (r.newApk ? '<button class="btn sm" id="btn-upd-install">Install app update</button> ' +
-            '<button class="btn ghost sm" id="btn-upd-browser">Or in browser</button>' : '') +
-          '</div>';
         upSay(html);
+
+        var allBtn = $('#btn-upd-all', body);
+        if (allBtn) allBtn.addEventListener('click', function () {
+          try {
+            U.installApk();
+            upSay('Downloading — Android will ask you to confirm the install. ' +
+              'After it finishes, reopen the app: the new files apply themselves.');
+          } catch (e5) { upSay('Could not start the install: ' + esc(e5.message || String(e5))); }
+        });
 
         var applyBtn = $('#btn-upd-apply', body);
         if (applyBtn) applyBtn.addEventListener('click', function () {
