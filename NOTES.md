@@ -309,7 +309,8 @@ while deleting the active one falls back, backup/restore, wipe.
 
 ## v1.5.1 — authored-world compatibility repair (2026-09-19)
 
-A third party supplied a written handoff (`uploads/Horde_Studio_1.5.0_Developer_Handoff.md`)
+A third party supplied a written handoff (`uploads/Horde_Studio_1.5.0_Developer_Handoff.md`,
+removed in the 2026-09-23 workspace cleanup — the findings below are the record)
 pinning baseline `49e16d0` — which is exactly the v1.5.0 commit pushed minutes
 earlier, so the findings applied to live code. It described four defects, gave a
 reference patch, and supplied a standalone VM regression test.
