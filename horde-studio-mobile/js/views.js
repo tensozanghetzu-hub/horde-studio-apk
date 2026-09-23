@@ -1402,18 +1402,30 @@
     '</div>';
   }
 
+  /* Follow the bottom only when the user is already there (within 260px) —
+     or when told to. Scrolling up to read a reply must not be fought by
+     incoming text: that is what made a finished reply yank the view to the
+     last word. */
+  function stickToBottom(thread, force) {
+    if (!thread) return false;
+    if (force || thread.scrollHeight - thread.scrollTop - thread.clientHeight < 260) {
+      thread.scrollTop = thread.scrollHeight;
+      return true;
+    }
+    return false;
+  }
+  Views.stickToBottom = stickToBottom;
+
   Views.thread = function (char, session, messages, streamingId, forceBottom) {
     var s = Store.settings;
     var thread = $('#thread');
-    var nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
     thread.innerHTML = messages.map(function (m) {
       if (m.id === streamingId) m._stream = m._stream || '';
       return messageHtml(m, char, s);
     }).join('');
     var st = thread.querySelector('.msg.streaming .mtext') ||
       (streamingId ? thread.querySelector('[data-mid="' + streamingId + '"] .mtext') : null);
-    if (nearBottom || streamingId || forceBottom) {
-      thread.scrollTop = thread.scrollHeight;
+    if (stickToBottom(thread, forceBottom || !!streamingId)) {
       if (forceBottom && thread.querySelectorAll) {
         /* Images below the fold (generated art, avatars) load after this first
            jump and push the content down — re-jump when they land, as long as
@@ -1436,7 +1448,7 @@
     wrap.innerHTML = messageHtml(m, char, Store.settings);
     var el = wrap.firstElementChild;
     thread.appendChild(el);
-    thread.scrollTop = thread.scrollHeight;
+    stickToBottom(thread, false);
     return el;
   };
 
