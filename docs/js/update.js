@@ -214,6 +214,40 @@
         if (blocked && blocked !== i.rev) localStorage.removeItem('hs.blockedRev');
       }
       native().confirmUpdate();
+
+      /* A fresh install or upgrade: the APK's version code just went up. The
+         user was told "after the install, the new files apply themselves" —
+         so do it. A Check was done right before the install (that is how the
+         install was offered), and its answer is remembered in hs.remote. */
+      var seen = parseInt(localStorage.getItem('hs.lastApkCode') || '0', 10);
+      var cur = i.apkCode || 0;
+      if (cur > seen) {
+        /* Claim it first: a failed auto-apply must not retry on every boot. */
+        localStorage.setItem('hs.lastApkCode', String(cur));
+        var r = cachedRemote();
+        /* Only trust a check that is close to the install (minutes). A week-old
+           remembered remote would apply files OLDER than the new APK ships. */
+        var ageOk = false;
+        if (r && r.updated) {
+          var t = Date.parse(r.updated);
+          ageOk = !isNaN(t) && (Date.now() - t) < 48 * 3600 * 1000;
+        }
+        if (r && r.webRev && ageOk && (!i.overlay || String(i.rev) !== String(r.webRev))) {
+          var toast = global.UI && global.UI.toast;
+          if (toast) toast('Applying the new files…', 3000);
+          runJob(function () { return native().applyWebUpdate(baseUrl() + '/web.zip', String(r.webRev)); })
+            .then(function () {
+              try { localStorage.setItem('hs.pendingRev', String(r.webRev)); } catch (e) { }
+              setTimeout(function () { Updates.reloadFresh(); }, 400);
+            })
+            .catch(function (e) {
+              console.error('auto web apply failed:', e);
+              if (toast) toast('New files will need to be applied from Settings.', 5000);
+            });
+        }
+      } else if (!localStorage.getItem('hs.lastApkCode')) {
+        localStorage.setItem('hs.lastApkCode', String(cur));
+      }
     } catch (e) { }
   })();
 

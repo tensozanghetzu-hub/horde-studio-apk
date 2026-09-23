@@ -470,6 +470,78 @@ sha256 remains the only identity.
 
 ---
 
+## v1.8.3 — one-check updates + stuck-thinking fix (2026-09-23)
+
+### The asks
+
+1. "the thinking animation never stops" — the typing dots / working banner
+   keep running after a reply.
+2. "is there a way to make updating simpler. now its Check for updates →
+   Apply now → Check for update → Install app update → Check for update →
+   Apply now" — the update flow needs six actions and three re-checks.
+
+### The stuck thinking dots
+
+`working = App.genInfo || App.state.busy || App.state.bursting`. Every
+`busy=true`/`genStart` site (generateReply, vhOutreach) clears in a final
+`.then` chained after `.catch` — so **any throw inside the error handler
+skips the cleanup and the dots run forever**. The error handler is exactly
+the code path a Horde user hammers (≈1 in 4 jobs empty → 5 retries → throw
+→ my v1.8.0 retry-chip block re-renders the thread inside the catch).
+Fix: both error handlers wrapped in try/catch so they cannot throw, and
+the final cleanup (`busy=false`, `abort=null`, `setStop(false)`,
+`renderTyping()`) now runs unconditionally. Audited: only two `busy=true`
+sites exist; `bursting` is balanced on both settle paths of deliverBurst;
+`deliverPending` checks busy BEFORE clearing the pending session, so no
+reply is silently dropped; api.js does not swallow Horde errors (no phantom
+"…" replies); the image path uses no busy/genInfo state.
+
+### The simpler update
+
+Root cause of the six-tap flow: nothing was remembered between the three
+Check presses, and applying web + installing APK + re-checking was left as
+manual bookkeeping.
+
+- **Guided check result (views.js):** one path per situation —
+  newWeb only → *Apply now*; newApk only → *Install app update* (+ or in
+  browser); both → primary **Update everything** (the install) with the
+  promise "reopen the app — the new files apply themselves", plus a
+  secondary *Files only — keep this app*.
+- **Boot auto-apply (update.js):** the boot IIFE now records
+  `hs.lastApkCode` each start. When the code goes up (fresh install or
+  upgrade) and a remembered `hs.remote` exists that is **fresh** (<48h — a
+  week-old remembered check would apply files OLDER than the new APK ships)
+  and not already the overlay's revision, it runs `applyWebUpdate` with the
+  remembered revision, flags `hs.pendingRev` (the existing boot watchdog
+  covers crash-rollback), and reloads fresh. A failed auto-apply marks the
+  version as seen (no retry loop on every boot) and says so.
+- **Resulting flows:** files-only = Check, Apply (2 taps). Full update =
+  Check, Update everything, Android's confirm, reopen — files apply
+  themselves (3 taps, zero re-checks).
+- Nothing here auto-downloads on its own: the check remains manual, and the
+  auto-apply only consumes the answer to a check the user pressed.
+
+### Where it landed
+
+- `app.js` — generateReply + vhOutreach error handlers try/caught; final
+  cleanup guaranteed.
+- `views.js` — check-result rebuilt into guided single paths +
+  `btn-upd-all` handler.
+- `update.js` — boot IIFE: version-code marker + guarded auto-apply.
+- `tests/updateflow-test.js` — new suite, 11 checks: fresh upgrade applies
+  the remembered rev (+pending flag, +marker), no misfire on same code /
+  no remote / stale remote / current overlay, one-behind overlay applies,
+  first boot records the marker.
+
+### Verification
+
+- 14/14 runnable suites green (update-test is the playwright one, absent in
+  sandbox — same as always).
+- APK content-checked after build (btn-upd-all, auto-apply block,
+  try/catch handlers, sw v13, store 1.8.3).
+- Native wrapper untouched — the whole release is web + version bump, no
+  new permissions.
+
 ## v1.8.2 — don't fight the reader (2026-09-23)
 
 ### The ask

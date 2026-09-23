@@ -519,37 +519,46 @@
       Views.stickToBottom($('#thread'));
       App.afterReply();
     }).catch(function (e) {
-      msg._stream = null;
-      App.genStop();
-      if (e.name === 'AbortError') {
-        if (!msg.text) {
-          App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
-          el.remove();
+      /* The handler must never throw: if it did, the cleanup below would be
+         skipped and the "thinking" dots would run forever. */
+      try {
+        msg._stream = null;
+        App.genStop();
+        if (e.name === 'AbortError') {
+          if (!msg.text) {
+            App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+            el.remove();
+          } else {
+            el.classList.remove('streaming');
+            Store.updateMessage(msg);
+          }
+          UI.toast('Stopped');
         } else {
-          el.classList.remove('streaming');
-          Store.updateMessage(msg);
+          el.remove();
+          App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+          /* The Horde already tried five workers and all came back blank — offer a
+             Retry on the message the user just wrote, so nothing has to be retyped. */
+          var lastUser = null;
+          for (var i = st.messages.length - 1; i >= 0; i--) {
+            if (st.messages[i].role === 'user') { lastUser = st.messages[i]; break; }
+          }
+          if (lastUser) {
+            lastUser.retry = true;
+            Views.thread(char, session, st.messages);
+          }
+          UI.toast('Error: ' + e.message, 6000);
+          console.error(e);
         }
-        UI.toast('Stopped');
-      } else {
-        el.remove();
-        App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
-        /* The Horde already tried five workers and all came back blank — offer a
-           Retry on the message the user just wrote, so nothing has to be retyped. */
-        var lastUser = null;
-        for (var i = st.messages.length - 1; i >= 0; i--) {
-          if (st.messages[i].role === 'user') { lastUser = st.messages[i]; break; }
-        }
-        if (lastUser) {
-          lastUser.retry = true;
-          Views.thread(char, session, st.messages);
-        }
-        UI.toast('Error: ' + e.message, 6000);
-        console.error(e);
+      } catch (inner) {
+        console.error('reply error handler failed:', inner);
       }
     }).then(function () {
+      /* Cleanup always runs, success or failure: a wedged busy flag is
+         exactly how the thinking dots never stop. */
       st.busy = false;
       App.abort = null;
       App.setStop(false);
+      App.renderTyping();
     });
   };
 
@@ -1014,12 +1023,14 @@
         });
       });
     }).catch(function (e) {
-      console.error(e);
-      /* Back off after a failure: without this a worker that keeps returning
-         nothing gets retried on every tick, all day. */
-      vh.lastOutreach = Date.now();
-      App.persistVH(char);
-      UI.toast('Virtual human message failed: ' + e.message, 5000);
+      try {
+        console.error(e);
+        /* Back off after a failure: without this a worker that keeps returning
+           nothing gets retried on every tick, all day. */
+        vh.lastOutreach = Date.now();
+        App.persistVH(char);
+        UI.toast('Virtual human message failed: ' + e.message, 5000);
+      } catch (inner) { console.error('outreach error handler failed:', inner); }
     }).then(function () { App.genStop(); App.state.busy = false; App.renderTyping(); });
   };
 
