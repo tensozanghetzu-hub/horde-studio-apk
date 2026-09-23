@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.8.0
+# Horde Studio — Mobile (Android) · v1.8.1
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -585,6 +585,22 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.8.1
+
+**Chats now open on the last message.** Restart the app, open a long
+conversation, and it used to start at the very first message — you had to
+scroll all the way down. Now it opens on the latest message, the way a
+messenger does.
+
+The cause was a one-word CSS bug: the chat screen used a *minimum* height,
+so long conversations grew the page and the whole window scrolled — while
+the app's code was telling the (unscrolled) message list to scroll to the
+bottom, which did nothing. The screen now has a fixed height, the message
+list is the real scroller, and the existing "stay near the bottom while a
+reply streams" logic works on long chats too. Reopening a chat from the
+top of another one still lands you at the bottom of the new one; editing or
+deleting a message mid-conversation keeps your reading position.
 
 ## What's new in v1.8.0
 
