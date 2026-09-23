@@ -295,7 +295,7 @@
           App.state.session = s; App.state.char = c; App.state.messages = msgs;
           App.state.screen = null;
           App.go('chat');
-          Views.thread(c, s, msgs);
+          Views.thread(c, s, msgs, null, true);
           $('#input').focus();
         });
       });

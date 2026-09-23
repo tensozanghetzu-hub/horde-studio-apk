@@ -1402,7 +1402,7 @@
     '</div>';
   }
 
-  Views.thread = function (char, session, messages, streamingId) {
+  Views.thread = function (char, session, messages, streamingId, forceBottom) {
     var s = Store.settings;
     var thread = $('#thread');
     var nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 120;
@@ -1412,7 +1412,21 @@
     }).join('');
     var st = thread.querySelector('.msg.streaming .mtext') ||
       (streamingId ? thread.querySelector('[data-mid="' + streamingId + '"] .mtext') : null);
-    if (nearBottom || streamingId) thread.scrollTop = thread.scrollHeight;
+    if (nearBottom || streamingId || forceBottom) {
+      thread.scrollTop = thread.scrollHeight;
+      if (forceBottom && thread.querySelectorAll) {
+        /* Images below the fold (generated art, avatars) load after this first
+           jump and push the content down — re-jump when they land, as long as
+           the user hasn't scrolled away. */
+        var imgs = thread.querySelectorAll('img');
+        for (var ii = 0; ii < imgs.length; ii++) (function (im) {
+          if (im.complete) return;
+          im.addEventListener('load', function () {
+            if (thread.scrollHeight - thread.scrollTop - thread.clientHeight < 160) thread.scrollTop = thread.scrollHeight;
+          }, { once: true });
+        })(imgs[ii]);
+      }
+    }
     return st;
   };
 
