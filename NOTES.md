@@ -470,6 +470,70 @@ sha256 remains the only identity.
 
 ---
 
+## v1.9.0 — AI-assisted creation (2026-09-23)
+
+### The ask
+
+"horde studio 18.1.1 has a function to create your own virtual human. is
+that function possible to be implemented into the apk? same with worlds.
+you can use ai to help you create your own vh or world"
+
+### What upstream actually is
+
+The creation feature is **v18.1.0** (v18.1.1 is only VH reply-recovery +
+a Windows patch): a rebuilt, page-scoped creation experience and "Safer
+AI drafting" — retired whole-human generation, ONE bounded plain-text
+request per selected field, the exact request count shown before
+submission, opening a builder spends nothing, stop-on-failure (keep what
+is done, retry only the affected field), and direction preservation
+(unsettling/obsessive/antagonistic/eccentric/solitary stays that way,
+not normalised into an agreeable template). The phone port applies the
+same rules at phone scale.
+
+### Implementation
+
+- `api.js`:
+  - `parseAiJson(text)` — pulls one JSON object out of a model reply,
+    tolerating code fences, surrounding prose and trailing commas;
+    returns null (never throws) when there is no usable object.
+  - `aiJson(settings, prompt, maxTokens, onProgress)` — one bounded JSON
+    request at temperature 0.3; Horde path maxWait 600, onProgress
+    forwarded so a long world draft shows queue position instead of
+    looking frozen.
+- Editor (`views.js`): a *Create with AI* card shown on an empty sheet
+  only (persona AND scenario AND greeting all blank) — one line of who
+  they are → ONE request (900 tokens) → name/tagline (only if empty),
+  persona/scenario/greeting/examples, and the VH life: places (3–5,
+  snake-id, current place set to the first), routine (HH:MM-validated,
+  ≤12), sleep (validated), people (closeness clamped -1..1,
+  `VH.uid('pe')` ids), chronicle (diary beats). Direction preserved by
+  the same clause the persona chip already carried. Re-renders the
+  editor with the filled draft (the card disappears once the sheet is
+  non-empty).
+- Per-field *AI draft* chips now also on **scenario** (160 tokens) and
+  **greeting** (120 tokens), same pattern as the existing persona chip.
+- Worlds screen: *Create a world with AI* → sheet with a description →
+  ONE request (2400 tokens) in the exact `.horde_world` shape →
+  `HW.parse()` (the same importer a file import uses) → `HW.save()` →
+  worlds screen. Malformed = status line in the sheet + press again; no
+  auto-retry (app culture). Sheet stays open during generation with
+  live queue status; Cancel is the other button.
+- Prompt shape verified key-by-key against `HW.parse` (hordeworld.js
+  :51): `_format` falls back to horde-world when locations+entities are
+  present; locations[] is the only hard requirement; entities/factions/
+  relationships/lorebook/startingLives/gameRules/hudConfig all
+  normalise with defaults.
+- `tests/aicreate-test.js` (23 checks): extractor (clean / fenced /
+  prose-wrapped / trailing comma / garbage / empty / top-level array /
+  unbalanced / nested), aiJson knobs (model, maxTokens, temp 0.3,
+  apikey, maxWait 600, onProgress wired), malformed → null, and a
+  model-shaped world through `HW.parse` end to end.
+
+### Ship state (this segment)
+
+Source done, 15 suites green (14 + aicreate), bumped 1.9.0 / code 26 /
+sw v14, README + NOTES updated. **Build + publish only on explicit ask.**
+
 ## v1.8.3 — one-check updates + stuck-thinking fix (2026-09-23)
 
 ### The asks

@@ -912,6 +912,9 @@
     VH.ensure(char);
     var vh = char.vh;
     var vh_enabled = !!vh.enabled;
+    /* the Create-with-AI card shows on an empty sheet only: once the model
+     * (or the user) has written persona/scenario/greeting it goes away */
+    var emptySheet = !char.persona && !char.scenario && !char.greeting;
     function slider(id, label, val) {
       var pct = Math.round((Math.max(-1, Math.min(1, val || 0)) + 1) / 2 * 100);
       return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted)">' +
@@ -940,14 +943,27 @@
           '<input type="text" id="e-tags" value="' + esc((char.tags || []).join(', ')) + '" placeholder="fantasy, mentor, slow-burn"></div>' +
       '</div>' +
 
+      (emptySheet
+        ? '<div class="group">' +
+          '<div class="group-title">Create with AI</div>' +
+          '<div class="field"><div class="field-head"><label>Describe who they are</label></div>' +
+            '<textarea id="ai-idea" placeholder="e.g. a grumpy blacksmith who owes the tavern a debt and secretly writes poetry — she has not spoken to her sister in nine years"></textarea>' +
+            '<div class="hint">One or two lines is plenty. The model drafts the whole sheet — name, persona, opening line and their life — which you can then edit. One request, spent only when you press the button.</div></div>' +
+          '<div class="field"><button class="btn primary block sm" data-act="ai-create">' +
+            icon('sparkle') + ' Draft the whole person (1 request)</button></div>' +
+        '</div>'
+        : '') +
+
       '<div class="group">' +
         '<div class="group-title">Character sheet</div>' +
         '<div class="field"><div class="field-head"><label>Persona</label>' +
           '<span class="spacer"></span><button class="chip" data-act="ai-persona">' + icon('sparkle') + ' AI draft</button></div>' +
           '<textarea class="tall" id="e-persona" placeholder="Appearance, personality, history, wants, voice…">' + esc(char.persona) + '</textarea></div>' +
-        '<div class="field"><div class="field-head"><label>Scenario</label></div>' +
+        '<div class="field"><div class="field-head"><label>Scenario</label>' +
+          '<span class="spacer"></span><button class="chip" data-act="ai-scenario">' + icon('sparkle') + ' AI draft</button></div>' +
           '<textarea id="e-scenario" placeholder="Where the story starts.">' + esc(char.scenario) + '</textarea></div>' +
-        '<div class="field"><div class="field-head"><label>Greeting (first message)</label></div>' +
+        '<div class="field"><div class="field-head"><label>Greeting (first message)</label>' +
+          '<span class="spacer"></span><button class="chip" data-act="ai-greeting">' + icon('sparkle') + ' AI draft</button></div>' +
           '<textarea id="e-greeting" placeholder="The opening line {{char}} sends.">' + esc(char.greeting) + '</textarea></div>' +
         '<div class="field"><div class="field-head"><label>Example dialogue</label></div>' +
           '<textarea class="tall" id="e-examples" placeholder="{{user}}: …&#10;{{char}}: …">' + esc(char.examples) + '</textarea>' +
@@ -1084,6 +1100,114 @@
           UI.toast('Draft inserted — edit as you like');
         }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
     });
+
+    /* 18.1.0: the whole-person draft is ONE bounded JSON request that prefills
+     * the sheet and the life around it. It only offers itself on an empty
+     * sheet, keeps the player's direction, and never overwrites a field the
+     * player already wrote by hand. One request, spent when the button is
+     * pressed — opening the editor spends nothing. */
+    on(body, '[data-act=ai-create]', 'click', function () {
+      var idea = $('#ai-idea', body).value.trim();
+      if (!idea) { UI.toast('Describe who they are, even one line'); return; }
+      var btn = this; btn.disabled = true;
+      UI.toast('Asking the model — one request…');
+      API.aiJson(Store.settings,
+        'You are helping create a roleplay character. The player\'s direction: "' +
+        idea + '". Preserve that direction exactly — if it describes an unsettling, ' +
+        'obsessive, antagonistic, eccentric or solitary person, create that person, ' +
+        'not a likable or tamed version of them. ' +
+        'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
+        '{"name":string (use the direction\'s name if it gives one, else invent a fitting one), ' +
+        '"tagline":string (8-12 words, the hook shown on the card), ' +
+        '"persona":string (third person, under 180 words: appearance, personality with real flaws, a short history, what they want, how they speak), ' +
+        '"scenario":string (2-4 sentences: where the story starts), ' +
+        '"greeting":string (the character\'s first message to the player, 1-3 sentences, in their voice), ' +
+        '"examples":string (two short {{user}}: and {{char}}: exchanges that pin the voice), ' +
+        '"places":[{"id":"snake_id","name":string,"kind":"home|work|outdoor|other","note":string}, 3-5 places], ' +
+        '"routine":[{"t":"HH:MM","a":string}, 5-7 entries across the waking day], ' +
+        '"sleep":{"start":"HH:MM","end":"HH:MM"}, ' +
+        '"people":[{"name":string,"relation":string,"closeness":number from -1 to 1,"note":string}, 2-4 people in their life], ' +
+        '"diary":[2-3 short past-tense life beats]}',
+        900).then(function (d) {
+          if (!d) { btn.disabled = false; UI.toast('No usable draft — try again', 4500); return; }
+          /* name/tagline only if the player left them empty — set the inputs,
+             collect() below picks them up like any other field */
+          if (d.name && !$('#e-name', body).value.trim()) $('#e-name', body).value = String(d.name).trim().slice(0, 60);
+          if (d.tagline && !$('#e-tagline', body).value.trim()) $('#e-tagline', body).value = String(d.tagline).trim().slice(0, 140);
+          if (d.persona) $('#e-persona', body).value = String(d.persona).trim().slice(0, 2400);
+          if (d.scenario) $('#e-scenario', body).value = String(d.scenario).trim().slice(0, 600);
+          if (d.greeting) $('#e-greeting', body).value = String(d.greeting).trim().slice(0, 600);
+          if (d.examples) $('#e-examples', body).value = String(d.examples).trim().slice(0, 1200);
+          /* the life around the inbox: fill only what came back clean */
+          if (Array.isArray(d.places) && d.places.length) {
+            var places = d.places.filter(function (p) { return p && p.name; }).slice(0, 8).map(function (p, i) {
+              return { id: (typeof p.id === 'string' && /^[\w-]+$/.test(p.id)) ? p.id : 'place_' + i,
+                name: String(p.name).slice(0, 60), kind: String(p.kind || 'other').slice(0, 20),
+                note: String(p.note || '').slice(0, 160) };
+            });
+            if (places.length) { vh.places = places; vh.place = places[0].id; }
+          }
+          if (Array.isArray(d.routine) && d.routine.length) {
+            var routine = d.routine.filter(function (r) { return r && /^\d{1,2}:\d{2}$/.test(String(r.t)) && r.a; })
+              .slice(0, 12).map(function (r) { return { t: String(r.t), a: String(r.a).slice(0, 120) }; });
+            if (routine.length) vh.routine = routine;
+          }
+          if (d.sleep && /^\d{1,2}:\d{2}$/.test(String(d.sleep.start)) && /^\d{1,2}:\d{2}$/.test(String(d.sleep.end))) {
+            vh.sleep = { start: String(d.sleep.start), end: String(d.sleep.end) };
+          }
+          if (Array.isArray(d.people) && d.people.length) {
+            vh.people = d.people.filter(function (p) { return p && p.name; }).slice(0, 8).map(function (p) {
+              var c = parseFloat(p.closeness);
+              return { id: VH.uid('pe'), name: String(p.name).slice(0, 60),
+                relation: String(p.relation || '').slice(0, 60),
+                closeness: isNaN(c) ? 0 : Math.max(-1, Math.min(1, c)),
+                note: String(p.note || '').slice(0, 160) };
+            });
+          }
+          if (Array.isArray(d.diary) && d.diary.length) {
+            vh.chronicle = d.diary.map(function (t) { return { ts: Date.now(), text: String(t).slice(0, 300) }; });
+          }
+          UI.toast('Draft in — edit anything, then Save');
+          collect();
+          Views.editor($('#editor-body'), Object.assign({}, char, draft, { vh: vh }));
+        }).catch(function (e) {
+          btn.disabled = false;
+          UI.toast('Draft failed: ' + e.message, 4000);
+        });
+    });
+
+    on(body, '[data-act=ai-scenario]', 'click', function () {
+      var name = $('#e-name', body).value.trim() || 'the character';
+      var persona = $('#e-persona', body).value.trim().slice(0, 400);
+      UI.toast('Asking the model — one request…');
+      API.aiJson(Store.settings,
+        'Write a roleplay scenario for ' + name +
+        (persona ? ', whose persona is: "' + persona + '"' : '') +
+        '. Return ONLY a JSON object, no markdown, no commentary: ' +
+        '{"scenario": string} — 2-4 sentences, a concrete opening situation with a small hook or tension, written so the player can answer it.',
+        160).then(function (d) {
+          if (!d || !d.scenario) return UI.toast('No usable draft — try again', 4500);
+          $('#e-scenario', body).value = String(d.scenario).trim();
+          UI.toast('Draft inserted — edit as you like');
+        }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
+    });
+
+    on(body, '[data-act=ai-greeting]', 'click', function () {
+      var name = $('#e-name', body).value.trim() || 'the character';
+      var persona = $('#e-persona', body).value.trim().slice(0, 400);
+      UI.toast('Asking the model — one request…');
+      API.aiJson(Store.settings,
+        'Write the opening message a roleplay character named ' + name +
+        (persona ? ', whose persona is: "' + persona + '"' : '') +
+        ', would send the player as their very first line. In their voice, 1-3 sentences, ending so the player can answer. ' +
+        'Return ONLY a JSON object, no markdown, no commentary: {"greeting": string}.',
+        120).then(function (d) {
+          if (!d || !d.greeting) return UI.toast('No usable draft — try again', 4500);
+          $('#e-greeting', body).value = String(d.greeting).trim();
+          UI.toast('Draft inserted — edit as you like');
+        }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
+    });
+
     $('#e-temp', body).addEventListener('input', function () {
       draft.temperature = parseFloat(this.value);
       $('#v-ctemp', body).textContent = draft.temperature.toFixed(2);
@@ -1608,9 +1732,9 @@
 
       html += '<div class="group"><div class="group-title">Installed worlds</div>';
       if (!list.length) {
-        html += '<div class="empty" style="padding:16px 4px"><p>No worlds yet. Import a ' +
-          '<b>.horde_world</b> file. The artwork is stripped out on the way in, so a ' +
-          '2.5 MB world arrives at about 50 KB.</p></div>';
+        html += '<div class="empty" style="padding:16px 4px"><p>No worlds yet. Describe one and let ' +
+          'AI create it, or import a <b>.horde_world</b> file (artwork is stripped on the ' +
+          'way in, so a 2.5 MB world arrives at about 50 KB).</p></div>';
       } else {
         html += list.map(function (w) {
           var sum = HW.summarise(w);
@@ -1646,11 +1770,15 @@
       }
 
       html += '</div>';
-      html += '<div class="field"><button class="btn ghost block sm" data-act="world-import">' +
-        icon('plus') + ' Import a world file</button></div>';
+      html += '<div class="field">' +
+        '<button class="btn primary block sm" data-act="world-create">' +
+          icon('sparkle') + ' Create a world with AI</button>' +
+        '<button class="btn ghost block sm" style="margin-top:6px" data-act="world-import">' +
+          icon('plus') + ' Import a world file</button></div>';
 
       body.innerHTML = html;
 
+      on(body, '[data-act=world-create]', 'click', function () { App.aiCreateWorld(); });
       on(body, '[data-act=world-import]', 'click', function () { App.importWorld(); });
       on(body, '[data-world]', 'click', function (e) {
         if (e.target.closest('[data-act]')) return;

@@ -696,6 +696,46 @@
     return streamChat(s, msgs, null, null, { stream: false, temperature: 0.9, max_tokens: maxTokens || 220 });
   }
 
+  /** Pull one JSON object out of a model reply. Models wrap JSON in markdown
+   *  fences, add prose before and after, and leave trailing commas — all of
+   *  it is tolerated here. Returns null when there is no usable object, so the
+   *  caller can say "try again" instead of crashing. */
+  function parseAiJson(text) {
+    var s = String(text || '').trim();
+    var fenceOpen = s.indexOf('{');
+    if (fenceOpen === -1) return null;
+    var fenceClose = s.lastIndexOf('}');
+    if (fenceClose <= fenceOpen) return null;
+    var raw = s.slice(fenceOpen, fenceClose + 1);
+    var attempts = [raw];
+    /* strip markdown fences that snuck inside, then trailing commas */
+    attempts.push(raw.replace(/```(?:json)?/gi, ''));
+    attempts.push(raw.replace(/,\s*([}\]])/g, '$1'));
+    for (var i = 0; i < attempts.length; i++) {
+      try {
+        var v = JSON.parse(attempts[i]);
+        if (v && typeof v === 'object') return v;
+      } catch (e) { /* next attempt */ }
+    }
+    return null;
+  }
+
+  /** One bounded JSON request — the way the AI-creation helpers talk to the
+   *  model: a plain-text instruction in, one JSON object out. Lower
+   *  temperature than a chat draft, because structure matters more than
+   *  sparkle here. `onProgress` gets the same queue/processing states the
+   *  banner shows, so a long world draft doesn't look frozen. */
+  function aiJson(s, prompt, maxTokens, onProgress) {
+    if (s.provider === 'horde') {
+      return Horde.generateText({ prompt: prompt, model: s.hordeTextModel || '',
+        maxLength: maxTokens || 300, temperature: 0.3, apikey: s.hordeKey,
+        maxWait: 600, onProgress: onProgress }).then(function (r) { return parseAiJson(r.text); });
+    }
+    var msgs = [{ role: 'user', content: prompt }];
+    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3,
+      max_tokens: maxTokens || 300 }).then(parseAiJson);
+  }
+
   /** One-shot generation from an arbitrary system + instruction (virtual humans). */
   function generateFree(o) {
     var s = o.settings;
@@ -727,6 +767,7 @@
     HORDE_CTX_TOKENS: HORDE_CTX_TOKENS,
     summarize: summarize, listModels: listModels, testConnection: testConnection,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
+    parseAiJson: parseAiJson, aiJson: aiJson,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); }
   };
 })(window);
