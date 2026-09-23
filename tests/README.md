@@ -10,7 +10,6 @@ export NODE_PATH=/home/user/tests/vendor
 
 pip install playwright && python3 -m playwright install --with-deps chromium
 python3 -m http.server 8000 --bind 0.0.0.0 --directory /home/user/horde-studio-mobile
-python3 /home/user/apk-download/server.py          # :8010
 
 node update-test.js && node typing-test.js
 ```
