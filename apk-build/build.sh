@@ -62,8 +62,6 @@ echo "==> linking APK (resources + manifest + assets)"
   -o "$OUT/app-nodex.apk" \
   --min-sdk-version 24 \
   --target-sdk-version 34 \
-  --version-code 16 \
-  --version-name 1.4.11 \
   --auto-add-overlay \
   -R $(ls "$OUT"/res-flat/*.flat | tr '\n' ' ')
 

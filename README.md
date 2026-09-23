@@ -6,8 +6,8 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.4.8](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
-— 223 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
+**Releases → [Horde Studio v1.9.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+— ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
 Tap this on your phone and it downloads without any further clicking:
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.4.8.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.9.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -31,7 +31,7 @@ an earlier version keeps your characters and chats.
 
 | Path | What it is |
 |---|---|
-| `docs/HordeStudio-latest.apk` | The Android app. Signed, ~223 KB, Android 7.0 (API 24) and up. |
+| `docs/HordeStudio-latest.apk` | The Android app. Signed, ~280 KB, Android 7.0 (API 24) and up. |
 | `horde-studio-mobile/` | The full web/PWA source that the APK wraps (also hostable anywhere). |
 | `apk-build/` | Android wrapper source + `build.sh` / `setup-sdk.sh` to rebuild the APK. |
 | Live preview | [The same app running as a website](https://tensozanghetzu-hub.github.io/horde-studio-apk/) — try it in your browser before installing. |
@@ -72,6 +72,7 @@ Open **Settings → Connection → Provider**:
 | **OpenRouter** | Paid, one key | Hundreds of models, fastest and best quality. Recommended. |
 | **OpenAI / Together / NVIDIA NIM / NanoGPT** | Paid | Their own keys. |
 | **Ollama / LM Studio / KoboldCpp** | Free, local | Point at your PC’s LAN IP (`http://192.168.1.50:11434/v1`). Phone must be on the same Wi-Fi; cleartext is enabled for this. |
+| **Custom** | Any OpenAI-compatible endpoint | For self-hosted servers not in the list above. |
 
 Then **Model → tap → choose**, hit **Test connection**, and go build a character.
 
@@ -306,8 +307,9 @@ in the original port; one is now included.
 Two things worth knowing:
 
 - **The pack ships inside the APK, not in updates.** It is static data, so
-  keeping it out of the update bundle holds an update at ~139 KB instead of
-  ~209 KB. It cannot be added by a web update — it needs the APK.
+  keeping it out of the update bundle holds an update at ~164 KB instead of
+  ~175 KB (as of v1.9.0). It cannot be added by a web update — it needs the
+  APK.
 - **It is a real city, which may not be yours.** Tempe is upstream's own data.
   `tools/build-worldpack.py` rebuilds a pack in the same format from
   OpenStreetMap, so any covered city can be substituted later.
@@ -378,7 +380,10 @@ nothing when a provider already stops cleanly (one pass, then it stops).
 - **Prompt control** — global system prompt with `{{char}}` / `{{user}}` macros,
   per-character system-prompt/temperature overrides, temperature, top-P, max tokens,
   context length, and an always-appended “remember this” note.
-- **AI drafting** — turn a name + tagline into a full persona with one tap.
+- **AI creation** — describe a person in one or two lines and the model drafts
+  their whole sheet and life, or describe a place and it drafts a full playable
+  world (through the same importer a `.horde_world` file uses). Single fields get
+  *AI draft* chips. One bounded request per press — see the v1.9.0 notes.
 - **Offline shell** — the app itself is bundled inside the APK and service-worker
   cached on the web; only model calls need a network.
 - **Backups** — export/import everything as JSON. **API keys are stripped from exports.**
@@ -441,8 +446,9 @@ compares what is installed with what is current and offers one of three things:
 | What it finds | What you do |
 |---|---|
 | Nothing new | Nothing. It says so. |
-| A new **web bundle** | Tap **Apply now**. ~130 KB downloads, the app restarts on it. No reinstall, no Android prompt, chats untouched. |
+| A new **web bundle** | Tap **Apply now**. ~160 KB downloads, the app restarts on it. No reinstall, no Android prompt, chats untouched. |
 | A new **app version** | Tap **Install app update**. It downloads the APK and opens Android's own install screen — you confirm there. (**Or in browser** does the same through your browser instead.) |
+| **Both** | Tap **Update everything** — files and install in one path. Android confirms the install, and the new files apply themselves when you reopen. A secondary **Files only — keep this app** is there if you would rather not update the APK. |
 
 How it works: the wrapper keeps a private folder that shadows the files shipped in the APK.
 A file in that folder is served instead of the bundled one; anything it does not contain
@@ -494,9 +500,9 @@ A URL you control (GitHub Pages, a home server, a NAS) removes the problem entir
 `version.json` describes what is current:
 
 ```json
-{ "apk": "1.4.8", "apkCode": 13, "web": "1.4.8", "webRev": "f8c44de4c6ef",
+{ "apk": "1.9.0", "apkCode": 26, "web": "1.9.0", "webRev": "79151a3d0898",
   "apkUrl": "HordeStudio-latest.apk",
-  "apkSize": 228071, "webSize": 136617, "files": 18, "note": "…" }
+  "apkSize": 285851, "webSize": 167786, "files": 20, "note": "…" }
 ```
 
 - `apkCode` is compared with the installed `versionCode`; higher means offer the APK.
@@ -1085,8 +1091,9 @@ Two smaller things in the same build:
 
 - Characters, chats and memories live in IndexedDB **inside the app** — nothing is uploaded.
 - API keys are stored in that same private storage and are **never** included in backups.
-- The only network traffic is: your chosen model provider, and `aihorde.net` if you use
-  Horde text/images.
+- The only network traffic is: your chosen model provider, `aihorde.net` if you
+  use Horde text/images, and the update address (this project's GitHub Pages
+  site by default) when you press Check for update.
 
 ---
 
@@ -1104,8 +1111,10 @@ cd apk-build
 `apksigner`) — no Gradle, no Android Studio, no Node. It copies `horde-studio-mobile/`
 into `assets/`, compiles the WebView host, and signs with `apk-build/horde-studio.keystore`.
 
-Bump `versionCode` in `AndroidManifest.xml` **and** `build.sh` before shipping an update,
-and keep the same keystore so phones accept it as an update rather than demanding a reinstall.
+Bump `versionCode` and `versionName` in `apk-build/AndroidManifest.xml` before
+shipping an update — `build.sh` derives the APK's version and filename from the
+manifest — and keep the same keystore so phones accept it as an update rather
+than demanding a reinstall.
 
 ### How the wrapper works
 
