@@ -127,6 +127,40 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     wbox.window = wbox;
     vm.runInNewContext(fs.readFileSync(path.join(JS, 'hordeworld.js'), 'utf8'), wbox, { filename: 'hordeworld.js' });
 
+    /* ---- the three-part world draft joins through HW.assemble ------------ */
+    var partPlaces = {
+      name: 'Drowned City', description: 'A sunken metropolis of canals.',
+      startLocationId: 'loc_dock',
+      locations: [
+        { id: 'loc_region', name: 'The Shallows', mapType: 'region', parentLocationId: null, description: 'The drowned city.', exits: [{ text: 'to Old Dock', travelTime: 5, isOneWay: false }] },
+        { id: 'loc_dock', name: 'Old Dock', mapType: 'building', parentLocationId: 'loc_region', description: 'A rotted pier.', exits: [{ text: 'to The Shallows', travelTime: 5, isOneWay: false }] }
+      ]
+    };
+    var partPeople = {
+      entities: [{ id: 'npc_mara', name: 'Mara', type: 'npc', isMajor: true, description: 'A boat-woman.', persona: 'Dry and watchful.', goal: 'Collect her debt.', secrets: 'She can swim.' }],
+      factions: [{ id: 'fac_tide', name: 'Tide Guild', description: 'Runs the boats.' }],
+      relationships: [{ a: 'npc_mara', b: 'npc_mara', label: 'self', score: 0 }]
+    };
+    var partRules = {
+      dmPrompt: 'You are the showrunner and referee. ' + 'Filler. '.repeat(30),
+      intro: 'The water is at your ankles.',
+      authorNote: 'Keep it honest.',
+      startingLives: [{ id: 'origin_main', name: 'New Face in Town', role: 'A visitor.', startLocationId: 'loc_dock', description: 'You arrive at the dock.' }],
+      gameRules: { modules: { quests: true, relationships: true, livingWorld: true } },
+      hudConfig: { showClock: true, startWeekday: 'Monday', startTimeHours: 8, timeStep: 10 }
+    };
+
+    var assembled = wbox.HW.assemble({ places: partPlaces, people: partPeople, rules: partRules });
+    ok('assemble produces a .horde_world-shaped object', assembled && assembled._format === 'horde-world');
+    var joined = wbox.HW.parse(assembled);
+    ok('a three-part draft parses into a world', !!joined);
+    ok('the join keeps places from part one', joined && joined.locations.length === 2 && joined.startLocationId === 'loc_dock');
+    ok('the join keeps the cast from part two', joined && joined.entities.length === 1 && joined.factions.length === 1);
+    ok('the join keeps the rules from part three', joined && joined.dmPrompt.length > 100 && joined.startingLives[0].startLocationId === 'loc_dock');
+
+    ok('a draft missing its places is rejected', wbox.HW.parse(wbox.HW.assemble({ people: partPeople, rules: partRules })) === null);
+    ok('an empty assemble is rejected', wbox.HW.parse(wbox.HW.assemble({})) === null);
+
     var w = wbox.HW.parse(JSON.parse(JSON.stringify(worldRaw)));
     ok('a model-shaped world survives HW.parse', !!w, JSON.stringify(w));
     ok('the world keeps its name', w && w.name === 'Drowned City');

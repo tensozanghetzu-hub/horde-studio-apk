@@ -47,6 +47,24 @@
 
   /* ---------------- import ---------------- */
 
+  /** Join the three bounded AI-draft parts (places, people, rules) into one
+   *  .horde_world-shaped object ready for parse(). Each part is the plain
+   *  JSON of one model request; missing parts degrade to parse's defaults,
+   *  so a partially drafted world can still be inspected instead of lost. */
+  function assemble(parts) {
+    parts = parts || {};
+    var a = parts.places || {}, b = parts.people || {}, c = parts.rules || {};
+    var w = { _format: 'horde-world' };
+    ['name', 'description', 'startLocationId', 'locations',
+     'entities', 'factions', 'relationships',
+     'dmPrompt', 'intro', 'authorNote', 'startingLives', 'gameRules', 'hudConfig'
+    ].forEach(function (k) {
+      var v = a[k] !== undefined ? a[k] : (b[k] !== undefined ? b[k] : c[k]);
+      if (v !== undefined) w[k] = v;
+    });
+    return w;
+  }
+
   /** Strip the art and keep the world. Returns null if this isn't one. */
   function parse(raw) {
     if (!raw || typeof raw !== 'object') return null;
@@ -550,6 +568,7 @@
 
   var HW = {
     parse: parse,
+    assemble: assemble,
     summarise: summarise,
     save: save, all: all, get: get, remove: remove,
     saveRun: saveRun, allRuns: allRuns, removeRun: removeRun,
