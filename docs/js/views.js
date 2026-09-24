@@ -948,9 +948,9 @@
           '<div class="group-title">Create with AI</div>' +
           '<div class="field"><div class="field-head"><label>Describe who they are</label></div>' +
             '<textarea id="ai-idea" placeholder="e.g. a grumpy blacksmith who owes the tavern a debt and secretly writes poetry — she has not spoken to her sister in nine years"></textarea>' +
-            '<div class="hint">One or two lines is plenty. The model drafts the whole sheet — name, persona, opening line and their life — which you can then edit. One request, spent only when you press the button.</div></div>' +
+            '<div class="hint">One or two lines is plenty. The model drafts the whole sheet — name, persona, opening line and their life — which you can then edit. Two small requests, spent only when you press the button.</div></div>' +
           '<div class="field"><button class="btn primary block sm" data-act="ai-create">' +
-            icon('sparkle') + ' Draft the whole person (1 request)</button></div>' +
+            icon('sparkle') + ' Draft the whole person (2 requests)</button></div>' +
         '</div>'
         : '') +
 
@@ -1101,16 +1101,19 @@
         }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
     });
 
-    /* 18.1.0: the whole-person draft is ONE bounded JSON request that prefills
-     * the sheet and the life around it. It only offers itself on an empty
-     * sheet, keeps the player's direction, and never overwrites a field the
-     * player already wrote by hand. One request, spent when the button is
-     * pressed — opening the editor spends nothing. */
+    /* 18.1.0: the whole-person draft is TWO bounded JSON requests, each
+     * under the Horde's 512-token anonymous limit, so heavy demand cannot
+     * reject the job over pre-held kudos. Part one (the person) lands in the
+     * sheet fields as it comes; part two (the life) fails without losing it.
+     * It only offers itself on an empty sheet, keeps the player's direction,
+     * and never overwrites a field the player already wrote by hand.
+     * Opening the editor spends nothing. */
     on(body, '[data-act=ai-create]', 'click', function () {
       var idea = $('#ai-idea', body).value.trim();
       if (!idea) { UI.toast('Describe who they are, even one line'); return; }
       var btn = this; btn.disabled = true;
-      UI.toast('Asking the model — one request…');
+      UI.toast('Drafting the person — 1 of 2…');
+      /* 1/2 the person: name, voice, opening — the direction lives here */
       API.aiJson(Store.settings,
         'You are helping create a roleplay character. The player\'s direction: "' +
         idea + '". Preserve that direction exactly — if it describes an unsettling, ' +
@@ -1119,57 +1122,74 @@
         'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
         '{"name":string (use the direction\'s name if it gives one, else invent a fitting one), ' +
         '"tagline":string (8-12 words, the hook shown on the card), ' +
-        '"persona":string (third person, under 180 words: appearance, personality with real flaws, a short history, what they want, how they speak), ' +
-        '"scenario":string (2-4 sentences: where the story starts), ' +
+        '"persona":string (third person, under 150 words: appearance, personality with real flaws, a short history, what they want, how they speak), ' +
+        '"scenario":string (2-3 sentences: where the story starts, with a small hook or tension), ' +
         '"greeting":string (the character\'s first message to the player, 1-3 sentences, in their voice), ' +
-        '"examples":string (two short {{user}}: and {{char}}: exchanges that pin the voice), ' +
-        '"places":[{"id":"snake_id","name":string,"kind":"home|work|outdoor|other","note":string}, 3-5 places], ' +
-        '"routine":[{"t":"HH:MM","a":string}, 5-7 entries across the waking day], ' +
-        '"sleep":{"start":"HH:MM","end":"HH:MM"}, ' +
-        '"people":[{"name":string,"relation":string,"closeness":number from -1 to 1,"note":string}, 2-4 people in their life], ' +
-        '"diary":[2-3 short past-tense life beats]}',
-        900).then(function (d) {
-          if (!d) { btn.disabled = false; UI.toast('No usable draft — try again', 4500); return; }
+        '"examples":string (two short {{user}}: and {{char}}: exchanges that pin the voice)}',
+        450).then(function (a) {
+          if (!a || !a.persona) {
+            btn.disabled = false;
+            return UI.toast('No usable draft — try again', 4500);
+          }
           /* name/tagline only if the player left them empty — set the inputs,
              collect() below picks them up like any other field */
-          if (d.name && !$('#e-name', body).value.trim()) $('#e-name', body).value = String(d.name).trim().slice(0, 60);
-          if (d.tagline && !$('#e-tagline', body).value.trim()) $('#e-tagline', body).value = String(d.tagline).trim().slice(0, 140);
-          if (d.persona) $('#e-persona', body).value = String(d.persona).trim().slice(0, 2400);
-          if (d.scenario) $('#e-scenario', body).value = String(d.scenario).trim().slice(0, 600);
-          if (d.greeting) $('#e-greeting', body).value = String(d.greeting).trim().slice(0, 600);
-          if (d.examples) $('#e-examples', body).value = String(d.examples).trim().slice(0, 1200);
-          /* the life around the inbox: fill only what came back clean */
-          if (Array.isArray(d.places) && d.places.length) {
-            var places = d.places.filter(function (p) { return p && p.name; }).slice(0, 8).map(function (p, i) {
-              return { id: (typeof p.id === 'string' && /^[\w-]+$/.test(p.id)) ? p.id : 'place_' + i,
-                name: String(p.name).slice(0, 60), kind: String(p.kind || 'other').slice(0, 20),
-                note: String(p.note || '').slice(0, 160) };
+          if (a.name && !$('#e-name', body).value.trim()) $('#e-name', body).value = String(a.name).trim().slice(0, 60);
+          if (a.tagline && !$('#e-tagline', body).value.trim()) $('#e-tagline', body).value = String(a.tagline).trim().slice(0, 140);
+          if (a.persona) $('#e-persona', body).value = String(a.persona).trim().slice(0, 2400);
+          if (a.scenario) $('#e-scenario', body).value = String(a.scenario).trim().slice(0, 600);
+          if (a.greeting) $('#e-greeting', body).value = String(a.greeting).trim().slice(0, 600);
+          if (a.examples) $('#e-examples', body).value = String(a.examples).trim().slice(0, 1200);
+          /* 2/2 the life around the story, conditioned on the person */
+          UI.toast('Now their life — 2 of 2…');
+          var who = ($('#e-name', body).value.trim() || 'the character');
+          var personaClip = String(a.persona).trim().slice(0, 300);
+          return API.aiJson(Store.settings,
+            'Draft the life around the story for ' + who +
+            (personaClip ? ', whose persona is: "' + personaClip + '"' : '') + '. ' +
+            'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
+            '{"places":[{"id":"snake_id","name":string,"kind":"home|work|outdoor|other","note":short string}, 3 places], ' +
+            '"routine":[{"t":"HH:MM","a":short string}, 5 entries across the waking day], ' +
+            '"sleep":{"start":"HH:MM","end":"HH:MM"}, ' +
+            '"people":[{"name":string,"relation":string,"closeness":number from -1 to 1,"note":short string}, 2-3 people in their life], ' +
+            '"diary":[1-3 short past-tense life beats]}',
+            350).then(function (b) {
+              if (!b) {
+                btn.disabled = false;
+                return UI.toast('The person is drafted; the life part failed — press again to finish it', 5000);
+              }
+              /* the life around the inbox: fill only what came back clean */
+              if (Array.isArray(b.places) && b.places.length) {
+                var places = b.places.filter(function (p) { return p && p.name; }).slice(0, 8).map(function (p, i) {
+                  return { id: (typeof p.id === 'string' && /^[\w-]+$/.test(p.id)) ? p.id : 'place_' + i,
+                    name: String(p.name).slice(0, 60), kind: String(p.kind || 'other').slice(0, 20),
+                    note: String(p.note || '').slice(0, 160) };
+                });
+                if (places.length) { vh.places = places; vh.place = places[0].id; }
+              }
+              if (Array.isArray(b.routine) && b.routine.length) {
+                var routine = b.routine.filter(function (r) { return r && /^\d{1,2}:\d{2}$/.test(String(r.t)) && r.a; })
+                  .slice(0, 12).map(function (r) { return { t: String(r.t), a: String(r.a).slice(0, 120) }; });
+                if (routine.length) vh.routine = routine;
+              }
+              if (b.sleep && /^\d{1,2}:\d{2}$/.test(String(b.sleep.start)) && /^\d{1,2}:\d{2}$/.test(String(b.sleep.end))) {
+                vh.sleep = { start: String(b.sleep.start), end: String(b.sleep.end) };
+              }
+              if (Array.isArray(b.people) && b.people.length) {
+                vh.people = b.people.filter(function (p) { return p && p.name; }).slice(0, 8).map(function (p) {
+                  var c = parseFloat(p.closeness);
+                  return { id: VH.uid('pe'), name: String(p.name).slice(0, 60),
+                    relation: String(p.relation || '').slice(0, 60),
+                    closeness: isNaN(c) ? 0 : Math.max(-1, Math.min(1, c)),
+                    note: String(p.note || '').slice(0, 160) };
+                });
+              }
+              if (Array.isArray(b.diary) && b.diary.length) {
+                vh.chronicle = b.diary.map(function (t) { return { ts: Date.now(), text: String(t).slice(0, 300) }; });
+              }
+              UI.toast('Draft in — edit anything, then Save');
+              collect();
+              Views.editor($('#editor-body'), Object.assign({}, char, draft, { vh: vh }));
             });
-            if (places.length) { vh.places = places; vh.place = places[0].id; }
-          }
-          if (Array.isArray(d.routine) && d.routine.length) {
-            var routine = d.routine.filter(function (r) { return r && /^\d{1,2}:\d{2}$/.test(String(r.t)) && r.a; })
-              .slice(0, 12).map(function (r) { return { t: String(r.t), a: String(r.a).slice(0, 120) }; });
-            if (routine.length) vh.routine = routine;
-          }
-          if (d.sleep && /^\d{1,2}:\d{2}$/.test(String(d.sleep.start)) && /^\d{1,2}:\d{2}$/.test(String(d.sleep.end))) {
-            vh.sleep = { start: String(d.sleep.start), end: String(d.sleep.end) };
-          }
-          if (Array.isArray(d.people) && d.people.length) {
-            vh.people = d.people.filter(function (p) { return p && p.name; }).slice(0, 8).map(function (p) {
-              var c = parseFloat(p.closeness);
-              return { id: VH.uid('pe'), name: String(p.name).slice(0, 60),
-                relation: String(p.relation || '').slice(0, 60),
-                closeness: isNaN(c) ? 0 : Math.max(-1, Math.min(1, c)),
-                note: String(p.note || '').slice(0, 160) };
-            });
-          }
-          if (Array.isArray(d.diary) && d.diary.length) {
-            vh.chronicle = d.diary.map(function (t) { return { ts: Date.now(), text: String(t).slice(0, 300) }; });
-          }
-          UI.toast('Draft in — edit anything, then Save');
-          collect();
-          Views.editor($('#editor-body'), Object.assign({}, char, draft, { vh: vh }));
         }).catch(function (e) {
           btn.disabled = false;
           UI.toast('Draft failed: ' + e.message, 4000);

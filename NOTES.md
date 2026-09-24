@@ -469,6 +469,53 @@ sha256 remains the only identity.
 
 ---
 
+## v1.9.1 — AI drafts under the Horde's 512-token limit (2026-09-24)
+
+### The report
+
+User screenshot: "Draft failed: Due to heavy demand, for requests over 512
+tokens, the client needs to already have the required kudos. This request
+requires 1328.57 kudos to fulfil." — pressed *Draft the whole person* with
+the anonymous Horde.
+
+### The cause
+
+The AI Horde's demand-spike policy: when the cluster is under heavy demand,
+jobs with `max_length` **over 512 tokens** must be pre-paid with kudos. The
+v1.9.0 whole-person draft asked for 900; world creation for 2,400. The
+per-field chips (320/160/120), story summarise (320) and VH outreach (≤120)
+were all already under the line — only the two v1.9.0 draft calls exceeded
+it.
+
+### The fix (upstream 18.1.0's bounded-drafting model)
+
+- `hordeworld.js`: new pure `HW.assemble({places, people, rules})` — joins
+  the three world-draft parts into one `.horde_world`-shaped object ready
+  for `parse()` (missing parts degrade to parse defaults; no locations →
+  parse still rejects). Exported for tests.
+- Person draft (views.js): one 900-token request → **two** bounded requests
+  (450 the person — name/tagline/persona<150w/scenario/greeting/examples;
+  350 the life — 3 places, 5 routine entries, sleep, 2-3 people, diary,
+  conditioned on the persona). The person lands in the fields as it comes;
+  a failed life part keeps it and the toast says "press again to finish it".
+  Button now reads "(2 requests)".
+- World draft (app.js): one 2400-token request → **three** bounded requests
+  (480 the places — 5-7 connected locations; 480 the people — 3-4 entities,
+  factions, relationships; 480 the rules — dmPrompt 150-220 words, intro,
+  startingLives told the real location ids, gameRules, hudConfig).
+  `HW.assemble` → `HW.parse` → `HW.save`; stop-on-failure, nothing partial
+  saved, status line per stage with live queue position. Button now reads
+  "(3 requests)".
+- All draft `max_length`s are now ≤ 480 < 512 — the anonymous client passes
+  the kudos check even under heavy demand.
+- `tests/aicreate-test.js`: 23 → 30 checks (assemble join, per-part
+  survival, missing-places rejection, empty assemble rejection).
+
+### Ship state (this segment)
+
+Bumped 1.9.1 / code 27 / sw v15, README (v1.9.1 section + Features bullet +
+Download) updated. Build + publish only on explicit ask.
+
 ## v1.9.0 — AI-assisted creation (2026-09-23)
 
 ### The ask

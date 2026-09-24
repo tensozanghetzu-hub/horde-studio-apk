@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.9.0
+# Horde Studio — Mobile (Android) · v1.9.1
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.9.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.9.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.9.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.9.1.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -383,7 +383,9 @@ nothing when a provider already stops cleanly (one pass, then it stops).
 - **AI creation** — describe a person in one or two lines and the model drafts
   their whole sheet and life, or describe a place and it drafts a full playable
   world (through the same importer a `.horde_world` file uses). Single fields get
-  *AI draft* chips. One bounded request per press — see the v1.9.0 notes.
+  *AI draft* chips. Every draft is a few small bounded requests (under the
+  Horde's 512-token anonymous limit), so it works on the free no-key Horde
+  even when the cluster is busy — see the v1.9.0/1.9.1 notes.
 - **Offline shell** — the app itself is bundled inside the APK and service-worker
   cached on the web; only model calls need a network.
 - **Backups** — export/import everything as JSON. **API keys are stripped from exports.**
@@ -591,6 +593,31 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.9.1
+
+**AI creation now works on a busy Horde, anonymous and keyless.** When the
+Horde is under heavy demand it refuses jobs over 512 tokens from clients
+without pre-held kudos — and the whole-person draft asked for 900 tokens,
+worlds for 2,400. So on a busy evening the button failed with a kudos
+message. The drafts are now split into small bounded parts, each under the
+limit:
+
+- **Draft the whole person** is now **2 requests** — the person (name,
+  persona, scenario, opening line, examples), then their life (places,
+  routine, sleep, people, diary) conditioned on the person. The person lands
+  in the sheet as soon as it comes; if the life part fails, the person stays
+  and the toast says to press again.
+- **Create a world with AI** is now **3 requests** — the places, then the
+  people, then the referee rules (each part is told the ids the previous
+  parts created). The parts are joined and run through the same importer a
+  `.horde_world` file uses; a failed part saves nothing and the status line
+  says what to retry.
+- The per-field *AI draft* chips were already under the limit and are
+  unchanged.
+
+Nothing else moved — this is a fix for the drafts, everything else in
+v1.9.0 stands.
 
 ## What's new in v1.9.0
 

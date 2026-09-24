@@ -609,62 +609,98 @@
 
   /* ---------------- authored worlds ---------------- */
 
-  /** Describe a world, get a world: one bounded JSON request in the
-   *  .horde_world shape, run through the SAME HW.parse() an imported file
-   *  goes through, then HW.save(). No auto-retry on a malformed draft — the
-   *  status line says what happened and the player presses again. Opening
-   *  the sheet spends nothing; one request, spent when Create is pressed. */
+  /** Describe a world, get a world: THREE bounded JSON requests, each under
+   * the Horde's 512-token anonymous limit (places, people, rules), joined by
+   * HW.assemble and run through the SAME HW.parse() an imported file goes
+   * through, then HW.save(). Stop-on-failure: a failed part is said so in the
+   * status line, nothing partial is saved, and the player presses again.
+   * Opening the sheet spends nothing. */
   App.aiCreateWorld = function () {
     var closeRef = null;
     UI.sheet({
       title: 'Create a world with AI',
       body: '<div class="field"><div class="field-head"><label>Describe your world</label></div>' +
         '<textarea class="tall" id="aiw-idea" placeholder="e.g. a drowned city where the streets are canals and the oldest families live in the upper floors, above the water"></textarea>' +
-        '<div class="hint">One or two lines is plenty — the model drafts the places, people, factions and rules. One request, spent only when you press Create.</div></div>' +
+        '<div class="hint">One or two lines is plenty — the model drafts the places, people, factions and rules. Three small requests, spent only when you press Create.</div></div>' +
         '<div id="aiw-status" class="hint" style="margin-top:8px"></div>',
       actions: [
-        { label: 'Create (1 request)', cls: 'primary', close: false, onClick: function (body) {
+        { label: 'Create (3 requests)', cls: 'primary', close: false, onClick: function (body) {
           var idea = $('#aiw-idea', body).value.trim();
           if (!idea) { UI.toast('Describe the world — even one line'); return; }
           var st = $('#aiw-status', body);
-          st.textContent = 'Asking the model — one request…';
+          function status(text) { if (st) st.textContent = text; }
+          var stage = '';
+          function prog(info) {
+            if (!st) return;
+            if (info.state === 'queued') st.textContent = stage + ' — queued on the Horde · position ' + (info.queuePosition || 0);
+            else if (info.state === 'rate-limited') st.textContent = stage + ' — rate-limited, waiting ' + (info.waitTime || '?') + 's…';
+            else st.textContent = stage + ' — the model is writing…';
+          }
+          /* 1/3 the places: a connected place you can walk */
+          stage = '1 of 3, the places';
+          status(stage + '…');
           API.aiJson(Store.settings,
             'You are creating a playable text roleplay world. The player\'s direction: "' +
             idea + '". Preserve that direction exactly — if it describes a dark, strange, ' +
             'oppressive or eccentric place, create that place, not a safe version of it. ' +
             'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
-            '{"_format":"horde-world","name":string (the world\'s title), ' +
+            '{"name":string (the world\'s title), ' +
             '"description":string (2-3 sentences), ' +
-            '"dmPrompt":string (250-400 words: you are the showrunner and referee of this world; the core promise that the player can do anything; what persists and what never resets; simulation discipline — honor the clock, exits, who is present, and what characters could plausibly know; player agency — never write the player\'s words, thoughts or consent; voice: second person, present tense, concrete, no purple prose), ' +
-            '"intro":string (the opening scene, 3-6 sentences, second person present tense, ending on a small hook), ' +
-            '"authorNote":string (one sentence on what keeps this world honest), ' +
             '"startLocationId":string (the id of the first room), ' +
-            '"locations":[{"id":"loc_snake","name":string,"mapType":"region|building|outdoor|route|room","parentLocationId":string or null (the place it is inside of, null for the top region),"description":string (1-2 sentences),"exits":[{"text":"to <place name>","travelTime":integer minutes,"isOneWay":false}]}, 6-10 places that form one connected place you can walk], ' +
-            '"entities":[{"id":"npc_snake","name":string,"type":"npc","isMajor":boolean,"description":string (1-2 sentences),"persona":string (2-3 sentences, with a real flaw),"goal":string (one sentence),"secrets":string (one sentence)}, 3-5 of them], ' +
-            '"factions":[{"id":"fac_snake","name":string,"description":string (one sentence)}, 1-3], ' +
-            '"relationships":[{"a":"npc_id","b":"npc_id","label":string (short),"score":integer from -100 to 100}, 3-6], ' +
-            '"lorebook":[{"keyword":"comma,separated,terms","text":string (1-2 sentences)}, 5-8], ' +
-            '"startingLives":[{"id":"origin_main","name":string (a walk-in role such as "New Face in Town"),"role":string (one sentence),"startLocationId":string,"description":string (1-2 sentences)}], ' +
-            '"gameRules":{"modules":{"quests":true,"relationships":true,"livingWorld":true}}, ' +
-            '"hudConfig":{"showClock":true,"startWeekday":"Monday","startTimeHours":8,"timeStep":10}}',
-            2400,
-            function (info) {
-              if (!st) return;
-              if (info.state === 'queued') st.textContent = 'Queued on the Horde · position ' + (info.queuePosition || 0);
-              else if (info.state === 'rate-limited') st.textContent = 'Rate-limited — waiting ' + (info.waitTime || '?') + 's…';
-              else st.textContent = 'The model is writing the world…';
-            }).then(function (d) {
-              if (!d) { st.textContent = 'The model sent no usable world — press Create to try again.'; return; }
-              var world = HW.parse(d);
-              if (!world) { st.textContent = 'That world was missing its places — press Create to try again.'; return; }
-              return HW.save(world).then(function () {
-                UI.toast('Created ' + world.name, 3200);
-                if (closeRef) closeRef();
-                App.go('worlds');
-              });
-            }).catch(function (e) {
-              st.textContent = 'World draft failed: ' + (e && e.message || e) + ' — press Create to try again.';
-            });
+            '"locations":[{"id":"loc_snake","name":string,"mapType":"region|building|outdoor|route|room","parentLocationId":string or null (the place it is inside of, null for the top region),"description":string (1-2 sentences),"exits":[{"text":"to <place name>","travelTime":integer minutes,"isOneWay":false}]}, 5-7 places that form one connected place you can walk, with exits between them]}',
+            480, prog).then(function (places) {
+              if (!places || !Array.isArray(places.locations) || !places.locations.length) {
+                throw new Error('the model sent no places — press Create to try again');
+              }
+              /* 2/3 the people: the cast that lives there */
+              stage = '2 of 3, the people';
+              status(stage + '…');
+              return API.aiJson(Store.settings,
+                'For the roleplay world "' + (places.name || '') + '" (the player wanted: "' +
+                idea + '"), draft its people. ' +
+                'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
+                '{"entities":[{"id":"npc_snake","name":string,"type":"npc","isMajor":boolean,"description":string (1-2 sentences),"persona":string (2-3 sentences, with a real flaw),"goal":string (one sentence),"secrets":string (one sentence)}, 3-4 of them, fitting that world], ' +
+                '"factions":[{"id":"fac_snake","name":string,"description":string (one sentence)}, 1-3], ' +
+                '"relationships":[{"a":"npc_id","b":"npc_id","label":string (short),"score":integer from -100 to 100}, 3-6 pairs between the entities above]}',
+                480, prog).then(function (people) {
+                  if (!people || !Array.isArray(people.entities) || !people.entities.length) {
+                    throw new Error('the model sent no people — press Create to try again');
+                  }
+                  /* 3/3 the rules: the referee, the opening, how to begin */
+                  stage = '3 of 3, the rules';
+                  status(stage + '…');
+                  var locIds = places.locations.map(function (l) { return l.id; }).join(', ');
+                  return API.aiJson(Store.settings,
+                    'Finish the roleplay world "' + (places.name || '') + '". The place ids that exist: ' +
+                    locIds + '. Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
+                    '{"dmPrompt":string (150-220 words: you are the showrunner and referee of this world; the core promise that the player can do anything; what persists and what never resets; simulation discipline — honor the clock, exits, who is present, and what characters could plausibly know; player agency — never write the player\'s words, thoughts or consent; voice: second person, present tense, concrete, no purple prose), ' +
+                    '"intro":string (the opening scene, 3-5 sentences, second person present tense, ending on a small hook), ' +
+                    '"authorNote":string (one sentence on what keeps this world honest), ' +
+                    '"startingLives":[{"id":"origin_main","name":string (a walk-in role such as "New Face in Town"),"role":string (one sentence),"startLocationId":string (one of the ids listed above),"description":string (1-2 sentences)}], ' +
+                    '"gameRules":{"modules":{"quests":true,"relationships":true,"livingWorld":true}}, ' +
+                    '"hudConfig":{"showClock":true,"startWeekday":"Monday","startTimeHours":8,"timeStep":10}}',
+                    480, prog).then(function (rules) {
+                      if (!rules || !rules.dmPrompt) {
+                        throw new Error('the model sent no referee prompt — press Create to try again');
+                      }
+                      var world = HW.parse(HW.assemble({
+                        places: places, people: people, rules: rules
+                      }));
+                      if (!world) {
+                        throw new Error('the assembled world was missing its places — press Create to try again');
+                      }
+                      return HW.save(world).then(function () {
+                        UI.toast('Created ' + world.name, 3200);
+                        if (closeRef) closeRef();
+                        App.go('worlds');
+                      });
+                    });
+                  });
+                }
+          ).catch(function (e) {
+            status('World draft failed: ' + (e && e.message || e) +
+              ' Nothing partial was saved — press Create to try again.');
+          });
         } },
         { label: 'Cancel', cls: 'ghost', value: null }
       ],
