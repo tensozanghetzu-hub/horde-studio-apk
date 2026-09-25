@@ -35,6 +35,53 @@
     });
   }
 
+  /* 18.2.0: newly imported images arrive normalized — downscaled to at most
+     maxDim px and re-encoded (PNG only when the picture actually has
+     transparency, JPEG 0.85 otherwise). A 12 MP phone photo must not become
+     several MB of base64 sitting in IndexedDB. The math helpers are pure
+     and unit-tested; the canvas glue falls back to the raw data URL if any
+     step throws. */
+  function imageTargetSize(w, h, maxDim) {
+    maxDim = maxDim || 512;
+    var scale = Math.min(1, maxDim / Math.max(w || 1, h || 1));
+    return {
+      w: Math.max(1, Math.round((w || 1) * scale)),
+      h: Math.max(1, Math.round((h || 1) * scale))
+    };
+  }
+  function imageMime(hasAlpha) { return hasAlpha ? 'image/png' : 'image/jpeg'; }
+
+  function normalizeImage(file, maxDim) {
+    return new Promise(function (resolve) {
+      function fallback() { fileToDataUrl(file).then(resolve, resolve); }
+      try {
+        if (!file || !file.size || file.size < 40 * 1024) return fallback(); /* already tiny */
+        var url = null;
+        try { if (typeof URL !== 'undefined' && URL.createObjectURL) url = URL.createObjectURL(file); } catch (e) { /* ignore */ }
+        if (!url) return fallback();
+        var img = new Image();
+        img.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) {} fallback(); };
+        img.onload = function () {
+          try {
+            var t = imageTargetSize(img.naturalWidth || img.width, img.naturalHeight || img.height, maxDim);
+            var canvas = document.createElement('canvas');
+            canvas.width = t.w; canvas.height = t.h;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, t.w, t.h);
+            var hasAlpha = false;
+            try {
+              var data = ctx.getImageData(0, 0, t.w, t.h).data;
+              for (var i = 3; i < data.length; i += 64) if (data[i] < 255) { hasAlpha = true; break; }
+            } catch (e) { hasAlpha = true; } /* unknown → keep it lossless */
+            resolve(canvas.toDataURL(imageMime(hasAlpha), 0.85));
+          } catch (e2) { fallback(); }
+          try { URL.revokeObjectURL(url); } catch (e) { /* ignore */ }
+        };
+        img.src = url;
+      } catch (e) { fallback(); }
+    });
+  }
+
   var Views = {};
 
   /* ================= PERSONA SWITCHER ================= */
@@ -621,6 +668,16 @@
         '<div class="field"><button class="btn danger block sm" id="btn-wipe">' + icon('trash') + ' Erase all characters and chats</button></div>' +
       '</div>' +
 
+      /* --- storage (18.2.0, mobile subset) --- */
+      '<div class="group">' +
+        '<div class="group-title">Storage</div>' +
+        '<div class="field">' +
+          '<button class="btn ghost sm block" id="btn-storage">' + icon('map') + ' Show storage use</button>' +
+          '<div class="hint">A read-only look at what the app is holding on this phone. The app never deletes anything on its own.</div>' +
+          '<div id="storage-lines" style="margin-top:8px"></div>' +
+        '</div>' +
+      '</div>' +
+
       /* --- updates --- */
       '<div class="group">' +
         '<div class="group-title">App updates</div>' +
@@ -904,6 +961,36 @@
         });
       });
     });
+    /* 18.2.0 (mobile subset): read-only storage inspection — count what the
+       app holds on this phone and show the biggest holders. */
+    bind('#btn-storage', 'click', function () {
+      var box = $('#storage-lines', body);
+      box.innerHTML = '<div class="hint">Measuring…</div>';
+      var chars = Store.characters || [];
+      Promise.all(chars.map(function (c) {
+        return Store.getSessions(c.id).then(function (ss) { return ss || []; });
+      })).then(function (perChar) {
+        var sessions = [];
+        perChar.forEach(function (ss) { sessions = sessions.concat(ss); });
+        return Promise.all(sessions.map(function (s) {
+          return Store.getMessages(s.id).then(function (mm) { return mm || []; });
+        })).then(function (perSession) {
+          var messages = [];
+          perSession.forEach(function (mm) { messages = messages.concat(mm); });
+          return HW.all().then(function (worlds) {
+            var rep = App.storageReport({
+              characters: chars, sessions: sessions, messages: messages, worlds: worlds || []
+            });
+            box.innerHTML = '<div class="kv"><span>Everything above</span><b>~' + (rep.bytes >= 1048576 ? (rep.bytes / 1048576).toFixed(1) + ' MB' : Math.ceil(rep.bytes / 1024) + ' KB') + '</b></div>' +
+              rep.lines.map(function (l) {
+                return '<div class="kv"><span>' + esc(l[0]) + '</span><b style="text-align:right">' + esc(l[1]) + '</b></div>';
+              }).join('');
+          });
+        });
+      }).catch(function (e) {
+        box.innerHTML = '<div class="hint">Could not measure: ' + esc(e.message || e) + '</div>';
+      });
+    });
   };
 
   /* ================= EDITOR ================= */
@@ -1067,7 +1154,9 @@
     on(body, '[data-act=av-file]', 'click', function () {
       pickFile('image/*').then(function (f) {
         if (!f) return;
-        fileToDataUrl(f).then(function (d) {
+        /* 18.2.0: import through the normalizer — downscaled, re-encoded,
+           transparency kept — before it lands in IndexedDB. */
+        normalizeImage(f).then(function (d) {
           draft.avatar = d;
           var w = $('#av-wrap', body).querySelector('img,.ph');
           w.outerHTML = '<img src="' + esc(d) + '" alt="">';
@@ -1583,9 +1672,45 @@
   }
   Views.stickToBottom = stickToBottom;
 
+  /* 18.2.0: a re-render must not fling the reader. Anchor on the first
+     message in view (and how far down into it) and restore after the
+     rebuild; if that message was just deleted, its predecessor stands in.
+     Fresh opens (forceBottom) still land on the last message. Pure over
+     plain child objects so it is unit-testable. */
+  Views.threadAnchor = function (children, scrollTop) {
+    var y = scrollTop || 0;
+    var prev = null;
+    for (var i = 0; i < children.length; i++) {
+      var el = children[i];
+      if (el.offsetTop + el.offsetHeight > y) {
+        return {
+          mid: el.getAttribute ? el.getAttribute('data-mid') : null,
+          dy: Math.max(0, y - el.offsetTop),
+          prev: prev
+        };
+      }
+      if (el.getAttribute) prev = el.getAttribute('data-mid');
+    }
+    return null; /* scrolled past the last message — stick to bottom instead */
+  };
+
+  Views.restoreThreadScroll = function (thread, anchor) {
+    if (!anchor) return false;
+    var el = anchor.mid ? thread.querySelector('[data-mid="' + anchor.mid + '"]') : null;
+    var usedPrev = false;
+    if (!el && anchor.prev) { el = thread.querySelector('[data-mid="' + anchor.prev + '"]'); usedPrev = true; }
+    if (!el) return false;
+    /* When the fallback predecessor stands in, land at its top, not mid-line. */
+    thread.scrollTop = Math.max(0, el.offsetTop - (usedPrev ? 0 : (anchor.dy || 0)));
+    return true;
+  };
+
   Views.thread = function (char, session, messages, streamingId, forceBottom) {
     var s = Store.settings;
     var thread = $('#thread');
+    var anchor = (!forceBottom && thread.children && thread.children.length)
+      ? Views.threadAnchor(thread.children, thread.scrollTop)
+      : null;
     thread.innerHTML = messages.map(function (m) {
       if (m.id === streamingId) m._stream = m._stream || '';
       return messageHtml(m, char, s);
@@ -1605,6 +1730,10 @@
           }, { once: true });
         })(imgs[ii]);
       }
+    } else if (anchor) {
+      /* Re-render (delete / edit / swipe) while the reader was mid-thread:
+         put them back where they were. */
+      Views.restoreThreadScroll(thread, anchor);
     }
     return st;
   };
@@ -1621,6 +1750,9 @@
 
   Views.pickFile = pickFile;
   Views.fileToDataUrl = fileToDataUrl;
+  Views.normalizeImage = normalizeImage;
+  Views.imageTargetSize = imageTargetSize;
+  Views.imageMime = imageMime;
   Views.initials = initials;
   Views.avatarHtml = avatarHtml;
   Views.messageHtml = messageHtml;
