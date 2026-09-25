@@ -2,10 +2,10 @@
 
 Current build: `HordeStudio-v1.10.0.apk` (versionCode 29), sha256
 3c67c8ab75c9457aa487c4dfe524906586d93dd34664fb9f2aacc68075324a34 (289,947 B).
-Built 2026-09-25, not yet synced: `docs/` still serves v1.9.2
-(webRev `ccf143907ed0`, web.zip 169,663 B) and `docs/HordeStudio-latest.apk`
-is the staged 1.10.0 build (same 289,947 B as v1.9.2 — do not identify a
-build by size, check the sha256).
+Built and published 2026-09-25: `docs/` serves v1.10.0 (webRev
+`7bf5e7e106cb`, web.zip 172,558 B) and release `v1.10.0` holds both APK
+assets (289,947 B — the same size as v1.9.2; do not identify a build by
+size, check the sha256).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -570,8 +570,12 @@ same keystore, in-place upgrade from 1.9.2) and in-APK verified: the four new
 feature markers plus the shipped-fix markers (editAndResend, 'Edit & resend',
 retry, stickToBottom) and the versions (store 1.10.0, sw v17) are all in the
 packaged assets. The superseded v1.9.2 root APK was removed (the release
-assets keep that copy). Publish (push + release + channel) only on explicit
-ask — the 422-check suite count above is the no-regression record.
+assets keep that copy). Published on explicit ask: push
+`a43f4bc..c9faad7`, release `v1.10.0` (both assets; the downloaded release
+asset verified byte-identical to the local build), channel verified after
+publish (1.10.0 / webRev `7bf5e7e106cb`, sw v17, new feature + shipped-fix
+markers in the served bundle). The 422-check suite count above is the
+no-regression record.
 
 ---
 
