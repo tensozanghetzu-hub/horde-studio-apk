@@ -821,38 +821,74 @@
     var text = input.value.trim();
     if (!text || App.state.busy) return;
     input.value = ''; input.style.height = 'auto';
-    /* A fresh send supersedes any earlier Retry offer. */
-    for (var ri = 0; ri < App.state.messages.length; ri++) if (App.state.messages[ri].retry) App.state.messages[ri].retry = false;
-    var chips = document.querySelectorAll('#thread .chip.retry');
-    for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
     var char = App.state.char, session = App.state.session;
     var msg = { sessionId: session.id, role: 'user', text: text, createdAt: Date.now() };
     Store.addMessage(msg).then(function (m) {
       App.state.messages.push(m);
       Views.appendMessage(char, m);
       Views.stickToBottom($('#thread'), true);   // your own send: always show it
-
-      if (char.vh && char.vh.enabled) {
-        VH.noteContact(char, {});
-        var delay = VH.replyDelay(char);
-        if (delay) {
-          session.pending = { askedAt: Date.now(), dueAt: Date.now() + delay * 1000, asleep: VH.isAsleep(char.vh) };
-          Store.putSession(session);
-          var wait = VH.isAsleep(char.vh)
-            ? (char.name + ' is asleep — they will answer around ' + char.vh.sleep.end + '.')
-            : (char.name + ' is busy right now (' + (VH.activity(char.vh) || 'occupied') + ').');
-          var sys = { sessionId: session.id, role: 'system', text: wait, createdAt: Date.now() };
-          return Store.addMessage(sys).then(function (sm) {
-            App.state.messages.push(sm);
-            Views.appendMessage(char, sm);
-            Views.stickToBottom($('#thread'), true);
-            App.persistVH(char);
-          });
-        }
-        App.persistVH(char);
-      }
-      App.generateReply();
+      return App.afterUserMessage(m);
     });
+  };
+
+  /** What happens once a user message has landed: a fresh user turn
+   *  supersedes any earlier Retry offer, virtual humans may answer on
+   *  their own schedule, everyone else gets a reply generated now.
+   *  Shared by a fresh send and by edit-and-resend. */
+  App.afterUserMessage = function (m) {
+    for (var ri = 0; ri < App.state.messages.length; ri++) if (App.state.messages[ri].retry) App.state.messages[ri].retry = false;
+    var chips = document.querySelectorAll('#thread .chip.retry');
+    for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
+    var char = App.state.char, session = App.state.session;
+    if (char.vh && char.vh.enabled) {
+      VH.noteContact(char, {});
+      var delay = VH.replyDelay(char);
+      if (delay) {
+        session.pending = { askedAt: Date.now(), dueAt: Date.now() + delay * 1000, asleep: VH.isAsleep(char.vh) };
+        Store.putSession(session);
+        var wait = VH.isAsleep(char.vh)
+          ? (char.name + ' is asleep — they will answer around ' + char.vh.sleep.end + '.')
+          : (char.name + ' is busy right now (' + (VH.activity(char.vh) || 'occupied') + ').');
+        var sys = { sessionId: session.id, role: 'system', text: wait, createdAt: Date.now() };
+        return Store.addMessage(sys).then(function (sm) {
+          App.state.messages.push(sm);
+          Views.appendMessage(char, sm);
+          Views.stickToBottom($('#thread'), true);
+          App.persistVH(char);
+        });
+      }
+      App.persistVH(char);
+    }
+    App.generateReply();
+  };
+
+  /** Edit-and-resend (user messages): the edited line replaces the old one,
+   *  everything said after it is cut, and a fresh reply is generated from
+   *  the edit — the phone equivalent of re-sending. Resolves 'busy',
+   *  'unchanged', 'cancelled' or undefined once the thread has settled. */
+  App.editAndResend = function (msg, text) {
+    var st = App.state;
+    if (st.busy) return Promise.resolve('busy');
+    if (text === (msg.text || '').trim()) return Promise.resolve('unchanged');
+    var after = st.messages.slice(st.messages.indexOf(msg) + 1);
+    function run() {
+      msg.text = text;
+      return Store.updateMessage(msg).then(function () {
+        var del = after.map(function (x) { return Store.delMessage(x.id); });
+        return Promise.all(del).then(function () {
+          st.messages = st.messages.slice(0, st.messages.indexOf(msg) + 1);
+          Views.thread(App.state.char, App.state.session, st.messages);
+          return App.afterUserMessage(msg);
+        });
+      });
+    }
+    if (!after.length) return run();
+    return UI.confirm('Resend from here?',
+      'This resends your edited message for a fresh reply and deletes the ' +
+      after.length + ' message' + (after.length > 1 ? 's' : '') + ' after it.',
+      { danger: true, okLabel: 'Edit & resend' }).then(function (okc) {
+        return okc ? run() : Promise.resolve('cancelled');
+      });
   };
 
   /* ---------------- virtual humans ---------------- */
@@ -1817,6 +1853,17 @@
       if (act === 'edit') {
         UI.input('Edit message', { value: msg.text || '', multiline: true }).then(function (v) {
           if (v === null) return;
+          if (!v || !v.trim()) return UI.toast('The message can’t be empty');
+          v = v.trim();
+          if (msg.role === 'user') {
+            /* User message: edit-and-resend. A plain in-place edit would
+               leave the replies stranded, so a changed edit cuts what comes
+               after and generates a fresh reply; an unchanged one does
+               nothing and spends no request. */
+            if (App.state.busy) return UI.toast('Wait for the current reply');
+            App.editAndResend(msg, v);
+            return;
+          }
           msg.text = v;
           if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = v;
           Store.updateMessage(msg).then(function () { Views.thread(App.state.char, App.state.session, App.state.messages); });
