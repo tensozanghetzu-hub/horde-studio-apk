@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.9.2
+# Horde Studio — Mobile (Android) · v1.10.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.9.2](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.10.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.9.2.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.10.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -364,12 +364,16 @@ nothing when a provider already stops cleanly (one pass, then it stops).
 ## Features
 
 - **Virtual humans** — own clock, routine, sleep, drifting mood and relationship,
-  unprompted messages and photos, forked timelines (see above).
+  unprompted messages and photos, forked timelines (see above). Their background
+  life work never blocks your chat: they can be "typing" on their own schedule
+  while you send and read freely.
 - **Cast** — character cards with avatars, tags and search. Import SillyTavern cards
   (`.json` **or** `.png` with embedded `chara` / `ccv3` data); export back to card JSON.
 - **Chats** — one character, many sessions. Streaming replies, **Reroll**,
   **Continue**, swipe between alternative replies, edit-and-resend your own
-  messages, delete any message, export transcripts.
+  messages, delete any message, export transcripts. Deleting or editing a
+  message mid-history re-renders the thread without yanking your scroll
+  position.
 - **Story memory** — every N messages the model compresses the thread into a summary
   plus a list of durable facts, which get injected into later prompts. Long chats stay
   coherent without paying to resend the whole transcript. Edit it by hand any time
@@ -594,6 +598,41 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.10.0
+
+**Aligned with upstream Horde Studio 18.2.0** — the mobile-relevant parts of the
+18.2.0 release, ported to the phone:
+
+- **Life work no longer blocks your chat.** When a virtual human works on their
+  own schedule (an unprompted message, a photo, an activity), that is now
+  *background* work: it claims a per-character life slot, not the chat's busy
+  flag. You can send, read and edit while they're "typing", and the working
+  indicator stays off. A manual nudge (you asked them to talk) is
+  user-initiated and keeps the old foreground behavior with its banner. Failed
+  outreach still backs off and always gives its slot back — no stuck life
+  work.
+- **Stable transcript.** Deleting or editing a message mid-history re-renders
+  the thread anchored on the message you were reading — the view stays put,
+  and if that message was the one deleted, the one above it stands in. Opening
+  a chat still lands on the last message, and near-bottom re-renders still
+  follow the content (the v1.8.1/v1.8.2 rules are unchanged).
+- **Imported images arrive normalized.** Avatar photos imported from the phone
+  are downscaled to a 512 px long edge and re-encoded (PNG only when the
+  picture has real transparency) before they land in storage, so a 12 MP photo
+  doesn't become several MB of base64 in IndexedDB.
+- **Storage inspection.** Settings → **Storage** → *Show storage use* is a
+  read-only look at what the app holds on this phone: how many chats and
+  messages, how much text, avatar and chat images, and installed worlds, each
+  weighed in real bytes. The app never deletes anything on its own.
+
+Not portable to the phone (left with upstream): the private always-on VH2
+hosting story (needs a host machine), the LM Studio state-observer repair
+(different provider plumbing here), the editable-export flush fix and the
+5-second maintenance race (no such mechanisms in this port), and the full
+storage optimizer (the port ships the inspection half; the fine-grained
+ledgers here were already bounded by design — chronicle 40, feed 80, gallery
+40).
 
 ## What's new in v1.9.2
 

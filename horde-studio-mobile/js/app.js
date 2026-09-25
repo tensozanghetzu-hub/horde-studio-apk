@@ -13,7 +13,7 @@
   }
 
   var App = {
-    state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false },
+    state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {} },
     stack: [],
     abort: null,
     deferredPrompt: null
@@ -1121,14 +1121,24 @@
     if (App.state.busy || App.state.bursting) return;
     var vh = VH.ensure(char);
     kind = kind || 'message';
-    /* Claim the slot up front: the lookups below are async, so without this a
-       second tick (or an impatient nudge) could start a second generation.
+    var manual = !!forced;
+    /* 18.2.0: background life work is separate from the foreground chat.
+       Outreach claims a per-character LIFE slot instead of the chat's busy
+       flag — the player can send and read while the life runs, and the
+       "working…" indicator stays off. A manual nudge is user-initiated, so
+       it keeps the foreground flag and the banner. Two different characters
+       may run life work at once; one character may not double-generate.
        Every way out of this function has to give the slot back. */
-    App.state.busy = true;
-    function bail() { App.state.busy = false; App.renderTyping(); }
+    if (App.state.lifeBusy[char.id]) return;
+    App.state.lifeBusy[char.id] = true;
+    if (manual) App.state.busy = true;
+    function bail() {
+      delete App.state.lifeBusy[char.id];
+      if (manual) { App.state.busy = false; App.genStop(); }
+      App.renderTyping();
+    }
     if (kind === 'photo' && !VH.perm(vh, 'photo')) kind = 'message';
     if (kind === 'message' && !VH.perm(vh, 'message')) return bail();
-    var manual = !!forced;
     /* Manual nudges are free; autonomous activity spends the daily budget. */
     if (!manual && !VH.canSpend(vh)) return bail();
 
@@ -1138,7 +1148,7 @@
       return Store.getMessages(session.id).then(function (msgs) {
         var prompt = VH.outreachPrompt(char, session, msgs, kind);
         var system = (char.persona || '') + '\n\n' + VH.contextLine(char);
-        App.genStart(kind === 'photo' ? (char.name + ' is sending something…') : (char.name + ' is typing…'), null);
+        if (manual) App.genStart(kind === 'photo' ? (char.name + ' is sending something…') : (char.name + ' is typing…'));
         return API.generateFree({
           settings: Store.settings, system: system, instruction: prompt,
           name: char.name, maxTokens: kind === 'photo' ? 40 : 90
@@ -1166,7 +1176,7 @@
         App.persistVH(char);
         UI.toast('Virtual human message failed: ' + e.message, 5000);
       } catch (inner) { console.error('outreach error handler failed:', inner); }
-    }).then(function () { App.genStop(); App.state.busy = false; App.renderTyping(); });
+    }).then(function () { bail(); });
   };
 
   /**
@@ -1264,6 +1274,41 @@
         }
       });
     });
+  };
+
+  /* ---------------- 18.2.0: storage inspection (mobile subset) ---------------- */
+  /**
+   * Read-only look at what the app is holding on this phone — the portable
+   * part of 18.2.0's "service-wide storage inspection". Pure: takes gathered
+   * data, returns display lines, so it is unit-testable and can never write.
+   * The app never deletes your data on its own.
+   */
+  App.storageReport = function (d) {
+    function mb(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.ceil(n / 1024) + ' KB'; }
+    d = d || {};
+    var chars = d.characters || [], sessions = d.sessions || [], msgs = d.messages || [], worlds = d.worlds || [];
+    var msgBytes = 0, chatImgBytes = 0, avatarBytes = 0, worldBytes = 0;
+    var i, m;
+    for (i = 0; i < msgs.length; i++) {
+      m = msgs[i] || {};
+      msgBytes += (m.text || '').length * 2; /* UTF-16 */
+      if (m.image && /^data:/.test(m.image)) chatImgBytes += Math.round(m.image.length * 0.75); /* base64 → bytes */
+    }
+    for (i = 0; i < chars.length; i++) {
+      if (chars[i] && chars[i].avatar && /^data:/.test(chars[i].avatar)) avatarBytes += Math.round(chars[i].avatar.length * 0.75);
+    }
+    for (i = 0; i < worlds.length; i++) {
+      try { worldBytes += JSON.stringify(worlds[i]).length * 2; } catch (e) { /* skip broken world */ }
+    }
+    return {
+      bytes: msgBytes + chatImgBytes + avatarBytes + worldBytes,
+      lines: [
+        ['Conversations', sessions.length + (sessions.length === 1 ? ' chat' : ' chats') + ' · ' + msgs.length + ' messages · ~' + mb(msgBytes)],
+        ['Avatar images', '~' + mb(avatarBytes) + ' across ' + chars.length + ' character' + (chars.length === 1 ? '' : 's')],
+        ['Chat images', '~' + mb(chatImgBytes)],
+        ['Worlds', worlds.length + ' installed · ~' + mb(worldBytes)]
+      ]
+    };
   };
 
   /* ---------------- portable lives (v18) ---------------- */

@@ -1,23 +1,30 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.5.0.apk` (versionCode 17), sha256 b3ec66a373f328af8c8b22659d5afcc858452a606d59c304e7ba7e058e345f27 (277,659 B).
-Channel `webRev c2812024342e`, 20 files, web.zip 157,639 B.
+Current build: `HordeStudio-v1.10.0.apk` (versionCode 29), sha256
+3c67c8ab75c9457aa487c4dfe524906586d93dd34664fb9f2aacc68075324a34 (289,947 B).
+Built 2026-09-25, not yet synced: `docs/` still serves v1.9.2
+(webRev `ccf143907ed0`, web.zip 169,663 B) and `docs/HordeStudio-latest.apk`
+is the staged 1.10.0 build (same 289,947 B as v1.9.2 — do not identify a
+build by size, check the sha256).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
 Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on purpose — it makes Play Protect warn; user accepts 'install anyway'), storage (maxSdk 28).
 
-Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` (SDK is deleted after each build).
-Tests: `/tmp/smoke2/` (not durable) — `smoke.js` (24), `think-test.js` (19), `retry-test.js` (9).
-Self-update test: `update-test.js` (26 checks, simulates the native bridge, real HTTP).
-Layout tests need chromium: `layout.js` (bubble overflow), `overflow-audit.js` (every screen at 320/360/412 px), `md-test.js` (formatter).
+Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
+does not survive a turn boundary (see the HAZARD below), so setup + build must
+run as one command.
+Tests: 17 node-runnable suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.10.0: 422 checks in total).
+Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
+and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
 Deps are vendored in `tests/vendor` (run with NODE_PATH=tests/vendor); chromium in ~/.cache does not survive a restart.
 The sandbox ID changes on restart — `build.sh` re-bakes the update address from $E2B_SANDBOX_ID, and a stale one 502s.
 Needs the static server on port 8000: `python3 -m http.server 8000 --bind 0.0.0.0 --directory /home/user/horde-studio-mobile`.
 
 
-## GitHub update channel (set up in progress)
+## GitHub update channel
 
 - Repo: the workspace itself is the git repo (`/home/user/.git`). `docs/` is what
   GitHub Pages publishes; `tools/build-channel.py` regenerates it from
@@ -41,10 +48,12 @@ Needs the static server on port 8000: `python3 -m http.server 8000 --bind 0.0.0.
   publishing `docs/`. Channel address https://tensozanghetzu-hub.github.io/horde-studio-apk/
   Immediate fallback with no Pages config:
   https://raw.githubusercontent.com/tensozanghetzu-hub/horde-studio-apk/main/docs/
-- PUSHED. Pages itself is NOT enabled yet - only the user can flip it in repo Settings.
-- **apkUrl is a bare filename**, resolved against the update address, so one channel
-  works from Pages, raw.githubusercontent, a NAS or a home server.
-- Current APK: **HordeStudio-v1.4.8.apk**, 228,071 B, sha256 a134739efb7a68179c37a549bc0b2c6fa882
+- PUSHED. Pages is enabled and has served the channel since v1.5.1 (verified
+  after each release).
+- **apkUrl is a bare filename**, resolved against the update address, so one
+  channel works from Pages, raw.githubusercontent, a NAS or a home server.
+- At setup (2026-09-14) the current APK was **HordeStudio-v1.4.8.apk**,
+  228,071 B, sha256 a134739efb7a68179c37a549bc0b2c6fa882
   79a83890b51ac352075aedb02fb7, code 13. Dex-verified: all 10 bridge methods present.
 - **THE 1.4.8 BUG (root-caused, fixed):** `jobStatus` embedded `j.result` via
   `jsonEscape()`, which replaces every `"` with `'`. `checkUpdate` puts the whole
@@ -372,7 +381,9 @@ network). Run against a pristine `git archive` of the baseline:
 The baseline figures match the handoff's stated 2/8 exactly, which is good
 evidence the report was accurate. Existing suites unchanged afterwards:
 hordeworld 76, persona 62, worldgraph 40, worldpack 18, apkurl 11, history 7,
-hordectx 4 — 228 total, 0 failures.
+hordectx 4 — 218 total, 0 failures (originally noted as 228, which
+double-counted the handoff's own 10 checks; v1.5.2's 257 = 218 + 15 + 24
+confirms the 218 base).
 
 ### Published
 
@@ -469,6 +480,101 @@ sha256 remains the only identity.
 
 ---
 
+## v1.10.0 — upstream 18.2.0 alignment (2026-09-25)
+
+### The ask
+
+"horde studio 18.2.0 came out. please update the apk to this version. please
+check that this update doesnt break the fixes you already made to the apk."
+
+18.2.0 ("Virtual Human reliability, long-life storage and private always-on
+hosting") is mostly desktop-scale. I ported the mobile-relevant parts and
+documented what was intentionally left upstream. The acceptance criterion was
+explicit: verify the shipped fixes don't regress.
+
+### What 18.2.0 actually changed (fetched 2026-09-25)
+
+Conversations: stable long-transcript DOM, separate foreground replies from
+optional background work, LM Studio state-observer repair, editable-export
+read-only, removed 5s maintenance race. Storage: bounded ledgers with
+checkpoints, retention policies, compacted job prompts, resize/compress/dedup
+imported images (keep transparency), service-wide storage inspection +
+verified optimizer. Private always-on hosting (VH2 on a host machine).
+
+### Mobile mapping — what I did
+
+- **Foreground/background split (bug was real).** `App.vhOutreach` claimed
+  `App.state.busy = true` up front and ran `genStart('…is typing…')` for
+  AUTONOMOUS outreach, so a life tick blocked the user's `App.send` /
+  `generateReply` and lit the working indicator. Now outreach claims a
+  per-character slot `App.state.lifeBusy[char.id]` (a map, so two characters
+  may run at once but one may not double-generate). Autonomous work never
+  sets `busy` and never calls `genStart`; a manual nudge (`forced`) keeps the
+  old foreground flag + banner. `bail()` releases whatever was claimed on
+  every exit (success, failure, early return) — the 1.8.3 no-stuck-dots
+  guarantee, extended to the life slot. `renderTyping`'s `working` formula
+  (`genInfo || busy || bursting`) is untouched, so background work is
+  invisible to the indicator.
+- **Stable transcript / preserve scroll.** `Views.thread` (views.js) did a
+  full `#thread` innerHTML rebuild, which reset `scrollTop`. Added
+  `Views.threadAnchor(children, scrollTop)` (first message in view + depth +
+  predecessor) and `Views.restoreThreadScroll(thread, anchor)` (restores
+  offset; if the anchor message was deleted, the predecessor stands in at its
+  top). The rebuild now captures the anchor pre-render (only when
+  `!forceBottom`) and restores it post-render when `stickToBottom` declines.
+  Fresh opens (forceBottom) still land on the last message (v1.8.1) and
+  near-bottom re-renders still follow (v1.8.2) — both re-verified by
+  threadscroll-test and new anchor checks.
+- **Image normalization on avatar import.** `Views.normalizeImage(file,
+  512)` downscales to a 512 px long edge and re-encodes PNG only when the
+  picture has real transparency, JPEG 0.85 otherwise; falls back to the raw
+  data URL if any step throws. The `av-file` handler now routes through it.
+  Pure math (`imageTargetSize`, `imageMime`) is unit-tested.
+- **Storage inspection (read-only).** Settings → Storage → "Show storage use"
+  gathers characters/sessions/messages/worlds and renders
+  `App.storageReport(data)` — a pure, unit-tested function that weighs text in
+  UTF-16 bytes and base64 images at 3/4, reporting per-category and total.
+  No optimizer: the port ships the inspection half.
+
+### Mobile mapping — intentionally left upstream
+
+- Private always-on VH2 hosting: needs a host machine (Docker/Caddy), not a
+  phone. N/A.
+- LM Studio state-observer 400 repair: our provider plumbing is the AI Horde
+  + custom OpenAI-compatible, no LM Studio path. N/A.
+- Editable-export read-only + 5s maintenance race: this port has no queued
+  life-command flush on export and no periodic storage-maintenance timer.
+  N/A (verified by grep: no `setInterval` in idb/store/vhuman).
+- Full storage optimizer: desktop-scale (pauses lives, checks free space,
+  replays). The port's fine-grained ledgers were already bounded by design
+  (chronicle 40, feed 80, gallery 40), so "bound the ledgers" is already met.
+
+### Regression check (the explicit criterion)
+
+All 17 suites green (16 prior + new lifework-test, 43 checks) — including
+threadscroll (11, the scroll fixes), editresend (25), retry (9),
+horde-uncensored (20), aicreate (30), vhuman (16), updateflow (11), and the
+world/persona suites. New `tests/lifework-test.js` covers the foreground/
+background split (autonomous is background + a send mid-outreach goes
+through; nudge is foreground; per-char slots; failure releases the slot),
+the scroll anchor (mid-line restore, deleted-anchor predecessor, untouched
+anchor, fresh open, near-bottom), the storage report (weights, empty, MB),
+and the image math (downscale, no upscale, custom edge, jpeg/png).
+
+### Ship state (this segment)
+
+Bumped 1.10.0 / code 29 / sw v17, README (v1.10.0 section + VH/Chats bullets +
+Download) and NOTES updated. Built `HordeStudio-v1.10.0.apk` (289,947 B,
+sha256 3c67c8ab75c9457aa487c4dfe524906586d93dd34664fb9f2aacc68075324a34 —
+same keystore, in-place upgrade from 1.9.2) and in-APK verified: the four new
+feature markers plus the shipped-fix markers (editAndResend, 'Edit & resend',
+retry, stickToBottom) and the versions (store 1.10.0, sw v17) are all in the
+packaged assets. The superseded v1.9.2 root APK was removed (the release
+assets keep that copy). Publish (push + release + channel) only on explicit
+ask — the 422-check suite count above is the no-regression record.
+
+---
+
 ## v1.9.2 — edit-and-resend (2026-09-24)
 
 ### The ask
@@ -518,6 +624,13 @@ Download) updated, 16 suites green. Build + publish only on explicit ask.
 ### The report
 
 User screenshot: "Draft failed: Due to heavy demand, for requests over 512
+tokens, the client needs to already have the required kudos. This request
+requires 1328.57 kudos to fulfil." — pressed *Draft the whole person* with
+the anonymous Horde.
+
+### The cause
+
+The AI Horde's demand-spike policy: when thailed: Due to heavy demand, for requests over 512
 tokens, the client needs to already have the required kudos. This request
 requires 1328.57 kudos to fulfil." — pressed *Draft the whole person* with
 the anonymous Horde.
@@ -836,15 +949,7 @@ it again.
   leftover `.chip.retry` from the DOM.
 - **Only honest triggers.** The flag is set in the non-abort error branch,
   and only when the last stored message is a user message — so a failed VH
-  outreach or a failed reroll (last message is an assistant bubble) never
-  stamps a stale Retry onto an old user message.
-
-### Where it landed
-
-- `app.js` — catch branch flags last user message + re-renders; `retry`
-  action in the thread click dispatcher; flag/DOM cleanup in the generate
-  success path and at the top of `App.send`.
-- `views.js` — chip in `messageHtml` (user bubbles only, `m.retry` gated);
+  outreach or a failed reroll (last message is an assistant bubbs.js` — chip in `messageHtml` (user bubbles only, `m.retry` gated);
   `Views.messageHtml` exported for testing.
 - `css/app.css` — `.chip.retry` styling (accent colour, soft background).
 - `tests/retry-test.js` — new suite, 9 checks: chip rendered for flagged
@@ -1025,6 +1130,12 @@ and sours a hostile one; no contact while asleep, at autonomy off, or when
 the low-autonomy roll fails.
 
 Full suite: **273 passed, 0 failed** (previous 257 + 16 new).
+
+Not ported (desktop-only, documented in README): mind/cognition/embodiment
+subsystems, embodiment-aware routing, sleep-pressure dynamics,
+money/debt model, page-builder creation form, Python live backend,
+worker-encoding/packaging fixes.
+ssed, 0 failed** (previous 257 + 16 new).
 
 Not ported (desktop-only, documented in README): mind/cognition/embodiment
 subsystems, embodiment-aware routing, sleep-pressure dynamics,

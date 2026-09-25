@@ -3,7 +3,7 @@
    cache-first (`return hit || net`), so without a new cache name a phone
    keeps running the previous vhuman.js, views.js and app.js from disk even
    after the web channel has replaced them. */
-var CACHE = 'horde-studio-v16';
+var CACHE = 'horde-studio-v17';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',

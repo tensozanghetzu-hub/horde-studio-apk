@@ -231,7 +231,9 @@ pre,code{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
   .screen-chat{height:calc(100dvh - var(--bar-h) - var(--safe-t) - var(--nav-h) - var(--safe-b))}
 }
 .thread{
-  flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 12px 6px;display:flex;flex-direction:column;gap:12px;
+  /* position:relative makes the thread the offset parent — the 18.2.0
+     scroll anchor measures message offsets against it on re-render. */
+  position:relative;flex:1;overflow-y:auto;overflow-x:hidden;padding:12px 12px 6px;display:flex;flex-direction:column;gap:12px;
   -webkit-overflow-scrolling:touch;
 }
 .msg{display:flex;gap:9px;max-width:100%;animation:pop .2s var(--ease)}
