@@ -469,6 +469,50 @@ sha256 remains the only identity.
 
 ---
 
+## v1.9.2 — edit-and-resend (2026-09-24)
+
+### The ask
+
+"if i type in a message and the response i get isnt to my liking. and after
+a few rerolls i still dont like the response. can you make it so that after
+i delete the response. i can edit my initial message and resend it after
+the edit?"
+
+### What existed
+
+User messages already had Edit (in-place text swap, replies left stranded —
+the reply no longer matched the message) and Delete; assistant replies had
+Reroll/Continue/Edit/Copy/Delete. Nothing re-generated from an edited user
+message.
+
+### Implementation
+
+- `App.send`'s post-arrival tail (retry-offer cleanup, VH pending-schedule
+  vs immediate generation) extracted to `App.afterUserMessage(m)` — shared
+  by a fresh send and by edit-and-resend, so a virtual human who is busy or
+  asleep still answers a resent line on their own schedule.
+- New `App.editAndResend(msg, text)`: guards (busy → 'busy', unchanged text
+  → 'unchanged', both spend nothing) → if the message has successors, a
+  danger confirm names exactly how many will be deleted → persists the edit
+  (`Store.updateMessage`), deletes everything after it, re-renders the
+  thread, then `App.afterUserMessage(msg)` — a plain `generateReply()` that
+  answers the edited tail.
+- The message-menu Edit handler: user messages now route through
+  editAndResend (empty result rejected with a toast); assistant messages
+  keep the plain in-place edit.
+- `tests/editresend-test.js` (25 checks, app.js loaded in a VM with stubbed
+  Store/Views/VH and a recorded generateReply): tail edit (no confirm, one
+  generation, aimed at the edited tail), mid-thread edit (confirm names the
+  2 cut messages, danger style, 'Edit & resend' label, both deleted, thread
+  cut), declined confirm (nothing deleted/generated, text untouched), busy
+  guard, unchanged no-op, and the VH pending path (no immediate generation,
+  pending parked + persisted, system notice shown).
+
+### Ship state (this segment)
+
+Bumped 1.9.2 / code 28 / sw v16, README (v1.9.2 section + Chats bullet +
+Download) updated, 16 suites green. Build + publish only on explicit ask.
+
 ## v1.9.1 — AI drafts under the Horde's 512-token limit (2026-09-24)
 
 ### The report

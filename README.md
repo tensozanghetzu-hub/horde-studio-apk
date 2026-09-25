@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.9.1
+# Horde Studio — Mobile (Android) · v1.9.2
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.9.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.9.2](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.9.1.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.9.2.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -367,8 +367,9 @@ nothing when a provider already stops cleanly (one pass, then it stops).
   unprompted messages and photos, forked timelines (see above).
 - **Cast** — character cards with avatars, tags and search. Import SillyTavern cards
   (`.json` **or** `.png` with embedded `chara` / `ccv3` data); export back to card JSON.
-- **Chats** — one character, many sessions. Streaming replies, **Reroll**, **Continue**,
-  swipe between alternative replies, edit/delete any message, export transcripts.
+- **Chats** — one character, many sessions. Streaming replies, **Reroll**,
+  **Continue**, swipe between alternative replies, edit-and-resend your own
+  messages, delete any message, export transcripts.
 - **Story memory** — every N messages the model compresses the thread into a summary
   plus a list of durable facts, which get injected into later prompts. Long chats stay
   coherent without paying to resend the whole transcript. Edit it by hand any time
@@ -593,6 +594,18 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.9.2
+
+**Edit your message and resend it.** When a reply — and a few rerolls of it —
+doesn't sit right, the fix used to be retyping the message from scratch. Now
+tap **Edit** on your own message, fix the line, and the app re-sends it: the
+edited line replaces the old one, the replies that followed it are cut, and a
+fresh reply is generated from the edit. If later messages would be deleted,
+you confirm first and the dialog says exactly how many go; an unchanged edit
+does nothing and spends no request. Deleting the reply first and then editing
+still works — the edit just does that part for you. (Editing a *reply* still
+only edits its text in place.)
 
 ## What's new in v1.9.1
 
