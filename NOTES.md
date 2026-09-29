@@ -2,10 +2,11 @@
 
 Current build: `HordeStudio-v1.11.0.apk` (versionCode 30), sha256
 c433049b7e10a0590268778a84b704ea0b7d130ffee75541aeeb2fc673d7e9b2 (294,043 B).
-Built 2026-09-29, not yet synced:
-`docs/` still serves v1.10.0 (webRev `7bf5e7e106cb`) and release `v1.10.0`
-is the latest on the repo. Do not identify a build by size — v1.9.2 and
-v1.10.0 both shipped at 289,947 B; check the sha256.
+Built and published 2026-09-29:
+`docs/` serves v1.11.0 (webRev `04cefda4c30c`, web.zip 173,464 B) and
+release `v1.11.0` holds both APK assets (294,043 B). Do not identify a
+build by size — v1.9.2 and v1.10.0 both shipped at 289,947 B; check the
+sha256.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -529,8 +530,11 @@ c433049b7e10a0590268778a84b704ea0b7d130ffee75541aeeb2fc673d7e9b2 — same
 keystore, in-place upgrade from 1.10.0) and in-APK verified: scenarioList /
 scenarioChip / 'Card scenarios' markers present, all v1.10.0 + older shipped
 markers still present, store 1.11.0, sw v18. Superseded v1.10.0 root APK
-removed (release assets keep that copy). Publish (push + release + channel)
-only on explicit ask.
+removed (release assets keep that copy). Published on explicit ask: push
+`e6eff6b..5a3aefe`, release `v1.11.0` (both assets; the downloaded release
+asset verified byte-identical to the local build), channel verified after
+publish (1.11.0 / webRev `04cefda4c30c`, sw v18, scenario markers in the
+served bundle).
 
 ---
 
