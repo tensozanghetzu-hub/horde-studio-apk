@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.10.0
+# Horde Studio — Mobile (Android) · v1.11.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.10.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.11.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.10.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.11.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -369,6 +369,8 @@ nothing when a provider already stops cleanly (one pass, then it stops).
   while you send and read freely.
 - **Cast** — character cards with avatars, tags and search. Import SillyTavern cards
   (`.json` **or** `.png` with embedded `chara` / `ccv3` data); export back to card JSON.
+  Cards that ship several starting scenarios (`scenario_list`) keep all of them —
+  the editor offers a *Card scenarios* picker to choose which one to start from.
 - **Chats** — one character, many sessions. Streaming replies, **Reroll**,
   **Continue**, swipe between alternative replies, edit-and-resend your own
   messages, delete any message, export transcripts. Deleting or editing a
@@ -598,6 +600,19 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.11.0
+
+**Choose which scenario to start from.** Character cards can ship several
+starting scenarios (the `scenario_list` field, the SillyTavern convention) —
+before, the app silently kept only the card's default and threw the rest
+away. Now the import keeps the whole list, and in the character editor the
+Scenario field grows a **Card scenarios (n)** chip when there is more than
+one to pick from. Tap it, choose one, and it lands in the Scenario field —
+ready to edit, and it is what gets sent to the model as the current
+situation. The card author's declared default is the one selected on import
+(kept even when the card forgot to list it); your pick survives backups and
+round-trips back out on export.
 
 ## What's new in v1.10.0
 

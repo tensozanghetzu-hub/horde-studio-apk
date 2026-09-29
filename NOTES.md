@@ -1,11 +1,11 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.10.0.apk` (versionCode 29), sha256
-3c67c8ab75c9457aa487c4dfe524906586d93dd34664fb9f2aacc68075324a34 (289,947 B).
-Built and published 2026-09-25: `docs/` serves v1.10.0 (webRev
-`7bf5e7e106cb`, web.zip 172,558 B) and release `v1.10.0` holds both APK
-assets (289,947 B — the same size as v1.9.2; do not identify a build by
-size, check the sha256).
+Current build: `HordeStudio-v1.11.0.apk` (versionCode 30), sha256
+c433049b7e10a0590268778a84b704ea0b7d130ffee75541aeeb2fc673d7e9b2 (294,043 B).
+Built 2026-09-29, not yet synced:
+`docs/` still serves v1.10.0 (webRev `7bf5e7e106cb`) and release `v1.10.0`
+is the latest on the repo. Do not identify a build by size — v1.9.2 and
+v1.10.0 both shipped at 289,947 B; check the sha256.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -477,6 +477,60 @@ Verified after publishing: Pages serves 1.5.2; the served `sw.js` carries
 the local build (first download attempt raced the asset upload and returned
 empty — retry confirmed the hash). A third 277,659 B APK in the row: the
 sha256 remains the only identity.
+
+---
+
+## v1.11.0 — choose which scenario to start from (2026-09-25)
+
+### The ask
+
+"some character cards have different scenarios. can the app let you choose
+which one you want to start?"
+
+SillyTavern cards can carry `scenario_list` — several starting scenarios.
+The importer (`Store.cardToCharacter`) only read `data.scenario`, so every
+card arrived with a single scenario and the rest of the list was dropped on
+the floor.
+
+### Implementation
+
+- `store.js` — new pure `Store.scenarioList(data)`: trims, drops empties,
+  dedupes order-preserving, and appends the card's declared default if the
+  list forgot it (never lost). Both import branches now keep it:
+  `scenarioList: [...]` on the character, and the character's `scenario`
+  field (the one the prompt already injects as "Current situation:") holds
+  the chosen one — v3: the card's declared default (or the first listed
+  when the card has none), v2: the declared scenario or the first listed.
+  `characterToCard` exports `scenario_list` back out, so the choices survive
+  an export → re-import round trip.
+- `views.js` — the editor's Scenario field head renders
+  `Views.scenarioChip(char.scenarioList)` (empty for 0/1, a
+  "Card scenarios (n)" chip from 2 up). Tapping it opens a `UI.sheet`
+  listing the scenarios numbered with a 160-char preview; picking one puts
+  the full text in the Scenario textarea — the user still reviews/edits and
+  saves like any field (no hidden save path). `draft = Object.assign({},
+  char)` already carried `scenarioList` into saves, so nothing else in the
+  editor or the prompt changed.
+- `tests/scenarios-test.js` — 30 checks: the normalizer (trim/dedupe/empty/
+  order, default appended when unlisted, lone default, empty, non-array),
+  v3 import (default selected, default-missing-from-list appended and still
+  winning, no default → first listed, no scenarios at all → empty as
+  before, persona merge unchanged), v2 import (empty scenario + list →
+  first, declared wins, no list → single), export round trip (list out,
+  chosen scenario alongside, re-import keeps it, absent when empty), and
+  the chip helper (0/1 → none, 2+ → chip with the count).
+
+### Ship state (this segment)
+
+Bumped 1.11.0 / code 30 / sw v18, README (v1.11.0 section + Cast bullet +
+header/Download) and NOTES updated. 18 suites green — 452 checks (422 + 30
+new). Built `HordeStudio-v1.11.0.apk` (294,043 B, sha256
+c433049b7e10a0590268778a84b704ea0b7d130ffee75541aeeb2fc673d7e9b2 — same
+keystore, in-place upgrade from 1.10.0) and in-APK verified: scenarioList /
+scenarioChip / 'Card scenarios' markers present, all v1.10.0 + older shipped
+markers still present, store 1.11.0, sw v18. Superseded v1.10.0 root APK
+removed (release assets keep that copy). Publish (push + release + channel)
+only on explicit ask.
 
 ---
 
