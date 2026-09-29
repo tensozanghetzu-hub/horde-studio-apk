@@ -1047,6 +1047,7 @@
           '<span class="spacer"></span><button class="chip" data-act="ai-persona">' + icon('sparkle') + ' AI draft</button></div>' +
           '<textarea class="tall" id="e-persona" placeholder="Appearance, personality, history, wants, voice…">' + esc(char.persona) + '</textarea></div>' +
         '<div class="field"><div class="field-head"><label>Scenario</label>' +
+          Views.scenarioChip(char.scenarioList) +
           '<span class="spacer"></span><button class="chip" data-act="ai-scenario">' + icon('sparkle') + ' AI draft</button></div>' +
           '<textarea id="e-scenario" placeholder="Where the story starts.">' + esc(char.scenario) + '</textarea></div>' +
         '<div class="field"><div class="field-head"><label>Greeting (first message)</label>' +
@@ -1299,6 +1300,34 @@
           $('#e-scenario', body).value = String(d.scenario).trim();
           UI.toast('Draft inserted — edit as you like');
         }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
+    });
+    /* A card can ship several starting scenarios (scenario_list). Choose the
+       one to start from: it lands in the Scenario field, ready to edit, and
+       saves with the character like anything else. */
+    on(body, '[data-act=scenarios]', 'click', function () {
+      var list = draft.scenarioList || [];
+      if (list.length < 2) return;
+      UI.sheet({
+        title: 'Where the card can start',
+        body: '<div class="hint" style="margin-bottom:8px">Pick the one to start from — it lands in the Scenario field, ready to edit.</div>' +
+          list.map(function (s, i) {
+            var t = String(s);
+            var prev = t.length > 160 ? t.slice(0, 160) + '…' : t;
+            return '<div class="opt" data-sci="' + i + '" style="align-items:flex-start">' +
+              '<b style="min-width:26px;color:var(--dim)">' + (i + 1) + '.</b>' +
+              '<span style="flex:1;white-space:pre-line">' + esc(prev) + '</span></div>';
+          }).join(''),
+        onMount: function (b, close) {
+          b.querySelectorAll('[data-sci]').forEach(function (el) {
+            el.onclick = function () {
+              var i = +el.getAttribute('data-sci');
+              $('#e-scenario', body).value = list[i];
+              UI.toast('Scenario ' + (i + 1) + ' loaded — edit it as you like');
+              close();
+            };
+          });
+        }
+      });
     });
 
     on(body, '[data-act=ai-greeting]', 'click', function () {
@@ -1750,6 +1779,12 @@
 
   Views.pickFile = pickFile;
   Views.fileToDataUrl = fileToDataUrl;
+  /* Cards can carry several starting scenarios (scenario_list). The editor
+     shows a picker chip only when there is more than one to choose from. */
+  Views.scenarioChip = function (list) {
+    if (!list || list.length < 2) return '';
+    return '<button class="chip" data-act="scenarios">Card scenarios (' + list.length + ')</button>';
+  };
   Views.normalizeImage = normalizeImage;
   Views.imageTargetSize = imageTargetSize;
   Views.imageMime = imageMime;

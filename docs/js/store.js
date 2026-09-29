@@ -9,7 +9,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.10.0';
+  var VERSION = '1.11.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -352,15 +352,37 @@
     },
 
     /* SillyTavern-style card -> internal character */
+    /* Cards may carry several starting scenarios (scenario_list, the
+       SillyTavern convention). Keep the list so the player can choose which
+       one to start from; the character's `scenario` field holds the
+       currently chosen one (the prompt already injects that field). */
+    scenarioList: function (data) {
+      data = data || {};
+      var out = [];
+      function add(s) {
+        s = (s == null ? '' : String(s)).trim();
+        if (s && out.indexOf(s) === -1) out.push(s);
+      }
+      if (Array.isArray(data.scenario_list)) data.scenario_list.forEach(add);
+      add(data.scenario); /* the card's declared default, appended if unlisted */
+      return out;
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       if (card.spec === 'chara_card_v3' && card.data) {
         data = card.data;
+        var slist = Store.scenarioList(data);
+        var main = (data.scenario || '').trim();
         var desc = [data.description || '', data.personality || '', data.scenario || ''].filter(Boolean).join('\n\n');
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
           tagline: (data.tags || []).slice(0, 3).join(', '), avatar: '',
-          persona: desc, scenario: '', greeting: data.first_mes || '',
+          /* the normalizer guarantees the declared default is in the list
+             (appended if the card forgot it), so it is always a valid pick */
+          persona: desc, scenario: main ? main : (slist[0] || ''),
+          scenarioList: slist,
+          greeting: data.first_mes || '',
           examples: data.mes_example || '', postHistory: '',
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
           lorebook: Array.isArray(data.character_book && data.character_book.entries)
@@ -371,11 +393,14 @@
           createdAt: Date.now(), updatedAt: Date.now()
         };
       }
+      var list2 = Store.scenarioList(data);
       return {
         id: UI.uid('c'), name: data.name || 'Imported character',
         tagline: (data.tags || []).slice(0, 3).join(', '), avatar: '',
         persona: [data.description || '', data.personality || ''].filter(Boolean).join('\n\n'),
-        scenario: data.scenario || '', greeting: data.first_mes || '',
+        scenario: (data.scenario || '').trim() || (list2[0] || ''),
+        scenarioList: list2,
+        greeting: data.first_mes || '',
         examples: data.mes_example || '', postHistory: '',
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         lorebook: [], createdAt: Date.now(), updatedAt: Date.now()
@@ -383,13 +408,15 @@
     },
 
     characterToCard: function (c) {
-      return {
+      var card = {
         name: c.name, description: c.persona || '', personality: '',
         scenario: c.scenario || '', first_mes: c.greeting || '', mes_example: c.examples || '',
         creatorcomment: 'Exported from Horde Studio Mobile',
         tags: c.tags || [], talkativeness: '0.5', fav: false,
         spec: 'chara_card_v2', spec_version: '2.0', data: { name: c.name }
       };
+      if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
+      return card;
     },
 
     /* Read a character card from a .json or .png file */
