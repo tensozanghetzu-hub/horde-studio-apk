@@ -2,9 +2,9 @@
 
 Current build: `HordeStudio-v1.13.0.apk` (versionCode 34), sha256
 c04baac8494c715a6c01cec3fb948d74fed474369dd85708d28cc412c2c0ef8b
-(298,139 B). Built 2026-09-30, not yet synced:
-`docs/` still serves v1.12.0 (webRev `e5db10aaabab`) and release
-`v1.12.0` is the latest on the repo.
+(298,139 B). Built and published 2026-09-30:
+`docs/` serves v1.13.0 (webRev `924f20bd6343`, web.zip 178,164 B) and
+release `v1.13.0` holds both APK assets (298,139 B).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -573,8 +573,12 @@ markers in the
 packaged api.js, the generateReply parse block in app.js, stateStrip +
 editor group in views.js, `#char-state` in index.html, `.char-state` in
 app.css, sw v22, store 1.13.0. Superseded v1.12.0 root APK removed.
-Committed locally. Publish (push + release + channel) only on explicit
-ask.
+Committed locally (the local commit was again lost to a workspace
+snapshot restore at the turn boundary; the working tree carried it
+intact). Published on explicit ask: push `7716a47`; the release
+workflow made release `v1.13.0` (two assets, downloaded byte-identical,
+sha above) and the live channel now serves webRev `924f20bd6343`
+(verified against the Pages URL).
 
 ---
 
