@@ -514,7 +514,10 @@ size as v1.11.0; sha256
 identity — same keystore, in-place upgrade) and in-APK verified: the
 `.sheet-body` rule set is in the packaged app.css, sw v19, store 1.11.1.
 Superseded v1.11.0 root APK removed (release assets keep that copy).
-Publish (push + release + channel) only on explicit ask.
+Published on explicit ask: push `b13b8e9..7098533`, release `v1.11.1`
+(both assets; the downloaded release asset verified byte-identical to the
+local build), channel verified after publish (1.11.1 / webRev
+`4b6ef161b260`, sw v19, the `.sheet-body` rule set in the served app.css).
 
 ---
 
