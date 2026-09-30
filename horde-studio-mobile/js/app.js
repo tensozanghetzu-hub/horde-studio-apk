@@ -82,6 +82,7 @@
         sub = st.text + ' · ' + sub;
       }
       $('#bar-sub').textContent = sub;
+      Views.stateStrip(ch);
     } else if (name === 'editor') {
       $('#bar-title').textContent = params.isNew ? 'New character' : 'Edit character';
       $('#bar-sub').textContent = '';
@@ -277,6 +278,44 @@
           });
         });
       }).catch(function (e) { UI.toast('Import failed: ' + e.message, 4000); });
+    });
+  };
+
+  /** v1.13.0: set the internal state by hand from the chat strip. The model
+   *  still owns it from the next reply on — this just sets where it starts. */
+  App.editCharState = function (char) {
+    var st = char.state || {};
+    UI.sheet({
+      title: 'Internal state — ' + (char.name || 'character'),
+      body:
+        '<div class="field"><div class="field-head"><label>Mood</label></div>' +
+        '<input type="text" id="cs-mood" value="' + esc(st.mood || '') + '" placeholder="weary but fond"></div>' +
+        '<div class="field"><div class="field-head"><label>Intent</label></div>' +
+        '<input type="text" id="cs-intent" value="' + esc(st.intent || '') + '" placeholder="what they are trying to do next"></div>' +
+        '<div class="field"><div class="field-head"><label>Flags</label></div>' +
+        '<input type="text" id="cs-flags" value="' + esc(st.flags || '') + '" placeholder="details worth remembering, comma-separated"></div>' +
+        '<div class="hint">Sent to the model with every reply; the model updates it on its own each turn, ' +
+        'and the block it writes back is hidden from you.</div>',
+      actions: [
+        { label: 'Cancel', cls: 'ghost', value: null },
+        { label: 'Save', cls: 'primary', onClick: function (b) {
+          return {
+            mood: b.querySelector('#cs-mood').value.trim(),
+            intent: b.querySelector('#cs-intent').value.trim(),
+            flags: b.querySelector('#cs-flags').value.trim()
+          };
+        } }
+      ]
+    }).then(function (v) {
+      if (!v) return;
+      char.state = {
+        mood: v.mood, intent: v.intent, flags: v.flags,
+        updatedAt: Date.now(), by: 'user'
+      };
+      Store.putCharacter(char).then(function () {
+        Views.stateStrip(char);
+        UI.toast('State saved — the next reply picks up from here');
+      });
     });
   };
 
@@ -486,6 +525,22 @@
     }).then(function (text) {
       text = (text || '').trim();
       App.genStop();
+      /* v1.13.0: the reply may end with the character's updated internal
+         state — pull it out before the message is stored or shown, and
+         keep the character's state current for the next prompt. A reply
+         without a usable block changes nothing. */
+      if (char.stateTracking && !char.vh) {
+        var newState = API.parseState(text);
+        if (newState) {
+          text = API.stripState(text);
+          char.state = {
+            mood: newState.mood, intent: newState.intent, flags: newState.flags,
+            updatedAt: Date.now(), by: 'model'
+          };
+          Store.putCharacter(char);
+          Views.stateStrip(char);
+        }
+      }
       msg._stream = null;
       /* A reply came through — a failed send is no longer failed: drop any
          Retry chip still showing in the thread. */

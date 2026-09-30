@@ -1,11 +1,10 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.12.0.apk` (versionCode 33), sha256
-1c99bfeaa448b4f91e261df85db68ed5491df7a60e9e67d3c47f6792df4091d1
-(294,043 B). Built and published 2026-09-30:
-`docs/` serves v1.12.0 (webRev `e5db10aaabab`, web.zip 174,859 B) and
-release `v1.12.0` holds both APK assets (294,043 B — four builds running
-at the same size; check the sha256).
+Current build: `HordeStudio-v1.13.0.apk` (versionCode 34), sha256
+c04baac8494c715a6c01cec3fb948d74fed474369dd85708d28cc412c2c0ef8b
+(298,139 B). Built 2026-09-30, not yet synced:
+`docs/` still serves v1.12.0 (webRev `e5db10aaabab`) and release
+`v1.12.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -477,6 +476,105 @@ Verified after publishing: Pages serves 1.5.2; the served `sw.js` carries
 the local build (first download attempt raced the asset upload and returned
 empty — retry confirmed the hash). A third 277,659 B APK in the row: the
 sha256 remains the only identity.
+
+---
+
+## Upstream review — 18.2.1 "Freaky Frankenstein 5.4" (2026-09-30)
+
+Checked upstream after the v1.12.0 publish: 18.2.1 (`f63fee2`, 1 commit,
+11 files, released Sep 30) is a single-purpose compatibility release —
+dptgreg's third-party **Freaky Frankenstein 5.4 Internal States**
+SillyTavern preset (+ FF5 Regex 3.0) added to the desktop's preset system:
+preset selector in Character Chat, its SillyTavern variables,
+history-depth modules, internal-state continuity, collapsible state
+panels, dialogue styling and graphics; in World Play only compatible
+preset modules run while Horde's canonical clock/rules/inventory/quests/
+NPC state stay authoritative (incompatibles marked in Fine-Tune and
+excluded from context estimates); Virtual Humans excluded by design.
+
+**Port decision: nothing to port.** The mobile build has no preset /
+modular-prompt subsystem — the character carries a plain `systemPrompt`,
+macros are the fixed seven ({{char}}/{{user}}/{{name}}/{{personality}}/
+{{description}}/{{scenario}}/{{persona}}), context is a single message
+count, and worlds carry only Horde's own canonical `gameRules.modules`.
+The two clauses that map to existing mobile behavior are already satisfied
+by construction: canonical state stays authoritative in worlds, and the VH
+prompt has no preset slot at all. Bundling the preset would also mean
+redistributing third-party content (upstream records the author's archive
++ source sha256 in THIRD_PARTY_NOTICES), and the upstream README steers
+the full FF default toward ~32k-context models with ~4k output — beyond
+the phone build's Horde budget (maxTokens ≤ 2048, context ≤ 120
+messages). 18.2.1 carries no bug fixes, so there is no parity urgency.
+
+The *idea* was built natively as **v1.13.0** — see that entry: per-
+character internal state (mood/intent/flags), a hidden `<state>` block
+the model updates every reply, a collapsible strip at the top of the
+chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.13.0 — internal state: characters keep their own heads (2026-09-30)
+
+### The ask
+
+From the 18.2.1 upstream review: build the *concept* behind the Freaky
+Frankenstein preset, natively — "a per-character internal state block
+(mood/intents/flags, collapsible in chat, carried in the prompt each
+turn). Do this one please."
+
+### The change
+
+- `api.js`: new `statePrompt(char)` — when `char.stateTracking === true`
+  (and the character is not a virtual human), the character sheet gains
+  "Your current internal state:" (only the non-empty fields; "not
+  established yet" before the first) plus a fixed instruction to end every
+  reply with `<state>\nmood: …\nintent: …\nflags: …\n</state>`, hidden from
+  the reader. `parseState(text)` (last block wins; case-insensitive;
+  unknown keys ignored; >1200 chars or no usable key → null) and
+  `stripState(text)` (removes every block). The tag is `<state>` on
+  purpose — `internal` is in the stripThinking tag list and would be eaten.
+- `app.js` `generateReply`: after the final text, when tracking is on the
+  block is parsed out, the visible text stripped, and the character's
+  `state` updated (`by: 'model'`) before the message is stored/shown; the
+  strip re-renders. `App.editCharState(char)` — sheet from the strip to
+  set mood/intent/flags by hand (`by: 'user'`).
+- `views.js`: `stateStrip(char)` renders the collapsible strip in
+  `#char-state` (mood is the collapsed headline; expanded: three rows +
+  Edit button); the editor gains an **Internal state** group (toggle +
+  three inputs, hidden for VH characters, who keep the simulation-driven
+  Inner state sliders); `collect()` carries the fields into the save.
+- `index.html`/`app.css`: the `#char-state` slot above the thread +
+  `.char-state` styling. `store.js` `blankCharacter` defaults
+  (`stateTracking: false`, empty state) — existing characters are
+  unaffected until switched on.
+- Data rides the character document: backups, exports and the IDB all
+  carry it with no schema change. World runs (synthetic character without
+  `stateTracking`) and VH background delivery (no parse path) are excluded
+  by construction — the same VH-separation clause upstream 18.2.1 keeps.
+
+### Tests
+
+New `tests/internalstate-test.js` (28 checks): statePrompt on/off/partial/
+fresh/VH, parseState (case-insensitivity, last-block-wins, unknown keys,
+runaway size, no usable keys), stripState (end/middle/multiple/none),
+buildPrompt integration (section present, history intact, VH excluded,
+fresh state) and a reply round trip. 21 node suites green — 513 checks
+(485 + 28); the two Playwright suites remain unrunnable in this sandbox,
+unchanged.
+
+### Ship state (this segment)
+
+Bumped 1.13.0 / code 34 / sw v22, README (v1.13.0 section + Chats line +
+header/Download) and NOTES updated. Built `HordeStudio-v1.13.0.apk`
+(298,139 B — a different size at last; sha256
+c04baac8494c715a6c01cec3fb948d74fed474369dd85708d28cc412c2c0ef8b — same
+keystore, in-place upgrade) and in-APK verified: statePrompt/parseState
+markers in the
+packaged api.js, the generateReply parse block in app.js, stateStrip +
+editor group in views.js, `#char-state` in index.html, `.char-state` in
+app.css, sw v22, store 1.13.0. Superseded v1.12.0 root APK removed.
+Committed locally. Publish (push + release + channel) only on explicit
+ask.
 
 ---
 

@@ -1159,6 +1159,27 @@
         '</div>' +
       '</div>' +
 
+      (char.vh
+        ? ''
+        : '<div class="group">' +
+          '<div class="group-title">Internal state</div>' +
+          '<div class="field compact"><label>Track internal state</label>' +
+            '<div class="toggle' + (char.stateTracking === true ? ' on' : '') + '" id="t-istate"></div></div>' +
+          '<div id="istate-fields"' + (char.stateTracking === true ? '' : ' hidden') + '>' +
+            '<div class="field"><div class="field-head"><label>Mood</label></div>' +
+              '<input type="text" id="e-mood" value="' + esc(((char.state || {}).mood) || '') + '" placeholder="weary but fond"></div>' +
+            '<div class="field"><div class="field-head"><label>Intent</label></div>' +
+              '<input type="text" id="e-intent" value="' + esc(((char.state || {}).intent) || '') + '" placeholder="what they are trying to do next"></div>' +
+            '<div class="field"><div class="field-head"><label>Flags</label></div>' +
+              '<input type="text" id="e-flags" value="' + esc(((char.state || {}).flags) || '') + '" placeholder="details worth remembering, comma-separated"></div>' +
+            '<div class="hint">When on, the current state is sent with every request and the model ends each ' +
+            'reply with an updated one (hidden from you) — so mood, plans and small plot turns carry ' +
+            'across long chats without you repeating them. A strip at the top of the chat shows it live. ' +
+            'Costs a few dozen extra tokens per reply. Virtual humans keep their own simulation-driven ' +
+            'Inner state instead.</div>' +
+          '</div>' +
+        '</div>') +
+
       '<div class="group">' +
         '<div class="group-title">Overrides (optional)</div>' +
         '<div class="field"><div class="field-head"><label>System prompt override</label></div>' +
@@ -1190,6 +1211,18 @@
       draft.examples = $('#e-examples', body).value;
       draft.postHistory = $('#e-post', body).value;
       draft.systemPrompt = $('#e-sys', body).value;
+      if ($('#e-mood', body)) {
+        var oldSt = draft.state || {};
+        var newSt = {
+          mood: $('#e-mood', body).value.trim(),
+          intent: $('#e-intent', body).value.trim(),
+          flags: $('#e-flags', body).value.trim()
+        };
+        var changed = newSt.mood !== (oldSt.mood || '') ||
+          newSt.intent !== (oldSt.intent || '') || newSt.flags !== (oldSt.flags || '');
+        draft.state = Object.assign({}, oldSt, newSt,
+          changed ? { updatedAt: Date.now(), by: 'user' } : {});
+      }
       return draft;
     }
 
@@ -1643,6 +1676,13 @@
       this.classList.toggle('on', vh.enabled);
       $('#vh-fields', body).hidden = !vh.enabled;
     };
+    var istateOn = $('#t-istate', body);
+    if (istateOn) istateOn.onclick = function () {
+      draft.stateTracking = draft.stateTracking !== true;
+      this.classList.toggle('on', draft.stateTracking);
+      var f = $('#istate-fields', body);
+      if (f) f.hidden = !draft.stateTracking;
+    };
     var vhAdd = $('#vh-add', body);
     if (vhAdd) vhAdd.onclick = function () {
       vh.routine.push({ t: '12:00', a: '' });
@@ -1782,6 +1822,41 @@
     return true;
   };
 
+  /* v1.13.0 — the internal-state strip at the top of a chat. Collapsed:
+     one line (mood is the headline). Expanded: the three fields plus an
+     edit button. Shown only for characters with tracking on; virtual
+     humans keep their own simulation-driven Inner state instead. */
+  function stateStrip(char) {
+    var el = $('#char-state');
+    if (!el) return;
+    var on = !!(char && char.stateTracking === true && !char.vh);
+    if (!on) { el.hidden = true; el.innerHTML = ''; return; }
+    var st = char.state || {};
+    var any = st.mood || st.intent || st.flags;
+    var open = el._open;
+    el.hidden = false;
+    el.innerHTML =
+      '<button class="cs-head' + (open ? ' open' : '') + '" data-act="cs-toggle">' +
+        '<span class="cs-lbl">State</span>' +
+        '<span class="cs-preview">' + esc(st.mood || (any ? (st.intent || st.flags) : 'not set yet')) + '</span>' +
+        '<svg class="cs-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>' +
+      '</button>' +
+      '<div class="cs-body"' + (open ? '' : ' hidden') + '>' +
+        (st.mood ? '<div class="cs-row"><span class="cs-k">mood</span><span>' + esc(st.mood) + '</span></div>' : '') +
+        (st.intent ? '<div class="cs-row"><span class="cs-k">intent</span><span>' + esc(st.intent) + '</span></div>' : '') +
+        (st.flags ? '<div class="cs-row"><span class="cs-k">flags</span><span>' + esc(st.flags) + '</span></div>' : '') +
+        (any ? '' : '<div class="hint" style="margin:0 0 6px">The model will fill this in with the next reply — or set it yourself.</div>') +
+        '<button class="btn ghost sm block" data-act="cs-edit">' + icon('edit') + ' Edit state</button>' +
+      '</div>';
+    el.querySelector('[data-act="cs-toggle"]').onclick = function () {
+      open = !open;
+      el._open = open;
+      el.querySelector('.cs-body').hidden = !open;
+      this.classList.toggle('open', open);
+    };
+    el.querySelector('[data-act="cs-edit"]').onclick = function () { App.editCharState(char); };
+  }
+
   Views.thread = function (char, session, messages, streamingId, forceBottom) {
     var s = Store.settings;
     var thread = $('#thread');
@@ -1833,6 +1908,7 @@
     if (!list || list.length < 2) return '';
     return '<button class="chip" data-act="scenarios">Card scenarios (' + list.length + ')</button>';
   };
+  Views.stateStrip = stateStrip;
   Views.normalizeImage = normalizeImage;
   Views.normalizeDataUrl = normalizeDataUrl;
   Views.imageTargetSize = imageTargetSize;

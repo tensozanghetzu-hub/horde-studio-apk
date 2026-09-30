@@ -53,6 +53,8 @@
     var scenario = macros(char.scenario, char, s);
     if (scenario) parts.push('Current situation: ' + scenario);
     if (s.userPersona) parts.push('About {{user}}: '.replace('{{user}}', s.userName) + s.userPersona);
+    var state = statePrompt(char);
+    if (state) parts.push(state);
 
     var lore = loreHits(char.lorebook, recent);
     if (lore.length) {
@@ -69,6 +71,77 @@
     var post = macros(char.postHistory, char, s);
     if (post) parts.push(post);
     return parts.join('\n\n');
+  }
+
+  /* ------------------------------------------------------------------
+   * v1.13.0 — internal state.
+   *
+   * A character can carry a small internal state (mood / intent / flags).
+   * When tracking is on, the current state goes into the character sheet
+   * and the model is asked to end every reply with an updated state in a
+   * hidden <state> block. The block is parsed out of the reply before it
+   * is stored or shown, and becomes the state the next prompt carries.
+   *
+   * Deliberately simple: three free-text fields, one tag, no schema. The
+   * tag name avoids the stripThinking list (which eats <internal>), and
+   * every parse is defensive — a reply without a usable block simply
+   * keeps the previous state. Virtual humans and world runs are excluded:
+   * the life simulation / world engine own that kind of state.
+   * ------------------------------------------------------------------ */
+  var STATE_RE = /<state[^>]*>([\s\S]*?)<\/state\s*>/gi;
+
+  function stateFields(char) {
+    var st = (char && char.state) || {};
+    return {
+      mood: String(st.mood || '').trim(),
+      intent: String(st.intent || '').trim(),
+      flags: String(st.flags || '').trim()
+    };
+  }
+
+  /** The section this character's prompt carries, or '' when tracking is
+   *  off (or the character is a virtual human). */
+  function statePrompt(char) {
+    if (!char || char.stateTracking !== true || char.vh) return '';
+    var f = stateFields(char);
+    var cur = [];
+    if (f.mood) cur.push('mood: ' + f.mood);
+    if (f.intent) cur.push('intent: ' + f.intent);
+    if (f.flags) cur.push('flags: ' + f.flags);
+    var head = cur.length
+      ? 'Your current internal state:\n' + cur.join('\n')
+      : 'Your internal state is not established yet.';
+    return head + '\nKeep your internal state current. At the very end of every reply, add your ' +
+      'updated state in exactly this format — the reader never sees it:\n' +
+      '<state>\nmood: one short phrase\nintent: what you are trying to do next\n' +
+      'flags: comma-separated details worth remembering\n</state>';
+  }
+
+  /** Pull the last <state> block out of a model reply. Returns
+   *  {mood,intent,flags} or null when there is no usable block — the
+   *  caller then keeps the previous state. */
+  function parseState(text) {
+    var t = String(text || '');
+    STATE_RE.lastIndex = 0;
+    var m, last = null;
+    while ((m = STATE_RE.exec(t))) last = m;
+    if (!last || last[1].length > 1200) return null;
+    var out = { mood: '', intent: '', flags: '' };
+    last[1].split('\n').forEach(function (line) {
+      var kv = line.match(/^\s*(mood|intent|flags)\s*:\s*(.+)$/i);
+      if (!kv) return;
+      var v = kv[2].trim().slice(0, 400);
+      if (v) out[kv[1].toLowerCase()] = v;
+    });
+    return (out.mood || out.intent || out.flags) ? out : null;
+  }
+
+  /** Remove every <state> block from a reply so the reader sees the
+   *  story, not the bookkeeping. */
+  function stripState(text) {
+    var t = String(text || '');
+    if (!t) return t;
+    return t.replace(STATE_RE, '\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
   function trimHistory(history, n, maxChars) {
@@ -768,6 +841,7 @@
     summarize: summarize, listModels: listModels, testConnection: testConnection,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     parseAiJson: parseAiJson, aiJson: aiJson,
+    statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); }
   };
 })(window);
