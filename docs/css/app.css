@@ -494,3 +494,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .wr-card:active{background:rgba(255,255,255,.03)}
 .wr-card .wr-name{font-weight:600;font-size:14px}
 .wr-card .wr-sub{font-size:12px;color:var(--dim);margin-top:2px}
+
+/* v1.13.0 — internal-state strip at the top of a chat */
+.char-state{margin:8px 12px 0;background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--radius-sm);overflow:hidden}
+.char-state .cs-head{display:flex;align-items:center;gap:8px;width:100%;background:none;border:0;color:var(--muted);padding:8px 10px;text-align:left;font:inherit;font-size:12.5px}
+.char-state .cs-lbl{flex:0 0 auto;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.char-state .cs-preview{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.char-state .cs-chev{width:14px;height:14px;flex:0 0 auto;color:var(--dim);transition:transform .15s}
+.char-state .cs-head.open .cs-chev{transform:rotate(180deg)}
+.char-state .cs-body{padding:0 10px 10px}
+.char-state .cs-row{display:flex;gap:8px;font-size:13px;line-height:1.45;margin-top:5px}
+.char-state .cs-k{flex:0 0 44px;padding-top:1px;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}

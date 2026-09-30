@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.12.0
+# Horde Studio — Mobile (Android) · v1.13.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.12.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.13.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.12.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.13.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -377,7 +377,9 @@ nothing when a provider already stops cleanly (one pass, then it stops).
   **Continue**, swipe between alternative replies, edit-and-resend your own
   messages, delete any message, export transcripts. Deleting or editing a
   message mid-history re-renders the thread without yanking your scroll
-  position.
+  position. A character can carry an **internal state** (mood / intent /
+  flags): the model updates it every reply in a hidden block, and a
+  collapsible strip at the top of the chat shows it live.
 - **Story memory** — every N messages the model compresses the thread into a summary
   plus a list of durable facts, which get injected into later prompts. Long chats stay
   coherent without paying to resend the whole transcript. Edit it by hand any time
@@ -602,6 +604,27 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.13.0
+
+**Characters keep their own heads.** The idea behind upstream 18.2.1's
+Freaky Frankenstein preset, rebuilt natively for the phone (no third-party
+content, a few dozen tokens a reply):
+
+- In the character editor, **Track internal state** gives the character a
+  small state — **mood**, **intent** (what they're trying to do next) and
+  **flags** (details worth remembering) — you can seed or edit any of the
+  three by hand.
+- When it's on, the current state goes into the character's prompt and the
+  model ends every reply with an updated state in a hidden `<state>`
+  block. The block is stripped before the message is shown or stored, and
+  becomes the state the next prompt carries — so mood, plans and small
+  plot turns keep continuity across long chats without you repeating them.
+- A **collapsible strip at the top of the chat** shows the state live
+  (mood is the headline); tap it to expand or edit. A reply without a
+  usable block changes nothing — the previous state simply carries.
+- Off by default, and virtual humans keep their own simulation-driven
+  Inner state instead — the life sim stays in charge of their mood.
 
 ## What's new in v1.12.0
 

@@ -9,7 +9,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.12.0';
+  var VERSION = '1.13.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -116,12 +116,15 @@
     /* ---------------- characters ---------------- */
     blankCharacter: function () {
       return {
-        id: UI.uid('c'), name: '', tagline: '', avatar: '',
-        persona: '', scenario: '', greeting: '', examples: '',
-        postHistory: '', tags: [], systemPrompt: '',
-        temperature: null, maxTokens: null,
-        lorebook: [], vh: (global.VH ? VH.defaults() : null),
-        createdAt: Date.now(), updatedAt: Date.now()
+          id: UI.uid('c'), name: '', tagline: '', avatar: '',
+          persona: '', scenario: '', greeting: '', examples: '',
+          postHistory: '', tags: [], systemPrompt: '',
+          temperature: null, maxTokens: null,
+          lorebook: [], vh: (global.VH ? VH.defaults() : null),
+          /* v1.13.0: internal state — off by default, so existing and new
+             chats behave exactly as before until it is switched on. */
+          stateTracking: false, state: { mood: '', intent: '', flags: '' },
+          createdAt: Date.now(), updatedAt: Date.now()
       };
     },
 
