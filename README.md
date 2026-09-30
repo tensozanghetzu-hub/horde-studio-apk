@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.11.0
+# Horde Studio — Mobile (Android) · v1.11.1
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.11.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.11.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.11.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.11.1.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -600,6 +600,15 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.11.1
+
+**The Edit message sheet stops shouting.** Editing a message opened a
+bright cream box with washed-out light text — the sheet's text field fell
+outside the app's themed styling and the phone's default light form control
+showed through. All form fields inside sheets (Edit message, paste-a-URL,
+…) now use the app's dark surface with the accent focus border, like every
+other field.
 
 ## What's new in v1.11.0
 
