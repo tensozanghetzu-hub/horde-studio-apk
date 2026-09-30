@@ -256,18 +256,25 @@
       if (!f) return;
       Store.readCardFile(f).then(function (card) {
         var c = Store.cardToCharacter(card);
-        UI.sheet({
-          title: 'Import “' + (c.name || 'character') + '”',
-          body: '<p style="margin:0 0 8px;color:var(--muted);font-size:13.5px">' +
-            esc((c.persona || '').slice(0, 260)) + (c.persona && c.persona.length > 260 ? '…' : '') + '</p>' +
-            (c.lorebook && c.lorebook.length ? '<span class="pill">' + c.lorebook.length + ' lorebook entries</span>' : ''),
-          actions: [
-            { label: 'Cancel', cls: 'ghost', value: null },
-            { label: 'Import', cls: 'primary', onClick: function () { return c; } }
-          ]
-        }).then(function (res) {
-          if (!res) return;
-          Store.putCharacter(res).then(function () { App.go('characters'); UI.toast('Imported ' + res.name); });
+        /* v1.12.0: the imported avatar joins the card, normalized like every
+           other imported image (512px long edge, PNG only with real
+           transparency) so a 12 MP card art never becomes several MB of
+           base64 sitting in IndexedDB. Non-image values pass through. */
+        return Views.normalizeDataUrl(c.avatar, 512).then(function (av) {
+          if (av) c.avatar = av;
+          UI.sheet({
+            title: 'Import “' + (c.name || 'character') + '”',
+            body: '<p style="margin:0 0 8px;color:var(--muted);font-size:13.5px">' +
+              esc((c.persona || '').slice(0, 260)) + (c.persona && c.persona.length > 260 ? '…' : '') + '</p>' +
+              (c.lorebook && c.lorebook.length ? '<span class="pill">' + c.lorebook.length + ' lorebook entries</span>' : ''),
+            actions: [
+              { label: 'Cancel', cls: 'ghost', value: null },
+              { label: 'Import', cls: 'primary', onClick: function () { return c; } }
+            ]
+          }).then(function (res) {
+            if (!res) return;
+            Store.putCharacter(res).then(function () { App.go('characters'); UI.toast('Imported ' + res.name); });
+          });
         });
       }).catch(function (e) { UI.toast('Import failed: ' + e.message, 4000); });
     });

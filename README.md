@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.11.1
+# Horde Studio — Mobile (Android) · v1.12.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.11.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.12.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.11.1.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.12.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -325,11 +325,11 @@ worker turned straight around and returned an empty generation.
 Since it's a property of the worker and not of the request, the fix is to ask a
 different one. The app now resubmits the job:
 
-- up to **5 attempts**, inside a **45-second budget**, so a worker that hangs can't turn
-  one message into a five-minute wait;
-- the progress line reads **“Worker sent nothing — asking another… (2 of 5)”**, so it's
+- up to **10 attempts**, inside a **90-second budget**, so a worker that hangs can't
+  turn one message into a long wait;
+- the progress line reads **“Worker sent nothing — asking another… (2 of 10)”**, so it's
   visibly working rather than looking stuck;
-- the same applies to images;
+- images retry twice on their own;
 - if every attempt comes back blank you get an error that says how many tries it made,
   and **Continue** or another send will usually work.
 
@@ -368,7 +368,9 @@ nothing when a provider already stops cleanly (one pass, then it stops).
   life work never blocks your chat: they can be "typing" on their own schedule
   while you send and read freely.
 - **Cast** — character cards with avatars, tags and search. Import SillyTavern cards
-  (`.json` **or** `.png` with embedded `chara` / `ccv3` data); export back to card JSON.
+  (`.json` **or** `.png` with embedded `chara` / `ccv3` data) — **the card's avatar
+  image comes along too**, normalized like every other imported image (a PNG-embedded
+  card uses its own picture); export back to card JSON, avatar included.
   Cards that ship several starting scenarios (`scenario_list`) keep all of them —
   the editor offers a *Card scenarios* picker to choose which one to start from.
 - **Chats** — one character, many sessions. Streaming replies, **Reroll**,
@@ -600,6 +602,38 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.12.0
+
+**Card import keeps the card's face.** Importing a SillyTavern character card
+brought its name, persona, scenarios, lorebook and examples — but the avatar
+was silently dropped, so every imported card got the generic silhouette. Now:
+
+- **JSON cards** keep the `char_x` image from the card (data-URI or web URL);
+  **PNG-embedded cards** (`.png` with `chara` / `ccv3` data) use the PNG itself
+  as the avatar when the embedded JSON has no image of its own.
+- Imported avatars are normalized like every other imported image — 512 px
+  long edge, PNG only when the picture actually has transparency — so a 12 MP
+  card art never becomes several megabytes of base64 sitting in IndexedDB.
+- A `char_x` that is a relative path from some other SillyTavern install is
+  dropped (it would be a broken image here), and the export round-trips the
+  avatar back out on the card.
+- **The update screen tells you the truth about your data.** An audit of
+  every update path confirmed none of them can reach chat storage — files
+  live in the app's overlay folder, chats in the WebView's private database.
+  The one option that replaces the app itself (Install app update / Update
+  everything) now asks first, stating it plainly: installing over the
+  current app keeps all your chats and characters; data is only lost if you
+  uninstall the app first.
+
+## What's new in v1.11.2
+
+**Empty-reply retries doubled: 5 → 10 attempts.** On a busy public cluster a
+couple of blank workers in a row used to burn the whole 5-try budget. Text
+jobs now resubmit up to **10 times** (the progress line reads “(2 of 10)”),
+inside a **90-second** time budget so a hung worker still can't stall a
+message for minutes — and the Stop button works through it all, as before.
+Images still retry twice on their own.
 
 ## What's new in v1.11.1
 
