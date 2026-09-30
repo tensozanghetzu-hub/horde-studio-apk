@@ -1,11 +1,11 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.11.1.apk` (versionCode 31), sha256
-6c61d7a3028504c3fb50cffe2887b8dca346508a19eb7b65431e46d0324f44de (294,043 B).
-Built 2026-09-30, not yet synced:
-`docs/` still serves v1.11.0 (webRev `04cefda4c30c`) and release `v1.11.0`
-is the latest on the repo. Do not identify a build by size — v1.9.2 and
-v1.10.0 both shipped at 289,947 B; check the sha256.
+Current build: `HordeStudio-v1.12.0.apk` (versionCode 33), sha256
+1c99bfeaa448b4f91e261df85db68ed5491df7a60e9e67d3c47f6792df4091d1
+(294,043 B). Built 2026-09-30, not yet synced:
+`docs/` still serves v1.11.1 (webRev `4b6ef161b260`) and release `v1.11.1`
+is the latest on the repo. Do not identify a build by size — v1.11.0,
+v1.11.1 and v1.11.2 all shipped at 294,043 B; check the sha256.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -477,6 +477,132 @@ Verified after publishing: Pages serves 1.5.2; the served `sw.js` carries
 the local build (first download attempt raced the asset upload and returned
 empty — retry confirmed the hash). A third 277,659 B APK in the row: the
 sha256 remains the only identity.
+
+---
+
+## v1.12.0 — card import keeps the card's face (2026-09-30)
+
+### The ask
+
+Screenshot of the Cast: every imported card shows the generic silhouette.
+"When you import a character card, it imports the data but not the image.
+Can you make it import the image too?"
+
+### The change
+
+- `store.js` `cardToCharacter`: the avatar was hard-coded to `''` in both
+  branches — now v2 and v3 pick up `char_x` (the SillyTavern avatar field).
+  New `Store.cardAvatar` validator accepts data: image URIs and http(s)
+  URLs; a relative path (another install's `charx/...` file) is dropped —
+  it would be a broken `<img>` here.
+- `store.js` `readCardFile` PNG branch: a PNG-embedded card IS its own
+  avatar (ST stores the picture in the file, not the JSON) — when the
+  embedded JSON has no usable char_x of its own, the PNG file itself is
+  attached as a data URI (v3 cards carry it inside `data`, v2 top-level).
+- `store.js` `characterToCard`: export writes `char_x` back out (round trip).
+- `views.js` `normalizeDataUrl(dataUrl, maxDim)`: the same normalization as
+  the file-based `normalizeImage` (512 px long edge, PNG only with real
+  transparency, JPEG 0.85 otherwise) for data URIs. Web URLs, non-image
+  data URIs, images already under the cap, and decode failures pass through
+  unchanged — the card's original bytes are never lost.
+- `app.js` `importCard`: runs the avatar through the normalizer before the
+  import sheet.
+
+### The update-path audit (pre-publish ask)
+
+"Remove or modify any update option that will result in deleting all your
+chats." Full audit of every update path — the files-only swap (`finishSwap`:
+`files/web.tmp` → `files/web`, a single rename), Reset to shipped files
+(`clearWebUpdate`: deletes only `files/web*`), the SW/cache reload, the
+boot-time auto-apply and watchdog rollbacks, and the APK install
+(DownloadManager + Android's own install screen): **none of them can reach
+chat storage**. Chats live in the WebView's IndexedDB (DOM storage, default
+data path — the app sets no custom database path), a directory no update
+code ever opens; the IDB migrations are purely additive (v3,
+`if (!contains) createObjectStore`), so a files update cannot drop stores
+either. The only in-app eraser stays the explicit "Erase all characters and
+chats" button (danger confirm, Data section — a data action, not an update).
+The one update option that replaces the app itself (Install app update /
+Update everything) is now gated with a confirm that states the data promise
+before the download starts — "Installing over the current app keeps all your
+chats and characters — data is only lost if you uninstall the app first" —
+and both install prompts now carry the same sentence in their descriptions
+(`views.js` `beginInstall`).
+
+### Tests
+
+New `tests/card-avatar-test.js` (23 checks): cardAvatar pass/reject, v2 + v3
+import keeping data URIs / web URLs, relative paths dropped, the
+PNG-embedded branch attaching the file itself with a fake PNG carrying a
+real tEXt ccv3 chunk (v3 → `data.char_x`, v2 → top-level), the JSON's own
+char_x winning, export round trip, and the normalizer (800×600 → 512×384
+JPEG, alpha → PNG, under-cap kept, web URL / non-image / decode failure
+unchanged). 20 node suites green — 485 checks (462 + 23 new); the two
+Playwright suites remain unrunnable in this sandbox (no playwright-core /
+browser), unchanged from before.
+
+### Ship state (this segment)
+
+Bumped 1.12.0 / code 33 / sw v21, README (v1.12.0 section + Cast line +
+header/Download) and NOTES updated. Built `HordeStudio-v1.12.0.apk`
+(294,043 B — four builds running at the same size; sha256
+1c99bfeaa448b4f91e261df85db68ed5491df7a60e9e67d3c47f6792df4091d1 is the
+identity — same keystore, in-place upgrade) and in-APK verified: the
+cardAvatar/char_x markers in the packaged store.js, normalizeDataUrl in
+views.js, the importCard normalizer call in app.js, the beginInstall
+confirm in views.js, sw v21, store 1.12.0. Superseded v1.11.2 root APK
+removed after the first v1.12.0 build; the gate rebuild overwrote the
+v1.12.0 APK in place (same version name, new sha above).
+Committed locally — squashed with the v1.11.2 changes into a single commit
+(the per-version local commits were lost to a workspace snapshot restore;
+see the v1.11.2 entry). Publish (push + release + channel) only on explicit
+ask.
+
+---
+
+## v1.11.2 — empty-reply retries 5 → 10 (2026-09-30)
+
+### The ask
+
+"Can you up the tries from 5 to 10?" — the Horde's blank-worker retry
+budget (v1.8.0 era: 5 attempts / 45 s) ran out on busy days, where the
+public cluster's empty rate means several blanks in a row.
+
+### The change
+
+`horde.js` text path: default `emptyTries` 5 → 10, clamp 6 → 10, and the
+time budget 45 s → 90 s so 10 attempts are actually reachable (the budget
+is the guard that keeps a hung worker from turning one message into a
+long wait; 10 fast empties ≈ 30–60 s in practice). The error message and
+the “(X of Y)” progress line are dynamic, so they update with the count —
+no other change. Images keep their own 2-try budget.
+
+### Tests
+
+New `tests/horde-empty-retry-test.js` (10 checks) against the real
+horde.js with a mocked API: an explicit count is honored (3 tries → 3
+posts, “after 3 tries”), two blanks then success → tries=3, **the default
+runs 10** (9 blanks then success on attempt 10 → 10 posts, progress “(1
+of 10) … (9 of 10)”), and the time budget still caps the loop (a 1 ms
+budget stops after the first blank — the mock gets a 30 ms poll delay so
+the test is deterministic against Date.now() millisecond granularity).
+
+### Ship state (this segment)
+
+Bumped 1.11.2 / code 32 / sw v20, README (v1.11.2 section + Empty-replies
+behavior + header/Download) and NOTES updated. 19 suites green — 462
+checks (452 + 10 new). Built `HordeStudio-v1.11.2.apk` (294,043 B — three
+builds running at the same size; sha256
+ed8832839fb431a09f5a49dae4804239a9ef4dff885794138a7d33f28c4fdc29 is the
+identity — same keystore, in-place upgrade) and in-APK verified: the
+10-attempt / 90 s retry block is in the packaged horde.js, the v1.11.1
+`.sheet-body` rule set still in app.css, sw v20, store 1.11.2.
+Superseded v1.11.1 root APK removed (release assets keep that copy).
+The per-version local commit (`d5c5674`) was lost to a workspace snapshot
+restore (the .git directory reverted to the last published state at a turn
+boundary); the changes ship folded into the v1.12.0 local commit — content
+identical. Publish (push + release + channel) only on explicit ask.
+(Superseded by v1.12.0 — its root APK was removed after the v1.12.0 build.)
 
 ---
 

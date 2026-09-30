@@ -82,6 +82,41 @@
     });
   }
 
+  /* Card import runs the same normalization on the avatar the card carries
+     (a data: URI, not a File). Anything that is not an image data URI —
+     web URLs, unknown types — passes through unchanged, and so does a
+     decode failure: the <img> shows those as well as the re-encoded
+     result, and the card's original bytes are never lost. */
+  function normalizeDataUrl(dataUrl, maxDim) {
+    return new Promise(function (resolve) {
+      function fallback() { resolve(dataUrl || ''); }
+      try {
+        if (typeof dataUrl !== 'string' || dataUrl.indexOf('data:image') !== 0) return fallback();
+        var img = new Image();
+        img.onerror = function () { fallback(); };
+        img.onload = function () {
+          try {
+            var w = img.naturalWidth || img.width || 0, h = img.naturalHeight || img.height || 0;
+            if (!w || !h) return fallback();
+            var t = imageTargetSize(w, h, maxDim);
+            if (t.w === w && t.h === h) return fallback(); /* already at or under the cap */
+            var canvas = document.createElement('canvas');
+            canvas.width = t.w; canvas.height = t.h;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, t.w, t.h);
+            var hasAlpha = false;
+            try {
+              var data = ctx.getImageData(0, 0, t.w, t.h).data;
+              for (var i = 3; i < data.length; i += 64) if (data[i] < 255) { hasAlpha = true; break; }
+            } catch (e) { hasAlpha = true; } /* unknown → keep it lossless */
+            resolve(canvas.toDataURL(imageMime(hasAlpha), 0.85));
+          } catch (e2) { fallback(); }
+        };
+        img.src = dataUrl;
+      } catch (e) { fallback(); }
+    });
+  }
+
   var Views = {};
 
   /* ================= PERSONA SWITCHER ================= */
@@ -790,6 +825,19 @@
       upSay('<div class="upd-bar"><span style="width:' + Math.max(2, Math.min(100, pct || 0)) + '%"></span></div>' +
         '<div style="margin-top:4px">' + esc(label || 'Downloading') + ' ' + (pct || 0) + '%</div>');
     }
+    /* The install is the one update path that replaces the app itself, so it
+       is the one that states its data promise out loud before it starts: an
+       in-place install keeps everything; only uninstalling the app first
+       would lose chats. (Files-only updates never touch chat storage at all.) */
+    function beginInstall(apkLabel, followUp) {
+      UI.confirm('Install app ' + apkLabel + ' over the current app?',
+        'It downloads the APK and opens Android’s install screen. Installing over the current app keeps all your chats and characters — data is only lost if you uninstall the app first.',
+        { okLabel: 'Install' }).then(function (yes) {
+          if (!yes) return;
+          try { U.installApk(); upSay(followUp); }
+          catch (e) { upSay('Could not start the install: ' + esc(e.message || String(e))); }
+        });
+    }
 
     bind('#set-updurl', 'change', function (e) {
       if (!U) return;
@@ -816,13 +864,15 @@
         var html = '';
         if (r.newApk && r.newWeb) {
           html += '<p><b>App ' + esc(r.remote.apk || '') + '</b> and new files are ready.</p>' +
-            '<p>Install the app, then reopen it — the new files apply themselves.</p>';
+            '<p>Install the app, then reopen it — the new files apply themselves. ' +
+            'Installing over the current app keeps your chats and characters.</p>';
           html += '<div class="row-gap" style="margin-top:8px">' +
             '<button class="btn sm" id="btn-upd-all">Update everything</button> ' +
             '<button class="btn ghost sm" id="btn-upd-apply">Files only — keep this app</button></div>';
         } else if (r.newApk) {
           html += '<p>App <b>' + esc(r.remote.apk || '') + '</b> is ready. ' +
-            'It downloads the APK and opens the Android install screen.</p>';
+            'It downloads the APK and opens the Android install screen — ' +
+            'installing over the current app keeps your chats and characters.</p>';
           html += '<div class="row-gap" style="margin-top:8px">' +
             '<button class="btn sm" id="btn-upd-install">Install app update</button> ' +
             '<button class="btn ghost sm" id="btn-upd-browser">Or in browser</button></div>';
@@ -836,11 +886,9 @@
 
         var allBtn = $('#btn-upd-all', body);
         if (allBtn) allBtn.addEventListener('click', function () {
-          try {
-            U.installApk();
-            upSay('Downloading — Android will ask you to confirm the install. ' +
-              'After it finishes, reopen the app: the new files apply themselves.');
-          } catch (e5) { upSay('Could not start the install: ' + esc(e5.message || String(e5))); }
+          beginInstall(esc(r.remote.apk || 'the update'),
+            'Downloading — Android will ask you to confirm the install. ' +
+            'After it finishes, reopen the app: the new files apply themselves.');
         });
 
         var applyBtn = $('#btn-upd-apply', body);
@@ -858,8 +906,8 @@
 
         var instBtn = $('#btn-upd-install', body);
         if (instBtn) instBtn.addEventListener('click', function () {
-          try { U.installApk(); upSay('Downloading — Android will ask you to confirm the install.'); }
-          catch (e3) { upSay('Could not start the install: ' + esc(e3.message || String(e3))); }
+          beginInstall(esc(r.remote.apk || 'the update'),
+            'Downloading — Android will ask you to confirm the install.');
         });
         var browBtn = $('#btn-upd-browser', body);
         if (browBtn) browBtn.addEventListener('click', function () {
@@ -1786,6 +1834,7 @@
     return '<button class="chip" data-act="scenarios">Card scenarios (' + list.length + ')</button>';
   };
   Views.normalizeImage = normalizeImage;
+  Views.normalizeDataUrl = normalizeDataUrl;
   Views.imageTargetSize = imageTargetSize;
   Views.imageMime = imageMime;
   Views.initials = initials;

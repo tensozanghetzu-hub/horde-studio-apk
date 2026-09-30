@@ -9,7 +9,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.11.1';
+  var VERSION = '1.12.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -368,6 +368,15 @@
       return out;
     },
 
+    /* The card's avatar (char_x, the SillyTavern convention). A usable value
+       is a data: image URI or a web URL; a relative path from another
+       SillyTavern install would point at a file that does not exist here, so
+       reject it rather than storing a broken <img>. */
+    cardAvatar: function (x) {
+      x = (x == null ? '' : String(x)).trim();
+      return (/^data:image\//i.test(x) || /^https?:\/\//i.test(x)) ? x : '';
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       if (card.spec === 'chara_card_v3' && card.data) {
@@ -377,7 +386,7 @@
         var desc = [data.description || '', data.personality || '', data.scenario || ''].filter(Boolean).join('\n\n');
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
-          tagline: (data.tags || []).slice(0, 3).join(', '), avatar: '',
+          tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
           /* the normalizer guarantees the declared default is in the list
              (appended if the card forgot it), so it is always a valid pick */
           persona: desc, scenario: main ? main : (slist[0] || ''),
@@ -396,7 +405,7 @@
       var list2 = Store.scenarioList(data);
       return {
         id: UI.uid('c'), name: data.name || 'Imported character',
-        tagline: (data.tags || []).slice(0, 3).join(', '), avatar: '',
+        tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
         persona: [data.description || '', data.personality || ''].filter(Boolean).join('\n\n'),
         scenario: (data.scenario || '').trim() || (list2[0] || ''),
         scenarioList: list2,
@@ -416,6 +425,7 @@
         spec: 'chara_card_v2', spec_version: '2.0', data: { name: c.name }
       };
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
+      if (c.avatar) card.char_x = c.avatar;
       return card;
     },
 
@@ -473,7 +483,16 @@
               }
             });
             if (!card) throw new Error('No character data embedded in this PNG');
-            resolve(card);
+            /* A PNG-embedded card IS its own avatar: SillyTavern stores the
+               picture in the file, not in the JSON. Attach the file itself
+               when the embedded JSON carries no usable char_x of its own.
+               (v3 cards keep char_x inside `data`.) */
+            var target = (card.spec === 'chara_card_v3' && card.data) ? card.data : card;
+            if (Store.cardAvatar(target.char_x)) { resolve(card); return; }
+            var fr2 = new FileReader();
+            fr2.onload = function () { target.char_x = fr2.result; resolve(card); };
+            fr2.onerror = function () { resolve(card); };
+            fr2.readAsDataURL(file);
           } catch (e) { reject(e); }
         };
         fr.readAsArrayBuffer(file);

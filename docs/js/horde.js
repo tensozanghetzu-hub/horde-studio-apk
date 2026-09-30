@@ -314,11 +314,11 @@
     /* Some workers answer a job with nothing in it. That is a property of the
        worker, not of the request, so the fix is to ask a different one: resubmit
        and let the Horde dispatch elsewhere. */
-    var tries = o.emptyTries === undefined ? 5 : Math.max(1, Math.min(6, o.emptyTries));
+    var tries = o.emptyTries === undefined ? 10 : Math.max(1, Math.min(10, o.emptyTries));
     /* Most empty jobs fail within a couple of seconds, so extra attempts are cheap.
        Cap the total time spent re-asking so a worker that hangs can't turn one
-       message into a five-minute wait. */
-    var budgetUntil = Date.now() + (o.emptyBudget === undefined ? 45000 : o.emptyBudget);
+       message into a long wait (10 attempts, worst case ~90 seconds). */
+    var budgetUntil = Date.now() + (o.emptyBudget === undefined ? 90000 : o.emptyBudget);
 
     function once(i) {
       return req('/generate/text/async', { method: 'POST', apikey: o.apikey, json: payload, signal: o.signal, timeout: 40 })
