@@ -2,10 +2,10 @@
 
 Current build: `HordeStudio-v1.12.0.apk` (versionCode 33), sha256
 1c99bfeaa448b4f91e261df85db68ed5491df7a60e9e67d3c47f6792df4091d1
-(294,043 B). Built 2026-09-30, not yet synced:
-`docs/` still serves v1.11.1 (webRev `4b6ef161b260`) and release `v1.11.1`
-is the latest on the repo. Do not identify a build by size — v1.11.0,
-v1.11.1 and v1.11.2 all shipped at 294,043 B; check the sha256.
+(294,043 B). Built and published 2026-09-30:
+`docs/` serves v1.12.0 (webRev `e5db10aaabab`, web.zip 174,859 B) and
+release `v1.12.0` holds both APK assets (294,043 B — four builds running
+at the same size; check the sha256).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -555,8 +555,10 @@ removed after the first v1.12.0 build; the gate rebuild overwrote the
 v1.12.0 APK in place (same version name, new sha above).
 Committed locally — squashed with the v1.11.2 changes into a single commit
 (the per-version local commits were lost to a workspace snapshot restore;
-see the v1.11.2 entry). Publish (push + release + channel) only on explicit
-ask.
+see the v1.11.2 entry). Published on explicit ask: push `625a6db` carried
+both versions; the release workflow made release `v1.12.0` (two assets,
+downloaded byte-identical, sha above) and the live channel now serves
+webRev `e5db10aaabab` (verified against the Pages URL).
 
 ---
 
@@ -600,8 +602,8 @@ identity — same keystore, in-place upgrade) and in-APK verified: the
 Superseded v1.11.1 root APK removed (release assets keep that copy).
 The per-version local commit (`d5c5674`) was lost to a workspace snapshot
 restore (the .git directory reverted to the last published state at a turn
-boundary); the changes ship folded into the v1.12.0 local commit — content
-identical. Publish (push + release + channel) only on explicit ask.
+boundary); the changes ship folded into the v1.12.0 commit and were
+published with it (`625a6db`) — content identical.
 (Superseded by v1.12.0 — its root APK was removed after the v1.12.0 build.)
 
 ---
