@@ -322,6 +322,18 @@ pre,code{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
 .field textarea{min-height:96px;resize:vertical;line-height:1.5}
 .field textarea.tall{min-height:170px}
 .field input:focus,.field textarea:focus,.field select:focus{border-color:var(--accent)}
+/* Form controls that live in a sheet (Edit message, paste-a-URL, …) sit
+   outside .field/.composer and would otherwise fall back to the WebView's
+   light defaults — a cream box with the app's light text in it. Style them
+   like the rest of the app. */
+.sheet-body input[type=text],.sheet-body input[type=password],.sheet-body input[type=url],.sheet-body input[type=number],
+.sheet-body textarea,.sheet-body select{
+  width:100%;padding:10px 12px;border-radius:11px;border:1px solid var(--line);background:var(--bg-2);
+  color:var(--text);outline:none;-webkit-appearance:none;font-size:14.5px;
+}
+.sheet-body textarea{min-height:170px;resize:vertical;line-height:1.5}
+.sheet-body input::placeholder,.sheet-body textarea::placeholder{color:var(--dim)}
+.sheet-body input:focus,.sheet-body textarea:focus,.sheet-body select:focus{border-color:var(--accent)}
 .field.compact{flex-direction:row;align-items:center;justify-content:space-between;gap:12px}
 .field.compact>label{margin:0}
 .toggle{

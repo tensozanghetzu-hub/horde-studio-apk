@@ -1,12 +1,11 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.11.0.apk` (versionCode 30), sha256
-c433049b7e10a0590268778a84b704ea0b7d130ffee75541aeeb2fc673d7e9b2 (294,043 B).
-Built and published 2026-09-29:
-`docs/` serves v1.11.0 (webRev `04cefda4c30c`, web.zip 173,464 B) and
-release `v1.11.0` holds both APK assets (294,043 B). Do not identify a
-build by size — v1.9.2 and v1.10.0 both shipped at 289,947 B; check the
-sha256.
+Current build: `HordeStudio-v1.11.1.apk` (versionCode 31), sha256
+6c61d7a3028504c3fb50cffe2887b8dca346508a19eb7b65431e46d0324f44de (294,043 B).
+Built 2026-09-30, not yet synced:
+`docs/` still serves v1.11.0 (webRev `04cefda4c30c`) and release `v1.11.0`
+is the latest on the repo. Do not identify a build by size — v1.9.2 and
+v1.10.0 both shipped at 289,947 B; check the sha256.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -478,6 +477,44 @@ Verified after publishing: Pages serves 1.5.2; the served `sw.js` carries
 the local build (first download attempt raced the asset upload and returned
 empty — retry confirmed the hash). A third 277,659 B APK in the row: the
 sha256 remains the only identity.
+
+---
+
+## v1.11.1 — the Edit message sheet stops shouting (2026-09-30)
+
+### The report
+
+Screenshot: the "Edit message" sheet rendered as a bright cream box with
+washed-out light text on the dark app — "very disturbing to the eyes".
+
+### The cause
+
+Themed form-control styling only existed scoped to `.field` (the editor,
+Settings) and `.composer` (the chat input). The Edit message sheet renders
+its textarea directly into `.sheet-body`, so it fell back to the WebView's
+default light form control while `color:inherit` gave it the app's light
+text — light on light. Every sheet form field (Edit message, paste-a-URL,
+…) had the same latent bug; the edit sheet just has the biggest one.
+
+### The fix
+
+`css/app.css` — form controls inside `.sheet-body` (text/password/url/
+number inputs, textareas, selects) now get the same dark treatment as
+`.field`: `--bg-2` background, `--text` color, `--line` border with the
+accent focus border, `--dim` placeholders, tall vertical resize for
+textareas. Pure CSS, no JS change. sw cache v18 → v19 (cache-first worker).
+
+### Ship state (this segment)
+
+Bumped 1.11.1 / code 31 / sw v19, README (v1.11.1 section + header/Download)
+and NOTES updated. 18 suites unchanged (no JS touched) — rerun green for
+the record. Built `HordeStudio-v1.11.1.apk` (294,043 B — again the same
+size as v1.11.0; sha256
+6c61d7a3028504c3fb50cffe2887b8dca346508a19eb7b65431e46d0324f44de is the
+identity — same keystore, in-place upgrade) and in-APK verified: the
+`.sheet-body` rule set is in the packaged app.css, sw v19, store 1.11.1.
+Superseded v1.11.0 root APK removed (release assets keep that copy).
+Publish (push + release + channel) only on explicit ask.
 
 ---
 
