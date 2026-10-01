@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.13.1
+# Horde Studio — Mobile (Android) · v1.13.2
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.13.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.13.2](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.13.1.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.13.2.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,28 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.13.2
+
+**The weird symbols are gone.** If a card's text showed up in replies with
+garbage like `â€™` or `â€œ` instead of an apostrophe or a quote mark, it's
+because the card exporter double-encoded the text (UTF-8 bytes re-read as
+Windows-1252) — and the model, which can't know any better, started
+imitating the garbage it read in the card and in the greeting. Now the app
+reverses the double-encoding:
+
+- Card text is repaired on **import** and on **every request** — the
+  character sheet, examples, greeting and always-remember note arrive at
+  the model as proper apostrophes and quote marks, so it stops imitating
+  the mangled version. No re-import needed.
+- The chat context is repaired too: stored messages (the card's greeting,
+  a reply that already imitated the mangled quotes) are fixed in the
+  prompt before the model reads them, so an existing chat converges on
+  clean text instead of feeding the model its own mistake.
+- Careful about your language: the repair is only accepted when the whole
+  string is provably double-encoded (strict UTF-8 re-decode), so correct
+  French (`château`, `été`), euro signs and genuine curly quotes are
+  never touched.
 
 ## What's new in v1.13.1
 
