@@ -32,22 +32,68 @@
    * without markup, so clean cards are never touched.
    * ------------------------------------------------------------------ */
   var ENTITY_MAP = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  /* cp1252 byte for the non-Latin-1 characters (everything below 0x100 is
+     identity). The undefined cp1252 slots decode to C1 controls, so those
+     map back to their raw byte value. */
+  var CP1252 = { 0x20AC:0x80, 0x201A:0x82, 0x0192:0x83, 0x201E:0x84, 0x2026:0x85,
+    0x2020:0x86, 0x2021:0x87, 0x02C6:0x88, 0x2030:0x89, 0x0160:0x8A, 0x2039:0x8B,
+    0x0152:0x8C, 0x017D:0x8E, 0x2018:0x91, 0x2019:0x92, 0x201C:0x93, 0x201D:0x94,
+    0x2022:0x95, 0x2013:0x96, 0x2014:0x97, 0x02DC:0x98, 0x2122:0x99, 0x0161:0x9A,
+    0x203A:0x9B, 0x0153:0x9C, 0x017E:0x9E, 0x0178:0x9F };
+  /* characters that open a UTF-8 multibyte sequence once mangled — the
+     usual suspects in card text (curly quotes, accents, dashes) */
+  var MOJI_RE = /â|Ã|Â|É|È|Ê|Ë|Î|Ï|æ/;
+
+  /* v1.13.2 — mojibake repair.
+   *
+   * Card exporters (especially Janitor AI) sometimes write UTF-8 bytes as
+   * if they were Windows-1252: the apostrophe of "she's" (E2 80 99)
+   * becomes the three characters â€™, and a model that reads that in the
+   * character sheet or the greeting starts imitating it in its replies.
+   * This is the reverse transform: characters → cp1252 bytes → strict
+   * UTF-8 decode. The decode is fatal, so it only ever succeeds on text
+   * that is genuinely double-encoded — clean text ("château", "I paid
+   * €5") fails to decode and is returned untouched. A repair that does
+   * not shorten the text or that still carries markers is rejected.
+   * Idempotent: repaired text has no markers, so a second pass is a
+   * no-op. */
+  function repairMojibake(text) {
+    var t = String(text == null ? '' : text);
+    if (!MOJI_RE.test(t)) return t;
+    var bytes = new Uint8Array(t.length);
+    for (var i = 0; i < t.length; i++) {
+      var c = t.charCodeAt(i);
+      var b = c < 0x100 ? c : CP1252[c];
+      if (b === undefined) return t;    /* a char beyond cp1252: not this mojibake */
+      bytes[i] = b;
+    }
+    var repaired;
+    try { repaired = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch (e) { return t; }             /* not valid UTF-8: not double-encoded */
+    if (!repaired || repaired.length >= t.length || MOJI_RE.test(repaired)) return t;
+    return repaired;
+  }
+
   function plainText(text) {
     var t = String(text == null ? '' : text);
-    if (t.indexOf('<') === -1 && t.indexOf('&') === -1) return t;
-    /* script/style blocks go with their contents */
-    t = t.replace(/<(?:script|style)\b[\s\S]*?(?:<\/(?:script|style)\s*>|$)/gi, '');
-    t = t.replace(/<br\s*\/?>/gi, '\n');
-    t = t.replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote|pre)\s*>/gi, '\n');
-    t = t.replace(/<[^>]*>/g, '');
-    t = t.replace(/&#(\d+);/g, function (_, n) {
-      var cp = parseInt(n, 10);
-      return (cp >= 32 && cp !== 127) ? String.fromCharCode(cp) : ' ';
-    });
-    t = t.replace(/&[a-z]+;/gi, function (ent) {
-      var v = ENTITY_MAP[ent.slice(1, -1).toLowerCase()];
-      return v === undefined ? ent : v;   /* unknown entity: leave as written */
-    });
+    if (t.indexOf('<') !== -1) {
+      /* script/style blocks go with their contents */
+      t = t.replace(/<(?:script|style)\b[\s\S]*?(?:<\/(?:script|style)\s*>|$)/gi, '');
+      t = t.replace(/<br\s*\/?>/gi, '\n');
+      t = t.replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote|pre)\s*>/gi, '\n');
+      t = t.replace(/<[^>]*>/g, '');
+    }
+    if (t.indexOf('&') !== -1) {
+      t = t.replace(/&#(\d+);/g, function (_, n) {
+        var cp = parseInt(n, 10);
+        return (cp >= 32 && cp !== 127) ? String.fromCharCode(cp) : ' ';
+      });
+      t = t.replace(/&[a-z]+;/gi, function (ent) {
+        var v = ENTITY_MAP[ent.slice(1, -1).toLowerCase()];
+        return v === undefined ? ent : v;   /* unknown entity: leave as written */
+      });
+    }
+    t = repairMojibake(t);
     t = t.replace(/\n{3,}/g, '\n\n');
     return t.trim();
   }
@@ -101,8 +147,8 @@
     }
     if (session && (session.summary || (session.facts && session.facts.length))) {
       var mem = [];
-      if (session.summary) mem.push('Story so far: ' + session.summary);
-      if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + f; }).join('\n'));
+      if (session.summary) mem.push('Story so far: ' + repairMojibake(session.summary));
+      if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + repairMojibake(f); }).join('\n'));
       parts.push(mem.join('\n'));
     }
     var post = plainText(macros(char.postHistory, char, s));
@@ -237,8 +283,11 @@
     var ex = examplesToMessages(character.examples, character, s);
     ex.forEach(function (m) { msgs.push(m); });
 
+    /* v1.13.2: repair double-encoded text in stored messages (the card's
+       greeting, a model reply that imitated the card's mojibake) so the
+       model stops reading — and imitating — it. */
     var hist = history.map(function (m) {
-      return { role: m.role === 'user' ? 'user' : 'assistant', content: m.text || '' };
+      return { role: m.role === 'user' ? 'user' : 'assistant', content: repairMojibake(m.text || '') };
     }).filter(function (m) { return m.content.trim(); });
 
     hist = trimHistory(hist, s.contextMessages || 40, s.maxContextChars || 26000);
@@ -261,7 +310,7 @@
       return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
     }).join('\n');
     var hist = history.map(function (m) {
-      return (m.role === 'user' ? s.userName : character.name) + ': ' + (m.text || '');
+      return (m.role === 'user' ? s.userName : character.name) + ': ' + repairMojibake(m.text || '');
     });
     var join = function (h) {
       return [head.trim(), ex ? 'Example dialogue:\n' + ex : '', 'Chat history:\n' + h.join('\n'),
@@ -753,7 +802,7 @@
   function summarize(o) {
     var s = o.settings, char = o.character, session = o.session, history = o.history;
     var convo = history.slice(-o.maxMessages || 40).map(function (m) {
-      return (m.role === 'user' ? s.userName : char.name) + ': ' + (m.text || '');
+      return (m.role === 'user' ? s.userName : char.name) + ': ' + repairMojibake(m.text || '');
     }).join('\n');
 
     var instruction =
@@ -762,8 +811,8 @@
       '{"summary":"<3-6 sentences capturing plot, tone and where things stand>",' +
       '"facts":["<short durable fact>","..."]}\n' +
       'Keep at most 12 facts. Facts must be durable: names, places, relationships, injuries, promises, objects, goals.\n' +
-      (session && session.summary ? 'Existing summary to extend:\n' + session.summary + '\n' : '') +
-      (session && session.facts && session.facts.length ? 'Existing facts:\n' + session.facts.join('\n') + '\n' : '') +
+      (session && session.summary ? 'Existing summary to extend:\n' + repairMojibake(session.summary) + '\n' : '') +
+      (session && session.facts && session.facts.length ? 'Existing facts:\n' + session.facts.map(repairMojibake).join('\n') + '\n' : '') +
       '\nTranscript:\n' + convo;
 
     var msgs = [{ role: 'system', content: instruction }, { role: 'user', content: 'Return the JSON now.' }];
@@ -879,7 +928,7 @@
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     parseAiJson: parseAiJson, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
-    plainText: plainText,
+    plainText: plainText, repairMojibake: repairMojibake,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); }
   };
 })(window);

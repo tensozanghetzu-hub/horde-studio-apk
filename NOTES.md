@@ -1,11 +1,10 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.13.1.apk` (versionCode 35), sha256
-c4b7abab66739346e91b466a62e18d46d1e425ef4cb332c1057d64c874bf2fa5
-(298,139 B). Built and published 2026-10-01:
-`docs/` serves v1.13.1 (webRev `06cfeec74ebe`, web.zip 179,134 B) and
-release `v1.13.1` holds both APK assets (298,139 B), verified
-byte-identical to the local build.
+Current build: `HordeStudio-v1.13.2.apk` (versionCode 36), sha256
+d16a03733cc9ba59253c576d923fa25b8fd73d0fb9e83f663514edca2fbacc3b
+(298,139 B). Built 2026-10-01, not yet synced:
+`docs/` still serves v1.13.1 (webRev `06cfeec74ebe`) and release
+`v1.13.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -511,6 +510,70 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.13.2 — the weird symbols: repairing double-encoded card text (2026-10-01)
+
+### The report
+
+Screenshot of a fresh chat with "Along for the Ride": the reply is full of
+`â` + boxes where apostrophes and quotes should be — `whereâs the
+challenge`, `sheâd probably`, `work with.â□□`. Same family as the
+v1.13.0 diagnosis, now visible end-to-end: the card's text (greeting,
+persona) is **double-encoded** — UTF-8 bytes re-read as Windows-1252, so
+the apostrophe of "she's" (E2 80 99) became the three characters â€™.
+The model reads that in the card's greeting/persona and in its own older
+replies, and starts **imitating** the mangled pattern in new text.
+
+### The change
+
+- `api.js` new `repairMojibake(text)` — the reverse transform:
+  characters → cp1252 bytes (26-symbol table for the non-Latin-1 slots;
+  C1 controls map back to their raw byte) → **strict** UTF-8 decode
+  (`TextDecoder('utf-8', {fatal:true})`). The fatal decode is the safety
+  net: it only succeeds when the whole byte string is genuinely
+  double-encoded, so correct French (`château`, `été`), genuine euro
+  signs and real curly quotes fail to decode and come back untouched. A
+  repair that does not shorten the text or still carries markers (â Ã Â
+  É È Ê Ë Î Ï æ) is rejected; a char beyond cp1252 aborts the whole
+  repair. Idempotent — repaired text has no markers.
+- Wired into `plainText` (after tag strip + entity unescape), so import
+  and every character-sheet/example/always-remember field are repaired
+  for **existing cards without re-import**.
+- Wired into the stored-message context: `buildPrompt` history,
+  `buildChat` history, `summarize` transcript + existing summary/facts,
+  and the sheet's "Story so far"/"Established facts" — so an existing
+  chat stops feeding the model its own imitated mojibake, and new
+  summaries are generated from clean context. Converges within a few
+  replies; the old visible messages keep the stored text (delete/edit
+  them if wanted), same as the v1.13.1 HTML case.
+- No stored-data migration: repair is prompt-side only, by design
+  (never silently rewrite what the user sees).
+
+### Tests
+
+New `tests/mojibake-test.js` (25 checks): the reported patterns
+(`sheâ€™d`, `whereâ€™s`, closing-quote shape, em dash), cp1252 round-trips
+for quotes/accents, clean-text guarantees (English, correct French with
+and without a marker, euro, genuine curly apostrophe, beyond-cp1252,
+incomplete sequences), idempotence, plainText composition (tags +
+entities + mojibake in one string), and the wire prompt / chat messages
+carrying no mojibake with persona, stored reply, user message, summary
+and facts all verified. 23 node suites green — 557 checks (532 + 25).
+
+### Ship state (this segment)
+
+Bumped 1.13.2 / code 36 / sw v24, README (v1.13.2 section + header/
+Download) and NOTES updated. Built `HordeStudio-v1.13.2.apk`
+(298,139 B — same size as v1.13.1; sha256
+d16a03733cc9ba59253c576d923fa25b8fd73d0fb9e83f663514edca2fbacc3b is the
+identity — same keystore, in-place upgrade) and in-APK verified: the
+repairMojibake definition + its eight wired call sites (plainText,
+sheet memory, both prompt builders, summarize) in the packaged api.js,
+sw v24, store 1.13.2.
+Superseded v1.13.1 root APK removed. Committed locally. Publish (push +
+release + channel) only on explicit ask.
 
 ---
 
