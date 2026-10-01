@@ -2,9 +2,10 @@
 
 Current build: `HordeStudio-v1.13.2.apk` (versionCode 36), sha256
 d16a03733cc9ba59253c576d923fa25b8fd73d0fb9e83f663514edca2fbacc3b
-(298,139 B). Built 2026-10-01, not yet synced:
-`docs/` still serves v1.13.1 (webRev `06cfeec74ebe`) and release
-`v1.13.1` is the latest on the repo.
+(298,139 B). Built and published 2026-10-01:
+`docs/` serves v1.13.2 (webRev `984fb605e12a`, web.zip 180,189 B) and
+release `v1.13.2` holds both APK assets (298,139 B), verified
+byte-identical to the local build.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -572,8 +573,11 @@ identity — same keystore, in-place upgrade) and in-APK verified: the
 repairMojibake definition + its eight wired call sites (plainText,
 sheet memory, both prompt builders, summarize) in the packaged api.js,
 sw v24, store 1.13.2.
-Superseded v1.13.1 root APK removed. Committed locally. Publish (push +
-release + channel) only on explicit ask.
+Superseded v1.13.1 root APK removed.
+**Published** on explicit ask: push `9b33fe6..07db9e0`, release
+`v1.13.2` with both assets (298,139 B each) downloading byte-identical
+to the local build (sha256 above), live channel serving 1.13.2 / 36 /
+`984fb605e12a`.
 
 ---
 
