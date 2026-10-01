@@ -1,10 +1,10 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.13.0.apk` (versionCode 34), sha256
-c04baac8494c715a6c01cec3fb948d74fed474369dd85708d28cc412c2c0ef8b
-(298,139 B). Built and published 2026-09-30:
-`docs/` serves v1.13.0 (webRev `924f20bd6343`, web.zip 178,164 B) and
-release `v1.13.0` holds both APK assets (298,139 B).
+Current build: `HordeStudio-v1.13.1.apk` (versionCode 35), sha256
+c4b7abab66739346e91b466a62e18d46d1e425ef4cb332c1057d64c874bf2fa5
+(298,139 B). Built 2026-10-01, not yet synced:
+`docs/` still serves v1.13.0 (webRev `924f20bd6343`) and release
+`v1.13.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -510,6 +510,63 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.13.1 — cards stop leaking their HTML (2026-10-01)
+
+### The report
+
+Screenshot: a Janitor AI card ("Along for the Ride") whose description
+embeds the bot's avatar as
+`<p><img src="https://ella.janitorai.com/media-approved/…webp?width=600"></p>`.
+The model read the markup from the character sheet and typed it back into
+the reply as literal text; the reply renderer (correctly) showed it as
+text. "Was that supposed to load an image, or random link?" — answered:
+the link is the card's own avatar; nothing is supposed to load it (model
+replies are text, never rendered HTML — a volunteer model must not be able
+to inject scripts); the model just echoed the card's markup.
+
+### The change
+
+- `api.js` new `plainText(text)` — card HTML → plain prose: script/style
+  blocks removed with contents, `<br>`/`</p>`/`</div>`/… → line breaks,
+  all other tags dropped (with their URLs), numeric + common named
+  entities unescaped (`&nbsp; &amp; &lt; &gt; &quot; &apos;`; unknown
+  entities left as written), excess blank lines collapsed. No-op for text
+  without `<` or `&`; idempotent.
+- Prompt time: `charSheet` cleans persona, scenario, lorebook contents
+  and the always-remember note; `examplesToMessages` cleans the example
+  dialogue first (so a `<br>` between speakers splits into turns).
+  Already-imported cards stop echoing markup with no re-import.
+- Import time: `App.importCard` runs persona/scenario/greeting/examples/
+  postHistory/lorebook contents through `plainText` right after
+  `cardToCharacter`, so new cards arrive clean (greeting included).
+- Reply rendering unchanged: model HTML still shows as text, never
+  executed.
+
+### Tests
+
+New `tests/cardhtml-test.js` (19 checks): no-op/stray-`<` safety, br/
+paragraph breaks, img drop, link caption kept, script removal, entities,
+unknown entities, the exact reported Janitor greeting, idempotence,
+examples `<br>` splitting, and the wire prompt (Horde `buildPrompt` and
+chat `buildChat`) carrying no markup with the prose intact. 22 node
+suites green — 532 checks (513 + 19); the two Playwright suites remain
+unrunnable in this sandbox, unchanged.
+
+### Ship state (this segment)
+
+Bumped 1.13.1 / code 35 / sw v23, README (v1.13.1 section + header/
+Download) and NOTES updated. Built `HordeStudio-v1.13.1.apk`
+(298,139 B — same size as v1.13.0; sha256
+c4b7abab66739346e91b466a62e18d46d1e425ef4cb332c1057d64c874bf2fa5 is the
+identity — same keystore, in-place upgrade) and in-APK verified: the
+plainText definition + the five charSheet/examples call sites in the
+packaged api.js, the import cleaning in app.js, sw v23, store 1.13.1.
+Superseded v1.13.0 root APK removed.
+Committed locally. Publish (push + release + channel) only on explicit
+ask.
 
 ---
 
