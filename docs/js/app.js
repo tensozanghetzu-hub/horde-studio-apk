@@ -257,6 +257,20 @@
       if (!f) return;
       Store.readCardFile(f).then(function (card) {
         var c = Store.cardToCharacter(card);
+        /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor
+           descriptions, <br> line breaks, the bot's avatar as
+           <img src="…">. Convert it to plain prose now, so the sheet,
+           the greeting and the prompt never carry markup a model could
+           read and echo back as literal text. */
+        c.persona = API.plainText(c.persona);
+        c.scenario = API.plainText(c.scenario);
+        c.greeting = API.plainText(c.greeting);
+        c.examples = API.plainText(c.examples);
+        c.postHistory = API.plainText(c.postHistory);
+        c.lorebook = (c.lorebook || []).map(function (e) {
+          e.content = API.plainText(e.content);
+          return e;
+        });
         /* v1.12.0: the imported avatar joins the card, normalized like every
            other imported image (512px long edge, PNG only with real
            transparency) so a 12 MP card art never becomes several MB of

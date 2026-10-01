@@ -16,8 +16,45 @@
       .replace(/\{\{persona\}\}/gi, (s && s.userPersona) || '');
   }
 
+  /* ------------------------------------------------------------------
+   * v1.13.1 — HTML in card text.
+   *
+   * SillyTavern and especially Janitor AI cards carry their description,
+   * greeting and example dialogue as HTML — <p>, <br>, <i>, and the bot's
+   * avatar as <img src="…">. Models cannot show images, so what actually
+   * happens is that the model reads the markup out of the character sheet
+   * and types it back into the reply as literal text (and the app
+   * deliberately shows reply HTML as text, never rendered). plainText
+   * turns card HTML into plain prose: line breaks survive, tags and their
+   * URLs drop, common entities unescape. It is applied at import (new
+   * cards arrive clean) and at prompt time (already-imported cards stop
+   * echoing markup without a re-import). Idempotent, and a no-op for text
+   * without markup, so clean cards are never touched.
+   * ------------------------------------------------------------------ */
+  var ENTITY_MAP = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  function plainText(text) {
+    var t = String(text == null ? '' : text);
+    if (t.indexOf('<') === -1 && t.indexOf('&') === -1) return t;
+    /* script/style blocks go with their contents */
+    t = t.replace(/<(?:script|style)\b[\s\S]*?(?:<\/(?:script|style)\s*>|$)/gi, '');
+    t = t.replace(/<br\s*\/?>/gi, '\n');
+    t = t.replace(/<\/(?:p|div|li|tr|h[1-6]|blockquote|pre)\s*>/gi, '\n');
+    t = t.replace(/<[^>]*>/g, '');
+    t = t.replace(/&#(\d+);/g, function (_, n) {
+      var cp = parseInt(n, 10);
+      return (cp >= 32 && cp !== 127) ? String.fromCharCode(cp) : ' ';
+    });
+    t = t.replace(/&[a-z]+;/gi, function (ent) {
+      var v = ENTITY_MAP[ent.slice(1, -1).toLowerCase()];
+      return v === undefined ? ent : v;   /* unknown entity: leave as written */
+    });
+    t = t.replace(/\n{3,}/g, '\n\n');
+    return t.trim();
+  }
+
   /* Turn a SillyTavern-style example block into alternating messages */
   function examplesToMessages(text, char, s) {
+    text = plainText(text);
     var out = [], cur = null;
     String(text || '').split(/\r?\n/).forEach(function (raw) {
       var line = raw.trim();
@@ -48,9 +85,9 @@
 
   function charSheet(char, s, session, recent) {
     var parts = [];
-    var persona = macros(char.persona, char, s);
+    var persona = plainText(macros(char.persona, char, s));
     if (persona) parts.push(persona);
-    var scenario = macros(char.scenario, char, s);
+    var scenario = plainText(macros(char.scenario, char, s));
     if (scenario) parts.push('Current situation: ' + scenario);
     if (s.userPersona) parts.push('About {{user}}: '.replace('{{user}}', s.userName) + s.userPersona);
     var state = statePrompt(char);
@@ -59,7 +96,7 @@
     var lore = loreHits(char.lorebook, recent);
     if (lore.length) {
       parts.push('Relevant world facts:\n' + lore.map(function (e) {
-        return '- ' + macros(e.content, char, s);
+        return '- ' + plainText(macros(e.content, char, s));
       }).join('\n'));
     }
     if (session && (session.summary || (session.facts && session.facts.length))) {
@@ -68,7 +105,7 @@
       if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + f; }).join('\n'));
       parts.push(mem.join('\n'));
     }
-    var post = macros(char.postHistory, char, s);
+    var post = plainText(macros(char.postHistory, char, s));
     if (post) parts.push(post);
     return parts.join('\n\n');
   }
@@ -842,6 +879,7 @@
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     parseAiJson: parseAiJson, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
+    plainText: plainText,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); }
   };
 })(window);

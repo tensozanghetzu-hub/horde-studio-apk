@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.13.0
+# Horde Studio — Mobile (Android) · v1.13.1
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.13.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.13.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.13.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.13.1.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,25 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.13.1
+
+**Cards stop leaking their HTML.** SillyTavern and Janitor AI cards carry
+their text as HTML — `<p>`, `<br>`, the bot's avatar as
+`<img src="…">`. Models can't show images, so a character whose card had
+that markup would read it out of its sheet and type it back into replies
+as literal text (raw tags floating in the middle of the prose). Now:
+
+- On **import**, the card's description, greeting, scenario, example
+  dialogue, always-remember note and lorebook entries are converted to
+  plain prose — line breaks survive (`<br>`, `</p>` → newlines), tags and
+  their URLs drop, common entities (`&amp;`, `&quot;`, …) unescape.
+- On **every request**, the character sheet and example dialogue are
+  cleaned again, so characters you already imported stop echoing markup
+  without re-importing the card.
+- Clean cards are untouched (the conversion is a no-op for text without
+  markup) and the reply renderer still shows model HTML as text — model
+  output is never executed.
 
 ## What's new in v1.13.0
 
