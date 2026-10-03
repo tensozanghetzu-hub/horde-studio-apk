@@ -178,6 +178,13 @@
   App.characterMenu = function (id) { App.openCharacter(id); };
 
   /* ---------------- personas ---------------- */
+  /* Which screen to land on after a persona switch/create: the one you are
+     on, whenever it has a persona bar or persona rows. Sub-screens (a
+     conversation, the editor) fall back to Cast, where the bar lives. */
+  var MAIN_SCREENS = ['characters', 'life', 'chats', 'world', 'worlds', 'settings'];
+  function personaReturnScreen(was) {
+    return (was && MAIN_SCREENS.indexOf(was) !== -1) ? was : 'characters';
+  }
   /* Personas are switchable player identities. Each keeps its own chats with
      every character, and — because bonds are keyed by user name — its own
      separate relationship ledger with each virtual human. */
@@ -199,8 +206,8 @@
         .then(function () {
           UI.toast('Now playing as ' + name);
           App.state.screen = null;
-          /* Stay where we were — this is reachable from Settings too. */
-          App.go(was === 'settings' ? 'settings' : 'characters');
+          /* Stay where we were — the bar is on Cast, Chats and Settings. */
+          App.go(personaReturnScreen(was));
         });
     });
   };
@@ -211,7 +218,7 @@
       UI.toast(p ? 'Now playing as ' + (p.name || 'Unnamed')
                  : 'Back to ' + (Store.settings.defaultName || 'You'));
       App.state.screen = null;
-      App.go(was === 'settings' ? 'settings' : 'characters');
+      App.go(personaReturnScreen(was));
     });
   };
 

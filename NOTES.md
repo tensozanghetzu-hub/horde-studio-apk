@@ -1,11 +1,10 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.13.2.apk` (versionCode 36), sha256
-d16a03733cc9ba59253c576d923fa25b8fd73d0fb9e83f663514edca2fbacc3b
-(298,139 B). Built and published 2026-10-01:
-`docs/` serves v1.13.2 (webRev `984fb605e12a`, web.zip 180,189 B) and
-release `v1.13.2` holds both APK assets (298,139 B), verified
-byte-identical to the local build.
+Current build: `HordeStudio-v1.14.0.apk` (versionCode 37), sha256
+ea7cf19be64eff00a5f5c6abcab556f99d989efbe2aa7b7a64beac10a9438476
+(298,139 B). Built 2026-10-03, not yet synced:
+`docs/` still serves v1.13.2 (webRev `984fb605e12a`) and release
+`v1.13.2` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -511,6 +510,63 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.14.0 — persona bar on the Chats screen (2026-10-01)
+
+### The report
+
+"I once got scared that my chats were gone, because I created a new
+persona and my chats page was empty." True — and by design: every persona
+keeps its own threads with every character, and a fresh persona has none.
+But the persona switcher bar only existed on Cast, and switching/creating
+a persona always bounced to Cast, so from Chats the blank list read as
+data loss.
+
+### The change
+
+- `index.html`: new `#chat-persona-bar` (class `persona-bar`) at the top
+  of the Chats screen, above `#chat-list`. Same CSS, same chips as Cast.
+- `views.js` `renderPersonaBar()` now fills **every** `.persona-bar`
+  element from one code path (Cast + Chats stay in step; listeners live on
+  the chips, which are replaced each render — no duplicates).
+  `Views.chats` calls it on render.
+- Empty state: when the active identity's list is empty,
+  `Views.chats` asks `Store.sessionTotal()`; if another identity holds
+  conversations, the text swaps to "No conversations as <identity> —
+  Nothing was lost, your other conversations live under a different
+  identity. Switch to it with the bar above." (Default text stays for a
+  truly empty install.)
+- `app.js`: `personaReturnScreen(was)` — after a persona switch or
+  create, land on the current screen when it is a top-level screen
+  (characters/life/chats/world/worlds/settings); sub-screens (a thread,
+  the editor) still fall back to Cast. So tapping a chip on Chats
+  re-renders Chats in place.
+- `store.js`: new `sessionTotal()` — session count across all personas.
+
+### Tests
+
+New `tests/personachats-test.js` (13 checks, fake-IDB harness from
+persona-test): both counts zero on an empty install; 2+2+1 distribution
+across two personas + default; the scared moment (new persona sees zero
+while the total says five); switching back restores exactly the same
+lists; deleting a persona drops its chats from both counts. 24 node
+suites green — 570 checks (557 + 13). The DOM behavior (bar rendering,
+in-place re-render) is not unit-testable in this sandbox — verified by
+code review + node --check, as before.
+
+### Ship state (this segment)
+
+Bumped 1.14.0 / code 37 / sw v25, README (v1.14.0 section + header/
+Download) and NOTES updated. Built `HordeStudio-v1.14.0.apk`
+(298,139 B — same size as v1.13.2; sha256
+ea7cf19be64eff00a5f5c6abcab556f99d989efbe2aa7b7a64beac10a9438476 is the
+identity — same keystore, in-place upgrade) and in-APK verified: the
+chat-persona-bar element in the packaged index.html, the shared
+multi-bar render in views.js, sessionTotal in store.js,
+personaReturnScreen in app.js, sw v25, store 1.14.0.
+Superseded v1.13.2 root APK removed.
 
 ---
 
