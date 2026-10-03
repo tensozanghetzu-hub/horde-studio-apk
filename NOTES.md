@@ -2,9 +2,10 @@
 
 Current build: `HordeStudio-v1.14.0.apk` (versionCode 37), sha256
 ea7cf19be64eff00a5f5c6abcab556f99d989efbe2aa7b7a64beac10a9438476
-(298,139 B). Built 2026-10-03, not yet synced:
-`docs/` still serves v1.13.2 (webRev `984fb605e12a`) and release
-`v1.13.2` is the latest on the repo.
+(298,139 B). Built and published 2026-10-03:
+`docs/` serves v1.14.0 (webRev `950b9c509ce4`, web.zip 180,764 B) and
+release `v1.14.0` holds both APK assets (298,139 B), verified
+byte-identical to the local build.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -567,6 +568,10 @@ chat-persona-bar element in the packaged index.html, the shared
 multi-bar render in views.js, sessionTotal in store.js,
 personaReturnScreen in app.js, sw v25, store 1.14.0.
 Superseded v1.13.2 root APK removed.
+**Published** on explicit ask: push `26c71d2..697f9a2`, release
+`v1.14.0` with both assets (298,139 B each) downloading byte-identical
+to the local build (sha256 above), live channel serving 1.14.0 / 37 /
+`950b9c509ce4`.
 
 ---
 
