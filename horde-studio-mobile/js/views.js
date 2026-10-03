@@ -120,21 +120,19 @@
   var Views = {};
 
   /* ================= PERSONA SWITCHER ================= */
-  /* One-tap identity switching on the Characters tab. Editing lives in
-     Settings — this bar answers only "who am I right now?". Hidden entirely
-     until you have created at least one persona, so nothing changes for
-     anyone who never touches it. */
+  /* One-tap identity switching, shown on the Cast and Chats screens.
+     Editing lives in Settings — the bar answers only "who am I right now?".
+     Hidden entirely until you have created at least one persona, so nothing
+     changes for anyone who never touches it. Every .persona-bar element in
+     the document is filled from one place, so both screens stay in step. */
   function renderPersonaBar() {
-    var bar = $('#persona-bar');
-    if (!bar) return;
+    var bars = document.querySelectorAll('.persona-bar');
+    if (!bars.length) return;
     var list = Store.personas || [];
     var active = (Store.settings && Store.settings.activePersona) || '';
 
-    bar.hidden = list.length === 0;
-    if (bar.hidden) { bar.innerHTML = ''; return; }
-
     var defName = (Store.settings && Store.settings.defaultName) || 'You';
-    bar.innerHTML =
+    var html =
       '<span class="persona-lbl">You are</span>' +
       '<button class="pchip' + (active ? '' : ' on') + '" data-persona="">' +
         icon('user') + esc(defName) + '</button>' +
@@ -144,10 +142,15 @@
       }).join('') +
       '<button class="pchip add" data-persona-new="1">' + icon('plus') + 'New</button>';
 
-    on(bar, '.pchip', 'click', function (e) {
-      var el = e.currentTarget;
-      if (el.getAttribute('data-persona-new')) return App.newPersona();
-      App.switchTo(el.getAttribute('data-persona') || '');
+    bars.forEach(function (bar) {
+      bar.hidden = list.length === 0;
+      if (bar.hidden) { bar.innerHTML = ''; return; }
+      bar.innerHTML = html;
+      on(bar, '.pchip', 'click', function (e) {
+        var el = e.currentTarget;
+        if (el.getAttribute('data-persona-new')) return App.newPersona();
+        App.switchTo(el.getAttribute('data-persona') || '');
+      });
     });
   }
   Views.renderPersonaBar = function () { renderPersonaBar(); };
@@ -431,6 +434,7 @@
 
   /* ================= CHATS ================= */
   Views.chats = function (root) {
+    renderPersonaBar();
     var list = $('#chat-list'), empty = $('#chats-empty');
     Store.allSessions().then(function (sessions) {
       var chars = {};
@@ -451,6 +455,17 @@
         '</div>';
       }).join('');
       empty.hidden = sessions.length > 0;
+      if (!empty.hidden) {
+        /* An empty list is usually not data loss: every persona keeps its
+           own chats. If another identity has conversations, say so. */
+        Store.sessionTotal().then(function (total) {
+          if (total > 0 && !empty.hidden) {
+            var h3 = empty.querySelector('h3'), p = empty.querySelector('p');
+            if (h3) h3.textContent = 'No conversations as ' + Store.personaLabel();
+            if (p) p.textContent = 'Nothing was lost — your other conversations live under a different identity. Switch to it with the bar above.';
+          }
+        });
+      }
       on(list, '[data-open]', 'click', function (e) {
         if (e.target.closest('[data-menu]')) return;
         App.openSession(e.currentTarget.getAttribute('data-open'));

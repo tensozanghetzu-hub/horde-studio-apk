@@ -9,7 +9,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.13.2';
+  var VERSION = '1.14.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -276,6 +276,13 @@
           return (s.personaId || '') === active;
         }).sort(function (a, b) { return (b.updatedAt || 0) - (a.updatedAt || 0); });
       });
+    },
+
+    /** How many sessions exist across ALL personas — powers the "nothing was
+       lost" hint on the Chats screen when the active identity is empty but
+       another identity has conversations. */
+    sessionTotal: function () {
+      return IDB.getAll('sessions').then(function (list) { return (list || []).length; });
     },
 
     delSession: function (id) {
