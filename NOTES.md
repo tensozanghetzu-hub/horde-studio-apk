@@ -1,10 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.15.0.apk` (versionCode 38) — size/sha256
-in the v1.15.0 entry. Built 2026-10-06, not yet synced:
-`docs/` still serves v1.14.0 (webRev `950b9c509ce4`) and release
-`v1.14.0` is the latest on the repo. The v1.15.0 release carries both
-settings-menu parts (persona screen + section hub).
+Current build: `HordeStudio-v1.16.0.apk` (versionCode 39) — size/sha256
+in the v1.16.0 entry. Built 2026-10-06, not yet synced:
+`docs/` serves v1.15.0 (webRev `ee6ec0d63882`) and release `v1.15.0`
+is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -510,6 +509,65 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.16.0 — the default system prompt speaks the RP formatting language (2026-10-06)
+
+### The ask
+
+While roleplaying, the user noticed the model reads `"she is so
+beautiful"` (quoted) as spoken dialogue and bare `she is so beautiful`
+as a thought — and asked for a specific "quotation" for thoughts.
+Answer (RP convention, not app behaviour): double quotes = speech,
+**asterisk italics** = thoughts/actions. The user then asked for the
+convention to be added to the default system prompt so the model
+follows it consistently instead of guessing each time.
+
+### The change
+
+- `store.js`: `DEFAULT_SYSTEM` gains one sentence — "Use double quotes
+  for spoken dialogue and asterisk italics (*like this*) for thoughts
+  and actions." — placed after the style sentence. The pre-1.16.0 text
+  is kept verbatim as `LEGACY_SYSTEM`.
+- `store.js` `init()`: one-time migration, same pattern as the
+  personaSchema migration — if the saved `systemPrompt` is
+  **byte-identical** to `LEGACY_SYSTEM` (never edited), it is replaced
+  with the new default and persisted. Any edit, even one character,
+  leaves the user's prompt completely untouched.
+- `store.js`: `Store.defaultSystem` exported.
+- `views.js`: **Reset to default** now sets `Store.defaultSystem`
+  instead of a hardcoded copy — which had gone stale (predated the
+  formatting line AND the prompt's closing "write only what the
+  character does and says" sentence). Duplication eliminated.
+- The display side needed no change: `md()` in ui.js already renders
+  `*text*` as italics, so model thoughts show italicised with no
+  literal asterisks on screen. The prompt field is a plain textarea
+  (escaped text), so the asterisks in the default render literally
+  where the user edits them.
+
+### Tests
+
+New suite `tests/sysprompt-test.js` (9 checks, fake-IDB harness in the
+persona-test mould): fresh install gets the line; legacy-default
+install is upgraded in memory AND persisted; one-char-edit and fully
+custom prompts are byte-identical after init; `Store.defaultSystem`
+export matches. Full battery: 25 node suites / 579 checks, 0 failing
+(the two Playwright suites — update, typing — still need a browser and
+don't run in this sandbox).
+
+### Ship state (this segment)
+
+Bumped 1.16.0 / code 39 / sw v27. Built
+`HordeStudio-v1.16.0.apk` (302,235 B; sha256
+728d13a3fe4042dbcd6be7adcfb2ae4b3498d89c6108963870fc6ba7e14d1658 is
+the identity — same keystore, in-place upgrade from code 38) and
+in-APK verified:
+`DEFAULT_SYSTEM` with the line + `LEGACY_SYSTEM` + migration +
+`defaultSystem` export in store.js, `Store.defaultSystem` in the
+views.js reset handler, sw v27, VERSION 1.16.0. Superseded
+v1.15.0 root APK removed after build. Committed locally. Publish
+(push + release + channel) only on explicit ask.
 
 ---
 

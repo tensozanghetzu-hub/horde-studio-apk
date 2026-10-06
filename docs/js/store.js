@@ -2,14 +2,25 @@
 (function (global) {
   'use strict';
 
-  var DEFAULT_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
+  /* The pre-v1.16.0 default, kept verbatim for the one-time migration in
+     init: existing installs hold whatever default they were given, and we
+     only upgrade the ones that never saw an edit. */
+  var LEGACY_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
     'advancing the scene with concrete detail, action and dialogue. Never speak for {{user}}. ' +
     'Keep replies focused on what just happened and leave room for {{user}} to respond. ' +
     'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
     'outlines, or commentary about the prompt or the character card.';
 
+  var DEFAULT_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
+    'advancing the scene with concrete detail, action and dialogue. Use double quotes for ' +
+    'spoken dialogue and asterisk italics (*like this*) for thoughts and actions. ' +
+    'Never speak for {{user}}. ' +
+    'Keep replies focused on what just happened and leave room for {{user}} to respond. ' +
+    'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
+    'outlines, or commentary about the prompt or the character card.';
+
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.15.0';
+  var VERSION = '1.16.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -73,6 +84,7 @@
     personas: [],
     PRESETS: PRESETS,
     VERSION: VERSION,
+    defaultSystem: DEFAULT_SYSTEM,
 
     init: function () {
       var self = this;
@@ -90,6 +102,14 @@
           s.defaultPersona = s.userPersona || '';
           s.activePersona = '';
           s.personaSchema = 1;
+          dirty = true;
+        }
+        /* v1.16.0 migration: the default system prompt gained a
+           dialogue/thought formatting line. Give it to users who still hold
+           the old default verbatim; anyone who ever edited the prompt (even
+           one character) is left untouched. */
+        if (s.systemPrompt === LEGACY_SYSTEM) {
+          s.systemPrompt = DEFAULT_SYSTEM;
           dirty = true;
         }
         var saved = dirty ? self.saveSettings() : Promise.resolve();
