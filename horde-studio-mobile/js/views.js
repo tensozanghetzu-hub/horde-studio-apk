@@ -541,9 +541,103 @@
     });
   };
 
+  /* ================= PERSONAS (dedicated management screen, v1.15.0) ===== */
+  /* The persona list used to live inline in Settings, where every identity
+     made the screen longer. It now has its own screen; Settings keeps a
+     fixed-length "Manage personas" button. Rows are shared (personaRowsHtml)
+     so the screen and the bar/Settings stay consistent. */
+  function personaRowsHtml(personas, activeId) {
+    return personas.length
+      ? personas.map(function (p) {
+          var on = activeId === p.id;
+          return '<div class="field" data-prow="' + esc(p.id) + '">' +
+            '<div class="field-head"><label>' + esc(p.name || 'Unnamed persona') + '</label>' +
+              '<span class="spacer"></span>' +
+              (on ? '<span class="pill ok">active</span>'
+                  : '<button class="chip" data-persona-use="' + esc(p.id) + '">Switch to</button>') +
+              '<button class="chip" data-persona-del="' + esc(p.id) + '" aria-label="Delete persona">' + icon('trash') + '</button>' +
+            '</div>' +
+            '<input type="text" data-persona-name="' + esc(p.id) + '" value="' + esc(p.name || '') + '" placeholder="Persona name">' +
+            '<textarea data-persona-text="' + esc(p.id) + '" style="margin-top:6px" placeholder="Who this persona is — appearance, background, goals.">' + esc(p.text || '') + '</textarea>' +
+          '</div>';
+        }).join('')
+      : '<div class="field"><span class="hint">No personas yet. Add one to switch between identities — each keeps its own chats with every character and its own relationship with each virtual human.</span></div>';
+  }
+
+  Views.personas = function (root) {
+    var personas = Store.personas || [];
+    var activeId = (Store.settings && Store.settings.activePersona) || '';
+    var body = $('#personas-body');
+    body.innerHTML =
+      '<div class="group">' +
+        '<div class="group-title">Identities</div>' +
+        '<div class="field"><div class="hint" style="margin:0">Each persona keeps its own chats with every character, and its own relationship with each virtual human. Names and descriptions save when you leave the field. The identity bar at the top of Cast and Chats switches personas too.</div></div>' +
+        personaRowsHtml(personas, activeId) +
+        '<button class="btn ghost sm" id="btn-persona-add" style="margin-top:8px">' + icon('plus') + ' Add persona</button>' +
+      '</div>';
+    function bind(sel, ev, fn) { var el = $(sel, body); if (el) el.addEventListener(ev, fn); }
+    on(body, '[data-persona-use]', 'click', function (e) {
+      App.switchTo(e.currentTarget.getAttribute('data-persona-use'));
+    });
+    on(body, '[data-persona-del]', 'click', function (e) {
+      App.deletePersona(e.currentTarget.getAttribute('data-persona-del'));
+    });
+    on(body, '[data-persona-name]', 'change', function (e) {
+      App.editPersona(e.currentTarget.getAttribute('data-persona-name'), { name: e.target.value.trim() });
+    });
+    on(body, '[data-persona-text]', 'change', function (e) {
+      App.editPersona(e.currentTarget.getAttribute('data-persona-text'), { text: e.target.value });
+    });
+    bind('#btn-persona-add', 'click', function () { App.newPersona(); });
+  };
+
   /* ================= SETTINGS ================= */
-  Views.settings = function (root) {
-    var s = Store.settings;
+  /* v1.16.0: Settings is a hub. Every group lives on its own sub-screen —
+     one shared settings-x section rendered per section — so the hub stays
+     the same length no matter what is inside. "About" stays in the hub as
+     a footer: it is status, not a setting. The per-persona rows live on
+     Views.personas (v1.15.0), reached from the hub too. */
+  Views.SETTINGS_SECTIONS = {
+    connection: { title: 'Connection', hint: 'Provider, API key, model', icon: 'key', view: 'settingsConnection' },
+    generation: { title: 'Generation', hint: 'Temperature, reply length, context', icon: 'sparkle', view: 'settingsGeneration' },
+    you:        { title: 'You', hint: 'Your name and identity', icon: 'user', view: 'settingsYou' },
+    system:     { title: 'System prompt', hint: 'Rules sent with every message', icon: 'chat', view: 'settingsSystem' },
+    horde:      { title: 'AI Horde · images &amp; free text', hint: 'Free key, image model, queue', icon: 'image', view: 'settingsHorde' },
+    memory:     { title: 'Memory', hint: 'Auto-summarise long chats', icon: 'brain', view: 'settingsMemory' },
+    data:       { title: 'Data', hint: 'Backup, restore, erase', icon: 'download', view: 'settingsData' },
+    storage:    { title: 'Storage', hint: 'What the app is holding', icon: 'copy', view: 'settingsStorage' },
+    update:     { title: 'App updates', hint: 'Version, update address', icon: 'refresh', view: 'settingsUpdate' }
+  };
+
+  /* Control wiring shared by the settings sub-screens. Everything is scoped
+     to the sub-screen's body, so control ids can never collide. */
+  function settingsScope(body) {
+    function bind(sel, ev, fn) { var el = $(sel, body); if (el) el.addEventListener(ev, fn); }
+    function set(patch) { Store.saveSettings(patch); }
+    function range(sel, valSel, key, fmt) {
+      var el = $(sel, body);
+      if (!el) return;
+      el.addEventListener('input', function () {
+        var v = parseFloat(el.value);
+        if (valSel) $(valSel, body).textContent = fmt ? fmt(v) : v;
+        var patch = {}; patch[key] = v; set(patch);
+      });
+    }
+    function toggle(sel, key, after) {
+      var el = $(sel, body);
+      if (!el) return;
+      el.addEventListener('click', function () {
+        var patch = {}; patch[key] = !Store.settings[key]; set(patch);
+        el.classList.toggle('on', Store.settings[key]);
+        if (after) after();
+      });
+    }
+    return { bind: bind, set: set, range: range, toggle: toggle };
+  }
+
+  /* Version / update-channel facts shared by the hub (About) and the
+     App-updates screen. */
+  function settingsUpdateInfo() {
     var U = global.Updates;
     var upInfo = (U && U.supported()) ? U.info() : { apk: '?', apkCode: 0, overlay: false, rev: '' };
     var upUrl = U ? (U.baseUrl() || U.DEFAULT_URL || '') : '';
@@ -559,29 +653,61 @@
     } else {
       upNote += 'Nothing is downloaded unless you press Check for update.';
     }
-    var preset = Store.PRESETS[s.provider] || Store.PRESETS.custom;
+    return { U: U, upInfo: upInfo, upUrl: upUrl, verLabel: verLabel, upNote: upNote };
+  }
 
-    /* ---- personas ---- */
+  /* The hub: one row per section, plus About. Fixed length (v1.16.0). */
+  Views.settings = function (root) {
+    var s = Store.settings;
+    var info = settingsUpdateInfo();
     var personas = Store.personas || [];
-    var activeId = s.activePersona || '';
-    var personaRows = personas.length
-      ? personas.map(function (p) {
-          var on = activeId === p.id;
-          return '<div class="field" data-prow="' + esc(p.id) + '">' +
-            '<div class="field-head"><label>' + esc(p.name || 'Unnamed persona') + '</label>' +
-              '<span class="spacer"></span>' +
-              (on ? '<span class="pill ok">active</span>'
-                  : '<button class="chip" data-persona-use="' + esc(p.id) + '">Switch to</button>') +
-              '<button class="chip" data-persona-del="' + esc(p.id) + '" aria-label="Delete persona">' + icon('trash') + '</button>' +
-            '</div>' +
-            '<input type="text" data-persona-name="' + esc(p.id) + '" value="' + esc(p.name || '') + '" placeholder="Persona name">' +
-            '<textarea data-persona-text="' + esc(p.id) + '" style="margin-top:6px" placeholder="Who this persona is — appearance, background, goals.">' + esc(p.text || '') + '</textarea>' +
-          '</div>';
-        }).join('')
-      : '<div class="field"><span class="hint">No personas yet. Add one to switch between identities — each keeps its own chats with every character and its own relationship with each virtual human.</span></div>';
-
+    var ORDER = ['connection', 'generation', 'you', 'personas', 'system', 'horde', 'memory', 'data', 'storage', 'update'];
+    var rows = ORDER.map(function (k) {
+      var label, hint, ic;
+      if (k === 'personas') {
+        label = 'Manage personas' + (personas.length ? ' · ' + personas.length : '');
+        hint = 'Switchable identities — each keeps its own chats';
+        ic = 'user';
+      } else {
+        var m = Views.SETTINGS_SECTIONS[k];
+        label = m.title; hint = m.hint; ic = m.icon;
+      }
+      return '<div class="field">' +
+        '<button class="btn ghost sm block" data-gosec="' + k + '" style="display:flex;align-items:center;gap:10px">' +
+          icon(ic) +
+          '<span style="flex:1;text-align:left"><b>' + label + '</b>' +
+          '<span class="hint" style="display:block">' + hint + '</span></span>' +
+          '<span style="color:var(--dim);font-size:18px;line-height:1">›</span>' +
+        '</button></div>';
+    }).join('');
     $('#settings-body').innerHTML =
-      /* --- connection --- */
+      '<div class="group">' +
+        '<div class="group-title">Settings</div>' +
+        rows +
+      '</div>' +
+      /* --- about (status, not a setting — stays in the hub) --- */
+      '<div class="group">' +
+        '<div class="group-title">About</div>' +
+        '<div class="field"><div class="kv"><span>Version</span><b>' + esc(info.verLabel) + ' · mobile</b></div>' +
+        '<div class="kv"><span>Text</span><b>' + esc(s.provider === 'horde' ? 'AI Horde (free)' : (Store.PRESETS[s.provider] || {}).label || 'Custom') + '</b></div>' +
+        '<div class="kv"><span>Images</span><b>AI Horde</b></div>' +
+        '<div class="hint">Horde Studio Mobile is an unofficial, mobile-first client. It talks to whatever backend you configure — ' +
+        'nothing is sent anywhere except your chosen provider.</div></div>' +
+      '</div>';
+    var body = $('#settings-body');
+    on(body, '[data-gosec]', 'click', function (e) {
+      var k = e.currentTarget.getAttribute('data-gosec');
+      if (k === 'personas') return App.go('personas');
+      App.openSettings(k);
+    });
+  };
+
+  /* ---- Connection ---- */
+  Views.settingsConnection = function (root) {
+    var s = Store.settings;
+    var preset = Store.PRESETS[s.provider] || Store.PRESETS.custom;
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">Connection</div>' +
         '<div class="field">' +
@@ -617,9 +743,31 @@
           '</div>' +
           '<div class="hint" id="test-out"></div>' +
         '</div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    sc.bind('#set-provider', 'change', function (e) {
+      var p = e.target.value;
+      sc.set({ provider: p, baseUrl: Store.PRESETS[p].url });
+      Views.settingsConnection(root);
+    });
+    sc.bind('#set-url', 'change', function (e) { sc.set({ baseUrl: e.target.value.trim() }); });
+    sc.bind('#set-key', 'change', function (e) { sc.set({ apiKey: e.target.value.trim() }); });
+    sc.bind('#btn-test', 'click', function () {
+      var out = $('#test-out', body);
+      out.innerHTML = '<span class="pill">Testing…</span>';
+      API.testConnection(Store.settings).then(function (r) {
+        out.innerHTML = '<span class="pill ' + (r.ok ? 'ok' : 'err') + '">' + esc(r.message) + '</span>';
+      });
+    });
+    sc.bind('#btn-refresh-models', 'click', function () { App.chooseModel(true); });
+    sc.bind('#btn-model', 'click', function () { App.chooseModel(false); });
+  };
 
-      /* --- generation --- */
+  /* ---- Generation ---- */
+  Views.settingsGeneration = function (root) {
+    var s = Store.settings;
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">Generation</div>' +
         '<div class="field"><div class="field-head"><label>Temperature</label><span class="spacer"></span><span class="val" id="v-temp">' + s.temperature + '</span></div>' +
@@ -642,9 +790,25 @@
         '<div class="field"><div class="hint" style="margin:0">For virtual humans: when a reply reads like several short ' +
           'messages rather than one paragraph, it arrives as separate bubbles a few seconds apart.</div></div>' +
         '<div class="field compact"><label>Enter sends message</label><div class="toggle' + (s.sendOnEnter ? ' on' : '') + '" id="t-enter"></div></div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    sc.range('#set-temp', '#v-temp', 'temperature', function (v) { return v.toFixed(2); });
+    sc.range('#set-max', '#v-max', 'maxTokens');
+    sc.range('#set-topp', '#v-topp', 'topP', function (v) { return v.toFixed(2); });
+    sc.range('#set-ctx', '#v-ctx', 'contextMessages');
+    sc.toggle('#t-stream', 'streaming');
+    sc.toggle('#t-finish', 'autoFinish');
+    sc.toggle('#t-bursts', 'bursts');
+    sc.toggle('#t-think', 'stripThinking');
+    sc.toggle('#t-enter', 'sendOnEnter');
+  };
 
-      /* --- you --- */
+  /* ---- You ---- */
+  Views.settingsYou = function (root) {
+    var s = Store.settings;
+    var activeId = s.activePersona || '';
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">You</div>' +
         '<div class="field"><div class="hint" style="margin:0 0 6px">' +
@@ -656,25 +820,42 @@
           '<input type="text" id="set-uname" value="' + esc(s.userName) + '"></div>' +
         '<div class="field"><div class="field-head"><label>Your persona</label></div>' +
           '<textarea id="set-upersona" placeholder="Who you are in the story — appearance, background, goals.">' + esc(s.userPersona) + '</textarea></div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    /* Identity edits land on the persona when one is active, else on the default. */
+    sc.bind('#set-uname', 'change', function (e) {
+      Store.setIdentity({ name: e.target.value.trim() || 'You' }).then(function () { Views.settingsYou(root); });
+    });
+    sc.bind('#set-upersona', 'change', function (e) { Store.setIdentity({ text: e.target.value }); });
+  };
 
-      /* --- personas --- */
-      '<div class="group">' +
-        '<div class="group-title">Personas</div>' +
-        '<div class="field"><div class="hint" style="margin:0 0 8px">Switchable identities. Each persona keeps its own chats with every character, and builds its own separate relationship with each virtual human. Switching is also one tap away at the top of the Characters tab.</div></div>' +
-        personaRows +
-        '<button class="btn ghost sm" id="btn-persona-add" style="margin-top:8px">' + icon('plus') + ' Add persona</button>' +
-      '</div>' +
-
-      /* --- system prompt --- */
+  /* ---- System prompt ---- */
+  Views.settingsSystem = function (root) {
+    var s = Store.settings;
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">System prompt</div>' +
         '<div class="field"><textarea class="tall" id="set-system">' + esc(s.systemPrompt) + '</textarea>' +
           '<div class="hint">Sent before the character sheet. Macros: {{char}}, {{user}}, {{persona}}.</div>' +
           '<button class="btn ghost sm" id="btn-reset-sys">Reset to default</button></div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    sc.bind('#set-system', 'change', function (e) { sc.set({ systemPrompt: e.target.value }); });
+    sc.bind('#btn-reset-sys', 'click', function () {
+      sc.set({ systemPrompt: 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
+        'advancing the scene with concrete detail, action and dialogue. Never speak for {{user}}. ' +
+        'Keep replies focused on what just happened and leave room for {{user}} to respond.' });
+      Views.settingsSystem(root);
+      UI.toast('System prompt reset');
+    });
+  };
 
-      /* --- horde --- */
+  /* ---- AI Horde · images & free text ---- */
+  Views.settingsHorde = function (root) {
+    var s = Store.settings;
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">AI Horde · images &amp; free text</div>' +
         '<div class="field"><div class="field-head"><label>Horde API key (optional)</label></div>' +
@@ -690,25 +871,57 @@
           }).join('') + '</div></div>' +
         '<div class="field"><div class="field-head"><label>Diffusion steps</label><span class="spacer"></span><span class="val" id="v-steps">' + s.hordeSteps + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-steps" min="10" max="50" step="1" value="' + s.hordeSteps + '"></div></div>' +
-        '<div class="field"><div class="field-head"><label>Give up after</label><span class="spacer"></span><span class="val" id="v-maxwait">' + Math.round(s.hordeMaxWait/60) + ' min</span></div>' +
-          '<div class="range-row"><input type="range" id="set-maxwait" min="2" max="20" step="1" value="' + Math.round(s.hordeMaxWait/60) + '"><span class="hint">queue wait</span></div>' +
+        '<div class="field"><div class="field-head"><label>Give up after</label><span class="spacer"></span><span class="val" id="v-maxwait">' + Math.round(s.hordeMaxWait / 60) + ' min</span></div>' +
+          '<div class="range-row"><input type="range" id="set-maxwait" min="2" max="20" step="1" value="' + Math.round(s.hordeMaxWait / 60) + '"><span class="hint">queue wait</span></div>' +
           '<div class="hint">The Horde is a queue, not an API — busy models can hold a job for minutes. ' +
           'Jobs show queue position and ETA live, and you can cancel at any time.</div></div>' +
         '<div class="field"><div class="field-head"><label>Horde text model</label></div>' +
           '<div class="row"><button class="btn ghost sm" id="btn-htext" style="flex:1;text-align:left">' + esc(Horde.modelLabel(s.hordeTextModel) || 'Any available (recommended)') + '</button>' +
           '<button class="btn ghost sm" id="btn-refresh-tmodels">' + icon('refresh') + '</button></div>' +
           '<div class="hint">Only used when the provider above is set to AI Horde.</div></div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    sc.bind('#set-hkey', 'change', function (e) { sc.set({ hordeKey: e.target.value.trim() }); });
+    sc.range('#set-steps', '#v-steps', 'hordeSteps');
+    var mw = $('#set-maxwait', body);
+    if (mw) mw.addEventListener('input', function () {
+      var mins = parseInt(mw.value, 10);
+      $('#v-maxwait', body).textContent = mins + ' min';
+      sc.set({ hordeMaxWait: mins * 60 });
+    });
+    sc.bind('#seg-size', 'click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      sc.set({ hordeSize: parseInt(b.getAttribute('data-size'), 10) });
+      body.querySelectorAll('#seg-size button').forEach(function (x) { x.classList.remove('on'); });
+      b.classList.add('on');
+      $('#v-size', body).textContent = Store.settings.hordeSize + 'px';
+    });
+    sc.bind('#btn-refresh-hmodels', 'click', function () { App.chooseHordeModel('image', true); });
+    sc.bind('#btn-hmodel', 'click', function () { App.chooseHordeModel('image', false); });
+    sc.bind('#btn-refresh-tmodels', 'click', function () { App.chooseHordeModel('text', true); });
+    sc.bind('#btn-htext', 'click', function () { App.chooseHordeModel('text', false); });
+  };
 
-      /* --- memory --- */
+  /* ---- Memory ---- */
+  Views.settingsMemory = function (root) {
+    var s = Store.settings;
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">Memory</div>' +
         '<div class="field compact"><label>Auto-summarise long chats</label><div class="toggle' + (s.autoMemory ? ' on' : '') + '" id="t-mem"></div></div>' +
         '<div class="field"><div class="field-head"><label>Summarise every</label><span class="spacer"></span><span class="val" id="v-memevery">' + s.memoryEvery + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-memevery" min="6" max="60" step="2" value="' + s.memoryEvery + '"><span class="hint">msgs</span></div></div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    sc.toggle('#t-mem', 'autoMemory');
+    sc.range('#set-memevery', '#v-memevery', 'memoryEvery');
+  };
 
-      /* --- data --- */
+  /* ---- Data ---- */
+  Views.settingsData = function (root) {
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">Data</div>' +
         '<div class="field"><div class="row">' +
@@ -716,19 +929,95 @@
           '<button class="btn ghost sm" style="flex:1" id="btn-import">' + icon('upload') + ' Restore</button>' +
         '</div><div class="hint">Backup exports everything except your API keys.</div></div>' +
         '<div class="field"><button class="btn danger block sm" id="btn-wipe">' + icon('trash') + ' Erase all characters and chats</button></div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    sc.bind('#btn-export', 'click', function () {
+      Store.exportAll().then(function (json) {
+        UI.download('horde-studio-backup-' + new Date().toISOString().slice(0, 10) + '.json', json);
+        UI.toast('Backup downloaded');
+      });
+    });
+    sc.bind('#btn-import', 'click', function () {
+      pickFile('.json,application/json').then(function (f) {
+        if (!f) return;
+        var fr = new FileReader();
+        fr.onload = function () {
+          Promise.resolve()
+            .then(function () { return Store.importAll(fr.result); })
+            .then(function (r) {
+              return Store.refreshCharacters().then(function () {
+                UI.toast('Restored ' + r.characters + ' characters, ' + r.sessions + ' chats');
+                Views.settingsData(root);
+              });
+            })
+            .catch(function (e) { UI.toast('Restore failed: ' + e.message, 4000); });
+        };
+        fr.readAsText(f);
+      });
+    });
+    sc.bind('#btn-wipe', 'click', function () {
+      UI.confirm('Erase everything?', 'All characters, chats and memories on this device will be deleted. This cannot be undone.',
+        { danger: true, okLabel: 'Erase' }).then(function (ok) {
+        if (!ok) return;
+        Store.wipe().then(function () { return Store.refreshCharacters(); }).then(function () {
+          UI.toast('Everything erased');
+          App.go('characters');
+        });
+      });
+    });
+  };
 
-      /* --- storage (18.2.0, mobile subset) --- */
+  /* ---- Storage ---- */
+  Views.settingsStorage = function (root) {
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">Storage</div>' +
         '<div class="field">' +
-          '<button class="btn ghost sm block" id="btn-storage">' + icon('map') + ' Show storage use</button>' +
+          '<button class="btn ghost sm block" id="btn-storage">' + icon('copy') + ' Show storage use</button>' +
           '<div class="hint">A read-only look at what the app is holding on this phone. The app never deletes anything on its own.</div>' +
           '<div id="storage-lines" style="margin-top:8px"></div>' +
         '</div>' +
-      '</div>' +
+      '</div>';
+    var sc = settingsScope(body);
+    /* 18.2.0 (mobile subset): read-only storage inspection — count what the
+       app holds on this phone and show the biggest holders. */
+    sc.bind('#btn-storage', 'click', function () {
+      var box = $('#storage-lines', body);
+      box.innerHTML = '<div class="hint">Measuring…</div>';
+      var chars = Store.characters || [];
+      Promise.all(chars.map(function (c) {
+        return Store.getSessions(c.id).then(function (ss) { return ss || []; });
+      })).then(function (perChar) {
+        var sessions = [];
+        perChar.forEach(function (ss) { sessions = sessions.concat(ss); });
+        return Promise.all(sessions.map(function (s) {
+          return Store.getMessages(s.id).then(function (mm) { return mm || []; });
+        })).then(function (perSession) {
+          var messages = [];
+          perSession.forEach(function (mm) { messages = messages.concat(mm); });
+          return HW.all().then(function (worlds) {
+            var rep = App.storageReport({
+              characters: chars, sessions: sessions, messages: messages, worlds: worlds || []
+            });
+            box.innerHTML = '<div class="kv"><span>Everything above</span><b>~' + (rep.bytes >= 1048576 ? (rep.bytes / 1048576).toFixed(1) + ' MB' : Math.ceil(rep.bytes / 1024) + ' KB') + '</b></div>' +
+              rep.lines.map(function (l) {
+                return '<div class="kv"><span>' + esc(l[0]) + '</span><b style="text-align:right">' + esc(l[1]) + '</b></div>';
+              }).join('');
+          });
+        });
+      }).catch(function (e) {
+        box.innerHTML = '<div class="hint">Could not measure: ' + esc(e.message || e) + '</div>';
+      });
+    });
+  };
 
-      /* --- updates --- */
+  /* ---- App updates ---- */
+  Views.settingsUpdate = function (root) {
+    var info = settingsUpdateInfo();
+    var U = info.U, upInfo = info.upInfo, upUrl = info.upUrl, upNote = info.upNote;
+    var body = $('#settings-x-body');
+    body.innerHTML =
       '<div class="group">' +
         '<div class="group-title">App updates</div>' +
         '<div class="field"><div class="kv"><span>App</span><b>' + esc(upInfo.apk || '?') + '</b></div>' +
@@ -744,96 +1033,8 @@
           '<button class="btn ghost sm" id="btn-upd-reset">Reset to shipped files</button>' +
           '<div class="hint" id="upd-status" style="margin-top:8px">' + upNote + '</div>' +
         '</div>' +
-      '</div>' +
-
-      '<div class="group">' +
-        '<div class="group-title">About</div>' +
-        '<div class="field"><div class="kv"><span>Version</span><b>' + esc(verLabel) + ' · mobile</b></div>' +
-        '<div class="kv"><span>Text</span><b>' + esc(s.provider === 'horde' ? 'AI Horde (free)' : (Store.PRESETS[s.provider] || {}).label || 'Custom') + '</b></div>' +
-        '<div class="kv"><span>Images</span><b>AI Horde</b></div>' +
-        '<div class="hint">Horde Studio Mobile is an unofficial, mobile-first client. It talks to whatever backend you configure — ' +
-        'nothing is sent anywhere except your chosen provider.</div></div>' +
       '</div>';
-
-    /* ---- wiring ---- */
-    var body = $('#settings-body');
-    function bind(sel, ev, fn) { var el = $(sel, body); if (el) el.addEventListener(ev, fn); }
-    function set(patch) { Store.saveSettings(patch); }
-
-    bind('#set-provider', 'change', function (e) {
-      var p = e.target.value;
-      set({ provider: p, baseUrl: Store.PRESETS[p].url });
-      Views.settings(root);
-    });
-    bind('#set-url', 'change', function (e) { set({ baseUrl: e.target.value.trim() }); });
-    bind('#set-key', 'change', function (e) { set({ apiKey: e.target.value.trim() }); });
-    /* Identity edits land on the persona when one is active, else on the default. */
-    bind('#set-uname', 'change', function (e) {
-      Store.setIdentity({ name: e.target.value.trim() || 'You' }).then(function () { Views.settings(root); });
-    });
-    bind('#set-upersona', 'change', function (e) { Store.setIdentity({ text: e.target.value }); });
-
-    /* ---- personas ---- */
-    on(body, '[data-persona-use]', 'click', function (e) {
-      App.switchTo(e.currentTarget.getAttribute('data-persona-use'));
-    });
-    on(body, '[data-persona-del]', 'click', function (e) {
-      App.deletePersona(e.currentTarget.getAttribute('data-persona-del'));
-    });
-    on(body, '[data-persona-name]', 'change', function (e) {
-      App.editPersona(e.currentTarget.getAttribute('data-persona-name'), { name: e.target.value.trim() });
-    });
-    on(body, '[data-persona-text]', 'change', function (e) {
-      App.editPersona(e.currentTarget.getAttribute('data-persona-text'), { text: e.target.value });
-    });
-    bind('#btn-persona-add', 'click', function () { App.newPersona(); });
-    bind('#set-system', 'change', function (e) { set({ systemPrompt: e.target.value }); });
-    bind('#set-hkey', 'change', function (e) { set({ hordeKey: e.target.value.trim() }); });
-
-    function range(sel, valSel, key, fmt) {
-      var el = $(sel, body);
-      el.addEventListener('input', function () {
-        var v = parseFloat(el.value);
-        if (valSel) $(valSel, body).textContent = fmt ? fmt(v) : v;
-        var patch = {}; patch[key] = v; set(patch);
-      });
-    }
-    range('#set-temp', '#v-temp', 'temperature', function (v) { return v.toFixed(2); });
-    range('#set-max', '#v-max', 'maxTokens');
-    range('#set-topp', '#v-topp', 'topP', function (v) { return v.toFixed(2); });
-    range('#set-ctx', '#v-ctx', 'contextMessages');
-    range('#set-steps', '#v-steps', 'hordeSteps');
-    range('#set-memevery', '#v-memevery', 'memoryEvery');
-    var mw = $('#set-maxwait', body);
-    if (mw) mw.addEventListener('input', function () {
-      var mins = parseInt(mw.value, 10);
-      $('#v-maxwait', body).textContent = mins + ' min';
-      set({ hordeMaxWait: mins * 60 });
-    });
-
-    function toggle(sel, key, after) {
-      $(sel, body).addEventListener('click', function () {
-        var patch = {}; patch[key] = !Store.settings[key]; set(patch);
-        this.classList.toggle('on', Store.settings[key]);
-        if (after) after();
-      });
-    }
-    toggle('#t-stream', 'streaming');
-    toggle('#t-finish', 'autoFinish');
-    toggle('#t-bursts', 'bursts');
-    toggle('#t-think', 'stripThinking');
-    toggle('#t-enter', 'sendOnEnter');
-    toggle('#t-mem', 'autoMemory');
-
-    bind('#seg-size', 'click', function (e) {
-      var b = e.target.closest('button'); if (!b) return;
-      set({ hordeSize: parseInt(b.getAttribute('data-size'), 10) });
-      body.querySelectorAll('#seg-size button').forEach(function (x) { x.classList.remove('on'); });
-      b.classList.add('on');
-      $('#v-size', body).textContent = Store.settings.hordeSize + 'px';
-    });
-
-    /* ---- updates ---- */
+    var sc = settingsScope(body);
     var upStatus = $('#upd-status', body);
     function upSay(html) { if (upStatus) upStatus.innerHTML = html; }
     function upBar(pct, label) {
@@ -853,13 +1054,11 @@
           catch (e) { upSay('Could not start the install: ' + esc(e.message || String(e))); }
         });
     }
-
-    bind('#set-updurl', 'change', function (e) {
+    sc.bind('#set-updurl', 'change', function (e) {
       if (!U) return;
       U.saveUrl(e.target.value).then(function () { UI.toast('Update address saved'); });
     });
-
-    bind('#btn-upd-check', 'click', function () {
+    sc.bind('#btn-upd-check', 'click', function () {
       if (!U || !U.supported()) { upSay('Self-updating needs the newest APK installed once.'); return; }
       var btn = this;
       btn.disabled = true;
@@ -943,8 +1142,7 @@
         upSay('Could not check: ' + esc(msg));
       });
     });
-
-    bind('#btn-upd-file', 'click', function () {
+    sc.bind('#btn-upd-file', 'click', function () {
       if (!U || !U.supported()) { upSay('Self-updating needs the newest APK installed once.'); return; }
       upSay('Choose the update file you downloaded…');
       U.applyFile(function (p) { upBar(p, 'Applying'); }).then(function (rev) {
@@ -956,8 +1154,7 @@
           : 'Could not apply that file: ' + esc(m));
       });
     });
-
-    bind('#btn-upd-reset', 'click', function () {
+    sc.bind('#btn-upd-reset', 'click', function () {
       if (!U || !U.supported()) return;
       UI.confirm('Go back to the shipped files?', 'The update is removed and the app restarts on the copy that came with the APK. Your chats and characters are untouched.',
         { okLabel: 'Reset' }).then(function (ok) {
@@ -966,96 +1163,8 @@
           U.reloadFresh();
         });
     });
-
-    bind('#btn-reset-sys', 'click', function () {
-      set({ systemPrompt: 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
-        'advancing the scene with concrete detail, action and dialogue. Never speak for {{user}}. ' +
-        'Keep replies focused on what just happened and leave room for {{user}} to respond.' });
-      Views.settings(root);
-      UI.toast('System prompt reset');
-    });
-
-    bind('#btn-test', 'click', function () {
-      var out = $('#test-out', body);
-      out.innerHTML = '<span class="pill">Testing…</span>';
-      API.testConnection(Store.settings).then(function (r) {
-        out.innerHTML = '<span class="pill ' + (r.ok ? 'ok' : 'err') + '">' + esc(r.message) + '</span>';
-      });
-    });
-
-    bind('#btn-refresh-models', 'click', function () { App.chooseModel(true); });
-    bind('#btn-model', 'click', function () { App.chooseModel(false); });
-    bind('#btn-refresh-hmodels', 'click', function () { App.chooseHordeModel('image', true); });
-    bind('#btn-hmodel', 'click', function () { App.chooseHordeModel('image', false); });
-    bind('#btn-refresh-tmodels', 'click', function () { App.chooseHordeModel('text', true); });
-    bind('#btn-htext', 'click', function () { App.chooseHordeModel('text', false); });
-
-    bind('#btn-export', 'click', function () {
-      Store.exportAll().then(function (json) {
-        UI.download('horde-studio-backup-' + new Date().toISOString().slice(0, 10) + '.json', json);
-        UI.toast('Backup downloaded');
-      });
-    });
-    bind('#btn-import', 'click', function () {
-      pickFile('.json,application/json').then(function (f) {
-        if (!f) return;
-        var fr = new FileReader();
-        fr.onload = function () {
-          Promise.resolve()
-            .then(function () { return Store.importAll(fr.result); })
-            .then(function (r) {
-              return Store.refreshCharacters().then(function () {
-                UI.toast('Restored ' + r.characters + ' characters, ' + r.sessions + ' chats');
-                Views.settings(root);
-              });
-            })
-            .catch(function (e) { UI.toast('Restore failed: ' + e.message, 4000); });
-        };
-        fr.readAsText(f);
-      });
-    });
-    bind('#btn-wipe', 'click', function () {
-      UI.confirm('Erase everything?', 'All characters, chats and memories on this device will be deleted. This cannot be undone.',
-        { danger: true, okLabel: 'Erase' }).then(function (ok) {
-        if (!ok) return;
-        Store.wipe().then(function () { return Store.refreshCharacters(); }).then(function () {
-          UI.toast('Everything erased');
-          App.go('characters');
-        });
-      });
-    });
-    /* 18.2.0 (mobile subset): read-only storage inspection — count what the
-       app holds on this phone and show the biggest holders. */
-    bind('#btn-storage', 'click', function () {
-      var box = $('#storage-lines', body);
-      box.innerHTML = '<div class="hint">Measuring…</div>';
-      var chars = Store.characters || [];
-      Promise.all(chars.map(function (c) {
-        return Store.getSessions(c.id).then(function (ss) { return ss || []; });
-      })).then(function (perChar) {
-        var sessions = [];
-        perChar.forEach(function (ss) { sessions = sessions.concat(ss); });
-        return Promise.all(sessions.map(function (s) {
-          return Store.getMessages(s.id).then(function (mm) { return mm || []; });
-        })).then(function (perSession) {
-          var messages = [];
-          perSession.forEach(function (mm) { messages = messages.concat(mm); });
-          return HW.all().then(function (worlds) {
-            var rep = App.storageReport({
-              characters: chars, sessions: sessions, messages: messages, worlds: worlds || []
-            });
-            box.innerHTML = '<div class="kv"><span>Everything above</span><b>~' + (rep.bytes >= 1048576 ? (rep.bytes / 1048576).toFixed(1) + ' MB' : Math.ceil(rep.bytes / 1024) + ' KB') + '</b></div>' +
-              rep.lines.map(function (l) {
-                return '<div class="kv"><span>' + esc(l[0]) + '</span><b style="text-align:right">' + esc(l[1]) + '</b></div>';
-              }).join('');
-          });
-        });
-      }).catch(function (e) {
-        box.innerHTML = '<div class="hint">Could not measure: ' + esc(e.message || e) + '</div>';
-      });
-    });
   };
-
+  
   /* ================= EDITOR ================= */
   Views.editor = function (root, char) {
     var isNew = !char.id || !Store.characters.some(function (c) { return c.id === char.id; });
