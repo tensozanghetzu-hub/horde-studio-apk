@@ -1,11 +1,10 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.14.0.apk` (versionCode 37), sha256
-ea7cf19be64eff00a5f5c6abcab556f99d989efbe2aa7b7a64beac10a9438476
-(298,139 B). Built and published 2026-10-03:
-`docs/` serves v1.14.0 (webRev `950b9c509ce4`, web.zip 180,764 B) and
-release `v1.14.0` holds both APK assets (298,139 B), verified
-byte-identical to the local build.
+Current build: `HordeStudio-v1.15.0.apk` (versionCode 38) — size/sha256
+in the v1.15.0 entry. Built 2026-10-06, not yet synced:
+`docs/` still serves v1.14.0 (webRev `950b9c509ce4`) and release
+`v1.14.0` is the latest on the repo. The v1.15.0 release carries both
+settings-menu parts (persona screen + section hub).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -511,6 +510,102 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.15.0 — settings menu overhaul: personas and section screens (2026-10-04/06)
+
+### The report
+
+Two requests, one overhaul. First: "In settings, with each persona
+added, the settings menu gets longer. Can you create a button for
+Personas that opens its dedicated menu, in which you can manage your
+personas? The button should stay in settings." Then, on the same
+theme: "Do the same for the other ones. Connections, Generation,
+System prompt, AI Horde · images &amp; free text, Memory, Data,
+Storage."
+
+Built in two local segments (persona screen, then the hub). The first
+was never published on its own, so this single release ships both and
+the published series goes 1.14.0 → 1.15.0. (Originally versioned as
+1.15.0 + 1.16.0; renumbered at the user's suggestion before the
+publish ask, because shipping the hub as 1.16.0 would have left a
+hole in the published series for the unpublished persona screen.)
+
+### The change
+
+Part 1 — the persona screen:
+
+- `index.html`: new `<section data-screen="personas">` with
+  `#personas-body`.
+- `views.js`: the per-persona row builder extracted into shared
+  `personaRowsHtml(personas, activeId)` (same markup: name input,
+  description, active pill / Switch-to, delete). `Views.personas`
+  renders the list + "Add persona" and binds the same handlers.
+  Settings keeps a fixed-length **Manage personas · N** row.
+- `app.js`: `App.go` `personas` branch (title, "N identities" sub,
+  back arrow); `personaReturnScreen`'s `MAIN_SCREENS` gains
+  `'personas'` (create/switch from that screen stay on it);
+  `App.editPersona`'s in-place row-label refresh keys off
+  `'personas'` (caret/scroll preserved); `App.deletePersona`
+  returns to `'personas'` when deleted from there.
+
+Part 2 — the hub (every remaining group on its own screen):
+
+- `index.html`: one shared sub-screen
+  `<section data-screen="settings-x"><div id="settings-x-body">` —
+  all nine sections render into the same body, per section.
+- `views.js`: the monolithic `Views.settings` is split:
+  - `Views.SETTINGS_SECTIONS` — key → {title, hint, icon, view} for
+    Connection, Generation, You, System prompt, AI Horde, Memory,
+    Data, Storage, App updates (icons restricted to existing ICONS;
+    the old Storage `icon('map')` referenced a non-existent icon and
+    rendered an empty svg — Storage now uses `copy`).
+  - `settingsScope(body)` — shared bind/set/range/toggle helpers,
+    scoped to the sub-screen body (ids can't collide).
+  - `settingsUpdateInfo()` — version/update-channel facts shared by
+    the hub (About) and the update screen.
+  - `Views.settings` — the hub: one row per section (icon, title,
+    hint, chevron; the personas row carries the live count) + About
+    footer. Row tap → `App.openSettings(k)` (or `App.go('personas')`).
+  - Nine sub-views — `settingsConnection` … `settingsUpdate` — each
+    with the group's markup and handlers moved over verbatim;
+    re-render targets changed from the whole screen to the current
+    sub-view (provider change, name change, system-prompt reset,
+    restore).
+- `app.js`: `App.state.settingsSection` (default 'connection');
+  `App.openSettings(sec)`; the `App.go` `settings-x` branch (title
+  from the section table, dispatch to the sub-view); back arrow on
+  `settings-x`; the bottom nav keeps the Settings tab highlighted on
+  sub-screens (`navName`). `App.mountInstall` still appends its PWA
+  button to the hub's last group (now About) — unchanged.
+- Back navigation is stack-based as before: hub → section pushes
+  'settings'; the back button / arrow pops to the hub.
+
+### Tests
+
+No data-layer change — the full battery (24 node suites / 570 checks)
+stays green across both segments. The new surface is DOM navigation:
+verified by code review + `node --check` + grep (all nine sub-views
+present, no stale references to the old inline groups; the
+`activeId` used by the "You" hint is intact in its new scope —
+caught by grep after the first move).
+
+### Ship state (this segment)
+
+Renumbered 1.16.0 → **1.15.0 / code 38 / sw v26** (sw stays one step
+ahead of the live v25). README: one merged "What's new in v1.15.0"
+section covering both parts, header/Download → v1.15.0. Built
+`HordeStudio-v1.15.0.apk` (302,235 B; sha256
+70178394068b9a67b1ddfb0eb2147c36630368e177c4769cd776099682efcdca is
+the identity — same keystore, in-place upgrade from code 37) and
+in-APK verified:
+personas + settings-x sections in index.html, `Views.personas` +
+`SETTINGS_SECTIONS` + the nine sub-views in views.js, the App.go
+branches + `App.openSettings` in app.js, sw v26, store 1.15.0.
+Superseded v1.16.0 root APK removed (it was a renumber of this build).
+Committed locally. Publish (push + release + channel) only on
+explicit ask.
 
 ---
 

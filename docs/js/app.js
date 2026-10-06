@@ -13,14 +13,14 @@
   }
 
   var App = {
-    state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {} },
+    state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {}, settingsSection: 'connection' },
     stack: [],
     abort: null,
     deferredPrompt: null
   };
 
   /* ---------------- routing ---------------- */
-  var TITLES = { characters: 'Horde Studio', now: 'Now', chats: 'Conversations', world: 'World', settings: 'Settings' };
+  var TITLES = { characters: 'Horde Studio', now: 'Now', chats: 'Conversations', world: 'World', settings: 'Settings', settingsx: 'Settings', personas: 'Personas' };
 
   App.go = function (name, params) {
     params = params || {};
@@ -30,10 +30,12 @@
 
     $$('.screen').forEach(function (el) { el.hidden = el.getAttribute('data-screen') !== name; });
     App.renderTyping();
-    $$('.nav-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-go') === name); });
+    /* A settings sub-screen is still "in Settings" for the bottom nav. */
+    var navName = name === 'settings-x' ? 'settings' : name;
+    $$('.nav-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-go') === navName); });
 
     var back = $('#btn-back'), act = $('#btn-bar-action');
-    back.hidden = !(name === 'chat' || name === 'editor' || name === 'worldrun');
+    back.hidden = !(name === 'chat' || name === 'editor' || name === 'worldrun' || name === 'personas' || name === 'settings-x');
     act.hidden = !(name === 'chat' || name === 'characters');
     if (name === 'chat') act.setAttribute('aria-label', 'Conversation options');
 
@@ -42,6 +44,18 @@
       $('#bar-sub').textContent = '';
       Views.settings($('.screen'));
       App.mountInstall();
+    } else if (name === 'personas') {
+      $('#bar-title').textContent = 'Personas';
+      $('#bar-sub').textContent = Store.personas.length +
+        (Store.personas.length === 1 ? ' identity' : ' identities');
+      Views.personas($('.screen'));
+    } else if (name === 'settings-x') {
+      /* v1.16.0: the one shared sub-screen behind Settings' section rows. */
+      var sec = App.state.settingsSection || 'connection';
+      var meta = Views.SETTINGS_SECTIONS[sec];
+      $('#bar-title').textContent = meta ? meta.title : 'Settings';
+      $('#bar-sub').textContent = '';
+      Views[meta ? meta.view : 'settingsConnection']($('.screen'));
     } else if (name === 'characters') {
       $('#bar-title').textContent = 'Horde Studio';
       $('#bar-sub').textContent = Store.characters.length + (Store.characters.length === 1 ? ' character' : ' characters');
@@ -95,6 +109,13 @@
     var prev = App.stack.pop() || 'characters';
     App.state.screen = null;
     App.go(prev);
+  };
+
+  /* Open a Settings section on the shared sub-screen (v1.16.0). */
+  App.openSettings = function (sec) {
+    if (!Views.SETTINGS_SECTIONS[sec]) sec = 'connection';
+    App.state.settingsSection = sec;
+    App.go('settings-x');
   };
 
   /* ---------------- characters ---------------- */
@@ -181,7 +202,7 @@
   /* Which screen to land on after a persona switch/create: the one you are
      on, whenever it has a persona bar or persona rows. Sub-screens (a
      conversation, the editor) fall back to Cast, where the bar lives. */
-  var MAIN_SCREENS = ['characters', 'life', 'chats', 'world', 'worlds', 'settings'];
+  var MAIN_SCREENS = ['characters', 'life', 'chats', 'world', 'worlds', 'settings', 'personas'];
   function personaReturnScreen(was) {
     return (was && MAIN_SCREENS.indexOf(was) !== -1) ? was : 'characters';
   }
@@ -223,6 +244,7 @@
   };
 
   App.deletePersona = function (id) {
+    var was = App.state.screen;
     var p = (Store.personas || []).find(function (x) { return x.id === id; });
     if (!p) return;
     UI.confirm('Delete persona “' + (p.name || 'Unnamed') + '”?',
@@ -232,7 +254,7 @@
         Store.delPersona(id).then(function (n) {
           UI.toast('Persona deleted' + (n ? ' · ' + n + (n === 1 ? ' chat' : ' chats') + ' removed' : ''));
           App.state.screen = null;
-          App.go('settings');
+          App.go(was === 'personas' ? 'personas' : 'settings');
         });
       });
   };
@@ -249,9 +271,10 @@
       return null;
     }).then(function () {
       if (App.state.screen === 'characters') return Views.renderPersonaBar();
-      /* In Settings, refresh just the row heading instead of re-rendering the
-         whole screen, which would throw away the caret and scroll position. */
-      if (App.state.screen === 'settings' && patch.name !== undefined) {
+      /* On the Personas screen, refresh just the row heading instead of
+         re-rendering the whole screen, which would throw away the caret and
+         scroll position. */
+      if (App.state.screen === 'personas' && patch.name !== undefined) {
         var row = document.querySelector('[data-prow="' + id + '"]');
         var lbl = row && row.querySelector('label');
         if (lbl) lbl.textContent = p.name || 'Unnamed persona';
