@@ -1364,3 +1364,96 @@ On the web build, AI Horde calls work because `aihorde.net` sends
   pressure on 1024 px images (640 px default).
 - The APK is self-signed, so Android re-verifies it on install. Future builds signed with
   a different key require uninstalling first.
+
+---
+
+## Maintainer handoff (for a fresh human or agent)
+
+This repo is designed so that any maintainer — a person, or a fresh AI-agent session
+on *any* platform — can become productive by reading this section plus `NOTES.md`.
+There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub account.
+
+### Where things live
+
+- `horde-studio-mobile/` — the app itself (plain JS, **no framework, no build step**).
+  `index.html` + `js/` + `css/`. This is what the APK bundles and what the update
+  channel serves.
+- `apk-build/` — the thin Android wrapper: `MainActivity.java` (WebView + native
+  bridge: file picker, save-to-Downloads, self-update swap), icons,
+  `AndroidManifest.xml`, `build.sh`, `setup-sdk.sh`, and
+  **`horde-studio.keystore`** (the app's signing identity — see invariants).
+- `tests/` — the Node test battery (24 suites, ~570 checks at v1.14.0) plus 2
+  Playwright suites that additionally need `playwright-core`.
+- `docs/` — the update channel, served by GitHub Pages. Generated, never
+  hand-edited.
+- `NOTES.md` — the working memory: one entry per shipped version (report / change /
+  tests / ship state) plus accumulated pitfalls. **Read it first.**
+- `sync-github.sh` — the publish script (channel rebuild, identity/remote
+  re-assert, commit, push).
+- `HordeStudio-vX.Y.Z.apk` in the repo root — the current local build (only the
+  newest one is kept on disk).
+
+### Prerequisites
+
+- **JDK 11** (`build.sh`/`setup-sdk.sh` read `JAVA_HOME`; javac targets release 8)
+- **Node 18+** (20 in development) for the test battery
+- Network access — the first build downloads the Android SDK (~500 MB) into
+  `android-sdk/`, which is gitignored and safe to delete at any time
+  (`setup-sdk.sh` reinstalls it)
+- An **SSH key (or GitHub token) with push access** to this repo
+- Optional: `playwright-core` for the two browser suites
+
+### The loop (per change)
+
+1. Read the relevant `NOTES.md` entries for what you're touching.
+2. Make the change in `horde-studio-mobile/`.
+3. `node --check` each edited JS file, then run the whole battery —
+   `for t in tests/*-test.js; do node "$t"; done`. Every suite must finish with
+   **zero FAIL lines**. (The two Playwright suites fail to *launch* without
+   `playwright-core`; that's a missing dependency, not a regression.)
+4. Bump the version in three places: `js/store.js` (`VERSION`),
+   `js/sw.js` (CACHE `horde-studio-vNN`), `apk-build/AndroidManifest.xml`
+   (`versionCode` / `versionName`).
+5. Update `README.md` (new "What's new" section + header/Download links) and
+   `NOTES.md` (new entry: report / change / tests / ship state, plus the
+   "Current build" header lines).
+6. Build — **one command, no pipes** (a `| tail` can mask a failure):
+   `cd apk-build && bash setup-sdk.sh && bash build.sh`.
+   Output: `HordeStudio-vX.Y.Z.apk` in the repo root.
+7. **Verify in the APK**: unzip it and grep the packaged files for your change's
+   markers (plus `aapt dump badging` for versionCode/Name). A build that hasn't
+   been opened is not a build.
+8. Delete the previous root APK (the GitHub release keeps that copy).
+9. Commit locally. **Publishing happens only on explicit ask**:
+   `bash sync-github.sh "<message>"` rebuilds the channel, commits and pushes;
+   `.github/workflows/release.yml` then creates the release with both assets, and
+   the channel goes live at
+   `https://tensozanghetzu-hub.github.io/horde-studio-apk/`
+   (verify `version.json` there).
+10. Record the publish in `NOTES.md` (push range, release, channel rev) and push
+    that record too.
+
+### Invariants (do not break these)
+
+- Identify APKs by **sha256, never by size** — successive versions often end up
+  byte-identical in size.
+- The keystore is tracked in the repo *on purpose*: it is the only way future
+  builds keep the app's identity (in-place upgrades). Never share it, never
+  regenerate it, never let it leave the repo.
+- Publishing requires an explicit ask — a repair task is not a publish.
+- `NOTES.md` is the handoff memory: a version entry without its test counts and
+  ship state is an incomplete record.
+- Keep the app framework-free and build-step-free — that is what makes it
+  portable to any maintainer.
+- Model replies render HTML as text (never executed), and API keys never enter
+  backup files — both are deliberate safety properties, not bugs.
+
+### If your workspace or platform resets
+
+- The GitHub repo is the source of truth. A fresh `git clone` has everything:
+  full source, tests, build scripts, keystore, docs.
+- The SDK and the push key are *not* in the repo — reinstall the SDK
+  (`setup-sdk.sh`) and re-add a push key to your account.
+- In snapshot-based agent environments, local commit hashes can be ephemeral;
+  the working tree and `NOTES.md` carry the record. At publish time the tree is
+  re-committed (`sync-github.sh` does this) — don't spend time recovering hashes.
