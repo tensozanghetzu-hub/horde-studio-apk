@@ -843,9 +843,10 @@
     var sc = settingsScope(body);
     sc.bind('#set-system', 'change', function (e) { sc.set({ systemPrompt: e.target.value }); });
     sc.bind('#btn-reset-sys', 'click', function () {
-      sc.set({ systemPrompt: 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
-        'advancing the scene with concrete detail, action and dialogue. Never speak for {{user}}. ' +
-        'Keep replies focused on what just happened and leave room for {{user}} to respond.' });
+      /* Reset to the real default (store.js) — this handler used to carry a
+         stale copy that predated the formatting line and the closing
+         "write only what the character does and says" sentence. */
+      sc.set({ systemPrompt: Store.defaultSystem });
       Views.settingsSystem(root);
       UI.toast('System prompt reset');
     });
