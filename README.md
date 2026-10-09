@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.17.0
+# Horde Studio — Mobile (Android) · v1.18.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.17.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.18.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.17.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.18.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,37 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.18.0
+
+**Worlds: checks with real consequences.** If a world declares checks
+(in `gameRules.checks` — a stat, a DC, and what success and failure
+each do), the referee can request one with a tag like
+`[[roll:1d20:check:Dexterity]]`, and **the world decides**:
+
+- The dice are rolled **by the engine, not the model** — on a seed
+  stored in the run, so the same run always rolls the same dice in the
+  same order.
+- The outcome is compared to the world's own DC, and the matching
+  branch is applied **by the engine**: stat changes, cash, items,
+  tasks, time. The model never writes the consequences — it only
+  proposes the check, and it is told, in its prompt, exactly which
+  checks exist, their DCs, and their consequences — plus the one rule
+  that matters: *never narrate a check's outcome.*
+- The verdict lands in the run as a compact line right after the
+  referee's reply ("Dexterity check: 1d20 → 14 vs DC 10 — success
+  (NERVE +1)"), tinted green or amber, and it's visible in the HUD as
+  a chip too. It's also in the referee's context for the next turn, so
+  the story continues from the result.
+- A check the world doesn't know still shows its dice but is reported
+  as a rejection; a malformed spec is refused outright; each check
+  resolves once per reply; a world without checks plays exactly as
+  before.
+- *Policy Panic at Bramble & Pike* now ships with five authored checks
+  — **Nerve** (DC 10), **Insight** (DC 11), **Charm** (DC 11),
+  **Performance** (DC 12, pays out on success), and **Reputation**
+  (DC 12) — with consequences written in the branch's own stats and
+  dollars.
 
 ## What's new in v1.17.0
 

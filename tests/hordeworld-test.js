@@ -400,6 +400,188 @@ var bpCorr = HW.buildPrompt(twS, trP, 'I keep trying.');
 ok('a correction note stays out of the referee\u2019s context',
   bpCorr.messages.every(function (m) { return m.role !== 'correction' && m.content.indexOf('State corrected') === -1; }));
 
+/* ================= v1.18.0: checks with real consequences ================= */
+
+console.log('\nv1.18.0: the world resolves the referee\u2019s checks');
+
+var twC = tinyWorld({
+  gameRules: { dice: { sides: 20 }, checks: [
+    { stat: 'DEX', name: 'Dexterity', dc: 10,
+      on_success: { stats: { nerve: 1 } },
+      on_failure: { stats: { nerve: -2 } } },
+    { stat: 'STR', name: 'Strength', dc: 15,
+      on_success: { stats: { nerve: 1 }, items: ['Wrench'],
+                   quests: ['Find the lamp'], clock: 5, cash: 5 },
+      on_failure: {} }
+  ]},
+  hudConfig: { stats: [{ id: 'nerve', name: 'Nerve', value: 50 }] }
+});
+
+/* --- the dice are seeded per run --- */
+
+ok('a run gets its own dice seed', typeof HW.start(twC).seed === 'number');
+var dA = HW.start(twC), dB = HW.start(twC);
+dA.seed = 42; dB.seed = 42;
+var rA = HW.applyTags(twC, dA, 'Roll.[[roll:1d20]]');
+var rB = HW.applyTags(twC, dB, 'Roll.[[roll:1d20]]');
+eq('same seed, same dice', rA.rolled.total, rB.rolled.total);
+var dC = HW.start(twC); dC.seed = 43;
+var rC = HW.applyTags(twC, dC, 'Roll.[[roll:1d20]]');
+ok('the dice are actually random per seed (42 and 43 differ here)',
+  rA.rolled.total !== rC.rolled.total || rA.rolled.rolls[0] !== rC.rolled.rolls[0]);
+
+/* --- a check request is stripped, recorded, not rolled --- */
+
+var cr1 = HW.applyTags(twC, HW.start(twC), 'I try.[[roll:1d20:check:Dexterity]]');
+eq('the check tag is stripped from the prose', cr1.text, 'I try.');
+eq('and the request is recorded', cr1.checkRequests.length, 1);
+eq('with its spec and name',
+  cr1.checkRequests[0].spec + ':' + cr1.checkRequests[0].name, '1d20:Dexterity');
+ok('nothing is rolled or applied yet', cr1.rolled === null && cr1.changes.length === 0);
+eq('and nothing is rejected yet either', cr1.rejections.length, 0);
+
+/* --- resolution: same seed, same verdict --- */
+
+var vA = HW.start(twC), vB = HW.start(twC);
+vA.seed = 7; vB.seed = 7;
+var aA = HW.applyTags(twC, vA, 'I try.[[roll:1d20:check:Dexterity]]');
+var aB = HW.applyTags(twC, vB, 'I try.[[roll:1d20:check:Dexterity]]');
+HW.commit(vA, 'I try.', aA.text, aA);
+HW.commit(vB, 'I try.', aB.text, aB);
+var resA = HW.resolveChecks(twC, vA, aA);
+var resB = HW.resolveChecks(twC, vB, aB);
+eq('one verdict per check', resA.list.length, 1);
+eq('same seed -> same dice', resA.list[0].total, resB.list[0].total);
+eq('same seed -> same outcome', resA.list[0].success, resB.list[0].success);
+ok('the verdict says which way it went',
+  resA.list[0].text.indexOf('\u2014 ' + (resA.list[0].success ? 'success' : 'failure')) !== -1,
+  resA.list[0].text);
+ok('the verdict is in the log, after the referee\u2019s line',
+  vA.log[vA.log.length - 1].role === 'check' &&
+  vA.log[vA.log.length - 1].content === resA.list[0].text,
+  JSON.stringify(vA.log.slice(-2)));
+
+/* --- the branch that matches the outcome is the only one applied --- */
+
+var seen = { success: false, failure: false };
+var baseNerve = 50;
+for (var seed = 1; seed <= 25; seed++) {
+  var rr = HW.start(twC); rr.seed = seed;
+  var aa = HW.applyTags(twC, rr, 'I try.[[roll:1d20:check:Dexterity]]');
+  HW.commit(rr, 'I try.', aa.text, aa);
+  var before = { nerve: rr.stats.nerve, inv: rr.inventory.length,
+                 cash: rr.stats[rr.cashId], quests: rr.quests.length,
+                 minutes: rr.extraMinutes };
+  var res = HW.resolveChecks(twC, rr, aa);
+  var c = res.list[0];
+  ok('seed ' + seed + ': the dice decide against the world\u2019s own DC',
+    c.success === (c.total >= c.dc));
+  if (c.success) {
+    seen.success = true;
+    eq('seed ' + seed + ': success applies exactly the success branch',
+      rr.stats.nerve, before.nerve + 1);
+  } else {
+    seen.failure = true;
+    eq('seed ' + seed + ': failure applies exactly the failure branch',
+      rr.stats.nerve, before.nerve - 2);
+  }
+  ok('seed ' + seed + ': nothing else moved',
+    rr.inventory.length === before.inv && rr.stats[rr.cashId] === before.cash &&
+    rr.quests.length === before.quests && rr.extraMinutes === before.minutes);
+  eq('seed ' + seed + ': no rejection for a clean check', res.rejections.length, 0);
+}
+ok('both branches were exercised', seen.success && seen.failure);
+
+/* --- a branch can give things, take things, add time --- */
+
+var twG = tinyWorld({
+  gameRules: { dice: { sides: 20 }, checks: [
+    { stat: 'STR', name: 'Strength', dc: 1,
+      on_success: { stats: { nerve: 1 }, items: ['Wrench'],
+                   quests: ['Find the lamp'], clock: 5, cash: 5 },
+      on_failure: {} },
+    { stat: 'DEX', name: 'Dexterity', dc: 21, on_failure: {} }
+  ]},
+  hudConfig: { stats: [{ id: 'nerve', name: 'Nerve', value: 50 }] }
+});
+var gr = HW.start(twG);
+var ga = HW.applyTags(twG, gr, 'Lift it.[[roll:1d20:check:Strength]] ' +
+  'Dodge.[[roll:1d20:check:Dexterity]]');
+HW.commit(gr, 'Lift it.', ga.text, ga);
+var gres = HW.resolveChecks(twG, gr, ga);
+eq('dc 1 on 1d20 is always success', gres.list[0].success, true);
+eq('dc 21 on 1d20 is always failure', gres.list[1].success, false);
+ok('success gave the item', gr.inventory.indexOf('Wrench') !== -1);
+ok('success added the task', gr.quests.some(function (q) { return q.text === 'Find the lamp' && !q.done; }));
+ok('success spent the minutes', gr.extraMinutes === 5);
+ok('success moved the purse', gr.stats[gr.cashId] === 5);
+ok('success moved the stat', gr.stats.nerve === 51);
+ok('the failed check (empty branch) changed nothing else',
+  gres.list[1].text.indexOf('()') === -1);
+ok('two checks, two verdicts, in order',
+  gres.list.length === 2 && gr.log.filter(function (m) { return m.role === 'check'; }).length === 2);
+
+/* --- the referee can request each check once per reply --- */
+
+var dd = HW.start(twC);
+var da = HW.applyTags(twC, dd, 'Twice.[[roll:1d20:check:Dexterity]][[roll:1d20:check:Dexterity]]');
+HW.commit(dd, 'Twice.', da.text, da);
+var dres = HW.resolveChecks(twC, dd, da);
+eq('a repeated check resolves once', dres.list.length, 1);
+
+/* --- unknown check: the dice show, the check is refused --- */
+
+var un = HW.start(twC);
+var ua = HW.applyTags(twC, un, 'Ghost.[[roll:1d20:check:Charisma]]');
+HW.commit(un, 'Ghost.', ua.text, ua);
+var ures = HW.resolveChecks(twC, un, ua);
+eq('an unknown check is refused', ures.rejections.length, 1);
+ok('...with the reason', ures.rejections[0].reason.indexOf('no check named') !== -1,
+  JSON.stringify(ures.rejections));
+ok('but the dice are still shown', ures.changes.length === 1 && ures.changes[0].indexOf('1d20') !== -1,
+  JSON.stringify(ures.changes));
+ok('and nothing is applied', ures.list.length === 0 && un.stats.nerve === 50);
+
+/* --- malformed spec: refused at parse time, nothing rolled --- */
+
+var mf = HW.applyTags(twC, HW.start(twC), 'Bad.[[roll:xx:check:Dexterity]]');
+eq('a malformed check spec is refused', mf.rejections.length, 1);
+ok('...and said so', mf.rejections[0].reason.indexOf('malformed roll') !== -1,
+  JSON.stringify(mf.rejections));
+eq('and no request is recorded', mf.checkRequests.length, 0);
+
+/* --- opted-out worlds: the check suffix is just an unparsable roll --- */
+
+var twCL = tinyWorld({ ledgerV2: false,
+  gameRules: { checks: [{ stat: 'DEX', name: 'Dexterity', dc: 10 }] } });
+var la = HW.applyTags(twCL, HW.start(twCL), 'Ghost.[[roll:1d20:check:Dexterity]]');
+eq('opt-out: the whole tag is silently dropped, as before',
+  la.rejections.length + la.changes.length + la.checkRequests.length, 0);
+
+/* --- the referee is told which checks exist and what they do --- */
+
+var bpC = HW.buildPrompt(twC, HW.start(twC), 'I try.');
+ok('the prompt names the checks', bpC.system.indexOf('Checks the world resolves') !== -1);
+ok('...with their DCs', bpC.system.indexOf('Dexterity (DC 10)') !== -1);
+ok('...and their consequences', bpC.system.indexOf('on success: nerve +1') !== -1 &&
+  bpC.system.indexOf('on failure: nerve -2') !== -1);
+ok('...and the request format', bpC.system.indexOf('[[roll:SPEC:check:NAME]]') !== -1);
+ok('...with the one rule that matters: do not narrate the outcome',
+  bpC.system.indexOf('never narrate') !== -1);
+ok('a world without checks is told nothing about them',
+  HW.buildPrompt(twS, HW.start(twS), 'x').system.indexOf('Checks the world resolves') === -1);
+
+var pc = HW.start(twC);
+var pca = HW.applyTags(twC, pc, 'I try.[[roll:1d20:check:Dexterity]]');
+HW.commit(pc, 'I try.', pca.text, pca);
+HW.resolveChecks(twC, pc, pca);
+var bpAfter = HW.buildPrompt(twC, pc, 'I try again.');
+/* the engine keeps the 'check' role; the API layer maps it to assistant */
+ok('the verdict is in the referee\u2019s context for the next turn',
+  bpAfter.messages.some(function (m) {
+    return m.role === 'check' && m.content.indexOf('check:') !== -1;
+  }));
+
 console.log('\nwhat the model is told');
 
 var built = HW.buildPrompt(w, run, 'I look around the bullpen.');

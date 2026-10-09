@@ -244,8 +244,27 @@
 
   /* ---------------- dice ---------------- */
 
-  /** "2d6+3", "1d20-1", "d20" -> { total, rolls, text } */
-  function roll(spec, defaultSides) {
+  /* The world's dice are reproducible within a run: a seeded PRNG (mulberry32)
+   * stored on the run, so the same seed and the same order of rolls always
+   * give the same outcomes. Old runs without a seed start from a constant. */
+  function imul32(a, b) {
+    var ah = (a & 0xffff0000) | 0, al = (a & 0xffff) | 0;
+    var bh = (b & 0xffff0000) | 0, bl = (b & 0xffff) | 0;
+    return (al * bl + (((ah * bl + al * bh) << 16) >>> 0)) | 0;
+  }
+  function nextRand(run) {
+    if (run.seed === undefined || run.seed === null) run.seed = 0x12345678;
+    var t = (run.seed = (run.seed + 0x6D2B79F5) | 0);
+    t = imul32(t ^ (t >>> 15), t | 1);
+    t = (t ^ (t >>> 7)) + imul32(t ^ (t >>> 14), t | 61) | 0;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+
+  /** "2d6+3", "1d20-1", "d20" -> { total, rolls, text }. rnd() supplies the
+   *  randomness (Math.random by default; the world path passes the run's
+   *  seeded generator). */
+  function roll(spec, defaultSides, rnd) {
+    rnd = rnd || Math.random;
     var m = /^\s*(?:(\d*)\s*)d\s*(\d+)\s*(?:([+-])\s*(\d+))?\s*$/i.exec(String(spec || ''));
     if (!m) return null;
     var count = m[1] === '' || m[1] === undefined ? 1 : parseInt(m[1], 10);
@@ -256,7 +275,7 @@
 
     var rolls = [], total = 0;
     for (var i = 0; i < count; i++) {
-      var r = 1 + Math.floor(Math.random() * sides);
+      var r = 1 + Math.floor(rnd() * sides);
       rolls.push(r);
       total += r;
     }
@@ -267,6 +286,136 @@
       text: count + 'd' + sides + (mod ? (sign === '-' ? '-' : '+') + mod : '') +
             ' → ' + (rolls.length > 1 ? '[' + rolls.join(', ') + '] ' : '') + total
     };
+  }
+
+  /* ---------------- checks (v1.18.0) ---------------- */
+
+  /** "1d20:check:DEX" -> { spec, name }; a plain roll spec -> null. */
+  function parseCheckRequest(arg) {
+    var m = /^([^:]*?)\s*:\s*check\s*:\s*(.+)$/i.exec(String(arg || ''));
+    if (!m || !m[1].trim()) return null;
+    return { spec: m[1].trim(), name: m[2].trim() };
+  }
+
+  /** The world's check definition for a name (case-insensitive, by name or
+   *  stat). Worlds declare checks in gameRules.checks; nothing here comes
+   *  from the model. */
+  function checkDef(world, name) {
+    var checks = (world && world.gameRules && world.gameRules.checks) || [];
+    var low = String(name || '').toLowerCase();
+    for (var i = 0; i < checks.length; i++) {
+      var c = checks[i] || {};
+      if (String(c.name || '').toLowerCase() === low ||
+          String(c.stat || '').toLowerCase() === low) return c;
+    }
+    return null;
+  }
+
+  /** Parse a world-authored branch into the typed vocabulary the engine
+   *  applies: stats {id:delta}, cash, items [names], quests [texts],
+   *  clock minutes. Anything else is ignored - this is author data, not
+   *  model output. */
+  function parseBranchEffects(world, branch) {
+    var stats = {}, cash = 0, items = [], quests = [], clock = 0;
+    if (branch && typeof branch === 'object') {
+      if (branch.stats && typeof branch.stats === 'object') {
+        Object.keys(branch.stats).forEach(function (sid) {
+          var d = branch.stats[sid];
+          if (typeof d === 'number' && !isNaN(d)) stats[sid] = d;
+        });
+      }
+      if (typeof branch.cash === 'number' && !isNaN(branch.cash)) cash = branch.cash;
+      (branch.items || []).forEach(function (it) {
+        var name = String((it && (it.name || it)) || '').trim();
+        if (name) items.push(name);
+      });
+      (branch.quests || []).forEach(function (q) {
+        var t = String((q && (q.text || q.name)) || q || '').trim();
+        if (t) quests.push(t);
+      });
+      if (typeof branch.clock === 'number' && !isNaN(branch.clock)) clock = branch.clock;
+    }
+    return { stats: stats, cash: cash, items: items, quests: quests, clock: clock };
+  }
+
+  function effectSummary(world, eff) {
+    var out = [];
+    Object.keys(eff.stats).forEach(function (sid) {
+      var d = eff.stats[sid];
+      out.push(sid + ' ' + (d >= 0 ? '+' : '') + d);
+    });
+    if (eff.cash) out.push((eff.cash >= 0 ? '+' : '') + eff.cash + ' ' +
+      (((world.gameRules || {}).currencyName) || 'cash'));
+    eff.items.forEach(function (name) { out.push('gained ' + name); });
+    eff.quests.forEach(function (t) { out.push('task: ' + t); });
+    if (eff.clock) out.push(eff.clock + ' minutes');
+    return out;
+  }
+
+  /** Apply a resolved check's branch to the run. The model proposed the
+   *  check; the world decides the outcome and what it costs. */
+  function applyCheckEffects(run, world, branch) {
+    var eff = parseBranchEffects(world, branch);
+    Object.keys(eff.stats).forEach(function (sid) {
+      if (run.stats[sid] === undefined) run.stats[sid] = 0;
+      run.stats[sid] += eff.stats[sid];
+    });
+    if (eff.cash) run.stats[run.cashId] = (run.stats[run.cashId] || 0) + eff.cash;
+    eff.items.forEach(function (name) {
+      if (!run.inventory.some(function (x) { return String(x).toLowerCase() === name.toLowerCase(); })) {
+        run.inventory.push(name);
+      }
+    });
+    eff.quests.forEach(function (t) {
+      if (!run.quests.some(function (o) { return o.text === t && !o.done; })) {
+        run.quests.push({ text: t, done: false });
+      }
+    });
+    if (eff.clock) run.extraMinutes = (run.extraMinutes || 0) + eff.clock;
+    return effectSummary(world, eff);
+  }
+
+  /** Resolve the checks the final reply of a turn requested. Runs once per
+   *  turn, AFTER commit, so a repaired turn rolls its checks exactly once
+   *  and the verdict lands in the log right after the referee's reply.
+   *  Mutates the run (dice seed, branch effects, one 'check' log entry per
+   *  check). A request whose name the world does not know still shows its
+   *  dice but is reported as a rejection. */
+  function resolveChecks(world, run, applied) {
+    var list = [], changes = [], rejections = [];
+    var reqs = (applied && applied.checkRequests) || [];
+    var seen = {};
+    reqs.forEach(function (req) {
+      if (seen[req.name.toLowerCase()]) return;   /* one resolution per check per turn */
+      seen[req.name.toLowerCase()] = true;
+      var tag = '[[roll:' + req.spec + ':check:' + req.name + ']]';
+      var r = roll(req.spec, (world.gameRules || {}).dice && (world.gameRules.dice.sides || 20),
+        function () { return nextRand(run); });
+      if (!r) {
+        rejections.push({ tag: tag, reason: 'malformed roll \u201C' + req.spec + '\u201D', at: Date.now() });
+        return;
+      }
+      var def = checkDef(world, req.name);
+      if (!def) {
+        changes.push(r.text);
+        rejections.push({ tag: tag, reason: 'the world has no check named \u201C' + req.name + '\u201D', at: Date.now() });
+        return;
+      }
+      var dc = (typeof def.dc === 'number') ? def.dc : 10;
+      var success = r.total >= dc;
+      var eff = applyCheckEffects(run, world, success ? def.on_success : def.on_failure);
+      var label = String(def.name || def.stat || req.name);
+      var line = label + ' check: ' + r.text + ' vs DC ' + dc +
+        (success ? ' \u2014 success' : ' \u2014 failure') + (eff.length ? ' (' + eff.join('; ') + ')' : '');
+      run.log.push({ role: 'check', content: line, at: Date.now() });
+      if (run.log.length > 200) run.log = run.log.slice(-200);
+      list.push({
+        name: label, text: line, chip: label + ' ' + r.total + ' vs ' + dc + (success ? ' \u2713' : ' \u2717'),
+        success: success, total: r.total, dc: dc
+      });
+      changes.push(list[list.length - 1].chip);
+    });
+    return { list: list, changes: changes, rejections: rejections };
   }
 
   /* ---------------- runs ---------------- */
@@ -320,6 +469,8 @@
       locationId: startAt,
       turn: 0,
       extraMinutes: 0,
+      /* v1.18.0: the run's dice seed - reproducible within this run */
+      seed: Math.floor(Math.random() * 0x7fffffff),
       stats: stats,
       cashId: cashId,
       inventory: (life && Array.isArray(life.inventory)) ? life.inventory.slice() : [],
@@ -388,7 +539,8 @@
    * reason the referee can be shown.
    */
   function applyTags(world, run, text) {
-    var changes = [], rejections = [], moved = null, rolled = null;
+    var changes = [], rejections = [], checkRequests = [];
+    var moved = null, rolled = null;
     var v2 = ledgerV2(world);
     function reject(tag, reason) {
       rejections.push({ tag: tag, reason: reason, at: Date.now() });
@@ -513,7 +665,21 @@
         return '';
       }
       if (kind === 'roll') {
-        var r = roll(arg, (world.gameRules || {}).dice && (world.gameRules.dice.sides || 20));
+        /* v1.18.0: "1d20:check:DEX" is a check request - the dice and the
+           outcome are resolved by the world (resolveChecks), never by the
+           model. On an opted-out world the whole thing is just a roll spec
+           that fails to parse, as it always did. */
+        var ck = v2 ? parseCheckRequest(arg) : null;
+        if (ck) {
+          if (!roll(ck.spec, (world.gameRules || {}).dice && (world.gameRules.dice.sides || 20))) {
+            reject(whole, 'malformed roll \u201C' + ck.spec + '\u201D');
+          } else {
+            checkRequests.push({ spec: ck.spec, name: ck.name });
+          }
+          return '';
+        }
+        var r = roll(arg, (world.gameRules || {}).dice && (world.gameRules.dice.sides || 20),
+          function () { return nextRand(run); });
         if (r) { rolled = r; changes.push(r.text); }
         else if (v2) reject(whole, 'malformed roll \u201C' + arg + '\u201D');
         return '';
@@ -524,7 +690,8 @@
 
     return {
       text: out.replace(/\n{3,}/g, '\n\n').trim(),
-      changes: changes, moved: moved, rolled: rolled, rejections: rejections
+      changes: changes, moved: moved, rolled: rolled, rejections: rejections,
+      checkRequests: checkRequests
     };
   }
 
@@ -698,6 +865,23 @@
         rules += '\n- Tasks the world knows: ' +
           regQ.map(questText).slice(0, 20).join('; ') + '.';
       }
+      var checks = (world.gameRules || {}).checks;
+      if (Array.isArray(checks) && checks.length) {
+        rules += '\n- Checks the world resolves:';
+        checks.slice(0, 10).forEach(function (c) {
+          var label = String(c.name || c.stat || '?');
+          var dc = (typeof c.dc === 'number') ? c.dc : 10;
+          var line = '  ' + label + ' (DC ' + dc + ')';
+          var sum = effectSummary(world, parseBranchEffects(world, c.on_success));
+          var flo = effectSummary(world, parseBranchEffects(world, c.on_failure));
+          if (sum.length) line += ', on success: ' + sum.join('; ');
+          if (flo.length) line += ', on failure: ' + flo.join('; ');
+          rules += '\n' + line + '.';
+        });
+        rules += '\n  Request one with [[roll:SPEC:check:NAME]]. The world rolls it ' +
+          'and applies the outcome itself - never narrate or guess a check ' +
+          'outcome, and request each check at most once per reply.';
+      }
     }
     parts.push(rules);
 
@@ -773,6 +957,8 @@
     bundled: bundled, installBundled: installBundled,
     applyTags: applyTags, buildPrompt: buildPrompt, commit: commit,
     ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
+    resolveChecks: resolveChecks, checkDef: checkDef,
+    parseCheckRequest: parseCheckRequest, nextRand: nextRand,
     /* tests inject a store; the app uses IDB directly */
     _useStore: function (s) { store = s; }
   };
