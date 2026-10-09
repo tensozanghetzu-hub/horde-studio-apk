@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.17.0.apk` (versionCode 40) — size/sha256
-in the v1.17.0 entry. Built 2026-10-09, not yet synced:
-`docs/` serves v1.16.0 (webRev `8bf728e1e6c5`) and release `v1.16.0`
+Current build: `HordeStudio-v1.19.0.apk` (versionCode 42) — size/sha256
+in the v1.19.0 entry. Built 2026-10-09, not yet synced:
+`docs/` serves v1.18.0 (webRev `07aa09303c51`) and release `v1.18.0`
 is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
@@ -552,6 +552,181 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.19.0 — Worlds: the world knows what NPCs know (2026-10-09)
+
+### The ask
+
+"Stage 3" — third stage of `WORLDSCOPE.md`: knowledge gating. Lore
+entries gain `knownBy`, NPC `secrets` stop being dead text, lore
+matching gets scoring + a byte budget. Backward compatible: no
+`knownBy` → `anyone`, exactly as before.
+
+### The change
+
+- `js/hordeworld.js`:
+  - **parse** keeps the new fields: lorebook entries carry
+    `knownBy` / `unlockQuest` / `unlockNpc`; entities carry
+    `secretUnlock`.
+  - **`loreVisible(world, run, entry)`** — the gate: `anyone`
+    (default) | `faction:<id>` (player has standing with the faction —
+    any score, being in the loop is what matters) | `npc:<id-or-name>`
+    (present at the run's location) | `secret` (unlock via
+    `unlockQuest` — the quest is open or done — or `unlockNpc` — the
+    witness is present; no unlock condition = stays locked). Unknown
+    gate words show rather than silently hide.
+  - **`loreScore` / `loreHits`** — matching moved from
+    first-come-substring to word-frequency scoring (occurrence count
+    per keyword), best matches first, capped at 8 entries and a 1,536
+    char budget (a single matching entry always gets in alone). This
+    is what keeps a 120-place pack from eating the prompt. Signature
+    gained the run (`loreHits(world, run, text, limit, budget)`).
+  - **`secretLines(world, run, n)`** — upstream secrets are
+    `{label, hint, truth}` (a plain string degrades to hint-only).
+    While the NPC is present the referee gets the hint and, where a
+    truth exists, an explicit "do not reveal the truth; it may only
+    surface if the player earns it." When the entity's
+    `secretUnlock` is met (`{quest}` flag or `{stat:{id,min}}`), the
+    truth is injected marked "is revealed to the player." Secrets
+    travel with the NPC, not the place.
+  - **`describeLocation`** appends the secret lines per present NPC;
+    **`buildPrompt`** passes the run to the gated/budgeted loreHits.
+  - Policy Panic was NOT re-authored: all nine of its secrets work
+    out of the box in hint-only mode (no `secretUnlock` declared),
+    which is the safe default — truths still earn their telling.
+- No api.js, views.js, css or index.html changes: this is pure
+  prompt-engine work (the world files and engine are web-channel
+  updates).
+
+### Tests
+
+`tests/hordeworld-test.js` 275 → **309** (+34): every gate (open,
+faction with/without standing, npc present/absent, locked secret,
+quest-unlock open AND done, witness-unlock present/absent); scoring
+(repeated keyword outranks single, both still surface); the byte
+budget (pile stops at the budget, total respected, a lone big match
+still gets in); old-vs-new matcher snapshot on four Policy Panic
+queries (same entry sets); the three-layer secret behaviour (hint
+flows, truth out, "do not reveal" present; truth revealed at the quest
+flag and at the stat threshold; secrets follow the NPC); and the
+bundled world (its kept secrets now appear as hints — blinds, second
+book — truths absent, in a place with a keeper, and absent where there
+is no keeper). Two test bugs caught on the first run (a 1-char keyword
+under the matcher's >2 rule; assuming reception had no
+secret-keeper — it does). Full battery: 25 node suites / **812 checks,
+0 failing** (the two Playwright suites still need a browser).
+
+### Ship state (this segment)
+
+Bumped 1.19.0 / code 42 / sw v30. Built
+`HordeStudio-v1.19.0.apk` (310,427 B — same size as the v1.18.0
+builds again, so the sha256 is the identity:
+6b411a802fe70dee392943e9de266284639ef3a296bb78d545586386f108ac8c —
+same keystore, in-place upgrade from code 41) and in-APK verified:
+`loreVisible` + `secretLines` + budgeted `loreHits` in hordeworld.js,
+sw v30, VERSION 1.19.0. Superseded v1.18.0 root APK removed. Committed
+locally. Publish only on explicit ask.
+
+---
+
+## v1.18.0 — Worlds: checks with real consequences (2026-10-09)
+
+### The ask
+
+"Stage 2" — the second stage of `WORLDSCOPE.md`: checks with real
+consequences. Design per the scope: `[[roll:SPEC:check:NAME]]`, DC and
+typed branches defined **on the world** (the model never writes
+outcomes — upstream's core principle, "the engine derives the outcome
+from applied state changes"), seeded dice, engine-applied branches,
+HUD receipt, fail-safes.
+
+### The change
+
+- `js/hordeworld.js`:
+  - **Seeded dice** — `imul32` + `nextRand(run)` (mulberry32); the seed
+    is created in `start()` (`run.seed`) and persists with the run;
+    old runs without a seed start from a constant. `roll()` takes an
+    optional `rnd()` (defaults to `Math.random` for other callers), so
+    plain rolls and checks roll the same seeded sequence. Same seed +
+    same roll order → same outcomes, reproducibly (the battery
+    relies on it).
+  - **`parseCheckRequest`** — `"1d20:check:DEX"` → `{spec, name}`; a
+    plain spec → null. On an opted-out world the whole tag is just an
+    unparsable roll spec and is silently dropped, exactly as before.
+  - **`checkDef(world, name)`** — worlds declare checks in
+    `gameRules.checks` (`{stat, name, dc, on_success, on_failure}`);
+    lookup by name or stat, case-insensitive.
+  - **Branch vocabulary** — `parseBranchEffects` / `effectSummary` /
+    `applyCheckEffects`: stats `{id:delta}`, cash, items, quests,
+    clock minutes. World-authored data, trusted and applied by the
+    engine; unknown keys ignored (the "malformed branch" clause of the
+    scope loses its referent — the model can't author branches).
+  - **`applyTags`** — a `roll` tag with a `:check:` suffix is recorded
+    in `applied.checkRequests` (stripped, NOT rolled, nothing applied);
+    malformed spec → rejection at parse time. Plain rolls now roll on
+    the run's seeded generator.
+  - **`resolveChecks(world, run, applied)`** — runs once per turn, in
+    `finishTurn`, AFTER commit (so the verdict lands in the log right
+    after the referee's line, and a repaired turn rolls exactly once):
+    rolls each unique request (deduped by name), compares to the DC,
+    applies the matching branch, pushes a `role: 'check'` log entry
+    ("Dexterity check: 1d20 → 14 vs DC 10 — success (NERVE +1)").
+    Unknown check name → dice still shown + rejection; malformed spec
+    → rejection only.
+  - **`buildPrompt`** — v2 worlds with checks are told: each check's
+    name, DC and both branches' consequences (capped 10), the request
+    format, and "never narrate or guess a check outcome, and request
+    each check at most once per reply".
+  - The `check` log role is kept as-is by the engine; the API layer
+    already maps any non-user role to assistant (OpenAI path) or the
+    referee name (Horde path), so no api.js change.
+- `js/app.js` — `finishTurn` calls `resolveChecks` after commit,
+  appends its rejections to the run's capped list, and renders the
+  merged HUD object (changes + rejections + checks).
+- `js/views.js` — `worldBubble` renders `check` entries as a compact
+  centered verdict line, tinted green (success) / amber (failure);
+  `worldHud` renders check chips (`DEX 14 vs 10 ✓`) under the change
+  chips.
+- `css/app.css` — `.wr-check-line.ok/.fail`, `.wr-check-chip.ok/.fail`.
+- The bundled *Policy Panic* shipped with a small authored set of five
+  checks (Nerve DC 10, Insight DC 11, Charm DC 11, Performance DC 12,
+  Reputation DC 12 — branches using its own stats and dollars), added
+  at the user's "publish with" — it was the first check-carrying
+  world in the port; check-less worlds (and `ledgerV2:false` ones)
+  play byte-identical to v1.17.0.
+
+### Tests
+
+`tests/hordeworld-test.js` 136 → **275** (+139): seeded determinism
+(same seed → same dice, both across runs and across full
+apply/commit/resolve sequences; different seed differs), request
+parsing (stripped, recorded, nothing rolled early), the
+total-vs-DC invariant over 25 fixed seeds with each seed asserting the
+*matching* branch is the only one applied (and nothing else moved —
+inventory/cash/quests/minutes), the guaranteed-success (dc 1) and
+guaranteed-failure (dc 21) branches exercising the full effect
+vocabulary, once-per-reply dedupe, unknown-check (dice shown +
+rejection, nothing applied), malformed spec, opt-out legacy behaviour,
+prompt contents (names, DCs, both branches, request format, the
+never-narrate rule, absent for check-less worlds), and the verdict in
+the next turn's context. Full battery: 25 node suites / **778 checks,
+0 failing** (the two Playwright suites still need a browser).
+
+### Ship state (this segment)
+
+Bumped 1.18.0 / code 41 / sw v29. Built
+`HordeStudio-v1.18.0.apk` (310,427 B — the pre-check build was the same
+size, so the sha256 is the identity:
+ba922f548980804fa8a3702de832247e15420b1266c7350e8f70d2dbfd46cec3 —
+same keystore, in-place upgrade from code 40) and
+in-APK verified:
+`resolveChecks` + `nextRand` + `checkDef` in hordeworld.js,
+`resolveChecks` call in app.js, `wr-check-line` / `wr-check-chip` in
+views.js + css, the five checks in the bundled policy-panic world
+file, sw v29, VERSION 1.18.0. Superseded v1.17.0 root APK
+removed. Committed locally. Publish only on explicit ask.
 
 ---
 

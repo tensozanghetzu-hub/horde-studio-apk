@@ -86,9 +86,10 @@ var here = HW.npcsAt(w, 'loc_reception');
 ok('someone is in reception', here.length > 0, here.map(function (n) { return n.name; }).join(', '));
 ok('they bring their persona', here.every(function (n) { return !!n.persona; }));
 
-var lore = HW.loreHits(w, 'What does the company actually do here?');
+var loreRun = HW.start(w);
+var lore = HW.loreHits(w, loreRun, 'What does the company actually do here?');
 ok('naming the company surfaces its lore', lore.length > 0, lore.length + ' entries');
-ok('irrelevant chatter surfaces nothing', HW.loreHits(w, 'zzz qqq').length === 0);
+ok('irrelevant chatter surfaces nothing', HW.loreHits(w, loreRun, 'zzz qqq').length === 0);
 
 console.log('\ndice');
 
@@ -399,6 +400,393 @@ trP.log.push({ role: 'correction', content: 'State corrected: set to B' });
 var bpCorr = HW.buildPrompt(twS, trP, 'I keep trying.');
 ok('a correction note stays out of the referee\u2019s context',
   bpCorr.messages.every(function (m) { return m.role !== 'correction' && m.content.indexOf('State corrected') === -1; }));
+
+/* ================= v1.18.0: checks with real consequences ================= */
+
+console.log('\nv1.18.0: the world resolves the referee\u2019s checks');
+
+var twC = tinyWorld({
+  gameRules: { dice: { sides: 20 }, checks: [
+    { stat: 'DEX', name: 'Dexterity', dc: 10,
+      on_success: { stats: { nerve: 1 } },
+      on_failure: { stats: { nerve: -2 } } },
+    { stat: 'STR', name: 'Strength', dc: 15,
+      on_success: { stats: { nerve: 1 }, items: ['Wrench'],
+                   quests: ['Find the lamp'], clock: 5, cash: 5 },
+      on_failure: {} }
+  ]},
+  hudConfig: { stats: [{ id: 'nerve', name: 'Nerve', value: 50 }] }
+});
+
+/* --- the dice are seeded per run --- */
+
+ok('a run gets its own dice seed', typeof HW.start(twC).seed === 'number');
+var dA = HW.start(twC), dB = HW.start(twC);
+dA.seed = 42; dB.seed = 42;
+var rA = HW.applyTags(twC, dA, 'Roll.[[roll:1d20]]');
+var rB = HW.applyTags(twC, dB, 'Roll.[[roll:1d20]]');
+eq('same seed, same dice', rA.rolled.total, rB.rolled.total);
+var dC = HW.start(twC); dC.seed = 43;
+var rC = HW.applyTags(twC, dC, 'Roll.[[roll:1d20]]');
+ok('the dice are actually random per seed (42 and 43 differ here)',
+  rA.rolled.total !== rC.rolled.total || rA.rolled.rolls[0] !== rC.rolled.rolls[0]);
+
+/* --- a check request is stripped, recorded, not rolled --- */
+
+var cr1 = HW.applyTags(twC, HW.start(twC), 'I try.[[roll:1d20:check:Dexterity]]');
+eq('the check tag is stripped from the prose', cr1.text, 'I try.');
+eq('and the request is recorded', cr1.checkRequests.length, 1);
+eq('with its spec and name',
+  cr1.checkRequests[0].spec + ':' + cr1.checkRequests[0].name, '1d20:Dexterity');
+ok('nothing is rolled or applied yet', cr1.rolled === null && cr1.changes.length === 0);
+eq('and nothing is rejected yet either', cr1.rejections.length, 0);
+
+/* --- resolution: same seed, same verdict --- */
+
+var vA = HW.start(twC), vB = HW.start(twC);
+vA.seed = 7; vB.seed = 7;
+var aA = HW.applyTags(twC, vA, 'I try.[[roll:1d20:check:Dexterity]]');
+var aB = HW.applyTags(twC, vB, 'I try.[[roll:1d20:check:Dexterity]]');
+HW.commit(vA, 'I try.', aA.text, aA);
+HW.commit(vB, 'I try.', aB.text, aB);
+var resA = HW.resolveChecks(twC, vA, aA);
+var resB = HW.resolveChecks(twC, vB, aB);
+eq('one verdict per check', resA.list.length, 1);
+eq('same seed -> same dice', resA.list[0].total, resB.list[0].total);
+eq('same seed -> same outcome', resA.list[0].success, resB.list[0].success);
+ok('the verdict says which way it went',
+  resA.list[0].text.indexOf('\u2014 ' + (resA.list[0].success ? 'success' : 'failure')) !== -1,
+  resA.list[0].text);
+ok('the verdict is in the log, after the referee\u2019s line',
+  vA.log[vA.log.length - 1].role === 'check' &&
+  vA.log[vA.log.length - 1].content === resA.list[0].text,
+  JSON.stringify(vA.log.slice(-2)));
+
+/* --- the branch that matches the outcome is the only one applied --- */
+
+var seen = { success: false, failure: false };
+var baseNerve = 50;
+for (var seed = 1; seed <= 25; seed++) {
+  var rr = HW.start(twC); rr.seed = seed;
+  var aa = HW.applyTags(twC, rr, 'I try.[[roll:1d20:check:Dexterity]]');
+  HW.commit(rr, 'I try.', aa.text, aa);
+  var before = { nerve: rr.stats.nerve, inv: rr.inventory.length,
+                 cash: rr.stats[rr.cashId], quests: rr.quests.length,
+                 minutes: rr.extraMinutes };
+  var res = HW.resolveChecks(twC, rr, aa);
+  var c = res.list[0];
+  ok('seed ' + seed + ': the dice decide against the world\u2019s own DC',
+    c.success === (c.total >= c.dc));
+  if (c.success) {
+    seen.success = true;
+    eq('seed ' + seed + ': success applies exactly the success branch',
+      rr.stats.nerve, before.nerve + 1);
+  } else {
+    seen.failure = true;
+    eq('seed ' + seed + ': failure applies exactly the failure branch',
+      rr.stats.nerve, before.nerve - 2);
+  }
+  ok('seed ' + seed + ': nothing else moved',
+    rr.inventory.length === before.inv && rr.stats[rr.cashId] === before.cash &&
+    rr.quests.length === before.quests && rr.extraMinutes === before.minutes);
+  eq('seed ' + seed + ': no rejection for a clean check', res.rejections.length, 0);
+}
+ok('both branches were exercised', seen.success && seen.failure);
+
+/* --- a branch can give things, take things, add time --- */
+
+var twG = tinyWorld({
+  gameRules: { dice: { sides: 20 }, checks: [
+    { stat: 'STR', name: 'Strength', dc: 1,
+      on_success: { stats: { nerve: 1 }, items: ['Wrench'],
+                   quests: ['Find the lamp'], clock: 5, cash: 5 },
+      on_failure: {} },
+    { stat: 'DEX', name: 'Dexterity', dc: 21, on_failure: {} }
+  ]},
+  hudConfig: { stats: [{ id: 'nerve', name: 'Nerve', value: 50 }] }
+});
+var gr = HW.start(twG);
+var ga = HW.applyTags(twG, gr, 'Lift it.[[roll:1d20:check:Strength]] ' +
+  'Dodge.[[roll:1d20:check:Dexterity]]');
+HW.commit(gr, 'Lift it.', ga.text, ga);
+var gres = HW.resolveChecks(twG, gr, ga);
+eq('dc 1 on 1d20 is always success', gres.list[0].success, true);
+eq('dc 21 on 1d20 is always failure', gres.list[1].success, false);
+ok('success gave the item', gr.inventory.indexOf('Wrench') !== -1);
+ok('success added the task', gr.quests.some(function (q) { return q.text === 'Find the lamp' && !q.done; }));
+ok('success spent the minutes', gr.extraMinutes === 5);
+ok('success moved the purse', gr.stats[gr.cashId] === 5);
+ok('success moved the stat', gr.stats.nerve === 51);
+ok('the failed check (empty branch) changed nothing else',
+  gres.list[1].text.indexOf('()') === -1);
+ok('two checks, two verdicts, in order',
+  gres.list.length === 2 && gr.log.filter(function (m) { return m.role === 'check'; }).length === 2);
+
+/* --- the referee can request each check once per reply --- */
+
+var dd = HW.start(twC);
+var da = HW.applyTags(twC, dd, 'Twice.[[roll:1d20:check:Dexterity]][[roll:1d20:check:Dexterity]]');
+HW.commit(dd, 'Twice.', da.text, da);
+var dres = HW.resolveChecks(twC, dd, da);
+eq('a repeated check resolves once', dres.list.length, 1);
+
+/* --- unknown check: the dice show, the check is refused --- */
+
+var un = HW.start(twC);
+var ua = HW.applyTags(twC, un, 'Ghost.[[roll:1d20:check:Charisma]]');
+HW.commit(un, 'Ghost.', ua.text, ua);
+var ures = HW.resolveChecks(twC, un, ua);
+eq('an unknown check is refused', ures.rejections.length, 1);
+ok('...with the reason', ures.rejections[0].reason.indexOf('no check named') !== -1,
+  JSON.stringify(ures.rejections));
+ok('but the dice are still shown', ures.changes.length === 1 && ures.changes[0].indexOf('1d20') !== -1,
+  JSON.stringify(ures.changes));
+ok('and nothing is applied', ures.list.length === 0 && un.stats.nerve === 50);
+
+/* --- malformed spec: refused at parse time, nothing rolled --- */
+
+var mf = HW.applyTags(twC, HW.start(twC), 'Bad.[[roll:xx:check:Dexterity]]');
+eq('a malformed check spec is refused', mf.rejections.length, 1);
+ok('...and said so', mf.rejections[0].reason.indexOf('malformed roll') !== -1,
+  JSON.stringify(mf.rejections));
+eq('and no request is recorded', mf.checkRequests.length, 0);
+
+/* --- opted-out worlds: the check suffix is just an unparsable roll --- */
+
+var twCL = tinyWorld({ ledgerV2: false,
+  gameRules: { checks: [{ stat: 'DEX', name: 'Dexterity', dc: 10 }] } });
+var la = HW.applyTags(twCL, HW.start(twCL), 'Ghost.[[roll:1d20:check:Dexterity]]');
+eq('opt-out: the whole tag is silently dropped, as before',
+  la.rejections.length + la.changes.length + la.checkRequests.length, 0);
+
+/* --- the referee is told which checks exist and what they do --- */
+
+var bpC = HW.buildPrompt(twC, HW.start(twC), 'I try.');
+ok('the prompt names the checks', bpC.system.indexOf('Checks the world resolves') !== -1);
+ok('...with their DCs', bpC.system.indexOf('Dexterity (DC 10)') !== -1);
+ok('...and their consequences', bpC.system.indexOf('on success: nerve +1') !== -1 &&
+  bpC.system.indexOf('on failure: nerve -2') !== -1);
+ok('...and the request format', bpC.system.indexOf('[[roll:SPEC:check:NAME]]') !== -1);
+ok('...with the one rule that matters: do not narrate the outcome',
+  bpC.system.indexOf('never narrate') !== -1);
+ok('a world without checks is told nothing about them',
+  HW.buildPrompt(twS, HW.start(twS), 'x').system.indexOf('Checks the world resolves') === -1);
+
+var pc = HW.start(twC);
+var pca = HW.applyTags(twC, pc, 'I try.[[roll:1d20:check:Dexterity]]');
+HW.commit(pc, 'I try.', pca.text, pca);
+HW.resolveChecks(twC, pc, pca);
+var bpAfter = HW.buildPrompt(twC, pc, 'I try again.');
+/* the engine keeps the 'check' role; the API layer maps it to assistant */
+ok('the verdict is in the referee\u2019s context for the next turn',
+  bpAfter.messages.some(function (m) {
+    return m.role === 'check' && m.content.indexOf('check:') !== -1;
+  }));
+
+/* ================= v1.19.0: the world knows what NPCs know ================= */
+
+console.log('\nv1.19.0: knowledge gating');
+
+function gateWorld() {
+  return {
+    id: 'wgate', name: 'Gate', startLocationId: 'a',
+    locations: [
+      { id: 'a', name: 'A', exits: [{ text: 'to B', travelTime: 1 }], description: '', region: '' },
+      { id: 'b', name: 'B', exits: [], description: '', region: '' }
+    ],
+    entities: [
+      { id: 'bob', name: 'Bob', type: 'npc', isMajor: false, factionId: 'fac_x',
+        startLocation: 'a', homeLocation: 'a', description: '', persona: '', goal: '', secrets: '' },
+      { id: 'cy', name: 'Cy', type: 'npc', isMajor: false, factionId: null,
+        startLocation: 'b', homeLocation: 'b', description: '', persona: '', goal: '', secrets: '' }
+    ],
+    factions: [{ id: 'fac_x', name: 'X' }],
+    relationships: [],
+    lorebook: [
+      { id: 'l1', keyword: 'alpha', text: 'open knowledge', knownBy: '' },
+      { id: 'l2', keyword: 'bravo', text: 'faction insider', knownBy: 'faction:fac_x' },
+      { id: 'l3', keyword: 'charlie', text: 'bob knows this', knownBy: 'npc:bob' },
+      { id: 'l4', keyword: 'delta', text: 'locked secret', knownBy: 'secret' },
+      { id: 'l5', keyword: 'echo', text: 'quest-unlocked', knownBy: 'secret',
+        unlockQuest: 'Find the lamp' },
+      { id: 'l6', keyword: 'foxtrot', text: 'witness-unlocked', knownBy: 'secret',
+        unlockNpc: 'bob' }
+    ],
+    startingLives: [], gameRules: {}, hudConfig: {},
+    dmPrompt: '', authorNote: '', intro: ''
+  };
+}
+
+var gw = gateWorld(), gr2 = HW.start(gw);
+gr2.reputation = [{ factionId: 'fac_x', score: 5 }];
+
+var gl = HW.loreHits(gw, gr2, 'alpha bravo charlie delta echo foxtrot');
+var gIds = gl.map(function (e) { return e.id; });
+ok('open lore is visible', gIds.indexOf('l1') !== -1);
+ok('faction lore is visible with standing', gIds.indexOf('l2') !== -1);
+ok('npc lore is visible with the npc present', gIds.indexOf('l3') !== -1);
+ok('a locked secret stays locked', gIds.indexOf('l4') === -1);
+ok('a secret unlocks when its quest is open', (function () {
+  var q = HW.start(gateWorld()); q.reputation = [{ factionId: 'fac_x', score: 0 }];
+  q.quests.push({ text: 'Find the lamp', done: false });
+  var ids = HW.loreHits(gateWorld(), q, 'echo').map(function (e) { return e.id; });
+  return ids.indexOf('l5') !== -1;
+})());
+ok('a secret unlocks when its quest is done too', (function () {
+  var q = HW.start(gateWorld()); q.reputation = [{ factionId: 'fac_x', score: 0 }];
+  q.quests.push({ text: 'Find the lamp', done: true });
+  var ids = HW.loreHits(gateWorld(), q, 'echo').map(function (e) { return e.id; });
+  return ids.indexOf('l5') !== -1;
+})());
+ok('a witness unlocks a secret when they are here', gIds.indexOf('l6') !== -1);
+var grFar = HW.start(gw);
+grFar.reputation = [{ factionId: 'fac_x', score: 5 }];
+HW.applyTags(gw, grFar, 'On to B.[[move:b]]');
+var glFar = HW.loreHits(gw, grFar, 'charlie foxtrot');
+ok('npc lore closes when the npc leaves', glFar.every(function (e) { return e.id !== 'l3'; }));
+ok('witness secrets close with the witness', glFar.every(function (e) { return e.id !== 'l6'; }));
+var grNoFaction = HW.start(gw);
+ok('faction lore closes without standing',
+  HW.loreHits(gw, grNoFaction, 'bravo').every(function (e) { return e.id !== 'l2'; }));
+
+/* --- scoring: best matches first, within the byte budget --- */
+
+var sw = {
+  id: 'wsc', name: 'Score', startLocationId: 'a',
+  locations: [{ id: 'a', name: 'A', exits: [], description: '', region: '' }],
+  entities: [], factions: [], relationships: [], startingLives: [],
+  lorebook: [
+    { id: 's1', keyword: 'alpha', text: 'first mention', knownBy: '' },
+    { id: 's2', keyword: 'alpha, alpha, alpha', text: 'alpha mentioned three times', knownBy: '' }
+  ],
+  gameRules: {}, hudConfig: {}, dmPrompt: '', authorNote: '', intro: ''
+};
+var sHits = HW.loreHits(sw, HW.start(sw), 'alpha alpha alpha');
+eq('repeated matches outrank single ones', sHits[0].id, 's2');
+ok('and the single one still comes through', sHits.length === 2);
+
+var big = {
+  id: 'wbig', name: 'Big', startLocationId: 'a',
+  locations: [{ id: 'a', name: 'A', exits: [], description: '', region: '' }],
+  entities: [], factions: [], relationships: [], startingLives: [],
+  lorebook: [
+    { id: 'b1', keyword: 'omaha', text: new Array(500).join('x'), knownBy: '' },
+    { id: 'b2', keyword: 'omaha, omaha, omaha', text: new Array(500).join('y'), knownBy: '' },
+    { id: 'b3', keyword: 'omaha, omaha, omaha, omaha', text: new Array(500).join('z'), knownBy: '' }
+  ],
+  gameRules: {}, hudConfig: {}, dmPrompt: '', authorNote: '', intro: ''
+};
+var bRun = HW.start(big);
+var bHits = HW.loreHits(big, bRun, 'omaha omaha omaha omaha', 8, 1000);
+ok('the byte budget stops the pile', bHits.length < 3, bHits.length + ' injected');
+var total = bHits.reduce(function (a, e) { return a + e.text.length; }, 0);
+ok('...and it is respected (single entries may exceed it alone)', total <= 1500, total + ' chars');
+var lone = HW.loreHits({ lorebook: [{ id: 'z', keyword: 'kayak', text: new Array(2000).join('q') }] },
+  bRun, 'kayak', 8, 1000);
+eq('a lone match still gets in', lone.length, 1);
+
+/* --- the old matcher finds exactly the entries the new one does --- */
+
+function oldLore(w, text) {
+  var t = String(text || '').toLowerCase();
+  return (w.lorebook || []).filter(function (e) {
+    return String(e.keyword || '').split(',').some(function (k) {
+      k = String(k).trim().toLowerCase();
+      return k.length > 2 && t.indexOf(k) !== -1;
+    });
+  }).map(function (e) { return e.id; });
+}
+['I look at the audit files.', 'What is Maplebridge?',
+ 'Tell me about Bramble & Pike.', 'boiler, gossip and the gala'].forEach(function (q, i) {
+  var oldSet = oldLore(w, q).sort();
+  var newSet = HW.loreHits(w, HW.start(w), q, 15, 100000).map(function (e) { return e.id; }).sort();
+  eq('query ' + (i + 1) + ': the old and new matchers agree (set)',
+    JSON.stringify(oldSet), JSON.stringify(newSet));
+});
+
+/* --- npc secrets: hint flows, truth is gated --- */
+
+function secretWorld(unlock) {
+  return {
+    id: 'wsec', name: 'Sec', startLocationId: 'a',
+    locations: [{ id: 'a', name: 'A', exits: [], description: '', region: '' },
+                { id: 'b', name: 'B', exits: [], description: '', region: '' }],
+    entities: [{
+      id: 'ned', name: 'Ned', type: 'npc', isMajor: true, factionId: null,
+      startLocation: 'a', homeLocation: 'a', description: '', persona: '',
+      goal: '', secrets: [
+        { label: 'The Second Ledger',
+          hint: 'Ned counts cash twice at closing time.',
+          truth: 'Ned has been skimming the branch for six years.' },
+        { label: 'The Locked Drawer',
+          hint: 'A drawer in his desk never opens.',
+          truth: 'It holds the original audit from 1998.' }
+      ],
+      secretUnlock: unlock
+    }],
+    factions: [], relationships: [],
+    lorebook: [], startingLives: [],
+    gameRules: {}, hudConfig: {}, dmPrompt: '', authorNote: '', intro: ''
+  };
+}
+
+var secW = secretWorld(null), secR = HW.start(secW);
+var secLoc = HW.buildPrompt(secW, secR, 'x').system;
+ok('a present npc\u2019s hints reach the referee', secLoc.indexOf('counts cash twice at closing time') !== -1);
+ok('the truth stays out of the prompt', secLoc.indexOf('skimming the branch') === -1);
+ok('and the referee is told to keep it there', secLoc.indexOf('Do not reveal the truth') !== -1);
+var secElse = HW.start(secretWorld(null));
+HW.applyTags(secretWorld(null), secElse, 'On to B.[[move:b]]');
+ok('secrets travel with the npc, not the place',
+  HW.buildPrompt(secretWorld(null), secElse, 'x').system.indexOf('counts cash twice') === -1);
+
+var qW = secretWorld({ quest: 'Survive the audit' }), qR = HW.start(qW);
+ok('before the quest: still locked',
+  HW.buildPrompt(qW, qR, 'x').system.indexOf('skimming the branch') === -1);
+qR.quests.push({ text: 'Survive the audit', done: false });
+ok('the quest reached: the truth is revealed',
+  HW.buildPrompt(qW, qR, 'x').system.indexOf('is revealed to the player: Ned has been skimming') !== -1);
+ok('...marked so the player may discover it now',
+  HW.buildPrompt(qW, qR, 'x').system.indexOf('revealed to the player') !== -1);
+
+var stW = secretWorld({ stat: { id: 'trust', min: 5 } }), stR = HW.start(stW);
+stR.stats.trust = 3;
+ok('below the stat threshold: locked',
+  HW.buildPrompt(stW, stR, 'x').system.indexOf('skimming the branch') === -1);
+stR.stats.trust = 5;
+ok('at the stat threshold: revealed',
+  HW.buildPrompt(stW, stR, 'x').system.indexOf('is revealed to the player') !== -1);
+
+/* --- the bundled world: its secrets stop being dead text --- */
+
+var ppW = HW.parse(WORLD);
+var ppR = HW.start(ppW);
+var ppLoc = null;
+ppW.entities.forEach(function (e) {
+  if (e.secrets && !ppLoc) ppLoc = e.startLocation;
+});
+ok('test precondition: a secret-keeping npc exists with a start location', !!ppLoc);
+ppR.locationId = ppLoc;
+var ppPrompt = HW.buildPrompt(ppW, ppR, 'I look around.').system;
+ok('Policy Panic now tells the referee about kept secrets',
+  ppPrompt.indexOf('keeps a secret') !== -1);
+ok('...with the hints, not the truths',
+  ppPrompt.indexOf('closes the blinds for calls from corporate') !== -1 &&
+  ppPrompt.indexOf('Corporate will close or absorb the branch') === -1);
+ok('and tells it to hold the truths', ppPrompt.indexOf('Do not reveal the truth') !== -1);
+var noSecretLoc = null;
+ppW.locations.forEach(function (l) {
+  if (noSecretLoc) return;
+  var keeper = ppW.entities.some(function (e) {
+    return e.secrets && (e.startLocation === l.id || e.homeLocation === l.id);
+  });
+  if (!keeper) noSecretLoc = l.id;
+});
+ok('test precondition: a place exists with no secret-keepers', !!noSecretLoc);
+var ppQuiet = HW.start(ppW);
+ppQuiet.locationId = noSecretLoc;
+ok('in a place with no secret-keepers, nothing secret appears',
+  HW.buildPrompt(ppW, ppQuiet, 'I look around.').system.indexOf('keeps a secret') === -1);
 
 console.log('\nwhat the model is told');
 

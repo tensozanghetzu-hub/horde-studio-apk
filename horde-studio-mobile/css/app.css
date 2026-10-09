@@ -501,6 +501,13 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 /* a correction is a ledger note, not a line of dialogue */
 .wr-note{margin:10px 12px;padding:7px 11px;font-size:11.5px;line-height:1.5;color:var(--dim);
   background:var(--surface);border:1px dashed var(--line);border-radius:10px;text-align:center}
+/* v1.18.0 — the world's verdict on a check */
+.wr-check-line{margin:6px 12px;padding:6px 11px;font-size:11.5px;line-height:1.5;
+  border-radius:10px;text-align:center;overflow-wrap:anywhere}
+.wr-check-line.ok{color:#8fd8a0;background:rgba(143,216,160,.08);border:1px solid rgba(143,216,160,.25)}
+.wr-check-line.fail{color:#f0b46a;background:rgba(240,180,106,.08);border:1px solid rgba(240,180,106,.25)}
+.wr-check-chip.ok{background:rgba(143,216,160,.12);color:#8fd8a0;border:1px solid rgba(143,216,160,.25)}
+.wr-check-chip.fail{background:rgba(240,180,106,.12);color:#f0b46a;border:1px solid rgba(240,180,106,.25)}
 /* the correct-world-state screen */
 .wc-inv{display:flex;flex-wrap:wrap;gap:6px;padding:2px 14px}
 .wc-chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:4px 6px 4px 10px}
