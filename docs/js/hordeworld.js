@@ -336,12 +336,64 @@
 
   var TAG = /\[\[([a-z_-]+)\s*:\s*([^\]]*)\]\]/gi;
 
+  /* ---------------- ledger v2 (validation) ---------------- */
+
+  /** v1.17.0: a world validates its referee's tags instead of trusting them.
+   *  A world file may opt out with "ledgerV2": false; everything else
+   *  (AI-created, imported, bundled) is validated. */
+  function ledgerV2(world) { return !!(world && world.ledgerV2 !== false); }
+
+  /** Can the run's current place reach the target in one move? When the
+   *  current place defines no exits at all, connectivity is unspecified and
+   *  we stay lenient (the old behaviour for sketchy maps). */
+  function reachable(world, run, target) {
+    var cur = location(world, run.locationId);
+    if (!cur || target.id === cur.id) return true;
+    var ex = exits(world, cur.id).filter(function (e) { return e.to; });
+    if (!ex.length) return true;
+    return ex.some(function (e) { return e.to === target.id; });
+  }
+
+  /** How far one stat (or the purse) may move in a single turn. */
+  function statBound(world) {
+    var b = (world.gameRules || {}).statBound;
+    return (typeof b === 'number' && b > 0) ? b : 100;
+  }
+
+  /** Item names a world declares. null = the world declares no item list,
+   *  in which case item tags stay free-form, as before. */
+  function itemNames(world) {
+    if (!world || !Array.isArray(world.items)) return null;
+    var names = {};
+    world.items.forEach(function (it) {
+      var n = String((it && (it.name || it.id)) || '').toLowerCase();
+      if (n) names[n] = it.name || it.id;
+    });
+    return names;
+  }
+
+  /** Tasks a world declares, if it declares any. null = free-form tasks. */
+  function questRegistry(world) {
+    if (!world || !Array.isArray(world.quests)) return null;
+    return world.quests;
+  }
+
+  function questText(q) { return String((q && (q.text || q.name)) || q || '').trim(); }
+
   /**
    * Apply the tags at the end of a referee reply.
-   * Returns { text, changes, moved, rolled } - text has the tags removed.
+   * Returns { text, changes, moved, rolled, rejections } - text has the
+   * tags removed. On a v2 world, a tag the world cannot honour is not
+   * applied: it is dropped from the text and reported in rejections with a
+   * reason the referee can be shown.
    */
   function applyTags(world, run, text) {
-    var changes = [], moved = null, rolled = null;
+    var changes = [], rejections = [], moved = null, rolled = null;
+    var v2 = ledgerV2(world);
+    function reject(tag, reason) {
+      rejections.push({ tag: tag, reason: reason, at: Date.now() });
+    }
+
     var out = String(text || '').replace(TAG, function (whole, kind, arg) {
       kind = String(kind || '').toLowerCase().trim();
       arg = String(arg || '').trim();
@@ -356,37 +408,70 @@
             if (!target && String(l.name).toLowerCase() === lower) target = l;
           });
         }
-        if (target) { moved = target; run.locationId = target.id; changes.push('moved to ' + target.name); }
+        if (!target) {
+          if (v2) reject(whole, 'no such place as \u201C' + arg + '\u201D');
+          return '';
+        }
+        if (v2 && !reachable(world, run, target)) {
+          var from = location(world, run.locationId);
+          reject(whole, 'cannot get from ' + (from ? from.name : 'here') +
+            ' to ' + target.name + ' in one move');
+          return '';
+        }
+        moved = target; run.locationId = target.id; changes.push('moved to ' + target.name);
         return '';
       }
-      if (kind === 'clock' && !isNaN(num)) {
+      if (kind === 'clock') {
+        if (isNaN(num)) { if (v2) reject(whole, 'minutes must be a number'); return ''; }
         run.extraMinutes = (run.extraMinutes || 0) + num;
         changes.push(num + ' minutes pass');
         return '';
       }
-      if (kind === 'cash' && !isNaN(num)) {
+      if (kind === 'cash') {
+        if (isNaN(num)) { if (v2) reject(whole, 'the amount must be a number'); return ''; }
+        if (v2 && Math.abs(num) > statBound(world)) {
+          reject(whole, 'a change of ' + num + ' is beyond \u00B1' + statBound(world) + ' in one turn');
+          return '';
+        }
         run.stats[run.cashId] = (run.stats[run.cashId] || 0) + num;
         changes.push((num >= 0 ? '+' : '') + num + ' ' + ((world.gameRules || {}).currencyName || 'cash'));
         return '';
       }
       if (kind === 'stat') {
         var bits = arg.split(':');
-        if (bits.length >= 2) {
-          var sid = bits[0].trim(), delta = parseFloat(bits[1]);
-          if (!isNaN(delta)) {
-            if (run.stats[sid] === undefined) run.stats[sid] = 0;
-            run.stats[sid] = run.stats[sid] + delta;
-            changes.push(sid + ' ' + (delta >= 0 ? '+' : '') + delta);
-          }
+        if (bits.length < 2) { if (v2) reject(whole, 'expected STAT:+NUMBER'); return ''; }
+        var sid = bits[0].trim(), delta = parseFloat(bits[1]);
+        if (isNaN(delta)) { if (v2) reject(whole, 'a stat change must end in a number'); return ''; }
+        if (v2 && Math.abs(delta) > statBound(world)) {
+          reject(whole, 'a change of ' + delta + ' is beyond \u00B1' + statBound(world) + ' in one turn');
+          return '';
         }
+        if (run.stats[sid] === undefined) run.stats[sid] = 0;
+        run.stats[sid] = run.stats[sid] + delta;
+        changes.push(sid + ' ' + (delta >= 0 ? '+' : '') + delta);
         return '';
       }
-      if (kind === 'item' && arg) {
+      if (kind === 'item') {
+        if (!arg) { if (v2) reject(whole, 'name the item'); return ''; }
+        if (v2) {
+          var reg = itemNames(world);
+          if (reg) {
+            var have = run.inventory.some(function (x) {
+              return String(x).toLowerCase() === arg.toLowerCase();
+            });
+            if (have) { reject(whole, 'already carrying ' + arg); return ''; }
+            var canonical = reg[arg.toLowerCase()];
+            if (!canonical) { reject(whole, 'the world has no item named \u201C' + arg + '\u201D'); return ''; }
+            run.inventory.push(canonical);
+            changes.push('picked up ' + canonical);
+            return '';
+          }
+        }
         run.inventory.push(arg);
         changes.push('picked up ' + arg);
         return '';
       }
-      if (kind === 'drop' && arg) {
+      if (kind === 'drop') {
         var i = run.inventory.indexOf(arg);
         if (i === -1) {
           var low = arg.toLowerCase();
@@ -394,10 +479,22 @@
             return String(x).toLowerCase() === low;
           }) : -1;
         }
-        if (i !== -1) { run.inventory.splice(i, 1); changes.push('lost ' + arg); }
+        if (i === -1) { if (v2) reject(whole, 'not carrying \u201C' + arg + '\u201D'); return ''; }
+        run.inventory.splice(i, 1);
+        changes.push('lost ' + arg);
         return '';
       }
-      if (kind === 'quest' && arg) {
+      if (kind === 'quest') {
+        if (!arg) { if (v2) reject(whole, 'name the task'); return ''; }
+        if (v2) {
+          var regQ = questRegistry(world);
+          if (regQ) {
+            var known = regQ.some(function (q) {
+              return questText(q).toLowerCase() === arg.toLowerCase();
+            });
+            if (!known) { reject(whole, 'the world has no such task'); return ''; }
+          }
+        }
         if (!run.quests.some(function (q) { return q.text === arg && !q.done; })) {
           run.quests.push({ text: arg, done: false });
           changes.push('quest: ' + arg);
@@ -412,11 +509,13 @@
           }
         });
         if (done) changes.push('completed: ' + arg);
+        else if (v2) reject(whole, 'no open task matches \u201C' + arg + '\u201D');
         return '';
       }
-      if (kind === 'roll' && arg) {
+      if (kind === 'roll') {
         var r = roll(arg, (world.gameRules || {}).dice && (world.gameRules.dice.sides || 20));
         if (r) { rolled = r; changes.push(r.text); }
+        else if (v2) reject(whole, 'malformed roll \u201C' + arg + '\u201D');
         return '';
       }
       /* unknown tag: leave it, so a typo is visible rather than silently eaten */
@@ -425,8 +524,71 @@
 
     return {
       text: out.replace(/\n{3,}/g, '\n\n').trim(),
-      changes: changes, moved: moved, rolled: rolled
+      changes: changes, moved: moved, rolled: rolled, rejections: rejections
     };
+  }
+
+  /* ---------------- the player correcting the ledger ---------------- */
+
+  /** v1.17.0: the player sets the ledger straight by hand. Every corr field
+   *  is optional; returns the list of human-readable changes (empty when
+   *  nothing was actually changed). The caller records the entry and saves. */
+  function correctState(world, run, corr) {
+    corr = corr || {};
+    var changes = [];
+
+    if (corr.locationId) {
+      var t = location(world, corr.locationId);
+      if (t) { run.locationId = t.id; changes.push('set to ' + t.name); }
+    }
+    if (corr.cash !== undefined && corr.cash !== null && !isNaN(corr.cash)) {
+      run.stats[run.cashId] = corr.cash;
+      changes.push('cash set to ' + corr.cash);
+    }
+    if (corr.stats) {
+      Object.keys(corr.stats).forEach(function (sid) {
+        var v = corr.stats[sid];
+        if (v !== undefined && v !== null && !isNaN(v)) {
+          run.stats[sid] = v;
+          changes.push(sid + ' set to ' + v);
+        }
+      });
+    }
+    if (corr.addInventory) {
+      run.inventory.push(corr.addInventory);
+      changes.push('added ' + corr.addInventory);
+    }
+    if (corr.removeInventory) {
+      var i = run.inventory.indexOf(corr.removeInventory);
+      if (i === -1) {
+        i = run.inventory.findIndex ? run.inventory.findIndex(function (x) {
+          return String(x).toLowerCase() === String(corr.removeInventory).toLowerCase();
+        }) : -1;
+      }
+      if (i !== -1) {
+        run.inventory.splice(i, 1);
+        changes.push('removed ' + corr.removeInventory);
+      }
+    }
+    if (corr.addQuest) {
+      run.quests.push({ text: corr.addQuest, done: false });
+      changes.push('task: ' + corr.addQuest);
+    }
+    if (corr.doneQuestText) {
+      var lowq = String(corr.doneQuestText).toLowerCase();
+      run.quests.forEach(function (q) {
+        if (!q.done && String(q.text).toLowerCase().indexOf(lowq) !== -1) {
+          q.done = true;
+          changes.push('completed: ' + q.text);
+        }
+      });
+    }
+
+    if (changes.length) {
+      run.corrections = (run.corrections || []).concat(changes);
+      run.updatedAt = Date.now();
+    }
+    return changes;
   }
 
   /* ---------------- the prompt ---------------- */
@@ -509,7 +671,7 @@
       parts.push('Established lore:\n' + hits.map(function (e) { return '- ' + e.text; }).join('\n'));
     }
 
-    parts.push(
+    var rules =
       'Rules:\n' +
       '- Reply in prose, in second person, at most a few paragraphs.\n' +
       '- Never speak for the player or decide what they feel.\n' +
@@ -519,23 +681,56 @@
       '  [[item:THING]] [[drop:THING]] [[quest:TASK]] [[quest-done:TASK]] [[roll:2d6+1]]\n' +
       '- Only include a tag when something actually changed.\n' +
       '- Location ids for this world: ' +
-        (world.locations || []).map(function (l) { return l.id; }).join(', '));
+        (world.locations || []).map(function (l) { return l.id; }).join(', ');
+    if (ledgerV2(world)) {
+      rules += '\n- The world checks your tags: an impossible move, an out-of-bounds ' +
+        'change, an item the world has no record of, or a task it does not know is ' +
+        'rejected and reported back to you with the reason. Keep changes real and ' +
+        'small (at most ' + statBound(world) + ' to any stat or the purse per turn).';
+      var reg = itemNames(world);
+      if (reg) {
+        var names = Object.keys(reg).map(function (k) { return reg[k]; });
+        rules += '\n- Items the world has: ' + names.slice(0, 25).join(', ') +
+          (names.length > 25 ? ' \u2026' : '') + '. Only take or drop these.';
+      }
+      var regQ = questRegistry(world);
+      if (regQ && regQ.length) {
+        rules += '\n- Tasks the world knows: ' +
+          regQ.map(questText).slice(0, 20).join('; ') + '.';
+      }
+    }
+    parts.push(rules);
 
     var messages = [];
-    var log = (run.log || []).slice(-12);
+    /* correction notes are for the player, not the referee's context -
+       the corrected state itself is in the system prompt */
+    var log = (run.log || []).filter(function (m) { return m.role !== 'correction'; }).slice(-12);
     log.forEach(function (m) { messages.push({ role: m.role, content: m.content }); });
     messages.push({ role: 'user', content: input });
 
     return { system: parts.join('\n\n'), messages: messages };
   }
 
-  /** Advance the turn counter and record the exchange. */
+  /** Advance the turn counter and record the exchange.
+   *  Idempotent on the player's line: the app pushes the user message
+   *  optimistically (so it is visible during the wait) and commit must not
+   *  write it a second time. Rejections from the applied turn are kept on
+   *  the run (capped) so the HUD can show what the world refused. */
   function commit(run, userText, reply, applied) {
-    run.log.push({ role: 'user', content: userText, at: Date.now() });
+    var last = (run.log || [])[run.log.length - 1];
+    if (!last || last.role !== 'user' || last.content !== userText) {
+      run.log.push({ role: 'user', content: userText, at: Date.now() });
+    }
     run.log.push({ role: 'assistant', content: applied.text, at: Date.now() });
     if (run.log.length > 200) run.log = run.log.slice(-200);
     run.turn = (run.turn || 0) + 1;
     run.updatedAt = Date.now();
+    if (applied && applied.rejections && applied.rejections.length) {
+      run.rejections = (run.rejections || []).concat(applied.rejections.map(function (r) {
+        return { turn: run.turn, tag: r.tag, reason: r.reason, at: r.at };
+      }));
+      if (run.rejections.length > 50) run.rejections = run.rejections.slice(-50);
+    }
     return run;
   }
 
@@ -577,6 +772,7 @@
     roll: roll, clockOf: clockOf, start: start,
     bundled: bundled, installBundled: installBundled,
     applyTags: applyTags, buildPrompt: buildPrompt, commit: commit,
+    ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
     /* tests inject a store; the app uses IDB directly */
     _useStore: function (s) { store = s; }
   };

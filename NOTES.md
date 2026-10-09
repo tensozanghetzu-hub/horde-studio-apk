@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.16.0.apk` (versionCode 39) — size/sha256
-in the v1.16.0 entry. Built 2026-10-06, not yet synced:
-`docs/` serves v1.15.0 (webRev `ee6ec0d63882`) and release `v1.15.0`
+Current build: `HordeStudio-v1.17.0.apk` (versionCode 40) — size/sha256
+in the v1.17.0 entry. Built 2026-10-09, not yet synced:
+`docs/` serves v1.16.0 (webRev `8bf728e1e6c5`) and release `v1.16.0`
 is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
@@ -478,6 +478,49 @@ sha256 remains the only identity.
 
 ---
 
+## Upstream review — 18.3 "Worlds release" (2026-10-08)
+
+Checked at the user's ask (after the v1.16.0 publish): 18.3
+(`10fcf10`, 1 commit, 63 files, +3865/−428, released Oct 8) reworks the
+desktop Worlds engine around explicit turn context (`worlds/turn-context.js`
++84) and a `scene_draft_v2` JSON scene-draft transport
+(`worlds/scene-draft.js` +351), action-resolution and outcome validation
+against the world ledger (`worldActionResolutionFailures`,
+`worldFinalNarrativeConflicts`, `settleWorldCheckStateOutcome`,
+`canonicalizeWorldCheckNarrativeOutcomes`), committed state, a new
+"Correct world state…" dialog, NPC-knowledge conditional search, and
+receipt rescue / re-prompting when the model's `commit_world_turn`
+tool call is incomplete or malformed (including "provider
+function-call channel failed → return plain JSON"). Plus: desktop VH2
+workspace (full-backup ZIP packing incl. media, vh2 message
+projection/dedupe/protocol-leak repair, ComfyUI reference planning
+"fit" vs "all"), VH card menu UI, life-seed made opt-in,
+companion-thread scroll anchoring (double-rAF + scrollRevision), and
+~25 scratch audit scripts.
+
+**Port decision: nothing to port** (consistent with 18.2.0/18.2.1).
+The mobile port has no world engine to apply this to: mobile Worlds =
+curated static context files (`worlds/*.json` → "Relevant world facts"
+in the prompt) — no ledger, no receipts, no checks, no
+location/inventory state, no tool calls. The "narrated actions match
+the world ledger" rework has no target here; porting it means building
+the whole ledger system first (a v1.13-class feature, not a backport).
+The "recovery when a model response is incomplete" machinery is bound
+to the receipt contract (rescue, re-prompt and the "DM is
+reconciling…" status labels are all world-DM turns); the generic parts
+the mobile app needs already exist (autoFinish on truncation, Horde
+empty-retry, state-extraction salvage, provider diagnostics from the
+18.2.0 mapping). No ComfyUI/VH2 media to port (declined feature; the
+mobile VH has no media pipeline). The release note's "tighten mobile
+navigation" items are the VH workspace card menu and companion-thread
+scroll fix — neither surface exists in the mobile port (mobile thread
+scroll is separate code; the known restore-sign bug is a sign flip
+18.3 doesn't touch). `worlds/model-client.js`'
+provider_error/empty_completion split: already present in mobile
+equivalent paths.
+
+---
+
 ## Upstream review — 18.2.1 "Freaky Frankenstein 5.4" (2026-09-30)
 
 Checked upstream after the v1.12.0 publish: 18.2.1 (`f63fee2`, 1 commit,
@@ -509,6 +552,108 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.17.0 — Worlds: the ledger stops lying (2026-10-09)
+
+### The ask
+
+"Scope the worlds idea" → scope written in `WORLDSCOPE.md` (4 stages) →
+"Start building stage 1 first". Stage 1 from the scope: validate every
+referee tag against the world, show refusals, one bounded repair
+round, a Correct-world-state screen. (Decision points in the scope doc
+resolved by default: 1.x numbering, v2-on by default with per-world
+opt-out, no items/quests registries exist in the bundled pack so those
+validations are naturally no-ops there, repair always on.)
+
+### The change
+
+- `js/hordeworld.js`:
+  - `ledgerV2(world)` — `world.ledgerV2 !== false` (opt-out for world
+    files); `reachable(world, run, target)` — one-move reachability
+    through the exit graph, lenient when the current place defines no
+    exits (sketchy maps); `statBound(world)` — `gameRules.statBound`,
+    default ±100; `itemNames(world)` / `questRegistry(world)` — null
+    when the world declares no list (free-form, as before).
+  - `applyTags` now refuses, per tag: unknown places; one-move
+    teleports; cash/stat changes beyond the bound; items not in the
+    world's list (and duplicates); dropping what you don't carry;
+    tasks the world doesn't know / finishing tasks that aren't open;
+    malformed rolls; non-numeric clock/cash/stat values. Every refusal
+    is dropped from the text AND reported in `applied.rejections`
+    `{tag, reason}`. Legacy (`ledgerV2:false`) path is byte-identical
+    to the old behaviour.
+  - `commit` — idempotent on the player's line (the app pushes the
+    user message optimistically before the request; commit no longer
+    duplicates it — fixes a long-standing bug where every world turn
+    logged the player line twice, doubling bubbles and wasting prompt
+    context), and records `applied.rejections` on the run (capped 50).
+  - `correctState(world, run, corr)` — player-side ledger edits:
+    location (any — corrections force), cash, per-stat values,
+    inventory add/remove, task add/finish; returns the change list,
+    keeps an audit trail in `run.corrections`.
+  - `buildPrompt` — v2 worlds are told their tags will be checked and
+    the bound; the item/task lists are named (capped 25/20);
+    `role: 'correction'` log entries are filtered out of the referee's
+    message context (the corrected state itself is in the system
+    prompt).
+- `js/app.js` `App.worldTurn` — when the applied turn has rejections
+  (and the world is v2), ONE repair round: the model gets its own
+  reply back plus the rejection reasons ("keep the same story beats,
+  fix the tags"), with the system prompt rebuilt so partially applied
+  (valid) changes are visible. Repair fails or comes back empty → the
+  first reply stands, refusals stay on record. `App.go` branch
+  `worldcorrect` + back arrow.
+- `js/views.js` — HUD head gains a **correct state** pill (own class
+  `wr-correct-btn`; the worldhud suite asserts small sheets carry no
+  `wr-hud-toggle`, so it does not reuse that class); refused changes
+  render under the change chips with reasons (`applied` object is now
+  the third arg to `worldRun`/`worldHud`, arrays still accepted);
+  `worldBubble` renders `correction` entries as a centered ledger note;
+  new `Views.worldCorrect` screen: place (with reachability hint /
+  "will be forced"), purse + per-stat number inputs, pockets chips
+  with remove + add, tasks with Done + add; save loops one
+  `correctState` call per change, logs `State corrected: …`, re-renders
+  the run with the chips.
+- `index.html` — `data-screen="worldcorrect"` section.
+- `css/app.css` — `.wr-rej` (amber warning lines), `.wr-note` (dashed
+  ledger note), `.wr-correct-btn`, `.wc-*` (correction screen).
+- The tag FORMAT is unchanged — existing runs and worlds load and play
+  exactly as before; validation is per-world and non-fatal (a run can
+  never get stuck: refusals log, prose is kept, the turn completes).
+
+### Tests
+
+`tests/hordeworld-test.js` 76 → **136** (60 new): reachability
+(real-world teleport refused with reason, no-exit leniency, id + name
+fallbacks, same-place moves), bounds (±statBound, default 100,
+malformed values), items (registry membership, canonical names,
+duplicates, drop-what-you-don't-carry, free-form without a registry,
+opt-out), tasks (known/unknown, ghost finishes, free-form), rolls
+(malformed refused v2 / silently dropped legacy, valid still rolls),
+rejection bookkeeping (recorded on the run, capped 50, turn-numbered),
+commit idempotency (optimistic push not duplicated; fresh commit still
+logs both sides), `correctState` (every mutation + empty + audit
+trail), prompt (rules line v2-only, item/task lists, correction notes
+excluded from context). One regression caught and fixed during the
+segment: the correction button initially reused the `wr-hud-toggle`
+class, which the worldhud suite pins to the sheet fold only — own
+class added. Full battery: 25 node suites / **639 checks, 0 failing**
+(the two Playwright suites still need a browser).
+
+### Ship state (this segment)
+
+Bumped 1.17.0 / code 40 / sw v28. Built
+`HordeStudio-v1.17.0.apk` (306,331 B; sha256
+92b9b372579c2a13cc31b533cbc9a6a2acfa5ef4e2d13d6e77ee86fba79350d1 is
+the identity — same keystore, in-place upgrade from code 39) and
+in-APK verified:
+`ledgerV2` + `correctState` + rejection code in hordeworld.js,
+`repairOnce` + `worldcorrect` branch in app.js, `Views.worldCorrect`
++ `wr-rej` markup in views.js, `worldcorrect` section in index.html,
+sw v28, VERSION 1.17.0. Superseded v1.16.0 root APK removed. Committed
+locally. Publish only on explicit ask.
 
 ---
 
