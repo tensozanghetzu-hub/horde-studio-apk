@@ -903,8 +903,23 @@
     function finishTurn(reply) {
       var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
       HW.commit(run, text, applied.text, applied);
+      /* v1.18.0: the world resolves the checks the final reply requested -
+         after commit, so the verdict lands in the log right after the
+         referee's line, and exactly once per turn even when repaired */
+      var res = HW.resolveChecks(world, run, applied);
+      if (res.rejections.length) {
+        run.rejections = (run.rejections || []).concat(res.rejections.map(function (r) {
+          return { turn: run.turn, tag: r.tag, reason: r.reason, at: r.at };
+        }));
+        if (run.rejections.length > 50) run.rejections = run.rejections.slice(-50);
+      }
+      var hud = {
+        changes: applied.changes.concat(res.changes),
+        rejections: applied.rejections.concat(res.rejections),
+        checks: res.list
+      };
       return HW.saveRun(run).then(function () {
-        Views.worldRun(world, run, applied);
+        Views.worldRun(world, run, hud);
       });
     }
 
