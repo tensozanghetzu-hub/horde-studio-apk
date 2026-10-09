@@ -641,9 +641,10 @@ the next turn's context. Full battery: 25 node suites / **778 checks,
 ### Ship state (this segment)
 
 Bumped 1.18.0 / code 41 / sw v29. Built
-`HordeStudio-v1.18.0.apk` (310,427 B + world file; sha256
-ba922f548980804fa8a3702de832247e15420b1266c7350e8f70d2dbfd46cec3 is
-the identity — same keystore, in-place upgrade from code 40) and
+`HordeStudio-v1.18.0.apk` (310,427 B — the pre-check build was the same
+size, so the sha256 is the identity:
+ba922f548980804fa8a3702de832247e15420b1266c7350e8f70d2dbfd46cec3 —
+same keystore, in-place upgrade from code 40) and
 in-APK verified:
 `resolveChecks` + `nextRand` + `checkDef` in hordeworld.js,
 `resolveChecks` call in app.js, `wr-check-line` / `wr-check-chip` in
