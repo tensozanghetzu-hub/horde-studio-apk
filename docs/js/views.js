@@ -2052,6 +2052,11 @@
     if (m.role === 'correction') {
       return '<div class="wr-note">' + esc(m.content || '') + '</div>';
     }
+    /* the world's verdict on a check - compact, tinted by outcome */
+    if (m.role === 'check') {
+      var win = m.content.indexOf('\u2014 success') !== -1;
+      return '<div class="wr-check-line' + (win ? ' ok' : ' fail') + '">' + esc(m.content || '') + '</div>';
+    }
     var isMe = m.role === 'user';
     var who = isMe ? (Store.settings.userName || 'You') : (world.name || 'Referee');
     return '<div class="msg' + (isMe ? ' me' : '') + '">' +
@@ -2077,6 +2082,7 @@
   Views.worldHud = function (world, run, applied) {
     var changes = applied && !Array.isArray(applied) ? applied.changes : applied;
     var rejections = applied && !Array.isArray(applied) ? applied.rejections : null;
+    var checks = applied && !Array.isArray(applied) ? applied.checks : null;
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var loc = HW.location(world, run.locationId);
     var stats = hud.stats || [];
@@ -2122,6 +2128,11 @@
     if (changes && changes.length) {
       out += '<div class="wr-changes">' + changes.map(function (c) {
         return '<span class="chip">' + esc(c) + '</span>';
+      }).join('') + '</div>';
+    }
+    if (checks && checks.length) {
+      out += '<div class="wr-changes">' + checks.map(function (c) {
+        return '<span class="chip wr-check-chip' + (c.success ? ' ok' : ' fail') + '">' + esc(c.chip) + '</span>';
       }).join('') + '</div>';
     }
     if (rejections && rejections.length) {
