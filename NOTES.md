@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.19.0.apk` (versionCode 42) — size/sha256
-in the v1.19.0 entry. Built 2026-10-09, not yet synced:
-`docs/` serves v1.18.0 (webRev `07aa09303c51`) and release `v1.18.0`
+Current build: `HordeStudio-v1.20.0.apk` (versionCode 43) — size/sha256
+in the v1.20.0 entry. Built 2026-10-09, not yet synced:
+`docs/` serves v1.19.0 (webRev `80841ab18038`) and release `v1.19.0`
 is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
@@ -552,6 +552,98 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.20.0 — Worlds: scene discipline (2026-10-09)
+
+### The ask
+
+"Stage 4" — the final, optional stage of `WORLDSCOPE.md`: catch DM
+prose that over-claims, without upstream's JSON transport.
+
+### The change
+
+- `js/hordeworld.js` — **`auditClaims(world, run, input, applied)`**, a
+  cheap local pass (pure string work, no model round-trip) that compares
+  the actions the player's message promises with the tags the referee
+  actually recorded. An action that landed in prose but not in the
+  ledger becomes an **advisory** — `{ claim, note, kind }`, capped at
+  three per turn — never a rejection, never a blocked turn (the whole
+  pass is total: any internal failure degrades to "none").
+  - **Claim extraction** is verb-driven, longest phrase first
+    ("take on" before "take", "throw away" before "throw"). Kinds:
+    item (take/grab/pick up/steal/lift/…), drop (drop/put down/leave
+    behind/…), move (go/walk/run/head/enter/leave/return/…), cash
+    (pay/spend/buy/offer/bet/tip), quest (take on/agree to).
+  - **Precision beats recall** — the false-positive classes are
+    designed out: a negated ask ("I refuse to take the key", a 30-char
+    window before the verb) is not a claim; a move fires only when its
+    target **resolves to a real place** (every prefix of the captured
+    words is tried, so "the reception desk" still finds Reception); a
+    cash claim needs a stated amount (digits or number words to
+    twenty); an item/drop/quest object must be **verifiable** —
+    against the world's item registry, the run's inventory, or the
+    quest registry — or be at least two significant words on a
+    registry-less world. "I take one step", "I steal a glance",
+    "I take on the challenge", "I buy a ticket" (no amount) and
+    "Let's go." (no target) all stay silent.
+  - **Phrasal verbs with the particle behind the object** —
+    "leave the key behind", "put the binder down", "throw the key
+    away": the object is what sits between verb and particle; if that
+    object names a place it is a move after all ("leave the office
+    behind").
+  - **Matching** against the applied turn: `picked up X` / `lost X`
+    changes via `softMatch` (substring either direction, then
+    all-words-of-the-shorter, so "the key" matches "Brass key"); a
+    move matches `applied.moved` by location (a move to a different
+    place is its own note — "the move went to Reception instead");
+    a pay matches any negative cash change (the world may set its own
+    price); a quest matches a `quest:` change or an open run quest.
+  - **`commit`** now persists `applied.advisories` on the run
+    (`run.advisories`, capped at 50, same shape as rejections).
+- `js/app.js` — in `App.worldTurn`, the audit runs on the final reply
+  (so a repaired turn is judged by what it stood as); an unmatched
+  claim may spend the **one** repair round, exactly like a rejection —
+  the repair message gains a "The player asked for things the reply did
+  not record" section ("If an action happened, add its missing tag; if
+  it did not, say so in the prose"), and the rejection-only message is
+  byte-for-byte the v1.17.0 one. Opted-out worlds (`ledgerV2: false`)
+  are untouched, as with rejections.
+- `js/views.js` + `css/app.css` — the world HUD renders advisories
+  under rejections as blue **"not recorded:"** notes (`.wr-advisories`
+  / `.wr-adv`), deliberately softer than the amber rejections: the
+  prose may be right and the tags wrong.
+- **Deliberately NOT built** (per the scope): the `scene_draft_v2`
+  JSON transport — passage IDs, typed action lists, the tool-call
+  channel. It needs function-calling providers and a 32k-class
+  context; the tags are this app's scene draft, and Stages 1–2 made
+  them honest.
+
+### Tests
+
+`tests/hordeworld-test.js` 309 → **353** (+44): every kind fires and
+is silenced by its matching tag; wrong-object and wrong-place cases;
+the world's own price; gain-is-not-a-spend; the idioms and negations
+that stay silent; sentence-boundary discipline ("I pay. It was five."
+and "I take. The key is stuck." are not claims); the phrasal particles
+all three ways; two asks in one sentence; the cap at three; the
+totality contract (null world, garbage input); and `commit`
+persisting + capping advisories. Full battery: 25 node suites /
+**856 checks, 0 failing** (the two Playwright suites still need a
+browser).
+
+### Ship state (this segment)
+
+Bumped 1.20.0 / code 43 / sw v31. Built
+`HordeStudio-v1.20.0.apk` (318,619 B;
+1afdca5284001dacfe5d545e746daa36a64cad2e64b11dda2d6788e228f71569 —
+same keystore, in-place upgrade from code 42) and in-APK verified:
+`auditClaims` + `CLAIM_PARTICLE` in hordeworld.js, `not recorded` in
+views.js, `wr-adv` in app.css, sw v31, VERSION 1.20.0. Superseded
+v1.19.0 root APK removed. Committed locally. Publish only on explicit
+ask. This closes the Worlds v2 program: v1.17 ledger honesty, v1.18
+checks, v1.19 knowledge gating, v1.20 scene discipline.
 
 ---
 

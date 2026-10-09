@@ -902,6 +902,9 @@
 
     function finishTurn(reply) {
       var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
+      /* v1.20.0: scene discipline - the audit runs on the FINAL reply, so a
+         repaired turn is judged by what it actually stood as */
+      applied.advisories = HW.auditClaims(world, run, text, applied).advisories;
       HW.commit(run, text, applied.text, applied);
       /* v1.18.0: the world resolves the checks the final reply requested -
          after commit, so the verdict lands in the log right after the
@@ -916,6 +919,7 @@
       var hud = {
         changes: applied.changes.concat(res.changes),
         rejections: applied.rejections.concat(res.rejections),
+        advisories: applied.advisories,
         checks: res.list
       };
       return HW.saveRun(run).then(function () {
@@ -929,10 +933,27 @@
        system rebuilt so partial (valid) changes from the first reply are
        visible. */
     function repairOnce(reply, applied) {
-      if (!applied.rejections.length) return finishTurn(reply);
-      var repair = 'The world ledger rejected part of that bookkeeping:\n' +
-        applied.rejections.map(function (r) { return '- ' + r.tag + ' — ' + r.reason; }).join('\n') +
-        '\nKeep the same story beats. Repeat the reply with only the tags corrected.';
+      if (!applied.rejections.length && !applied.advisories.length) return finishTurn(reply);
+      var repair;
+      if (!applied.advisories.length) {
+        /* rejection-only: the original v1.17.0 message, unchanged */
+        repair = 'The world ledger rejected part of that bookkeeping:\n' +
+          applied.rejections.map(function (r) { return '- ' + r.tag + ' — ' + r.reason; }).join('\n') +
+          '\nKeep the same story beats. Repeat the reply with only the tags corrected.';
+      } else {
+        var lines = [];
+        if (applied.rejections.length) {
+          lines.push('The world ledger rejected part of that bookkeeping:');
+          applied.rejections.forEach(function (r) { lines.push('- ' + r.tag + ' — ' + r.reason); });
+        }
+        lines.push('The player asked for things the reply did not record:');
+        applied.advisories.forEach(function (a) { lines.push('- ' + a.claim + ' — ' + a.note); });
+        repair = lines.join('\n') +
+          '\nKeep the same story beats. ' +
+          (applied.rejections.length ? 'Correct the refused tags. ' : '') +
+          'If an action happened, add its missing tag; if it did not, say so in the prose. ' +
+          'Repeat the reply.';
+      }
       /* the log alternates user/assistant (it may open with the world's
          intro), so keep each entry's real role */
       var msgs = run.log.filter(function (m) { return m.role !== 'correction'; })
@@ -975,7 +996,10 @@
       })
     }).then(function (reply) {
       var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
-      if (applied.rejections.length && HW.ledgerV2(world)) {
+      /* v1.20.0: an ask the reply never recorded may spend the one repair
+         round, exactly like a rejection (still at most one per turn) */
+      applied.advisories = HW.auditClaims(world, run, text, applied).advisories;
+      if ((applied.rejections.length || applied.advisories.length) && HW.ledgerV2(world)) {
         return repairOnce(reply, applied);
       }
       return finishTurn(reply);

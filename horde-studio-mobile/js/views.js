@@ -2082,6 +2082,7 @@
   Views.worldHud = function (world, run, applied) {
     var changes = applied && !Array.isArray(applied) ? applied.changes : applied;
     var rejections = applied && !Array.isArray(applied) ? applied.rejections : null;
+    var advisories = applied && !Array.isArray(applied) ? applied.advisories : null;
     var checks = applied && !Array.isArray(applied) ? applied.checks : null;
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var loc = HW.location(world, run.locationId);
@@ -2140,6 +2141,14 @@
          player what was refused, so a stuck scene is diagnosable */
       out += '<div class="wr-rejections">' + rejections.map(function (r) {
         return '<div class="wr-rej">rejected: ' + esc(r.tag) + ' \u2014 ' + esc(r.reason) + '</div>';
+      }).join('') + '</div>';
+    }
+    if (advisories && advisories.length) {
+      /* v1.20.0 - scene discipline: the player asked for something the
+         ledger never recorded. Softer than a rejection - the story may be
+         right and the tags wrong, or the ask may have failed in prose */
+      out += '<div class="wr-advisories">' + advisories.map(function (a) {
+        return '<div class="wr-adv">not recorded: ' + esc(a.claim) + ' \u2014 ' + esc(a.note) + '</div>';
       }).join('') + '</div>';
     }
     return out;

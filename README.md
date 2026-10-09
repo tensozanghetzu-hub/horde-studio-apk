@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.19.0
+# Horde Studio — Mobile (Android) · v1.20.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.19.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.20.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.19.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.20.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,34 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.20.0
+
+**Scene discipline: the world notices when you asked for something it
+never wrote down.** Prose can over-claim — "I take the key" with no
+`[[item:key]]` tag used to pass silently. Now a cheap local pass (no
+extra model round) compares the actions your message promises with the
+tags the referee actually recorded, and when one didn't make it to the
+ledger it shows up in the world HUD as a blue **"not recorded"** note
+and gets the referee one chance — the same single repair round a
+rejected tag gets — to fix it: add the missing tag if the action
+happened, or say in the prose why it didn't.
+
+The audit is deliberately picky, so a quiet scene stays quiet: only
+verbs that promise a ledger change are checked (take, drop, move, pay,
+take a task on…), a move only counts when it names a real place, a pay
+only when it names an amount, a take/drop only when the object is
+something the world or your pockets actually know — "I take one step"
+and "I take on the challenge" are not claims, and "I refuse to take
+the key" is the opposite of one. At most three notes per turn, never
+a blocked turn, never a rejection — it tells you the ledger is
+missing something; the "correct state" screen was always there to set
+it straight by hand.
+
+This is the last stage of the Worlds v2 program (`WORLDSCOPE.md`):
+the ledger stopped lying (v1.17), checks started having consequences
+(v1.18), the world learned what NPCs know (v1.19), and now the scene
+itself keeps its own receipts.
 
 ## What's new in v1.19.0
 

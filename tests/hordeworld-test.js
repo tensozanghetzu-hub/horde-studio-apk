@@ -788,6 +788,126 @@ ppQuiet.locationId = noSecretLoc;
 ok('in a place with no secret-keepers, nothing secret appears',
   HW.buildPrompt(ppW, ppQuiet, 'I look around.').system.indexOf('keeps a secret') === -1);
 
+console.log('\nscene discipline (v1.20.0)');
+
+/* --- the claim audit: the player asked, the tags answered (or did not) --- */
+
+var auditW = HW.parse({
+  _format: 'horde-world', name: 'Audit scene', startLocationId: 'loc_reception',
+  locations: [
+    { id: 'loc_reception', name: 'Reception', exits: [{ text: 'to Main Office', travelTime: 1 }] },
+    { id: 'loc_office', name: 'Main Office', exits: [{ text: 'to Reception', travelTime: 1 }] }
+  ],
+  items: [{ id: 'it_key', name: 'Brass key' }, { id: 'it_binder', name: 'Training binder' }],
+  quests: [{ text: 'Survive the audit' }],
+  gameRules: { currencyName: 'coins' }, hudConfig: {}
+});
+
+function audit(input, reply, setup) {
+  var r = HW.start(auditW);
+  if (setup) setup(r);
+  var applied = HW.applyTags(auditW, r, reply || 'The scene continues.');
+  return HW.auditClaims(auditW, r, input, applied);
+}
+function silent(label, input, reply, setup) {
+  var adv = audit(input, reply, setup).advisories;
+  ok(label, adv.length === 0, JSON.stringify(adv));
+}
+function flagged(label, input, reply, setup, kind) {
+  var adv = audit(input, reply, setup).advisories;
+  ok(label, adv.length === 1 && (!kind || adv[0].kind === kind), JSON.stringify(adv));
+}
+
+/* an action that landed in prose but not in the ledger is advisory */
+flagged('an unrecorded take is flagged', 'I take the brass key.', '', null, 'item');
+ok('...naming the object', audit('I take the brass key.', '').advisories[0].note.indexOf('brass key') !== -1);
+var aNoTag = HW.applyTags(auditW, HW.start(auditW), 'The key sits on the counter.');
+ok('...while the reply itself drew no rejections', aNoTag.rejections.length === 0);
+
+/* a matching tag silences the audit */
+silent('a recorded take is silent', 'I take the brass key.', 'You pocket it.\n[[item:Brass key]]');
+silent('a coarse name still matches', 'I take the key.', 'You pocket it.\n[[item:Brass key]]');
+flagged('a tag for a different object is not a match', 'I take the brass key.', 'You pocket it.\n[[item:Training binder]]', null, 'item');
+
+/* drops are audited against what the run actually carries */
+silent('a recorded drop is silent', 'I drop the binder.', 'You set it down.\n[[drop:Training binder]]',
+  function (r) { r.inventory.push('Training binder'); });
+flagged('an unrecorded drop is flagged', 'I drop the binder.', '',
+  function (r) { r.inventory.push('Training binder'); }, 'drop');
+silent('dropping something not carried is not claimed', 'I drop the binder.', '');
+
+/* moves fire only at real places, and only when the move went elsewhere */
+silent('a recorded move to the named place is silent', 'I walk to the Main Office.', 'The door opens.\n[[move:loc_office]]');
+flagged('moving somewhere else is flagged', 'I walk to the Main Office.', 'You drift back.\n[[move:loc_reception]]', null, 'move');
+ok('...saying where the move actually went',
+  audit('I walk to the Main Office.', 'You drift back.\n[[move:loc_reception]]').advisories[0].note.indexOf('Reception') !== -1);
+flagged('a move that was never recorded is flagged', 'I walk to the Main Office.', '', null, 'move');
+silent('an unresolvable target never fires', 'I go to the kitchen.', '');
+silent('a bare "go" has no target', "Let's go.", '');
+
+/* cash claims need a stated amount; any spend satisfies them */
+silent('a recorded spend is silent', 'I pay five coins.', 'The clerk nods.\n[[cash:-5]]');
+silent('the world may set its own price', 'I pay five coins.', 'It costs more.\n[[cash:-8]]');
+flagged('a pay with no spend is flagged', 'I pay five coins.', 'The clerk nods.', null, 'cash');
+flagged('a gain is not a spend', 'I pay five coins.', 'He tips you back.\n[[cash:+3]]', null, 'cash');
+silent('an amount-less buy is not audited', 'I buy a ticket.', '');
+
+/* tasks */
+silent('a recorded task is silent', 'I take on Survive the audit.', 'Understood.\n[[quest:Survive the audit]]');
+flagged('an unrecorded task is flagged', 'I take on Survive the audit.', 'Understood.', null, 'quest');
+silent('a task the world does not know is not claimed', 'I take on the challenge.', '');
+
+/* negation, idiom and vagueness are not claims */
+silent('a refused take is not a claim', 'I refuse to take the key.', 'The key stays where it is.');
+silent('a can\'t take is not a claim', "I can't take the key.", '');
+silent('an idiom is not a claim', 'I take one step forward.', '');
+silent('a glance is not a pickup', 'I steal a glance at the ledger.', '');
+silent('small talk is not a claim', 'What is this place?', 'A quiet office.');
+silent('an empty input is not a claim', '', '');
+silent('a new sentence is not the object (pay)', 'I pay. It was five.', '');
+silent('a new sentence is not the object (take)', 'I take. The key is stuck.', '');
+
+/* the imperative form works too */
+flagged('a bare imperative is a claim', 'Take the key.', '', null, 'item');
+
+/* phrasal verbs with the particle behind the object */
+flagged('"leave the key behind" is a drop', 'I leave the key behind.', '',
+  function (r) { r.inventory.push('Brass key'); }, 'drop');
+flagged('"leave the office" is a move', 'I leave the office.', '', null, 'move');
+flagged('"leave the office behind" is still a move', 'I leave the office behind.', '', null, 'move');
+flagged('"put the binder down" is a drop', 'I put the binder down.', '',
+  function (r) { r.inventory.push('Training binder'); }, 'drop');
+flagged('"throw the key away" is a drop', 'I throw the key away.', '',
+  function (r) { r.inventory.push('Brass key'); }, 'drop');
+
+/* several asks in one turn, capped */
+eq('two asks in one sentence give two advisories',
+  audit('I go to the reception and take the key.', '').advisories.length, 2);
+eq('the pile caps at three',
+  audit('I take the brass key. I grab the training binder. I walk to the Main Office. I pay five coins.', '').advisories.length, 3);
+
+/* the audit is total: it must never throw, never block */
+ok('a null world does not throw', (function () {
+  try { HW.auditClaims(null, null, 'I take the brass key.', null); return true; }
+  catch (e) { return false; }
+})());
+ok('garbage input degrades to nothing',
+  HW.auditClaims(auditW, HW.start(auditW), '!!! ???.', { changes: [] }).advisories.length === 0);
+
+/* advisories persist on the run, capped like rejections */
+var advRun = HW.start(auditW);
+var advApplied = HW.applyTags(auditW, advRun, 'The key sits on the counter.');
+advApplied.advisories = audit('I take the brass key.', '').advisories;
+HW.commit(advRun, 'I take the brass key.', advApplied.text, advApplied);
+eq('the turn\'s advisory lands on the run', advRun.advisories.length, 1);
+eq('...with the turn number', advRun.advisories[0].turn, 1);
+for (var advCap = 0; advCap < 60; advCap++) {
+  var ra = HW.applyTags(auditW, advRun, 'x');
+  ra.advisories = [{ claim: 'c' + advCap, note: 'n', at: 1 }];
+  HW.commit(advRun, 'line ' + advCap, ra.text, ra);
+}
+eq('the run keeps only the last fifty advisories', advRun.advisories.length, 50);
+
 console.log('\nwhat the model is told');
 
 var built = HW.buildPrompt(w, run, 'I look around the bullpen.');
