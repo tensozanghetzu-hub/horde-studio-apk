@@ -2048,6 +2048,10 @@
      2.5 MB world arrives at about 50 KB. */
 
   function worldBubble(m, world) {
+    /* a player correction is a ledger note, not a line of dialogue */
+    if (m.role === 'correction') {
+      return '<div class="wr-note">' + esc(m.content || '') + '</div>';
+    }
     var isMe = m.role === 'user';
     var who = isMe ? (Store.settings.userName || 'You') : (world.name || 'Referee');
     return '<div class="msg' + (isMe ? ' me' : '') + '">' +
@@ -2067,8 +2071,12 @@
   var wrHudOpen = false;
   Views.wrHudOpen = function (v) { if (v === undefined) return wrHudOpen; wrHudOpen = !!v; };
 
-  /* Time, stats, purse, pockets and tasks - whatever the world switches on. */
-  Views.worldHud = function (world, run, changes) {
+  /* Time, stats, purse, pockets and tasks - whatever the world switches on.
+     The third argument is the applied turn ({changes, rejections}) or a plain
+     changes array. */
+  Views.worldHud = function (world, run, applied) {
+    var changes = applied && !Array.isArray(applied) ? applied.changes : applied;
+    var rejections = applied && !Array.isArray(applied) ? applied.rejections : null;
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var loc = HW.location(world, run.locationId);
     var stats = hud.stats || [];
@@ -2104,6 +2112,8 @@
       head += '<button type="button" class="wr-hud-toggle" data-act="wr-hud-toggle">' +
              (wrHudOpen ? 'hide sheet' : 'sheet (' + stats.length + ')') + '</button>';
     }
+    head += '<button type="button" class="wr-correct-btn" data-act="wr-correct" ' +
+      'title="Set the clock, purse, stats, pockets or tasks by hand">correct state</button>';
 
     var out = '<div class="wr-hud-row">' + head + '</div>';
     if (sheet) {
@@ -2112,6 +2122,13 @@
     if (changes && changes.length) {
       out += '<div class="wr-changes">' + changes.map(function (c) {
         return '<span class="chip">' + esc(c) + '</span>';
+      }).join('') + '</div>';
+    }
+    if (rejections && rejections.length) {
+      /* the world said no to some of the referee's bookkeeping - show the
+         player what was refused, so a stuck scene is diagnosable */
+      out += '<div class="wr-rejections">' + rejections.map(function (r) {
+        return '<div class="wr-rej">rejected: ' + esc(r.tag) + ' \u2014 ' + esc(r.reason) + '</div>';
       }).join('') + '</div>';
     }
     return out;
@@ -2128,6 +2145,9 @@
       if (btn) btn.textContent = wrHudOpen ? 'hide sheet' :
         'sheet (' + ((world.hudConfig || {}).stats || []).length + ')';
     });
+    on(hud, '[data-act=wr-correct]', 'click', function () {
+      if (App.state.worldRun) App.go('worldcorrect');
+    });
   };
 
   Views.worldRun = function (world, run, changes) {
@@ -2140,6 +2160,169 @@
     if (!thread) return;
     thread.innerHTML = (run.log || []).map(function (m) { return worldBubble(m, world); }).join('');
     thread.scrollTop = thread.scrollHeight;
+  };
+
+  /* v1.17.0: the ledger can be set straight by hand. Every applied change
+     is logged into the run as a correction, so the referee's next prompt
+     carries the truth, not the story. */
+  Views.worldCorrect = function (root) {
+    var world = App.state.world, run = App.state.worldRun;
+    var body = root.querySelector('#world-correct-body');
+    if (!body) return;
+    if (!world || !run) {
+      body.innerHTML = '<p class="hint">No run to correct.</p>';
+      return;
+    }
+
+    var hud = world.hudConfig || {}, gr = world.gameRules || {};
+    var cur = HW.location(world, run.locationId);
+    var reachableIds = {};
+    (HW.exits(world, run.locationId) || []).forEach(function (e) {
+      if (e.to) reachableIds[e.to] = true;
+    });
+    reachableIds[run.locationId] = true;
+
+    var inv = (run.inventory || []).slice();
+    var quests = (run.quests || []).map(function (q) { return { text: q.text, done: !!q.done }; });
+
+    var h = '<div class="group">';
+    h += '<h3>Where you are</h3>';
+    h += '<div class="field"><select id="wc-loc">';
+    (world.locations || []).forEach(function (l) {
+      h += '<option value="' + esc(l.id) + '"' + (l.id === run.locationId ? ' selected' : '') + '>' +
+        esc(l.name) + (l.id === run.locationId ? ' (here)' : '') + '</option>';
+    });
+    h += '</select></div><p class="hint" id="wc-loc-hint"></p>';
+
+    h += '<h3>Numbers</h3>';
+    h += '<div class="field"><label class="lbl">' + esc(gr.currencyName || 'Cash') + '</label>' +
+      '<input id="wc-cash" type="number" step="1" value="' +
+      (run.stats[run.cashId] !== undefined ? run.stats[run.cashId] : 0) + '"></div>';
+    (hud.stats || []).forEach(function (st) {
+      h += '<div class="field"><label class="lbl">' + esc(st.name) + '</label>' +
+        '<input id="wc-stat-' + esc(st.id) + '" type="number" step="1" value="' +
+        (run.stats[st.id] !== undefined ? run.stats[st.id] : 0) + '"></div>';
+    });
+
+    h += '<h3>Pockets</h3><div class="wc-inv" id="wc-inv"></div>' +
+      '<div class="field row"><input id="wc-item" type="text" placeholder="Add an item…">' +
+      '<button class="btn sm" id="wc-item-add">Add</button></div>';
+
+    h += '<h3>Tasks</h3><div id="wc-quests"></div>' +
+      '<div class="field row"><input id="wc-quest" type="text" placeholder="Add a task…">' +
+      '<button class="btn sm" id="wc-quest-add">Add</button></div>';
+
+    h += '<p class="hint">The referee is told nothing about how the state was ' +
+      'reached \u2014 it simply continues from it. Corrections are kept in the ' +
+      'run\u2019s log.</p>' +
+      '<button class="btn" id="wc-save">Apply corrections</button></div>';
+
+    body.innerHTML = h;
+
+    function renderInv() {
+      body.querySelector('#wc-inv').innerHTML = inv.length ? inv.map(function (it, i) {
+        return '<span class="chip wc-chip">' + esc(it) +
+          '<button type="button" class="wc-x" data-wc-drop="' + i + '" aria-label="Remove ' + esc(it) + '">\u00D7</button></span>';
+      }).join('') : '<p class="hint">Nothing to remove.</p>';
+    }
+    function renderQuests() {
+      body.querySelector('#wc-quests').innerHTML = quests.length ? quests.map(function (q) {
+        return q.done
+          ? '<div class="wc-quest done">' + esc(q.text) + ' <em>done</em></div>'
+          : '<div class="wc-quest">' + esc(q.text) +
+            '<button type="button" class="btn sm ghost" data-wc-done="' + esc(q.text) + '">Done</button></div>';
+      }).join('') : '<p class="hint">No tasks.</p>';
+    }
+    renderInv();
+    renderQuests();
+
+    /* container-level listeners: the chips re-render, the container does not */
+    body.querySelector('#wc-inv').addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('[data-wc-drop]') : null;
+      if (!btn) return;
+      inv.splice(+btn.getAttribute('data-wc-drop'), 1);
+      renderInv();
+    });
+    body.querySelector('#wc-quests').addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('[data-wc-done]') : null;
+      if (!btn) return;
+      var t = btn.getAttribute('data-wc-done');
+      quests.forEach(function (q) {
+        if (!q.done && q.text.toLowerCase().indexOf(t.toLowerCase()) !== -1) q.done = true;
+      });
+      renderQuests();
+    });
+
+    var locSel = body.querySelector('#wc-loc');
+    function locHint() {
+      var id = locSel.value;
+      body.querySelector('#wc-loc-hint').textContent =
+        id === run.locationId ? '' :
+        reachableIds[id] ? 'Directly reachable from here.' :
+        'Not directly reachable from ' + (cur ? cur.name : 'here') +
+        ' \u2014 the move will be forced.';
+    }
+    locSel.addEventListener('change', locHint);
+    locHint();
+
+    on(body, '#wc-item-add', 'click', function () {
+      var v = body.querySelector('#wc-item').value.trim();
+      if (!v) return;
+      inv.push(v);
+      body.querySelector('#wc-item').value = '';
+      renderInv();
+    });
+    on(body, '#wc-quest-add', 'click', function () {
+      var v = body.querySelector('#wc-quest').value.trim();
+      if (!v) return;
+      quests.push({ text: v, done: false });
+      body.querySelector('#wc-quest').value = '';
+      renderQuests();
+    });
+    on(body, '#wc-save', 'click', function () {
+      /* one correction object per change - correctState applies exactly one
+         of each kind, so several edits mean several calls */
+      var corrs = [];
+      if (locSel.value !== run.locationId) corrs.push({ locationId: locSel.value });
+      var cashEl = body.querySelector('#wc-cash');
+      var cashNow = run.stats[run.cashId] !== undefined ? run.stats[run.cashId] : 0;
+      if (cashEl.value !== '' && Number(cashEl.value) !== cashNow) {
+        corrs.push({ cash: Number(cashEl.value) });
+      }
+      (hud.stats || []).forEach(function (st) {
+        var el = body.querySelector('#wc-stat-' + st.id);
+        if (!el) return;
+        var now = run.stats[st.id] !== undefined ? run.stats[st.id] : 0;
+        if (el.value !== '' && Number(el.value) !== now) {
+          var s = {}; s[st.id] = Number(el.value);
+          corrs.push({ stats: s });
+        }
+      });
+      var oldInv = run.inventory || [];
+      oldInv.forEach(function (x) { if (inv.indexOf(x) === -1) corrs.push({ removeInventory: x }); });
+      inv.forEach(function (x) { if (oldInv.indexOf(x) === -1) corrs.push({ addInventory: x }); });
+      (run.quests || []).forEach(function (o) {
+        var now = null;
+        quests.forEach(function (q) { if (q.text === o.text) now = q; });
+        if (now && now.done && !o.done) corrs.push({ doneQuestText: o.text });
+      });
+      quests.forEach(function (q) {
+        if (!(run.quests || []).some(function (o) { return o.text === q.text; })) {
+          corrs.push({ addQuest: q.text });
+        }
+      });
+
+      var changes = [];
+      corrs.forEach(function (c) { changes = changes.concat(HW.correctState(world, run, c)); });
+      if (!changes.length) { UI.toast('Nothing to change'); return; }
+      run.log.push({ role: 'correction', content: 'State corrected: ' + changes.join('; '), at: Date.now() });
+      if (run.log.length > 200) run.log = run.log.slice(-200);
+      HW.saveRun(run).then(function () {
+        App.go('worldrun');
+        Views.worldRun(world, run, { changes: changes, rejections: [] });
+        UI.toast('World state corrected');
+      });
+    });
   };
 
   Views.worlds = function (root) {

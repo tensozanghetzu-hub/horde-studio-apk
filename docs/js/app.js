@@ -35,7 +35,7 @@
     $$('.nav-btn').forEach(function (b) { b.classList.toggle('active', b.getAttribute('data-go') === navName); });
 
     var back = $('#btn-back'), act = $('#btn-bar-action');
-    back.hidden = !(name === 'chat' || name === 'editor' || name === 'worldrun' || name === 'personas' || name === 'settings-x');
+    back.hidden = !(name === 'chat' || name === 'editor' || name === 'worldrun' || name === 'worldcorrect' || name === 'personas' || name === 'settings-x');
     act.hidden = !(name === 'chat' || name === 'characters');
     if (name === 'chat') act.setAttribute('aria-label', 'Conversation options');
 
@@ -84,6 +84,10 @@
       var wrun = App.state.worldRun;
       $('#bar-title').textContent = (App.state.world && App.state.world.name) || 'World';
       $('#bar-sub').textContent = wrun ? ('turn ' + (wrun.turn || 0)) : '';
+    } else if (name === 'worldcorrect') {
+      $('#bar-title').textContent = 'Correct world state';
+      $('#bar-sub').textContent = (App.state.world && App.state.world.name) || '';
+      Views.worldCorrect($('.screen'));
     } else if (name === 'chat') {
       var ch = App.state.char;
       $('#bar-title').textContent = (ch && ch.name) || 'Chat';
@@ -896,6 +900,53 @@
     var typing = $('#wr-typing');
     if (typing) typing.hidden = false;
 
+    function finishTurn(reply) {
+      var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
+      HW.commit(run, text, applied.text, applied);
+      return HW.saveRun(run).then(function () {
+        Views.worldRun(world, run, applied);
+      });
+    }
+
+    /* v1.17.0: when the world rejects the referee's bookkeeping, give the
+       referee ONE chance to fix it - with the reasons - then accept whatever
+       comes back. The repair reuses the same system prompt machinery, with a
+       system rebuilt so partial (valid) changes from the first reply are
+       visible. */
+    function repairOnce(reply, applied) {
+      if (!applied.rejections.length) return finishTurn(reply);
+      var repair = 'The world ledger rejected part of that bookkeeping:\n' +
+        applied.rejections.map(function (r) { return '- ' + r.tag + ' — ' + r.reason; }).join('\n') +
+        '\nKeep the same story beats. Repeat the reply with only the tags corrected.';
+      /* the log alternates user/assistant (it may open with the world's
+         intro), so keep each entry's real role */
+      var msgs = run.log.filter(function (m) { return m.role !== 'correction'; })
+        .slice(-12).map(function (m) {
+          return { role: m.role === 'user' ? 'user' : 'assistant', text: m.content };
+        });
+      msgs.push({ role: 'assistant', text: applied.text });
+      msgs.push({ role: 'user', text: repair });
+      var prompt2 = HW.buildPrompt(world, run, text);
+      return API.generate({
+        settings: s,
+        character: {
+          id: world.id, name: world.name, persona: '', scenario: '',
+          examples: '', lorebook: [], systemPrompt: prompt2.system
+        },
+        session: { id: run.id },
+        history: msgs.map(function (m) {
+          return { id: 'w' + Math.random().toString(36).slice(2),
+                   role: m.role, text: m.text, createdAt: Date.now() };
+        })
+      }).then(function (reply2) {
+        if (reply2 && reply2.trim()) return finishTurn(reply2);
+        return finishTurn(reply);
+      }).catch(function (e2) {
+        if (e2 && e2.name === 'AbortError') throw e2;
+        return finishTurn(reply);   /* the repair failed: keep the first reply */
+      });
+    }
+
     API.generate({
       settings: s,
       /* the world is the referee: its own prompt is the whole system prompt */
@@ -909,10 +960,10 @@
       })
     }).then(function (reply) {
       var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
-      HW.commit(run, text, applied.text, applied);
-      return HW.saveRun(run).then(function () {
-        Views.worldRun(world, run, applied.changes);
-      });
+      if (applied.rejections.length && HW.ledgerV2(world)) {
+        return repairOnce(reply, applied);
+      }
+      return finishTurn(reply);
     }).catch(function (e) {
       if (e && e.name === 'AbortError') { UI.toast('Stopped'); return; }
       UI.toast('The referee could not answer: ' + (e && e.message), 5000);
