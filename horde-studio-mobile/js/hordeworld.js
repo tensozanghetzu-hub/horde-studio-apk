@@ -864,6 +864,299 @@
     return changes;
   }
 
+  /** v1.20.0: scene discipline. The player's words are a second ledger: a
+   *  cheap local pass compares what the player asked for ("I take the key")
+   *  with what the referee actually recorded. An action that landed in prose
+   *  but not in the tags becomes an advisory note (and may spend the one
+   *  repair round) - never a rejection, never a blocked turn. Detection is
+   *  pure string work; no model round-trip.
+   *
+   *  Claims are verb-driven, and only the verbs that promise a ledger
+   *  change are audited. Precision beats recall: a move claim fires only
+   *  when its target resolves to a real place, a cash claim only when an
+   *  amount is stated, and a negated ask ("I refuse to take the key") is
+   *  not a claim at all. Returns { advisories: [{ claim, note, kind }] },
+   *  capped at three per turn; any internal failure degrades to "none". */
+
+  /* Longest phrases first, so "take on" claims its span before "take" and
+   *  "throw away" before "throw". */
+  var CLAIM_SCAN = /\b(take on|agree to|throw away|put down|leave behind|take hold of|reach for|pick up|throw|put|drop|take|grab|collect|pocket|snatch|steal|lift|pay|spend|buy|offer|bet|tip|walk|run|head|move|rush|hurry|climb|enter|leave|return|go)\b/gi;
+  var CLAIM_KIND = {
+    'take on': 'quest', 'agree to': 'quest',
+    'throw away': 'drop', 'put down': 'drop', 'leave behind': 'drop',
+    'throw': 'drop', 'put': 'drop', 'drop': 'drop',
+    'take hold of': 'item', 'reach for': 'item', 'pick up': 'item',
+    'take': 'item', 'grab': 'item', 'collect': 'item', 'pocket': 'item',
+    'snatch': 'item', 'steal': 'item', 'lift': 'item',
+    'pay': 'cash', 'spend': 'cash', 'buy': 'cash', 'offer': 'cash',
+    'bet': 'cash', 'tip': 'cash',
+    'walk': 'move', 'run': 'move', 'head': 'move', 'move': 'move',
+    'rush': 'move', 'hurry': 'move', 'climb': 'move', 'enter': 'move',
+    'leave': 'move', 'return': 'move', 'go': 'move'
+  };
+  /* words that never carry meaning at the start of an object */
+  var CLAIM_SKIP = ' the a an my your his her its our this that some few one up out on at in to from off over under towards toward into onto down it them him her you me we they all both ';
+  /* a word that ends the object we are capturing */
+  var CLAIM_STOP = ' and then while as but so when if until before after with to from in at on off into onto out over under up down ';
+  var CLAIM_NEGATION = /\b(not|no|never|won't|wont|can't|cant|cannot|refuse|refuses|refused|avoid|avoiding|deny|denying|denied|dare|daren't)\b/;
+  /* phrasal verbs whose particle lands AFTER the object:
+     "leave the key behind", "put the key down", "throw the key away" */
+  var CLAIM_PARTICLE = { leave: 'behind', put: 'down', throw: 'away' };
+  var CLAIM_NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20 };
+
+  function claimTokens(s) {
+    var out = [], re = /[a-z0-9']+/g, m;
+    while ((m = re.exec(s)) !== null) out.push({ w: m[0], s: m.index, e: m.index + m[0].length });
+    return out;
+  }
+  function inSet(set, w) { return set.indexOf(' ' + w + ' ') !== -1; }
+
+  /** Capture the object after a verb (" the brass key," -> "the brass key").
+   *  Returns { text, norm, start, end } relative to the slice, or null when
+   *  the verb has nothing to act on. */
+  function claimObject(afterLow) {
+    var toks = claimTokens(afterLow);
+    if (toks.length && toks[0].s > 1) return null;   /* punctuation right after the verb */
+    var i = 0;
+    while (i < toks.length && inSet(CLAIM_SKIP, toks[i].w)) i++;
+    if (i >= toks.length) return null;
+    var start = toks[i].s, end = start, count = 0;
+    for (; i < toks.length; i++) {
+      if (count >= 6) break;
+      if (inSet(CLAIM_STOP, toks[i].w)) break;
+      end = toks[i].e;
+      count++;
+      /* more than one char of gap means punctuation intervened */
+      if (i + 1 < toks.length && toks[i + 1].s - toks[i].e > 1) break;
+    }
+    var text = afterLow.slice(start, end);
+    if (!text.trim()) return null;
+    return { text: text, norm: text.replace(/^\s+|\s+$/g, ''), start: start, end: end };
+  }
+
+  /** Does this phrase name a real place? The claim may carry extra words
+   *  ("the reception desk"), so every prefix of the words is tried against
+   *  the location list - and a location may carry the claim's extra words
+   *  ("office" inside "Main Office"). */
+  function resolvePlace(phrase, world) {
+    if (!phrase) return null;
+    var locs = (world && world.locations) || [];
+    var words = String(phrase).toLowerCase().split(' ').filter(Boolean);
+    for (var k = words.length; k >= 1; k--) {
+      var p = words.slice(0, k).join(' ');
+      for (var j = 0; j < locs.length; j++) {
+        var name = String(locs[j].name || '').toLowerCase();
+        if (!name) continue;
+        if (name === p || p.indexOf(name) !== -1 ||
+            (p.length >= 3 && name.indexOf(p) !== -1)) return locs[j];
+      }
+    }
+    return null;
+  }
+
+  /** Where a move claim is pointing, if it names a real place. The span ends
+   *  at the words that actually matched, so a following sentence never
+   *  leaks in. */
+  function claimMoveTarget(afterLow, world) {
+    var toks = claimTokens(afterLow);
+    if (toks.length && toks[0].s > 1) return null;   /* punctuation right after the verb */
+    var i = 0;
+    while (i < toks.length && inSet(CLAIM_SKIP, toks[i].w)) i++;
+    var words = [];
+    for (; i < toks.length && words.length < 5; i++) {
+      if (inSet(CLAIM_STOP, toks[i].w)) break;
+      words.push(toks[i]);
+      if (i + 1 < toks.length && toks[i + 1].s - toks[i].e > 1) break;
+    }
+    if (!words.length) return null;
+    for (var k = words.length; k >= 1; k--) {
+      var loc = resolvePlace(words.slice(0, k).map(function (t) { return t.w; }).join(' '), world);
+      if (loc) return { loc: loc, start: words[0].s, end: words[k - 1].e };
+    }
+    return null;
+  }
+
+  /** The object between a verb and its trailing particle ("leave the key
+   *  behind" -> "the key"). Null when the particle never shows up. */
+  function claimPhrasal(afterLow, particle) {
+    var toks = claimTokens(afterLow);
+    if (toks.length && toks[0].s > 1) return null;   /* punctuation right after the verb */
+    var i = 0;
+    while (i < toks.length && inSet(CLAIM_SKIP, toks[i].w)) i++;
+    var j = i;
+    while (j < toks.length && j - i < 5) {
+      if (j > i && toks[j].s - toks[j - 1].e > 1) return null;   /* sentence boundary */
+      if (toks[j].w === particle) break;
+      if (inSet(CLAIM_STOP, toks[j].w)) return null;
+      j++;
+    }
+    if (j === i || j >= toks.length || toks[j].w !== particle) return null;
+    var text = afterLow.slice(toks[i].s, toks[j].s);
+    if (!text.trim()) return null;
+    return { text: text, norm: text.replace(/^\s+|\s+$/g, ''), start: toks[i].s, end: toks[j].s };
+  }
+
+  /** The amount a cash claim states, if it states one ("pay five" -> 5). */
+  function claimAmount(afterLow) {
+    var toks = claimTokens(afterLow);
+    if (toks.length && toks[0].s > 1) return null;   /* punctuation right after the verb */
+    for (var i = 0; i < toks.length && i < 10; i++) {
+      if (i > 0 && toks[i].s - toks[i - 1].e > 1) break;   /* sentence boundary */
+      var w = toks[i].w;
+      if (/^\d+$/.test(w)) return { amt: parseInt(w, 10), end: toks[i].e };
+      if (CLAIM_NUMBERS[w]) return { amt: CLAIM_NUMBERS[w], end: toks[i].e };
+      if (inSet(CLAIM_STOP, w)) break;
+    }
+    return null;
+  }
+
+  /** Is this object a real, auditable one? "I take the key" counts when the
+   *  world knows a Brass key; "I take one step" and "I take on the
+   *  challenge" do not. An unauditable object is not a claim at all. */
+  function claimVerified(kind, obj, world, run) {
+    var words = claimTokens(obj).map(function (t) { return t.w; })
+      .filter(function (w) { return !inSet(CLAIM_SKIP, w); });
+    if (!words.length) return false;
+    var sig = words.filter(function (w) { return w.length > 2; }).length;
+    if (kind === 'item') {
+      var reg = itemNames(world);
+      if (reg) {
+        var low = words.join(' ');
+        return Object.keys(reg).some(function (k) {
+          return k.indexOf(low) !== -1 || low.indexOf(k) !== -1;
+        });
+      }
+      return sig >= 2;
+    }
+    if (kind === 'drop') {
+      var inv = (run && run.inventory) || [];
+      if (inv.some(function (x) { return softMatch(obj, String(x)); })) return true;
+      if (itemNames(world)) return false;   /* a registry world can only lose what it holds */
+      return sig >= 2;
+    }
+    if (kind === 'quest') {
+      var regQ = questRegistry(world);
+      if (regQ) return regQ.some(function (q) { return softMatch(obj, questText(q)); });
+      return sig >= 2;
+    }
+    return true;
+  }
+
+  /** Loose enough to bridge "the key" and "Brass key", tight enough to keep
+   *  "key" from matching "rope". */
+  function softMatch(a, b) {
+    a = String(a || '').toLowerCase().replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+    b = String(b || '').toLowerCase().replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+    if (!a || !b) return false;
+    if (a === b || a.indexOf(b) !== -1 || b.indexOf(a) !== -1) return true;
+    var wa = a.split(' '), wb = b.split(' ');
+    var shorter = wa.length <= wb.length ? wa : wb;
+    var longer = wa.length <= wb.length ? wb : wa;
+    if (!shorter.length) return false;
+    return shorter.every(function (x) { return x.length > 1 && longer.indexOf(x) !== -1; });
+  }
+
+  function auditClaims(world, run, input, applied) {
+    var empty = { advisories: [] };
+    try {
+      applied = applied || {};
+      var raw = String(input || '');
+      var inLow = raw.toLowerCase();
+      if (!inLow.trim()) return empty;
+      var changes = applied.changes || [];
+      var out = [];
+      CLAIM_SCAN.lastIndex = 0;
+      var m;
+      while ((m = CLAIM_SCAN.exec(inLow)) !== null) {
+        if (out.length >= 3) break;
+        var verb = m[1].toLowerCase();
+        var kind = CLAIM_KIND[verb];
+        if (!kind) continue;
+        /* a negated ask is not a claim */
+        var before = inLow.slice(Math.max(0, m.index - 30), m.index);
+        if (CLAIM_NEGATION.test(before)) continue;
+        var after = inLow.slice(m.index + m[0].length);
+        var claimText = m[0], note = '', matched = false;
+        /* a phrasal verb with the particle behind the object: the object is
+           what sits between - unless it names a place, in which case it is a
+           move after all ("leave the office behind"). "leave" without its
+           particle falls through as a plain move. */
+        var ph = null;
+        if (CLAIM_PARTICLE[verb]) {
+          ph = claimPhrasal(after, CLAIM_PARTICLE[verb]);
+          if (!ph && (verb === 'put' || verb === 'throw')) continue;
+          var phPlace = ph ? resolvePlace(ph.norm, world) : null;
+          if (phPlace) {
+            kind = 'move';
+            var tgtPh = { loc: phPlace, start: ph.start, end: ph.end };
+            claimText = raw.slice(m.index, m.index + m[0].length + tgtPh.end).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+            var movedPh = applied.moved;
+            if (movedPh && movedPh.id === tgtPh.loc.id) matched = true;
+            else if (movedPh) note = 'the move went to ' + (movedPh.name || tgtPh.loc.name) + ' instead';
+            else note = 'no move tag recorded';
+            if (!matched) out.push({ claim: claimText, note: note, kind: kind, at: Date.now() });
+            continue;
+          }
+          if (ph) kind = 'drop';
+        }
+        if (kind === 'item' || kind === 'drop') {
+          var obj = (kind === 'drop' && ph) ? ph : claimObject(after);
+          if (!obj) continue;
+          claimText = raw.slice(m.index, m.index + m[0].length + obj.end).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+          var prefix = kind === 'item' ? 'picked up ' : 'lost ';
+          var hit = changes.some(function (c) {
+            var t = String(c || '');
+            return t.indexOf(prefix) === 0 && softMatch(obj.norm, t.slice(prefix.length));
+          });
+          if (hit) matched = true;
+          else if (claimVerified(kind, obj.norm, world, run)) {
+            note = 'no ' + kind + ' tag for \u201C' + obj.norm + '\u201D';
+          } else {
+            continue;   /* an unauditable object is not a real claim */
+          }
+        } else if (kind === 'move') {
+          var tgt = claimMoveTarget(after, world);
+          if (!tgt) continue;
+          claimText = raw.slice(m.index, m.index + m[0].length + tgt.end).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+          var moved = applied.moved;
+          if (moved && moved.id === tgt.loc.id) matched = true;
+          else if (moved) note = 'the move went to ' + (moved.name || tgt.loc.name) + ' instead';
+          else note = 'no move tag recorded';
+        } else if (kind === 'cash') {
+          var amt = claimAmount(after);
+          if (!amt) continue;
+          claimText = raw.slice(m.index, m.index + m[0].length + amt.end).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+          var spent = changes.some(function (c) {
+            var mm = /^-\d+/.exec(String(c || ''));
+            return !!mm;
+          });
+          if (spent) matched = true;
+          else note = 'no spend was recorded';
+        } else if (kind === 'quest') {
+          var qobj = claimObject(after);
+          if (!qobj) continue;
+          claimText = raw.slice(m.index, m.index + m[0].length + qobj.end).replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+          var qhit = changes.some(function (c) {
+            var t = String(c || '');
+            return t.indexOf('quest: ') === 0 && softMatch(qobj.norm, t.slice(7));
+          }) || (run && (run.quests || []).some(function (q) {
+            return !q.done && softMatch(qobj.norm, String(q.text || ''));
+          }));
+          if (qhit) matched = true;
+          else if (claimVerified('quest', qobj.norm, world, run)) {
+            note = 'no task tag for \u201C' + qobj.norm + '\u201D';
+          } else {
+            continue;   /* an unauditable object is not a real claim */
+          }
+        }
+        if (!matched) out.push({ claim: claimText, note: note, kind: kind, at: Date.now() });
+      }
+      return { advisories: out };
+    } catch (e) {
+      return empty;   /* the audit must never block a turn */
+    }
+  }
+
   /* ---------------- the prompt ---------------- */
 
   function describeLocation(world, run) {
@@ -1023,6 +1316,12 @@
       }));
       if (run.rejections.length > 50) run.rejections = run.rejections.slice(-50);
     }
+    if (applied && applied.advisories && applied.advisories.length) {
+      run.advisories = (run.advisories || []).concat(applied.advisories.map(function (a) {
+        return { turn: run.turn, claim: a.claim, note: a.note, at: a.at };
+      }));
+      if (run.advisories.length > 50) run.advisories = run.advisories.slice(-50);
+    }
     return run;
   }
 
@@ -1069,6 +1368,7 @@
     parseCheckRequest: parseCheckRequest, nextRand: nextRand,
     loreVisible: loreVisible, loreScore: loreScore, questReached: questReached,
     secretLines: secretLines,
+    auditClaims: auditClaims,
     /* tests inject a store; the app uses IDB directly */
     _useStore: function (s) { store = s; }
   };
