@@ -66,6 +66,9 @@ function run(provider) {
     console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise,
     Object: Object, Array: Array, String: String, Number: Number, RegExp: RegExp,
     Error: Error, TextEncoder: TextEncoder, TextDecoder: TextDecoder,
+    /* v1.21.0: streamChat carries a per-request deadline, so even
+       non-streaming calls need the timer pair */
+    setTimeout: setTimeout, clearTimeout: clearTimeout,
     DOMException: function (m) { this.message = m; this.name = 'AbortError'; },
     Horde: {
       generateText: function (o) {

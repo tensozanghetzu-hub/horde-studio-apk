@@ -253,6 +253,11 @@
      the prompt leaves the model answering the start of the conversation forever,
      whatever you type next. So budget the prompt against this, not CONTEXT_CAP. */
   var HORDE_CTX_TOKENS = 8192;
+
+  /* v1.21.0 (upstream 18.3.5): a hard ceiling on one OpenAI-compatible
+     request. The Horde path is already bounded by hordeMaxWait; this is for
+     the streaming providers, where a hung read() used to wait forever. */
+  var STREAM_TIMEOUT_MS = 120000;
   function bytesOf(s) {
     try { return new TextEncoder().encode(s || '').length; } catch (e) { return String(s || '').length; }
   }
@@ -388,46 +393,104 @@
       stream: wantStream
     }, override || {});
 
-    return fetch(endpoint(s) + '/chat/completions', {
-      method: 'POST', headers: headers(s), body: JSON.stringify(body), signal: signal
-    }).then(function (r) {
-      if (!r.ok) {
-        return r.text().then(function (t) {
-          var msg = t;
-          try { var j = JSON.parse(t); msg = (j.error && (j.error.message || JSON.stringify(j.error))) || j.message; } catch (e) {}
-          throw new Error('API ' + r.status + ': ' + msg);
-        });
+    /* v1.21.0 (ported from upstream 18.3.5): a stream that hangs mid-read
+       used to wedge the app in "Generating…" forever, and a stream that
+       carried anything but completion frames (an HTML error page, a proxy
+       notice) surfaced as a mysterious "…" bubble. Both now fail loud, and
+       the whole request dies at a deadline instead of waiting on silence. */
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var reader = null;
+      function fail(err) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (reader) { try { reader.cancel().catch(function () {}); } catch (e) {} }
+        reject(err);
       }
-      if (!wantStream) {
-        return r.json().then(function (d) {
-          var txt = (d.choices && d.choices[0] && (d.choices[0].message ? d.choices[0].message.content : d.choices[0].text)) || '';
-          if (onDelta) onDelta(txt);
-          return txt;
-        });
+      function ok(v) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
       }
-      var reader = r.body.getReader(), dec = new TextDecoder(), buf = '', full = '';
-      function pump() {
-        return reader.read().then(function (res) {
-          if (res.done) return full;
-          buf += dec.decode(res.value, { stream: true });
-          var lines = buf.split('\n');
-          buf = lines.pop();
-          for (var i = 0; i < lines.length; i++) {
-            var line = lines[i].trim();
-            if (!line || line.indexOf('data:') !== 0) continue;
-            var payload = line.slice(5).trim();
-            if (payload === '[DONE]') continue;
+      var timer = setTimeout(function () {
+        var err = new Error('The provider did not complete within ' +
+          Math.round(STREAM_TIMEOUT_MS / 1000) + ' seconds. Retry or choose another model.');
+        err.name = 'TimeoutError';
+        fail(err);
+      }, STREAM_TIMEOUT_MS);
+
+      fetch(endpoint(s) + '/chat/completions', {
+        method: 'POST', headers: headers(s), body: JSON.stringify(body), signal: signal
+      }).then(function (r) {
+        if (!r.ok) {
+          return r.text().then(function (t) {
+            var msg = t;
+            try { var j = JSON.parse(t); msg = (j.error && (j.error.message || JSON.stringify(j.error))) || j.message; } catch (e) {}
+            fail(new Error('API ' + r.status + ': ' + msg));
+          }).catch(fail);
+        }
+        if (!wantStream) {
+          return r.json().then(function (d) {
+            var txt = (d.choices && d.choices[0] && (d.choices[0].message ? d.choices[0].message.content : d.choices[0].text)) || '';
+            if (onDelta) onDelta(txt);
+            ok(txt);
+          }).catch(fail);
+        }
+        reader = r.body.getReader();
+        var dec = new TextDecoder(), buf = '', full = '';
+        var sawValidFrame = false;
+        function line(raw) {
+          var value = raw.trim();
+          if (!value) return;
+          if (value.indexOf('data:') === 0) {
+            var payload = value.slice(5).trim();
+            if (payload === '[DONE]') return;
             try {
               var j = JSON.parse(payload);
+              sawValidFrame = true;
               var ch = j.choices && j.choices[0];
               var delta = ch && (ch.delta ? ch.delta.content : ch.text);
               if (delta) { full += delta; if (onDelta) onDelta(delta, full); }
-            } catch (e) { /* partial JSON, ignore */ }
+            } catch (e) { /* a malformed frame: the end-of-stream checks judge it */ }
+            return;
           }
-          return pump();
-        });
-      }
-      return pump();
+          if (/^(?:event|id|retry):/.test(value)) return;   /* SSE metadata, harmless */
+          /* anything else is not a chat stream at all - fail loud instead of
+             letting it dissolve into an empty reply */
+          fail(new Error('The provider returned an invalid chat stream. Retry or choose another model.'));
+        }
+        function pump() {
+          return reader.read().then(function (res) {
+            if (res.done) {
+              if (buf.trim()) line(buf);
+              if (!settled) {
+                /* no text and not even one parseable completion frame: this
+                   was never a real chat stream. A frame that parsed but had
+                   no content is legitimate (the app shows its "…" bubble),
+                   and keeps resolving '' exactly as before. */
+                if (!full && !sawValidFrame) {
+                  fail(new Error('The provider completed without visible text. Retry or choose another model.'));
+                  return;
+                }
+                ok(full);
+                return;
+              }
+              return;
+            }
+            buf += dec.decode(res.value, { stream: true });
+            var lines = buf.split('\n');
+            buf = lines.pop();
+            for (var i = 0; i < lines.length; i++) {
+              line(lines[i]);
+              if (settled) return;
+            }
+            return pump();
+          }, fail);
+        }
+        return pump();
+      }, fail);
     });
   }
 
@@ -929,6 +992,8 @@
     parseAiJson: parseAiJson, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     plainText: plainText, repairMojibake: repairMojibake,
-    estTokens: function (t) { return Math.ceil((t || '').length / 4); }
+    estTokens: function (t) { return Math.ceil((t || '').length / 4); },
+    /* tests shorten the stream deadline; the app never calls this */
+    _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; }
   };
 })(window);

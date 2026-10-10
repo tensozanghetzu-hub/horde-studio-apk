@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.20.0
+# Horde Studio — Mobile (Android) · v1.21.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.20.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.21.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.20.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.21.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,35 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.21.0
+
+**Chat reliability: a hung or broken reply dies loud, and nothing you
+wrote (or the model answered) disappears over one failed save.**
+Ported from upstream v18.3.5 — the release the upstream project called
+a "critical reliability release following a deep audit" — where it maps
+onto the phone build:
+
+- **A reply can no longer hang forever.** A streaming request that goes
+  silent now dies after 120 seconds with a clear "did not complete"
+  error instead of sitting in "Generating…" for as long as the app
+  stays open. (Horde replies were already bounded by the 10-minute
+  worker wait.) A provider that answers with an HTML error page or a
+  proxy notice instead of a chat stream is an error, not a mysterious
+  "…" bubble — as is a stream that ends with no text at all.
+- **A failed save no longer eats text.** If the app cannot store your
+  message when you hit send, your words go back into the box and the
+  toast says why. If the model's finished reply cannot be stored, it
+  stays on screen (the model already did its work) with a "kept on
+  screen, but it could not be saved" note — instead of being deleted
+  and offered as a re-spent retry, which is what a provider error
+  still does.
+- **You can no longer delete your way into an orphaned reply.**
+  Deleting the character that is currently answering, deleting the
+  active chat while a reply is generating, or applying a world
+  "correct state" while a turn is still writing tags — all refused
+  with a "wait for the current reply" note. Everything else behaves
+  exactly as before.
 
 ## What's new in v1.20.0
 

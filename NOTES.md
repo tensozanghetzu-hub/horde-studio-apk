@@ -555,6 +555,101 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.21.0 — Chat reliability (2026-10-10)
+
+### The ask
+
+Upstream v18.3.5 ("critical reliability release following a deep audit")
+reviewed against the phone build: port what applies without touching the
+fixes already shipped. Three items are portable; everything else
+(multiplayer, video worlds, the MCP bridge, VH2 life-clock machinery,
+embeddings, the HordeDB identity/cross-tab rework, the storage-failure
+banner + emergency export) has no mobile equivalent — `exportAll` reads
+the IDB directly, so the banner's data path does not exist here.
+
+### The change
+
+Purely additive; no existing fix is removed or reverted.
+
+1. **`js/api.js` — the streaming request now dies loud.**
+   - A **120 s per-request deadline** (`STREAM_TIMEOUT_MS`) on the
+     OpenAI-compatible path: a reader that hangs mid-stream used to wedge
+     the app in "Generating…" forever. The deadline raises
+     `TimeoutError`, cancels the reader, and is cleared on settle. The
+     Horde path is untouched (already bounded by `hordeMaxWait`, 600 s).
+   - A **non-SSE body** (an HTML error page, a proxy notice — any line
+     that is not empty, `data:`, `event:`, `id:` or `retry:`) now throws
+     "invalid chat stream" instead of dissolving into an empty reply.
+   - A stream that **ends with no text and not one parseable completion
+     frame** throws "completed without visible text". A frame that parsed
+     but carried no content is legitimate and keeps resolving `''` —
+     the existing "…" bubble behaviour is preserved.
+   - The non-stream JSON path is byte-identical in behaviour; the only
+     new requirement for test sandboxes is the `setTimeout` pair.
+
+2. **`js/app.js` — a storage failure no longer eats text or replies.**
+   - `App.send`: the draft is captured before the input is cleared; if
+     saving the user message fails, the text goes back into the box and
+     the toast says "message was not sent — saving failed".
+   - `App.generateReply`: a **finished reply stays in the thread** when
+     its save fails — the storage error gets its own toast ("Reply kept
+     on screen, but it could not be saved…"), the message is marked
+     `saveFailed`, `afterReply` is not re-armed while the ledger is
+     down, and the provider-failure path (remove bubble + re-spent retry
+     chip) is not used. Burst delivery does not queue the remaining
+     bubbles behind a failed save.
+   - The abort-time partial save is no longer fire-and-forget: its
+     failure gets its own toast too.
+   - The provider-failure path is unchanged (reply removed, retry chip
+     armed, `Error:` toast).
+
+3. **Mid-turn guards (upstream's `chatTurnInProgress` destructive-op
+   checks, mobile equivalents).**
+   - `App.deleteCharacter` — refused while the reply for that character
+     is generating; a failed delete now toasts instead of resolving
+     silently.
+   - Session menu **Delete chat** — refused while the active session is
+     generating.
+   - **Worlds correct-state** — the HUD button and the "Apply
+     corrections" button are refused while `App.state.worldBusy` (a turn
+     applying tags is mutating the same run object); the idle apply path
+     is unchanged.
+
+### Verification
+
+Three new suites (real `api.js` / `app.js` / `views.js` + `hordeworld.js`
+in VM sandboxes, stubbed storage):
+
+- `tests/stream-test.js` — 16: happy path across chunk boundaries, the
+  deadline killing a hung read (50 ms via `API._setStreamTimeoutMs`, a
+  test-only hook), junk-body rejection + reader cancel, frameless /
+  all-malformed streams, the preserved empty-delta `''` behaviour, SSE
+  metadata tolerance, a final frame without trailing newline, the
+  non-stream JSON path, HTTP errors.
+- `tests/sendfail-test.js` — 41: draft restore + success path of
+  `App.send`; character-delete guard / idle / failed-delete; chat-menu
+  delete guard + idle; finished-reply survival on save failure (kept,
+  marked, not removed, no `Error:` toast, `afterReply` off, busy
+  cleared); the unchanged provider-failure path; empty-abort removal;
+  reroll-abort partial-save failure; burst parts not queued behind a
+  down ledger.
+- `tests/worldbusy-test.js` — 13: HUD button and Apply button refused
+  while `worldBusy` (nothing saved, run untouched, no navigation), and
+  the idle apply still corrects, logs and navigates.
+
+Full suite: **926 passed, 0 failed** (previous 856 + 70 new; the two
+Playwright suites need chromium and are skipped in the sandbox, as
+before). `hordeworld.js` 353/0 unchanged.
+
+Not ported (no mobile equivalent): HordeDB identity/cross-tab rework +
+storage banner + emergency export (the banner's in-memory export path
+does not exist — `exportAll` reads the IDB), multiplayer, video worlds,
+MCP bridge, VH2 life-clock/worker diagnostics, embeddings, Worlds
+urgency/NPC-condition fixes (no scene-draft or NPC-condition machinery),
+origin-freeze and draft retention.
+
+---
+
 ## v1.20.0 — Worlds: scene discipline (2026-10-09)
 
 ### The ask
