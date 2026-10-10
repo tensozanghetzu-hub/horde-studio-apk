@@ -545,7 +545,13 @@ public class MainActivity extends Activity {
      * past LOG_MAX no matter what. */
     private static final int LOG_MAX = 200;
     private final Object logLock = new Object();
-    private final File logFile = new File(getFilesDir(), "errorlog.jsonl");
+
+    /* Deliberately a method, not a field: a field initializer would run while
+       the Activity is being constructed, before it has a context, and
+       getFilesDir() there throws NPE on every launch (v1.22.0 crash). */
+    private File logFile() {
+        return new File(getFilesDir(), "errorlog.jsonl");
+    }
 
     private void logError(String msg) {
         if (msg == null) return;
@@ -557,7 +563,7 @@ public class MainActivity extends Activity {
                 lines.add("{\"t\":" + System.currentTimeMillis()
                         + ",\"m\":" + jsonString(msg) + "}");
                 while (lines.size() > LOG_MAX) lines.remove(0);
-                java.io.BufferedWriter bw = new java.io.BufferedWriter(new java.io.FileWriter(logFile));
+                java.io.BufferedWriter bw = new java.io.BufferedWriter(new java.io.FileWriter(logFile()));
                 try {
                     for (String l : lines) { bw.write(l); bw.newLine(); }
                 } finally { bw.close(); }
@@ -567,9 +573,10 @@ public class MainActivity extends Activity {
 
     private java.util.List<String> readLogLines() {
         java.util.List<String> lines = new java.util.ArrayList<>();
-        if (!logFile.exists()) return lines;
+        File lf = logFile();
+        if (!lf.exists()) return lines;
         try {
-            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(logFile));
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(lf));
             try {
                 String l;
                 while ((l = br.readLine()) != null) if (!l.trim().isEmpty()) lines.add(l);
@@ -593,7 +600,8 @@ public class MainActivity extends Activity {
 
     private void clearErrorLog() {
         synchronized (logLock) {
-            try { if (logFile.exists()) logFile.delete(); } catch (Exception ignored) { }
+            File lf = logFile();
+            try { if (lf.exists()) lf.delete(); } catch (Exception ignored) { }
         }
     }
 
