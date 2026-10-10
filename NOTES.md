@@ -555,6 +555,102 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.22.0 — Install repair, error log, stay-awake replies (2026-10-10)
+
+### The problem
+
+The in-app APK install failed on the user's Android 14 phone: the file
+downloaded, then a one-line "Install failed: com.hordestudio.mobil…" toast
+flashed and vanished, and the APK had to be installed by hand from
+Downloads.
+
+**Root cause:** Android 14 (targeting S+) throws `SecurityException` when
+`registerReceiver` is called for the `DownloadManager.ACTION_DOWNLOAD_COMPLETE`
+broadcast without an export flag — and the exception message starts with
+the app's package name, which is exactly the toast the user saw. Because
+the throw happened *after* `dm.enqueue`, the download finished anyway but
+the completion receiver was never registered, so nobody ever handed the
+file to the installer.
+
+### The change
+
+1. **`MainActivity.java` — the install actually opens now.**
+   - `registerReceiver(…, Context.RECEIVER_EXPORTED)` with an API 24/25
+     fallback branch (the constant is a compile-time int, so it is a
+     harmless no-op on API 26-32 where the flag is unknown).
+   - A finished-but-failed download no longer reports a bare
+     "did not finish": it is recorded in the error log with the URL.
+   - Every install failure path (register, open-installer, download-not-
+     finished, could-not-start, open-browser) and every update job
+     failure (`jobFail`) now lands in the error log, as do main-frame
+     WebView load errors.
+
+2. **Error log (the suggestion became a feature).**
+   - The wrapper keeps the last **200** errors — one JSON line each in
+     private storage (`filesDir/errorlog.jsonl`), rewritten from memory on
+     every add, so it cannot grow past the cap; a broken disk degrades to
+     "no log", never a crash.
+   - Bridge: `HSAndroid.logError(msg)`, `.errorLog()`, `.clearErrorLog()`.
+   - `js/errorlog.js` (loaded first): `Logs.push/list/clear`, plus
+     `window` `error` / `unhandledrejection` hooks, so JS crashes that
+     used to be invisible without adb are captured too. `Logs.push`
+     normalises whitespace, truncates at 300 chars, and never throws.
+   - `js/update.js`: update-job failures and the boot auto-apply failure
+     are pushed to the log.
+   - **Settings → App updates** now has an **Error log** section: newest
+     first, scrollable, timestamps, a confirmed **Clear** button, and a
+     hint explaining the automatic 200-entry rollover.
+
+3. **A reply can no longer hang when you switch apps** (user report:
+   "the moment I switch to another app, the response hangs or times
+   out").
+   - **Root cause:** MainActivity had no lifecycle code at all, so
+     nothing kept the process alive. The moment the app left the
+     foreground, Android may sleep the CPU and freeze the process
+     (Android 12+ freezes background processes unless they hold a
+     wake lock). A frozen process ticks no timers — the Horde queue
+     poll, the 35-second read timeouts that drive its retries, the
+     stream deadline — so the in-flight request simply stops until the
+     app is foregrounded again.
+   - **`js/keepawake.js`** (loaded first): a tiny refcounted
+     `KeepAwake.hold()/release()` that calls
+     `HSAndroid.setReplyInFlight(bool)`; refcounted because a chat
+     reply, a world turn and an image can be in flight at once.
+   - Hold sites: chat `generateReply` (busy → final cleanup, so
+     success, provider failure and save failure all settle it),
+     `worldTurn` (worldBusy → turn settle), and `horde.js pollJob`
+     (every Horde queue wait — text AND image — holds it for the whole
+     poll, releasing on resolve, timeout and abort alike).
+   - **`MainActivity.java`**: a `PARTIAL_WAKE_LOCK`
+     (`hordestudio:reply-in-flight`) acquired while the refcount is
+     above zero, **capped at 30 minutes** in `acquire()` so a lost
+     release can never drain the battery, released in `onDestroy`.
+     PARTIAL_WAKE_LOCK needs no permission.
+
+   Not done (noted for a future release if this proves not to be
+   enough on some devices): a foreground service with a
+   "Generating…" notification — the only mechanism that also survives
+   aggressive OEM process killers; a wake lock is the standard
+   proportionate fix.
+
+### Verification
+
+`tests/errorlog-test.js` — 20 checks: rendering (newest first, escaped,
+timestamps), the empty state, clear confirmed/declined, the Logs module
+(normalisation, truncation, never-throws against a throwing bridge), and
+both crash hooks. `tests/wakelock-test.js` — 16 checks: the chat path
+holds/releases on success, provider failure and save failure; the busy
+guard holds nothing; refcounting across overlapping generations; the
+web-only (no bridge) case; and the Horde queue wait holding the lock for
+the whole poll, including abort. Full suite: **962 passed, 0 failed**
+(926 + 20 + 16). `MainActivity.java` compiles clean against platform 34.
+
+The install and stay-awake fixes are in the wrapper, so they need the
+v1.22.0 APK installed once (which the fixed flow will then be able to
+do).
+
+---
+
 ## v1.21.0 — Chat reliability (2026-10-10)
 
 ### The ask

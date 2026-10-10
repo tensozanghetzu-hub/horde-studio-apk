@@ -80,8 +80,26 @@ public class MainActivity extends Activity {
     private int updateJob = 0;
     private NativeBridge bridge = null;
 
+    /* Held while a reply is being generated (chat or world turn). The moment
+       the app leaves the foreground Android may sleep the CPU and freeze the
+       process; a frozen process ticks no timers, so the in-flight request —
+       the Horde queue poll, the open stream, its deadlines — all stop and the
+       reply looks hung. A partial wake lock keeps the CPU running and exempts
+       the process from the background freeze on Android 12+. Refcounted on the
+       JS side (a chat reply and a world turn can overlap); capped at 30 minutes
+       here, so a lost release can never drain the battery. */
+    private android.os.PowerManager.WakeLock replyWakeLock = null;
+
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
+
+    @Override
+    protected void onDestroy() {
+        try {
+            if (replyWakeLock != null && replyWakeLock.isHeld()) replyWakeLock.release();
+        } catch (Exception ignored) { }
+        super.onDestroy();
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -289,7 +307,13 @@ public class MainActivity extends Activity {
 
         @Override
         public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
-            if (request.isForMainFrame() && APP_HOST.equals(request.getUrl().getHost())) fallbackToFile(view);
+            if (request.isForMainFrame() && APP_HOST.equals(request.getUrl().getHost())) {
+                try {
+                    logError("web: main frame failed to load (" + error.getErrorCode()
+                            + " " + String.valueOf(error.getDescription()) + ")");
+                } catch (Throwable ignored) { }
+                fallbackToFile(view);
+            }
         }
 
         @Override
@@ -500,15 +524,77 @@ public class MainActivity extends Activity {
         return j;
     }
 
-    private static void jobFail(Job j, String message) {
+    private void jobFail(Job j, String message) {
         j.state = "error";
         j.message = message == null ? "failed" : message;
+        logError("update: " + j.message);
     }
 
     private static void jobDone(Job j, String result) {
         j.state = "done";
         j.progress = 100;
         j.result = result == null ? "" : result;
+    }
+
+    /* ---- error log ----
+     * The last LOG_MAX things that go wrong, one JSON object per line in
+     * private storage: Settings → App updates shows it, and it is the only
+     * place an error is still readable after the toast has gone. The whole
+     * thing is best-effort — a broken disk must never take the app down,
+     * and the file is rewritten from memory on every add, so it cannot grow
+     * past LOG_MAX no matter what. */
+    private static final int LOG_MAX = 200;
+    private final Object logLock = new Object();
+    private final File logFile = new File(getFilesDir(), "errorlog.jsonl");
+
+    private void logError(String msg) {
+        if (msg == null) return;
+        msg = msg.trim();
+        if (msg.isEmpty()) return;
+        synchronized (logLock) {
+            try {
+                java.util.List<String> lines = readLogLines();
+                lines.add("{\"t\":" + System.currentTimeMillis()
+                        + ",\"m\":" + jsonString(msg) + "}");
+                while (lines.size() > LOG_MAX) lines.remove(0);
+                java.io.BufferedWriter bw = new java.io.BufferedWriter(new java.io.FileWriter(logFile));
+                try {
+                    for (String l : lines) { bw.write(l); bw.newLine(); }
+                } finally { bw.close(); }
+            } catch (Exception ignored) { }
+        }
+    }
+
+    private java.util.List<String> readLogLines() {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        if (!logFile.exists()) return lines;
+        try {
+            java.io.BufferedReader br = new java.io.BufferedReader(new java.io.FileReader(logFile));
+            try {
+                String l;
+                while ((l = br.readLine()) != null) if (!l.trim().isEmpty()) lines.add(l);
+            } finally { br.close(); }
+        } catch (Exception ignored) { }
+        return lines;
+    }
+
+    /** The whole log, newest first, as a JSON array. */
+    private String errorLogJson() {
+        synchronized (logLock) {
+            java.util.List<String> lines = readLogLines();
+            StringBuilder sb = new StringBuilder("[");
+            for (int i = lines.size() - 1; i >= 0; i--) {
+                if (i < lines.size() - 1) sb.append(",");
+                sb.append(lines.get(i));
+            }
+            return sb.append("]").toString();
+        }
+    }
+
+    private void clearErrorLog() {
+        synchronized (logLock) {
+            try { if (logFile.exists()) logFile.delete(); } catch (Exception ignored) { }
+        }
     }
 
     /* JSON is assembled by hand here; these keep quotes and newlines out of it
@@ -615,6 +701,43 @@ public class MainActivity extends Activity {
                     + "," + Q + "rev" + Q + ":" + Q + rev + Q + "}";
         }
 
+        /* ---- error log (Settings → App updates → Error log) ---- */
+
+        @JavascriptInterface
+        public void logError(String msg) { logError(msg); }
+
+        /** The whole log, newest first: [{"t":…,"m":…}, …] */
+        @JavascriptInterface
+        public String errorLog() { return errorLogJson(); }
+
+        @JavascriptInterface
+        public void clearErrorLog() { clearErrorLog(); }
+
+        /** JS refcount went to/from zero: keep the CPU awake while any reply
+         *  is in flight, so backgrounding the app can't freeze the request. */
+        @JavascriptInterface
+        public void setReplyInFlight(boolean inFlight) {
+            try {
+                if (inFlight) {
+                    if (replyWakeLock == null || !replyWakeLock.isHeld()) {
+                        if (replyWakeLock == null) {
+                            android.os.PowerManager pm =
+                                    (android.os.PowerManager) getSystemService(POWER_SERVICE);
+                            replyWakeLock = pm.newWakeLock(
+                                    android.os.PowerManager.PARTIAL_WAKE_LOCK,
+                                    "hordestudio:reply-in-flight");
+                        }
+                        /* 30-minute safety cap: the longest legitimate wait is
+                           the Horde's 10-minute worker deadline plus retries.
+                           If JS never calls us back, the lock still drops. */
+                        replyWakeLock.acquire(30 * 60 * 1000L);
+                    }
+                } else if (replyWakeLock != null && replyWakeLock.isHeld()) {
+                    replyWakeLock.release();
+                }
+            } catch (Exception ignored) { /* a battery lock must never break a reply */ }
+        }
+
         /** Fetch a version manifest so the UI can compare. Returns a job id. */
         @JavascriptInterface
         public int checkUpdate(final String url) {
@@ -710,23 +833,51 @@ public class MainActivity extends Activity {
                     id = dm.enqueue(r);
                 } catch (Exception e) {
                     toast("Could not start the download: " + e.getMessage());
+                    logError("install: could not start the download: " + e.getMessage());
                     return;
                 }
                 toast("Downloading the update…");
-                registerReceiver(new BroadcastReceiver() {
+                BroadcastReceiver done = new BroadcastReceiver() {
                     @Override public void onReceive(Context ctx, Intent intent) {
                         if (intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1) != id) return;
                         try { unregisterReceiver(this); } catch (Throwable ignored) { }
                         Uri uri = dm.getUriForDownloadedFile(id);
-                        if (uri == null) { toast("The download did not finish"); return; }
+                        if (uri == null) {
+                            toast("The download did not finish");
+                            /* The status query API moved between platform
+                               versions (query(long[]) before 31, query(Query)
+                               from 31 on), so no portable status code: the
+                               URL in the log is enough to chase it down. */
+                            logError("install: the download did not finish (" + url + ")");
+                            return;
+                        }
                         Intent i = new Intent(Intent.ACTION_VIEW);
                         i.setDataAndType(uri, "application/vnd.android.package-archive");
                         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
-                        try { startActivity(i); } catch (Exception e) { toast("Could not open the installer"); }
+                        try { startActivity(i); }
+                        catch (Exception e) {
+                            toast("Could not open the installer");
+                            logError("install: could not open the installer: " + e.getMessage());
+                        }
                     }
-                }, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+                };
+                /* DownloadManager broadcasts from a system process, so the
+                   receiver must be visible to it. Android 14+ (targeting S+)
+                   throws SecurityException when the flag is omitted — that
+                   was the "Install failed: com.hordestudio…" toast, and it
+                   left the receiver unregistered, so the finished download
+                   was never handed to the installer. The constant is a
+                   compile-time int, so the value is a harmless no-op on the
+                   API 26-32 devices where the flag is unknown. */
+                IntentFilter f = new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+                if (Build.VERSION.SDK_INT >= 26) {
+                    registerReceiver(done, f, Context.RECEIVER_EXPORTED);
+                } else {
+                    registerReceiver(done, f);
+                }
             } catch (Exception e) {
                 toast("Install failed: " + e.getMessage());
+                logError("install: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             }
         }
 
@@ -772,6 +923,7 @@ public class MainActivity extends Activity {
                 startActivity(i);
             } catch (Exception e) {
                 toast("Could not open the browser: " + e.getMessage());
+                logError("install: could not open the browser: " + e.getMessage());
             }
         }
 
