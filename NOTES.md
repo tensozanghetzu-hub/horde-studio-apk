@@ -567,6 +567,128 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.24.0 — Worlds: the companion ledger (2026-10-10)
+
+### The problem
+
+User report from a live run: two NPCs the player had **just walked to the
+elder with** both turned around and asked, separately, *what the elder
+said*. The same shared scene, two people both claiming to not know.
+
+Diagnosis (code-grounded): the world engine makes **one model call per
+turn** and that call writes the whole scene — both men's lines were the
+model's writing, not an app duplication bug. The app's own `Present:`
+list was correct. But three app-side gaps made it likely:
+
+1. **Presence is static.** `Present:` lists NPCs by their *start* or
+   *home* location only; the ledger never records that an NPC went
+   somewhere with the player, so the model has no record the men were
+   in the room.
+2. **The context window is 12 messages.** The elder scene can fall out
+   of the recent log before the next beat.
+3. **No shared-knowledge record.** Nothing tells the referee "these
+   people were there; they know what happened."
+
+Fix C (chosen by the user): a real **companion ledger**.
+
+### The change (`js/hordeworld.js` only)
+
+- **New referee grammar:** `[[with:NAME]]` — an NPC joins the player;
+  `[[part:NAME]]` — they part ways. Comma lists split on commas only
+  (names like "Bramble and Pike" are one name), one name per tag part.
+- **Ledger state:** `run.companions = [{ name, since, at }]` — canonical
+  name, the turn they joined, the place. Added to the run factory
+  (`start`); capped at **6** (`COMPA_MAX`).
+- **Validation (v2 worlds):** unknown name → rejected with the cast
+  listed (≤8 names); double-join → "already with the player"; parting
+  with a non-companion → refused; over the cap → "the party is full".
+  Case-insensitive matching, canonical spelling stored. Non-v2 worlds
+  are lenient (no rejection), mirroring the item tags.
+- **Prompt:** when the party is non-empty, a `Companions -` section
+  lists each companion with where/when they joined and a discipline
+  line: they **witnessed every scene since they joined** — never have
+  them ask about or be surprised by what they saw; distinct voices;
+  **at most one** asks the obvious question. The tag grammar is taught
+  in the rules block (tag list + a Party bullet).
+- **HUD:** the change lines "X joins the party" / "X leaves the party"
+  render in the world HUD automatically. The repair path picks up
+  rejections via the existing `repairOnce`. Old runs (no `companions`
+  field) normalize to `[]` and work unchanged. No native changes.
+
+### Verification
+
+`tests/worldcompanions-test.js` (new, 23 checks): join/leave + HUD
+lines; canonical storage; place/turn of joining; unknown-name rejection
+that names the cast; double-join and wrong-part rejections (as
+rejections, not silent no-ops); comma-list join; the six-companion cap
+with a "full" rejection; case-insensitivity; the prompt section (present
+with names + "witnessed every scene since" + "at most one", absent when
+the party is empty); the grammar in the rules; `move` + `clock` +
+`with` coexisting in one reply; old-run compatibility; and the
+unchanged rule that unknown tags stay visible in text.
+**Reproduced 19 failures pre-patch** (the tags were unknown, left
+visible, no state, no prompt section), 23/23 post-patch.
+
+Full battery: **1014 node checks, 0 failed** (33 node suites; the two
+Playwright suites — `typing-test`, `update-test` — need chromium, which
+the sandbox lost mid-turn; both were green earlier this turn on the
+identical code).
+
+Bumps: 1.24.0, apk code 49, sw cache v37.
+Ships together with the v1.23.1 scroll fix (single release).
+
+---
+
+## v1.23.1 — Edit-accept scroll jump fix (2026-10-10)
+
+### The problem
+
+User report: *edit a message or a response, accept the edit → the thread
+jumps up (a few times) and you have to scroll back down manually.*
+
+**Root cause** in `Views.thread` (the anchor-restore path for
+mid-thread re-renders — exactly what edit-accept triggers): the anchor
+("first message in view, offset into it") is measured from the rebuilt
+DOM **before its images have loaded**. Every message row carries an
+avatar `<img>`; in the first layout pass those images are zero-height,
+so all `offsetTop`s are compressed toward the top and the restored
+`scrollTop` lands near the top of the thread. As the avatars load and
+the content regrows, the reader is stranded up the thread. (The
+fresh-open path already had a re-jump for this — the anchored path was
+missing it.)
+
+### The change
+
+`js/views.js` `Views.thread`, anchored branch only: after the initial
+restore, if any `<img>` in the rebuilt thread is not yet `complete`,
+re-apply `restoreThreadScroll` once the pending images settle (each
+`load`/`error` counted; an 800 ms timer as the floor for a broken or
+slow image). A guard respects the reader: if they scrolled away more
+than 60 px from the restored position in the meantime, the re-apply is
+skipped — the fix cannot fight the reader, matching the v1.13.0
+"never yank" rule this file was written around. Threads with no
+pending images behave exactly as before (synchronous restore, no timer).
+
+The other edit paths (delete, swipe-alts, user edit-and-resend) run
+through the same `Views.thread` anchored branch, so they are all
+covered by this one fix. No wrapper change.
+
+### Verification
+
+`tests/threadscroll-test.js` extended from 12 to 15 checks: the anchor
+mechanism itself (a mid-thread re-render restores message + offset —
+previously untested, the old fake thread had no `children` so the
+anchor path never ran), the reported bug (collapsed first layout →
+reader stranded at 0; after the avatars "load" the reader is back at
+the anchored position — **reproduced failing pre-fix**), and the
+scrolled-away guard. Full battery: **991 checks, 0 failed**.
+
+APK: sha256 `36b7806e7cc4a30bdaccbd60a1af5abf36b592b5e552a8d9ae0fe74443cb0a4e`.
+
+Bumps: 1.23.1, apk code 48, sw cache v36.
+
+---
+
 ## v1.23.0 — Model picker robustness (upstream 18.3.6 port) (2026-10-10)
 
 ### Upstream review — v18.3.6 (published 2026-10-10)

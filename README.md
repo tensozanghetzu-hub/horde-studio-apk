@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.23.0
+# Horde Studio — Mobile (Android) · v1.23.1
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.23.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.23.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.23.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.23.1.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,34 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.24.0
+
+**Worlds now keep a party.** If NPCs travel with you — you walk to the
+elder *with* two of them — the world remembers it. The referee records
+companions in a ledger (who is with you, since when, where they joined),
+and the scene engine is told: **they saw everything since they joined,
+so they don't ask about it and they don't get surprised by it.** That
+fixes the classic failure where two people who were in the same room
+both turn around and ask *what happened in the room*.
+
+The referee tags companions as they join and part, the world HUD shows
+"X joins the party" / "X leaves the party", and the ledger refuses
+nonsense (names that aren't in the world, joining twice, a party of
+more than six). Existing runs and older worlds are unaffected.
+
+This release also ships the **v1.23.1 scroll fix** (editing a message
+no longer yanks the thread up).
+
+## What's new in v1.23.1
+
+**A scroll fix for editing.** When you edited a message or a response
+and accepted the change, the chat jumped up (sometimes a few times) and
+you had to scroll back down. The thread now keeps your place correctly
+once the avatars finish loading, so the view stays where you were. If
+you've deliberately scrolled away, it won't yank you back.
+
+Everything else is unchanged.
 
 ## What's new in v1.23.0
 
