@@ -551,6 +551,10 @@
     el.classList.add('streaming');
     st.busy = true;
     App.setStop(true);
+    /* keep the CPU awake for the whole reply: switching apps or the screen
+       going dark otherwise lets Android freeze this process, and the
+       in-flight request stops ticking (see js/keepawake.js) */
+    if (global.KeepAwake) KeepAwake.hold();
 
     var vhNote = opts.note || null;
     var charSettings = Object.assign({}, s);
@@ -705,6 +709,7 @@
       App.abort = null;
       App.setStop(false);
       App.renderTyping();
+      if (global.KeepAwake) KeepAwake.release();
     });
   };
 
@@ -933,6 +938,7 @@
     Views.worldRun(world, run);
 
     App.state.worldBusy = true;
+    if (global.KeepAwake) KeepAwake.hold();
     var typing = $('#wr-typing');
     if (typing) typing.hidden = false;
 
@@ -1045,6 +1051,7 @@
     }).then(function () {
       App.state.worldBusy = false;
       if (typing) typing.hidden = true;
+      if (global.KeepAwake) KeepAwake.release();
     });
   };
 

@@ -1034,9 +1034,46 @@
           '<button class="btn ghost sm" id="btn-upd-reset">Reset to shipped files</button>' +
           '<div class="hint" id="upd-status" style="margin-top:8px">' + upNote + '</div>' +
         '</div>' +
+        '<div class="field">' +
+          '<div class="field-head"><label>Error log</label>' +
+            '<button class="btn ghost sm" id="btn-log-clear" style="margin-left:auto">Clear</button></div>' +
+          '<div class="errlog" id="errlog-box"></div>' +
+          '<div class="hint">The last things that went wrong — installs, downloads, crashes. ' +
+            'The log keeps its newest 200 entries and drops the rest on its own; ' +
+            'Clear starts it fresh.</div>' +
+        '</div>' +
       '</div>';
     var sc = settingsScope(body);
     var upStatus = $('#upd-status', body);
+
+    /* the error log: toasts fade, this stays. Newest first, the box scrolls;
+       the wrapper caps the stored log itself (200 entries, oldest dropped). */
+    var logBox = $('#errlog-box', body);
+    function renderLog() {
+      if (!logBox) return;
+      var entries;
+      try { entries = (global.Logs && Logs.list()) || []; } catch (e) { entries = []; }
+      if (!entries.length) {
+        logBox.innerHTML = '<p class="hint" style="margin:0">Nothing has gone wrong here yet.</p>';
+        return;
+      }
+      logBox.innerHTML = entries.map(function (e) {
+        var when = '';
+        try { when = new Date(e.t).toLocaleString(); } catch (err) { when = String(e.t || ''); }
+        return '<div class="errlog-line"><span class="errlog-when">' + esc(when) + '</span>' +
+          '<span class="errlog-msg">' + esc(e && e.m) + '</span></div>';
+      }).join('');
+    }
+    renderLog();
+    sc.bind('#btn-log-clear', 'click', function () {
+      UI.confirm('Clear the error log?', 'The log starts fresh. This does not touch chats, characters or settings.',
+        { okLabel: 'Clear' }).then(function (yes) {
+          if (!yes) return;
+          try { global.Logs && Logs.clear(); } catch (e) { }
+          renderLog();
+          UI.toast('Error log cleared');
+        });
+    });
     function upSay(html) { if (upStatus) upStatus.innerHTML = html; }
     function upBar(pct, label) {
       upSay('<div class="upd-bar"><span style="width:' + Math.max(2, Math.min(100, pct || 0)) + '%"></span></div>' +

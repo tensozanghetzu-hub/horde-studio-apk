@@ -80,6 +80,7 @@
           if (/Failed to fetch|NetworkError|Unable to resolve/i.test(msg)) {
             msg = 'Could not reach ' + baseUrl() + ' — check the address and your connection.';
           }
+          try { global.Logs && Logs.push('update: ' + msg); } catch (e) { }
           reject(new Error(msg));
         }
       }, 250);
@@ -242,6 +243,7 @@
             })
             .catch(function (e) {
               console.error('auto web apply failed:', e);
+              try { global.Logs && Logs.push('auto web apply failed: ' + (e && e.message || e)); } catch (err) { }
               if (toast) toast('New files will need to be applied from Settings.', 5000);
             });
         }

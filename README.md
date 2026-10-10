@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.21.0
+# Horde Studio — Mobile (Android) · v1.22.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.21.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.22.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.21.0.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.22.0.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,32 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.22.0
+
+**The in-app install is fixed, errors finally leave a trace, and a reply
+can no longer hang when you switch apps.**
+
+- **In-app APK installs now actually open the installer.** On Android 14
+  the app crashed (silently) the moment it set up to be told "download
+  finished" — a platform rule about broadcast receivers that apps
+  targeting recent Android must obey. The update was downloading fine;
+  nobody was ever told to hand it to Android. It is now, and a failed
+  download says so instead of pretending.
+- **An error log, in Settings → App updates.** Toasts are gone in two
+  seconds, and "it just failed" is not something you can send to anyone.
+  Now the app keeps the last 200 things that went wrong — install and
+  download failures, update failures, and crashes that used to be
+  invisible without adb — with the time each happened. Newest first, one
+  tap (with a confirm) to clear, and the log rolls itself over so it can
+  never bloat: it keeps 200 entries and drops the oldest.
+- **A reply no longer hangs when you switch apps.** The moment the app
+  left the foreground, Android could sleep the CPU and freeze the whole
+  process — and a frozen process ticks no timers, so a reply that was
+  waiting on the Horde (or mid-stream) simply stopped until you came
+  back. Now the app holds a wake lock for as long as a reply, a world
+  turn or an image is in flight, so it finishes in the background just
+  as if you were watching.
 
 ## What's new in v1.21.0
 
