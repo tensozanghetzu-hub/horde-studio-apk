@@ -226,6 +226,13 @@
     });
   }
 
+  /** v1.24.0: the names the party ledger accepts - every NPC, canonical spelling. */
+  function npcNames(world) {
+    return (world.entities || []).filter(function (e) {
+      return !e.type || e.type === 'npc';
+    }).map(function (e) { return e.name; }).filter(Boolean);
+  }
+
   function faction(world, id) {
     var f = (world && world.factions) || [];
     for (var i = 0; i < f.length; i++) if (f[i].id === id) return f[i];
@@ -581,6 +588,11 @@
       cashId: cashId,
       inventory: (life && Array.isArray(life.inventory)) ? life.inventory.slice() : [],
       quests: [],
+      /* v1.24.0: the party - NPCs travelling with the player, as the
+         referee records them ([[with:NAME]] / [[part:NAME]]). Each entry
+         knows where and when they joined, so the prompt can say what they
+         have witnessed. */
+      companions: [],
       reputation: (life && life.factionReputation !== undefined && life.factionId)
         ? [{ factionId: life.factionId, score: life.factionReputation }] : [],
       log: [],
@@ -592,6 +604,9 @@
   /* ---------------- the referee's reply ---------------- */
 
   var TAG = /\[\[([a-z_-]+)\s*:\s*([^\]]*)\]\]/gi;
+  /* v1.24.0: how many NPCs may travel with the player at once. A party this
+     big is a story, not a retinue - beyond it the ledger refuses. */
+  var COMPA_MAX = 6;
 
   /* ---------------- ledger v2 (validation) ---------------- */
 
@@ -768,6 +783,60 @@
         });
         if (done) changes.push('completed: ' + arg);
         else if (v2) reject(whole, 'no open task matches \u201C' + arg + '\u201D');
+        return '';
+      }
+      if (kind === 'with') {
+        /* v1.24.0: an NPC joins the player. Names are matched against the
+           world's cast (case-insensitive, canonical spelling stored); one
+           name per tag, comma lists split. */
+        run.companions = run.companions || [];
+        var names = String(arg).split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+        if (!names.length) { if (v2) reject(whole, 'name who is with the player'); return ''; }
+        names.forEach(function (nm) {
+          var known = npcNames(world).filter(function (n) {
+            return n.toLowerCase() === nm.toLowerCase();
+          })[0];
+          if (!known) {
+            if (v2) {
+              var cast = npcNames(world);
+              reject(whole, 'no one named \u201C' + nm + '\u201D in this world' +
+                (cast.length ? ' (known: ' + cast.slice(0, 8).join(', ') + (cast.length > 8 ? ' \u2026' : '') + ')' : '') +
+                ' - one name per tag');
+            }
+            return;
+          }
+          if (run.companions.some(function (c) { return c.name === known; })) {
+            if (v2) reject(whole, known + ' is already with the player');
+            return;
+          }
+          if (run.companions.length >= COMPA_MAX) {
+            if (v2) reject(whole, 'the party is full (' + COMPA_MAX + ' companions)');
+            return;
+          }
+          run.companions.push({ name: known, since: run.turn || 0, at: run.locationId });
+          changes.push(known + ' joins the party');
+        });
+        return '';
+      }
+      if (kind === 'part') {
+        /* v1.24.0: a companion parts ways with the player. */
+        run.companions = run.companions || [];
+        String(arg).split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (nm) {
+          var known = npcNames(world).filter(function (n) {
+            return n.toLowerCase() === nm.toLowerCase();
+          })[0];
+          var target = known || nm;
+          var i = -1;
+          if (run.companions.findIndex) {
+            i = run.companions.findIndex(function (c) { return c.name === target; });
+          } else {
+            for (var ci = 0; ci < run.companions.length; ci++) if (run.companions[ci].name === target) { i = ci; break; }
+          }
+          if (i === -1) { if (v2) reject(whole, target + ' is not with the player'); return; }
+          var leaver = run.companions[i];
+          run.companions.splice(i, 1);
+          changes.push(leaver.name + ' leaves the party');
+        });
         return '';
       }
       if (kind === 'roll') {
@@ -1232,6 +1301,20 @@
     parts.push(describeLocation(world, run));
     parts.push(describeState(world, run));
 
+    /* v1.24.0: the party - who is with the player, and therefore what they
+       have witnessed. This is what stops two men who went to the elder with
+       you both coming home and asking what the elder said. */
+    if ((run.companions || []).length) {
+      parts.push(
+        'Companions - with the player right now:\n' +
+        run.companions.map(function (c) {
+          var at = location(world, c.at);
+          return '- ' + c.name + (at ? ' (joined at ' + at.name + ', turn ' + (c.since || 0) + ')' : '');
+        }).join('\n') +
+        '\nThey have witnessed every scene since they joined: never have a companion ask about, or be surprised by, anything they were present for. Keep their voices distinct, and let at most one of them ask the obvious question.'
+      );
+    }
+
     /* lore that the player's situation may know and the player just
        mentioned - scored, gated, budgeted (v1.19.0) */
     var hits = loreHits(world, run, input);
@@ -1247,6 +1330,7 @@
       '- End your reply with tags on their own line so the world can keep score:\n' +
       '  [[move:LOCATION_ID]] [[clock:+MINUTES]] [[cash:+N]] [[stat:ID:+N]]\n' +
       '  [[item:THING]] [[drop:THING]] [[quest:TASK]] [[quest-done:TASK]] [[roll:2d6+1]]\n' +
+      '  [[with:NAME]] [[part:NAME]] - who is with the player\n' +
       '- Only include a tag when something actually changed.\n' +
       '- Location ids for this world: ' +
         (world.locations || []).map(function (l) { return l.id; }).join(', ');
@@ -1255,6 +1339,10 @@
         'change, an item the world has no record of, or a task it does not know is ' +
         'rejected and reported back to you with the reason. Keep changes real and ' +
         'small (at most ' + statBound(world) + ' to any stat or the purse per turn).';
+      rules += '\n- Party: tag [[with:NAME]] when an NPC joins the player and ' +
+        '[[part:NAME]] when they part ways - one name per tag, names exactly as ' +
+        'listed in this world. Companions know everything they have witnessed; ' +
+        'never have one of them ask about a scene they were in.';
       var reg = itemNames(world);
       if (reg) {
         var names = Object.keys(reg).map(function (k) { return reg[k]; });
