@@ -567,6 +567,70 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.23.0 — Model picker robustness (upstream 18.3.6 port) (2026-10-10)
+
+### Upstream review — v18.3.6 (published 2026-10-10)
+
+Upstream shipped: (1) Pip can answer with a user-chosen LLM grounded in
+product knowledge; (2) an illustrated, searchable user manual (75 topics,
+172 control explanations, 51 screenshots, optional embedding-based
+retrieval); (3) model-discovery fixes: the catalog parser accepts
+`{models: [...]}` responses, a provider switch must not poison the next
+catalog, and exact typed model IDs are accepted even when absent from
+the catalog (which is also what keeps a Virtual Human's model after a
+refresh); (4) NanoGPT metadata fixes (desktop-only provider).
+
+**Not portable:** the manual and the Pip assistant. In the v18.3.6 git
+tag their code files (`horde-manual.js`, `horde-handbook.js`,
+`pip-assistant.js`, `pip-knowledge.js`, `horde-support.css`) are **0
+bytes** — the tag is a skeleton (935 files emptied, index.html included);
+the real content ships only in the 509 MB portable ZIP. On top of that
+they are desktop sidebar features with provider-charge-bearing
+embedding indexing, which the curated phone port deliberately avoids.
+The NanoGPT fixes target a local provider the mobile app doesn't offer.
+
+**Ported** (all of it small, additive, wrapper-untouched):
+
+1. **Catalog parser** (`js/api.js` `listModels`): accepts all three
+   response shapes — bare array, `{data: [...]}`, `{models: [...]}` —
+   tolerates plain-string entries, and degrades to `[]` instead of
+   crashing. (Pre-patch, a malformed body like `{data: "…"}` threw
+   `arr.map is not a function` — caught by the new tests.)
+2. **Cache source stamping** (`js/app.js` `chooseModel`): the `hs-models`
+   cache is now `{source: "provider|baseUrl", models: [...]}`. Switching
+   providers can no longer show the previous provider's catalog; legacy
+   bare-array entries (pre-stamp) are treated as stale and refetched once.
+3. **Model retention + exact IDs** (`js/app.js` `modelSheet`): if the
+   current model is absent from the catalog (provider changed, model
+   retired, hand-typed ID) it is **pinned to the top** of the picker,
+   marked "your current model", and selectable. A filter that matches
+   nothing offers a **"Use exactly: \<typed\>"** row — any model ID can
+   be selected and is saved as-is. Applies to both the provider and the
+   Horde picker.
+4. **Mobile-specific bug the new tests surfaced:** choosing
+   "Any available" (value `''`) in the Horde picker never saved, because
+   the sheet resolved through `if (v && onPick)` and `''` is falsy. The
+   guard is now `v !== undefined && v !== null`, so `''` saves
+   (clears the filter) and a dismissed sheet still saves nothing.
+
+### Verification
+
+`tests/modelcatalog-test.js` — 22 checks: the three parser shapes,
+string entries, malformed-body degradation, error propagation; cache
+first-open/reuse, provider-switch non-poisoning, new-cache reuse,
+legacy-cache staleness; pinned-current retention (both pickers),
+single-listing regression, exact-ID offer + save-as-is, no-duplicate-row,
+and "Any available" clearing the filter. **Reproduced pre-patch:**
+`{models: [...]}` → `[]`, malformed body → `TypeError: arr.map is not a
+function`, and all picker behaviors absent. Full battery after the
+patch: **987 checks, 0 failed** (965 + 22). No wrapper change —
+MainActivity.java untouched, so the v1.22.1 launch-crash fix, install
+fix, error log and wake lock are byte-identical in this build.
+
+Bumps: 1.23.0, apk code 47, sw cache v35.
+
+---
+
 ## v1.22.1 — launch crash fix (2026-10-10)
 
 ### The problem
