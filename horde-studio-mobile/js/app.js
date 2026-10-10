@@ -1840,6 +1840,12 @@
     var rows = items.map(function (m) {
       return typeof m === 'string' ? { value: m, label: m, sub: '' } : m;
     });
+    /* Model retention (upstream 18.3.6): if the current model is absent
+       from the catalog — provider changed, model retired, exact ID typed
+       by hand — pin it to the top so it stays visible and re-selectable. */
+    if (current && !rows.some(function (m) { return m.value === current; })) {
+      rows.unshift({ value: current, label: current, sub: 'your current model' });
+    }
     return UI.sheet({
       title: title,
       body: '<input type="search" id="mf" placeholder="Filter models…" style="width:100%;padding:10px 12px;' +
@@ -1853,8 +1859,15 @@
           var shown = rows.filter(function (m) {
             return (m.label + ' ' + (m.sub || '')).toLowerCase().indexOf(f) !== -1;
           }).slice(0, 240);
-          list.innerHTML = shown.length
-            ? shown.map(function (m) {
+          /* Exact IDs are accepted (upstream 18.3.6): a filter that matches
+             nothing offers the typed string itself as a selectable row. */
+          var qv = (q || '').trim();
+          var exact = qv && !rows.some(function (m) { return m.value === qv; })
+            ? [{ value: qv, label: 'Use exactly: ' + qv,
+                 sub: 'saved as-is, even if the catalog does not list it' }]
+            : [];
+          list.innerHTML = (shown.length || exact.length)
+            ? shown.concat(exact).map(function (m) {
                 return '<div class="opt' + (m.value === current ? ' on' : '') + '" data-m="' + UI.esc(m.value) + '"' +
                   ' style="align-items:flex-start">' +
                   '<span style="flex:1;min-width:0">' +
@@ -1871,13 +1884,34 @@
         render('');
         b.querySelector('#mf').oninput = function () { render(this.value); };
       }
-    }).then(function (v) { if (v && onPick) onPick(v); return v; });
+      /* v must be a real selection: '' (e.g. "Any available") is a valid
+         pick and must save; undefined/null (dismissed) must not. */
+    }).then(function (v) { if (v !== undefined && v !== null) onPick(v); return v; });
+  }
+
+  /* The model cache is stamped with the provider + endpoint it was
+     fetched for (upstream 18.3.6: "a provider switch during discovery
+     must not poison the next catalog"). Entries written before the
+     stamp existed are bare arrays and are treated as stale. */
+  function modelCacheSource(s) {
+    return (s.provider || '') + '|' + String(s.baseUrl || '');
+  }
+  function readModelCache(s) {
+    try {
+      var raw = JSON.parse(localStorage.getItem('hs-models') || 'null');
+      if (raw && raw.source === modelCacheSource(s) && Array.isArray(raw.models)) return raw.models;
+    } catch (e) {}
+    return null;
+  }
+  function writeModelCache(s, models) {
+    try {
+      localStorage.setItem('hs-models', JSON.stringify({ source: modelCacheSource(s), models: models }));
+    } catch (e) {}
   }
 
   App.chooseModel = function (refresh) {
     var s = Store.settings;
-    var cached = null;
-    try { cached = JSON.parse(localStorage.getItem('hs-models') || 'null'); } catch (e) {}
+    var cached = readModelCache(s);
     if (!refresh && cached && cached.length) {
       return modelSheet('Choose a model', cached, s.model, function (m) {
         Store.saveSettings({ model: m }).then(function () { Views.settings($('.screen')); });
@@ -1885,7 +1919,7 @@
     }
     UI.toast('Fetching models…');
     return API.listModels(s).then(function (models) {
-      try { localStorage.setItem('hs-models', JSON.stringify(models)); } catch (e) {}
+      writeModelCache(s, models);
       UI.closeSheet();
       return modelSheet('Choose a model', models, s.model, function (m) {
         Store.saveSettings({ model: m }).then(function () { Views.settings($('.screen')); });

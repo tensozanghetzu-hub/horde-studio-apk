@@ -351,8 +351,15 @@
     return fetch(endpoint(s) + '/models', { headers: headers(s) }).then(function (r) {
       return r.json().then(function (d) {
         if (!r.ok) throw new Error((d && (d.error && d.error.message)) || r.statusText);
-        var arr = Array.isArray(d) ? d : (d.data || []);
-        return arr.map(function (m) { return m.id || m.name; }).filter(Boolean);
+        /* Catalogs come back in three shapes (upstream 18.3.6): a bare
+           array, {data: [...]} and {models: [...]} — accept all three,
+           and degrade to [] instead of crashing on anything else. */
+        var arr = Array.isArray(d) ? d
+          : (Array.isArray(d && d.data) ? d.data
+            : (Array.isArray(d && d.models) ? d.models : []));
+        return arr.map(function (m) {
+          return typeof m === 'string' ? m : (m && (m.id || m.name));
+        }).filter(Boolean);
       });
     });
   }
