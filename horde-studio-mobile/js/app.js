@@ -139,10 +139,17 @@
   };
 
   App.deleteCharacter = function (id) {
+    /* v1.21.0 (upstream 18.3.5): deleting the character a reply is generating
+       for strands the in-flight turn mid-save. */
+    if (App.state.busy && App.state.char && App.state.char.id === id) {
+      return UI.toast('Wait for the current reply or stop it first');
+    }
     Store.delCharacter(id).then(function () {
       UI.toast('Character deleted');
       App.state.screen = null;
       App.go('characters');
+    }).catch(function (e) {
+      UI.toast('Could not delete the character: ' + (e && e.message), 6000);
     });
   };
 
@@ -422,6 +429,12 @@
               else if (a === 'mem') App.memorySheet(id);
               else if (a === 'export') App.exportTranscript(id);
               else if (a === 'del') {
+                /* v1.21.0 (upstream 18.3.5): the active chat's reply is still
+                   generating — deleting it now would orphan the in-flight
+                   save. */
+                if (App.state.busy && App.state.session && App.state.session.id === id) {
+                  return UI.toast('Wait for the current reply or stop it first');
+                }
                 UI.confirm('Delete this chat?', 'The transcript and its memory will be removed.',
                   { danger: true, okLabel: 'Delete' }).then(function (ok) {
                   if (!ok) return;
@@ -545,6 +558,23 @@
     if (char.temperature !== null && char.temperature !== undefined) charSettings.temperature = char.temperature;
     if (char.maxTokens) charSettings.maxTokens = char.maxTokens;
 
+    /* v1.21.0 (upstream 18.3.5): a save failure is not a provider failure.
+       The model already did its work — a finished reply stays in the thread
+       and the storage error is surfaced on its own, instead of the generic
+       failure path deleting the reply and offering a re-spent retry. */
+    function persist() {
+      var save = (opts.rerollFor || opts.continueFor ? Store.updateMessage(msg) : Store.addMessage(msg));
+      return save.then(function (r) { return { saved: true }; }, function (e) {
+        if (msg.text && msg.text !== '…') {
+          msg.saveFailed = true;
+          UI.toast('Reply kept on screen, but it could not be saved: ' + (e && e.message), 6000);
+          console.error('reply save failed:', e);
+          return { saved: false };
+        }
+        throw e;
+      });
+    }
+
     App.abort = new AbortController();
     App.genStart(s.provider === 'horde' ? 'Sending to the Horde…' : 'Generating…', App.abort);
 
@@ -618,12 +648,16 @@
         msg.altIdx = 0;
         var mt2 = el.querySelector('.mtext');
         if (mt2) mt2.innerHTML = UI.md(parts[0]);
-        return Store.addMessage(msg).then(function () {
+        return persist().then(function (r) {
+          /* if the first bubble could not be saved, the burst parts would
+             not be either — keep what is on screen */
+          if (!r.saved) return;
           return App.deliverBurst(char, msg, parts);
         });
       }
-      return (opts.rerollFor || opts.continueFor ? Store.updateMessage(msg) : Store.addMessage(msg));
+      return persist();
     }).then(function () {
+      if (msg.saveFailed) return;   /* the ledger is down — do not write to it again */
       /* A finished reply must not yank the view to the last word if the
          user scrolled up to read it — follow only when they're at the bottom. */
       Views.stickToBottom($('#thread'));
@@ -640,7 +674,9 @@
             el.remove();
           } else {
             el.classList.remove('streaming');
-            Store.updateMessage(msg);
+            Store.updateMessage(msg).catch(function (e) {
+              UI.toast('Partial reply kept on screen, but it could not be saved: ' + (e && e.message), 6000);
+            });
           }
           UI.toast('Stopped');
         } else {
@@ -1016,6 +1052,7 @@
     var input = $('#input');
     var text = input.value.trim();
     if (!text || App.state.busy) return;
+    var draft = input.value;
     input.value = ''; input.style.height = 'auto';
     var char = App.state.char, session = App.state.session;
     var msg = { sessionId: session.id, role: 'user', text: text, createdAt: Date.now() };
@@ -1024,6 +1061,12 @@
       Views.appendMessage(char, m);
       Views.stickToBottom($('#thread'), true);   // your own send: always show it
       return App.afterUserMessage(m);
+    }).catch(function (e) {
+      /* v1.21.0 (upstream 18.3.5): a storage failure is not a failed send —
+         give the text back instead of letting it vanish with the box. */
+      if (input.value === '') input.value = draft;
+      UI.toast('Your message was not sent — saving failed: ' + (e && e.message), 6000);
+      console.error('send save failed:', e);
     });
   };
 

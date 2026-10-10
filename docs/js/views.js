@@ -2166,6 +2166,9 @@
         'sheet (' + ((world.hudConfig || {}).stats || []).length + ')';
     });
     on(hud, '[data-act=wr-correct]', 'click', function () {
+      /* v1.21.0 (upstream 18.3.5): opening the correct-state screen is fine,
+         but a turn applying tags is mutating the same run object — wait. */
+      if (App.state.worldBusy) return UI.toast('Wait for the current turn to finish');
       if (App.state.worldRun) App.go('worldcorrect');
     });
   };
@@ -2300,6 +2303,12 @@
       renderQuests();
     });
     on(body, '#wc-save', 'click', function () {
+      /* v1.21.0 (upstream 18.3.5): a turn mid-apply and a manual correction
+         writing the same run object at once is how tags lose each other. */
+      if (App.state.worldBusy) {
+        UI.toast('Wait for the current turn to finish');
+        return;
+      }
       /* one correction object per change - correctState applies exactly one
          of each kind, so several edits mean several calls */
       var corrs = [];
