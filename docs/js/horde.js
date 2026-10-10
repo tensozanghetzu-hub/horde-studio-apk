@@ -168,6 +168,11 @@
     var maxWait = (o.maxWait || 600) * 1000;   // generous: queues are real
     var rateLimitStrikes = 0;
 
+    /* A queue wait outlasts any patience for the screen: hold the wake lock
+       for the whole job so the poll keeps ticking while the app is in the
+       background (the lock is refcounted and capped in the wrapper). */
+    if (global.KeepAwake) global.KeepAwake.hold();
+
     function step() {
       if (o.signal && o.signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
       var elapsed = Date.now() - started;
@@ -220,7 +225,14 @@
         throw err;
       });
     }
-    return step();
+    var p = step();
+    return p.then(function (r) {
+      if (global.KeepAwake) global.KeepAwake.release();
+      return r;
+    }, function (e) {
+      if (global.KeepAwake) global.KeepAwake.release();
+      throw e;
+    });
   }
 
   /* ---------- images ---------- */
