@@ -45,6 +45,7 @@ var sandbox = {
   console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise,
   Object: Object, Array: Array, String: String, Number: Number, RegExp: RegExp,
   Error: Error, isNaN: isNaN, parseFloat: parseFloat, parseInt: parseInt,
+  setTimeout: setTimeout, clearTimeout: clearTimeout,
   fetch: function () { return Promise.resolve({ ok: false }); },
   UI: {
     esc: function (s) {
@@ -160,6 +161,87 @@ thread.scrollTop = 4500;               // the user is at the bottom
 thread.appendChild = function () {};
 Views.appendMessage(char, { sessionId: 's1', id: 'm10', role: 'assistant', text: 'a new message', createdAt: 10 });
 ok('an incoming message follows when the user is at the bottom', thread.scrollTop === BOTTOM, 'scrollTop=' + thread.scrollTop);
+
+console.log('\nanchored re-renders (edit / delete mid-thread)');
+
+/* A thread that carries real children: the anchor mechanism is only
+   exercised when the previous DOM has message elements to measure. */
+function kid(mid, top, bottom) {
+  return {
+    mid: mid, offsetTop: top, offsetHeight: bottom - top,
+    getAttribute: function (n) { return n === 'data-mid' ? this.mid : null; }
+  };
+}
+function fakeImg() {
+  var img = {
+    complete: false,
+    addEventListener: function (t, cb) { (this['_ev_' + t] = this['_ev_' + t] || []).push(cb); },
+    fire: function (t) { (this['_ev_' + t] || []).forEach(function (cb) { cb(); }); }
+  };
+  return img;
+}
+function anchoredThread(oldKids, newKids, imgs) {
+  var t = fakeThread();
+  t.children = oldKids;
+  t.querySelector = function (sel) {
+    var mm = /^\[data-mid="(.*)"\]$/.exec(sel);
+    if (!mm) return null;
+    for (var i = 0; i < newKids.length; i++) if (newKids[i].mid === mm[1]) return newKids[i];
+    return null;
+  };
+  t.querySelectorAll = function (sel) { return sel === 'img' ? (imgs || []) : []; };
+  return t;
+}
+
+/* 1) the anchor mechanism itself: a mid-thread re-render restores the
+      reader at the same message, same offset into it */
+thread = anchoredThread(
+  [kid('m1', 0, 1500), kid('m2', 1500, 3000), kid('m3', 3000, 4500)],
+  [kid('m1', 0, 1500), kid('m2', 1500, 3000), kid('m3', 3000, 4500)],
+  []
+);
+thread.scrollTop = 1600; // reading 100px into m2
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thread : null; };
+Views.thread(char, null, msgs.concat([{ sessionId: 's1', id: 'm3', role: 'user', text: 'more', createdAt: 3 }]));
+ok('mid-thread re-render restores the anchored position', thread.scrollTop === 1400, 'scrollTop=' + thread.scrollTop);
+
+/* 2) the reported bug: accept an edit and the view jumps up. The rebuilt
+      thread measures zero-height until its avatars load, so the anchor
+      lands near the top; once the images settle the anchor must be
+      re-applied or the reader is stranded up the thread. */
+var imgs = [fakeImg(), fakeImg(), fakeImg()];
+var collapsed = [kid('m1', 0, 100), kid('m2', 100, 200), kid('m3', 200, 300)];
+var expanded = [kid('m1', 0, 1500), kid('m2', 1500, 3000), kid('m3', 3000, 4500)];
+var t2 = anchoredThread(
+  [kid('m1', 0, 1500), kid('m2', 1500, 3000), kid('m3', 3000, 4500)],
+  collapsed, imgs
+);
+t2.scrollTop = 1600;
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? t2 : null; };
+Views.thread(char, null, msgs.concat([{ sessionId: 's1', id: 'm3', role: 'user', text: 'more', createdAt: 3 }]));
+ok('collapsed first layout: the anchor is at least applied once', t2.scrollTop === 0, 'scrollTop=' + t2.scrollTop);
+/* the avatars land and the content grows back to full height */
+collapsed[0].offsetTop = 0; collapsed[0].offsetHeight = 1500;
+collapsed[1].offsetTop = 1500; collapsed[1].offsetHeight = 1500;
+collapsed[2].offsetTop = 3000; collapsed[2].offsetHeight = 1500;
+imgs.forEach(function (im) { im.fire('load'); });
+ok('after the images settle, the reader is back at the anchored position', t2.scrollTop === 1400, 'scrollTop=' + t2.scrollTop);
+
+/* 3) but if the reader has deliberately scrolled away in the meantime,
+      the re-apply must not yank them back */
+var imgs2 = [fakeImg()];
+var collapsed2 = [kid('m1', 0, 100), kid('m2', 100, 200), kid('m3', 200, 300)];
+var t3 = anchoredThread(
+  [kid('m1', 0, 1500), kid('m2', 1500, 3000), kid('m3', 3000, 4500)],
+  collapsed2, imgs2
+);
+t3.scrollTop = 1600;
+sandbox.document.querySelector = function (sel) { return sel === '#thread' ? t3 : null; };
+Views.thread(char, null, msgs.concat([{ sessionId: 's1', id: 'm3', role: 'user', text: 'more', createdAt: 3 }]));
+t3.scrollTop = 500; // the reader chose to move
+collapsed2[1].offsetTop = 1500; collapsed2[1].offsetHeight = 1500;
+imgs2.forEach(function (im) { im.fire('load'); });
+ok('a reader who scrolled away is not yanked back', t3.scrollTop === 500, 'scrollTop=' + t3.scrollTop);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
