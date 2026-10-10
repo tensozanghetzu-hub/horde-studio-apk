@@ -2048,6 +2048,32 @@
       /* Re-render (delete / edit / swipe) while the reader was mid-thread:
          put them back where they were. */
       Views.restoreThreadScroll(thread, anchor);
+      /* The first layout pass measures a thread whose avatars/inline images
+         have not loaded yet, so the restored position is too high and the
+         reader is left stranded up the thread (accept an edit → the view
+         jumps up). Once the still-loading images settle, re-apply the
+         anchor — the same re-jump the fresh-open path already performs —
+         unless the reader has moved on their own in the meantime. */
+      var pendingImgs = [];
+      var allImgs = thread.querySelectorAll ? thread.querySelectorAll('img') : [];
+      for (var pi = 0; pi < allImgs.length; pi++) if (allImgs[pi] && !allImgs[pi].complete) pendingImgs.push(allImgs[pi]);
+      if (pendingImgs.length) {
+        var settled = false;
+        var appliedPos = thread.scrollTop;
+        var reapply = function () {
+          if (settled) return;
+          settled = true;
+          if (Math.abs(thread.scrollTop - appliedPos) < 60) Views.restoreThreadScroll(thread, anchor);
+        };
+        var remaining = pendingImgs.length;
+        for (var pj = 0; pj < pendingImgs.length; pj++) (function (im) {
+          var one = function () { if (--remaining === 0) reapply(); };
+          im.addEventListener('load', one, { once: true });
+          im.addEventListener('error', one, { once: true });
+        })(pendingImgs[pj]);
+        /* a broken or slow image never fires: settle on a timer anyway */
+        setTimeout(reapply, 800);
+      }
     }
     return st;
   };
