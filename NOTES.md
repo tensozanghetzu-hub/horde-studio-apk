@@ -174,6 +174,18 @@ dropped. Downloading it and building the APK have to happen in **one** command:
 
 Otherwise the build dies at `aapt2: No such file or directory`.
 
+## HAZARD: field initializers must not touch the context
+
+Found 2026-10-10 (v1.22.1): `private final File logFile =
+new File(getFilesDir(), …)` in MainActivity crash-looped every launch —
+field initializers run during construction, before `attach()`, so
+`getFilesDir()` NPEs. Compile-clean, invisible to the Node battery,
+present in the dex as a string: **the marker was in the dex; the bug was
+in when the line runs.** Guard: `tests/initializers-test.js` scans for
+context calls in `private … = …;` lines and fails the battery. Any new
+wrapper state that depends on a context is a method or an onCreate
+assignment, never a field initializer.
+
 ## HAZARD: `newest_apk()` sorted by filename
 
 `max(cands, key=lambda p: (os.path.basename(p), mtime))` picked `v1.4.9` over
@@ -552,6 +564,59 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.22.1 — launch crash fix (2026-10-10)
+
+### The problem
+
+After installing v1.22.0 the app crash-looped on launch ("Horde Studio
+keeps stopping" on the user's Mi phone).
+
+**Root cause:** the error-log store declared its file as a field
+initializer —
+
+```java
+private final File logFile = new File(getFilesDir(), "errorlog.jsonl");
+```
+
+Field initializers run while the `Activity` is being **constructed**,
+before `attach()` gives it a context. `getFilesDir()` there throws NPE on
+every launch. It compiled clean and no Node test could see it (none of
+them instantiates an Android Activity), so it sailed through the whole
+battery and the dex marker check alike — the marker string was in the
+dex; the crash was in *when* the line runs.
+
+### The change
+
+- `logFile` is now a **method** (`logFile()`) — the path resolves lazily,
+  only once the activity actually has a context. All five call sites
+  updated.
+- New **`tests/initializers-test.js`** — a static scan that fails the
+  battery if any `private … = …;` field initializer in the wrapper
+  calls a context method (`getFilesDir`, `getSystemService`,
+  `getSharedPreferences`, …). This is the class of bug, not this
+  instance.
+- Bumps: 1.22.1, apk code 46, sw cache v34 (store.js changed).
+
+No other v1.22.0 code touched: the install fix, the error log and the
+wake lock all stay exactly as shipped.
+
+### Verification
+
+Full battery: **965 checks, 0 failed** (962 + 3 new initializers
+checks). The dex was disassembled and audited method by method:
+`getFilesDir` appears in 13 call sites, **zero of them in
+`MainActivity.<init>`** — the constructor now only calls
+`Activity.<init>`, `HashMap.<init>`, `Object.<init>`; the log path is
+built inside `logFile()` at first use. That is the strongest proof
+available without a device; the constructor is byte-for-byte clean of
+context calls.
+
+APK: 322,850 B, sha256 `7c6ae611b1c911a4bdc5876119ee235388c0b767e5a6a50865c7cc9eb6bcaa95`,
+code 46 / 1.22.1, signed with the same key (v1.22.0 stays installed-
+compatible — this is an in-place upgrade, all user data kept).
 
 ---
 
