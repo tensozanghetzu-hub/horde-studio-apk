@@ -966,6 +966,15 @@
       };
       return HW.saveRun(run).then(function () {
         Views.worldRun(world, run, hud);
+        /* v1.24.1: the bar's "turn N" was written only by App.go (navigation),
+           so a whole session could sit at the old count until the player
+           exited and reentered. Refresh it now, after commit has moved the
+           count. Guarded: a turn that finishes after the player walked away
+           must not write a turn count onto another screen's bar. */
+        if (App.state.screen === 'worldrun') {
+          var sub = $('#bar-sub');
+          if (sub) sub.textContent = 'turn ' + (run.turn || 0);
+        }
       });
     }
 

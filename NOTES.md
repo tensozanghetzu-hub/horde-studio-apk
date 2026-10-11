@@ -567,6 +567,47 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.24.1 — World run: the "turn N" bar follows the run (2026-10-11)
+
+### The problem
+
+User report (screenshot, phone): the world run header sat at **turn 0**
+through an entire session and only showed the real count after exiting
+and reentering the world. (The same session's other visible oddities —
+four `rejected:` banners and "No move was recorded…" — were the model
+emitting empty-argument tags, which the v2 ledger refused and repaired
+exactly as designed; see the report for the full verdict. Nothing was
+wrong with the world file.)
+
+**Root cause** in `App.go`: the bar subtitle `'turn N'` is written only
+when *navigating* to the worldrun screen. A finished turn re-renders the
+screen (`Views.worldRun` — HUD chips + thread) but never the top bar, so
+the label froze at whatever the last navigation showed. `run.turn`
+itself was counted and persisted correctly (that's why reentering
+revealed the true number — reentry re-runs the one `App.go` line).
+
+### The change
+
+`js/app.js`, `App.worldTurn`'s `finishTurn`: after `HW.commit` (where
+`run.turn` increments) and the screen re-render, refresh `#bar-sub`
+— guarded on `App.state.screen === 'worldrun'`, so a turn that finishes
+after the player has walked away cannot write a turn count onto another
+screen's bar. No native changes.
+
+### Verification
+
+`tests/worldturnbar-test.js` (new, 7 checks): drives a real
+`App.worldTurn` with a scripted referee (stubbed `API.generate`, small
+honest DOM): the bar opens at the true count, follows turns 1 and 2,
+and a turn that completes after the screen changed leaves the other
+screen's bar untouched while the run still counts.
+**Reproduced the frozen "turn 0" pre-fix.** Full battery:
+**1021 node checks, 0 failed.**
+
+Bumps: 1.24.1, apk code 50, sw cache v38.
+
+---
+
 ## v1.24.0 — Worlds: the companion ledger (2026-10-10)
 
 ### The problem

@@ -605,6 +605,12 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.24.1
+
+**A small world fix.** The "turn N" line under the world's title used to
+stay at the old count until you exited and reentered the world; it now
+advances with every turn. Nothing else changed.
+
 ## What's new in v1.24.0
 
 **Worlds now keep a party.** If NPCs travel with you — you walk to the
