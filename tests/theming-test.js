@@ -64,12 +64,14 @@ var savedSettings = [];
 /* The real settings section views write into the static #settings-x-body,
    so the view under test gets one element to write into and read back. */
 var settingsBody = el();
+var settingsHub = el();
 var documentStub = {
   documentElement: { style: { setProperty: function (k, v) { docElStyle[k] = v; } } },
   addEventListener: function () {},
   querySelector: function (sel) {
     if (sel === '.screen') return { querySelector: function () { return deepFake(); } };
     if (sel === '#settings-x-body') return settingsBody;
+    if (sel === '#settings-body') return settingsHub;
     if (sel && sel.charAt(0) === '#') return el();
     return null;
   },
@@ -161,6 +163,12 @@ var App = sandbox.App;
   eq('exactly one row is marked on', onRows.length, 1, onRows.join(','));
   eq('…and it is the current one', onRows[0], 'crimson');
   eq('…sixteen rows total', (body.innerHTML.match(/class="theme-row/g) || []).length, 16);
+
+  console.log('\nthe settings hub offers the Appearance section');
+  Views.settings({});
+  ok('the Appearance row is rendered', settingsHub.innerHTML.indexOf('data-gosec="appearance"') !== -1,
+    (settingsHub.innerHTML.match(/data-gosec="[a-z]+"/g) || []).join(','));
+  ok('…labeled Appearance, not a mystery row', /Appearance/.test(settingsHub.innerHTML));
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
