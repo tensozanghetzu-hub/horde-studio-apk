@@ -20,7 +20,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.25.0';
+  var VERSION = '1.26.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -75,7 +75,10 @@
     autoMemory: true,
     memoryEvery: 14,
     sendOnEnter: false,
-    showTokens: false
+    showTokens: false,
+    /* v1.26.0: appearance. One of THEMES.list(); 'midnight' is the
+       original look and the fallback for anything unrecognized. */
+    theme: 'midnight'
   };
 
   var Store = {

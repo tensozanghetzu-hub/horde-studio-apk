@@ -598,6 +598,7 @@
      a footer: it is status, not a setting. The per-persona rows live on
      Views.personas (v1.15.0), reached from the hub too. */
   Views.SETTINGS_SECTIONS = {
+    appearance: { title: 'Appearance', hint: 'Theme colors', icon: 'palette', view: 'settingsAppearance' },
     connection: { title: 'Connection', hint: 'Provider, API key, model', icon: 'key', view: 'settingsConnection' },
     generation: { title: 'Generation', hint: 'Temperature, reply length, context', icon: 'sparkle', view: 'settingsGeneration' },
     you:        { title: 'You', hint: 'Your name and identity', icon: 'user', view: 'settingsYou' },
@@ -2239,6 +2240,37 @@
   /** v1.25.0: the whole run, in a sheet - the phone's answer to the desktop
      sidebar. Everything the HUD knows, always expanded: place and exits,
      time, numbers, purse, pockets, tasks, and the party. */
+  /** v1.26.0: Settings → Appearance. One row per theme — a strip of the
+     theme's own colors, the name, and an "on" mark on the current pick.
+     Tapping applies in place and persists. */
+  Views.settingsAppearance = function () {
+    var body = $('#settings-x-body');
+    var cur = (Store.settings && Store.settings.theme) || 'midnight';
+    var h = '<p class="hint" style="margin:0 0 10px">The whole app re-colors in place. The pick is saved on this phone.</p>';
+    THEMES.list().forEach(function (id) {
+      var t = THEMES.get(id), tk = t.tokens;
+      h += '<div class="theme-row' + (id === cur ? ' on' : '') + '" data-th="' + id + '">' +
+        '<span class="theme-dots">' +
+          '<i style="background:' + tk['--bg'] + '"></i>' +
+          '<i style="background:' + tk['--surface'] + '"></i>' +
+          '<i style="background:' + tk['--accent'] + '"></i>' +
+          '<i style="background:' + tk['--accent-2'] + '"></i>' +
+          '<i style="background:' + tk['--text'] + '"></i>' +
+        '</span>' +
+        '<span class="theme-name">' + esc(t.name) + '</span>' +
+        (id === cur ? '<span class="pill theme-check">on</span>' : '') +
+        '</div>';
+    });
+    body.innerHTML = h;
+    (body.querySelectorAll ? body.querySelectorAll('[data-th]') : []).forEach(function (row) {
+      row.onclick = function () {
+        App.chooseTheme(row.getAttribute('data-th')).then(function () {
+          Views.settingsAppearance();       /* move the "on" mark */
+        });
+      };
+    });
+  };
+
   Views.worldStatusSheet = function (world, run) {
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var loc = HW.location(world, run.locationId);
