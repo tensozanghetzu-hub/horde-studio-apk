@@ -2245,6 +2245,21 @@
     }
     if (!thread) return;
     thread.innerHTML = (run.log || []).map(function (m) { return worldBubble(m, world); }).join('');
+    if (changes) {
+      /* v1.24.2: a finished turn is a whole scene that appears at once, and
+         the old scroll-to-bottom stranded the reader at the END of it -
+         back up they had to go to read the beginning. Anchor at the top of
+         the reply that just arrived (the last non-player message). Check
+         lines and correction notes after the reply don't move the anchor.
+         Opening a run and sending a message still land at the bottom. */
+      var reply = null, kids = thread.children || [];
+      for (var i = kids.length - 1; i >= 0; i--) {
+        var k = kids[i];
+        if (k && k.classList && k.classList.contains('msg') && !k.classList.contains('me')) { reply = k; break; }
+      }
+      thread.scrollTop = reply ? reply.offsetTop : thread.scrollHeight;
+      return;
+    }
     thread.scrollTop = thread.scrollHeight;
   };
 
