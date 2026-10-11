@@ -942,6 +942,41 @@
         changes.push('removed ' + corr.removeInventory);
       }
     }
+    if (corr.addCompanion) {
+      /* v1.28.0: the party, by hand - the same ledger as the referee's
+         [[with:NAME]] tag, reached from the Correct-state screen. Lenient
+         about names: a cast member is stored under the canonical spelling,
+         and anything else a story actually uses (a projection, a title, a
+         nickname) is recorded as written - the referee's own grammar is
+         stricter than a player's hand. */
+      run.companions = run.companions || [];
+      var nm = String(corr.addCompanion).trim();
+      if (nm) {
+        var known = npcNames(world).filter(function (n) {
+          return n.toLowerCase() === nm.toLowerCase();
+        })[0] || nm;
+        if (run.companions.some(function (c) { return c.name === known; })) {
+          changes.push(known + ' is already with the player');
+        } else if (run.companions.length >= COMPA_MAX) {
+          changes.push(known + ' cannot join - the party is full (' + COMPA_MAX + ')');
+        } else {
+          run.companions.push({ name: known, since: run.turn || 0, at: run.locationId });
+          changes.push(known + ' joins the party');
+        }
+      }
+    }
+    if (corr.removeCompanion) {
+      run.companions = run.companions || [];
+      var nm2 = String(corr.removeCompanion).trim().toLowerCase();
+      var i2 = -1;
+      run.companions.forEach(function (c, j) {
+        if (i2 === -1 && String(c.name).toLowerCase() === nm2) i2 = j;
+      });
+      if (i2 !== -1) {
+        var leaver2 = run.companions.splice(i2, 1)[0];
+        changes.push(leaver2.name + ' leaves the party');
+      }
+    }
     if (corr.addQuest) {
       run.quests.push({ text: corr.addQuest, done: false });
       changes.push('task: ' + corr.addQuest);

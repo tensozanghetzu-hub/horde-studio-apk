@@ -119,6 +119,9 @@ function makeBody() {
   });
   el('wc-item', { value: '' });
   el('wc-item-add');
+  el('wc-party');
+  el('wc-companion', { value: '' });
+  el('wc-companion-add');
   el('wc-quest', { value: '' });
   el('wc-quest-add');
   el('wc-inv');

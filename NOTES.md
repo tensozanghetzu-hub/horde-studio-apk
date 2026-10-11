@@ -566,6 +566,51 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.28.0 — Worlds: the party, correctable by hand (2026-10-11)
+
+### The ask
+
+Reported from the device: the scene clearly has the player with Elias and
+a projection of Lyra, but the status sheet's PARTY line says no one is
+with them. Finding: the party ledger is filled only by the referee's
+`[[with:NAME]]`/`[[part:NAME]]` tags, which demand names from the
+world's cast — a projection is not one — and the model in this world
+simply isn't tagging companions at all. With no tags, there was no way to
+fix the party by hand: Correct state had Pockets and Tasks editors but
+no Party editor.
+
+### The change
+
+- **`js/hordeworld.js`:** `correctState` takes `addCompanion` /
+  `removeCompanion`. A hand join writes the same ledger entry a tag
+  would (`{name, since, at}` — the sheet's "joined at …, turn …" and the
+  prompt's witnessed-scene rules work unchanged), obeys the same six
+  companion cap, and normalizes casing. Unlike the referee's grammar it
+  is lenient about names: a cast member is stored under the canonical
+  spelling, and anything else the story actually uses ("a projection of
+  Lyra") is recorded as written.
+- **`js/views.js`:** the Correct-state screen gains a Party section —
+  chip list with `×` removal and an "Add a companion… (any name the
+  story uses)" field, same pattern as Pockets. Applying diffs names:
+  removed ones `removeCompanion`, new ones `addCompanion`.
+- No prompt, tag, or tag-validation changes — the referee keeps its
+  existing grammar; this is the player's hand on the same ledger.
+
+### Verification
+
+Test-first: `tests/worldcompanions-test.js` gained five checks (hand
+join carries place and turn; casing never duplicates; removal; an
+unknown name is still recorded; the six cap holds) — all failed
+pre-patch. `tests/worldstatus-test.js` asserts the rendered correction
+screen contains the Party section (failed pre-patch).
+`tests/worldbusy-test.js` registers the new form ids. Post-patch:
+companions 28/0, worldstatus 29/0, full battery **1138 node checks,
+0 failed.**
+
+Bumps: 1.28.0 (minor — user-visible feature), apk code 57, sw cache v45.
+
+---
+
 ## v1.27.1 — Worlds: the pockets stop duplicating; Correct state renders (2026-10-11)
 
 ### The report
