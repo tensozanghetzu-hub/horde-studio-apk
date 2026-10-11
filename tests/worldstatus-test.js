@@ -225,6 +225,9 @@ function closeSheet() { UI.closeSheet(); }
     ok('…and the correction screen actually renders',
        String(correctBody.innerHTML).indexOf('Apply corrections') !== -1,
        String(correctBody.innerHTML).slice(0, 60));
+    ok('…with a Party section (v1.28.0)',
+       /Party/.test(correctBody.innerHTML) && correctBody.innerHTML.indexOf('id="wc-companion"') !== -1,
+       String(correctBody.innerHTML).slice(0, 120));
     App.go('worldrun');
   }
   els['#btn-bar-action'].onclick();           /* open again */

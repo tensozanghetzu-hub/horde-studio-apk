@@ -130,5 +130,35 @@ var run10 = freshRun();
 var r10 = HW.applyTags(world, run10, 'A tag nobody knows: [[frob:stuff]] and prose.');
 ok('unknown tags stay visible (unchanged rule)', r10.text.indexOf('[[frob:stuff]]') !== -1, r10.text);
 
+console.log('\nv1.28.0: the party can be corrected by hand');
+/* The referee tags the party; a manual correction is the same ledger,
+   reached from the Correct-state screen. */
+var runC = freshRun();
+HW.correctState(world, runC, { addCompanion: 'Denton Pike' });
+ok('a hand-added companion joins at the current place and turn',
+  (runC.companions || []).length === 1 && runC.companions[0].at === runC.locationId && runC.companions[0].since === 7,
+  JSON.stringify(runC.companions));
+HW.correctState(world, runC, { addCompanion: 'denton pike' });
+ok('…casing never duplicates', (runC.companions || []).length === 1, JSON.stringify(runC.companions));
+HW.correctState(world, runC, { addCompanion: 'Eli Finch' });
+HW.correctState(world, runC, { removeCompanion: 'Denton Pike' });
+ok('removing leaves the other', (runC.companions || []).length === 1 && runC.companions[0].name === 'Eli Finch',
+  JSON.stringify(runC.companions));
+/* the referee's grammar demands cast names; a hand edit may record
+   whatever the story says - "a projection of Lyra" is a party member too */
+HW.correctState(world, runC, { addCompanion: 'A Projection of Lyra' });
+ok('a name the cast does not know is still recorded',
+  (runC.companions || []).some(function (c) { return c.name === 'A Projection of Lyra'; }),
+  JSON.stringify(runC.companions));
+/* the cap the referee obeys holds for hand edits as well */
+var runD = freshRun();
+['Denton Pike','Eli Finch','Nisha Patel','Joryn Vale','Moss','Kettle'].forEach(function (n) {
+  HW.correctState(world, runD, { addCompanion: n });
+});
+var capBefore = (runD.companions || []).length;
+HW.correctState(world, runD, { addCompanion: 'Seventh Stranger' });
+ok('the party stays capped at six', (runD.companions || []).length === Math.min(capBefore, 6),
+  JSON.stringify(runD.companions));
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

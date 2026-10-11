@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.28.0
+
+**You can now keep score of who's with you.** The Correct-state screen
+has a **Party** section: see who the world thinks is travelling with
+you, remove anyone, and add anyone — including names the game's rules
+don't know, like *"a projection of Lyra."* Cast members snap to their
+official spelling; everything else is recorded exactly as you wrote it.
+The rest of the world follows the ledger: the status sheet shows where
+and when each companion joined, and the referee keeps them in the scene
+as witnesses.
+
 ## What's new in v1.27.1
 
 **Two world fixes, one clearer answer.** Pockets could show the same item
