@@ -566,6 +566,43 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.27.0 — Appearance trimmed to thirteen; quoted speech gets a voice (2026-10-11)
+
+### The ask
+
+User request: remove the Orchid, Porcelain and Paper colour schemes, and —
+reported from the device — "sometimes the spoken text that is between `"`
+is grey. Investigate why, and maybe make it a different color altogether."
+
+### The change
+
+- **`js/themes.js`:** Paper, Porcelain and Orchid (the three light
+  schemes) removed; thirteen themes remain, all dark. The unused
+  light-mode ok/warn/err constants went with them.
+- **`css/app.css`:** the grey-quotes fix. Models habitually wrap NPC
+  speech in asterisks (`*"Watch the door."*`); the `md()` formatter turns
+  `*…*` into `<em>`, and the old rule painted every `<em>` in a bubble
+  with `--dim` — the faintest text tone, originally there to soften
+  narration. Whether a model italicizes its quotes varies by model and by
+  reply, which is why the grey appeared only sometimes. The rule is now
+  `.bubble em{color:var(--accent-tint)}`: speech stays italic but wears
+  the theme's own pale tint (lavender in Midnight, sky in Abyss, cream in
+  Ember, pale yellow in Carbon) — speech reads as speech, per theme.
+- **`theme-variants.html`:** the preview page trimmed to the same
+  thirteen.
+
+### Verification
+
+Test-first: the suite asserted thirteen themes, thirteen Appearance rows,
+and a pinned `.bubble em` rule using the accent tint — all three failed
+pre-patch (16/16/dim), all pass post-patch. Theming suite **71/71**. Full
+battery: **1125 node checks, 0 failed.**
+
+Bumps: 1.27.0 (minor — user-visible feature change: three themes cut,
+new speech colour), apk code 55, sw cache v43.
+
+---
+
 ## v1.26.1 — The Appearance row, actually visible in Settings (2026-10-11)
 
 ### The problem

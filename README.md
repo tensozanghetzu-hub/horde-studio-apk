@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.27.0
+
+**A slimmer palette, and a voice for your characters' words.** The three
+light themes (Paper, Porcelain, Orchid) are gone — thirteen remain, all
+dark. And a fix for a reported oddity: NPC lines of speech sometimes
+appeared faded grey, because models wrap dialogue in italics and the app
+used to dim *everything* italic. Quoted speech now wears your theme's
+accent tint instead — lavender in Midnight, sky in Abyss, cream in
+Ember — so spoken lines read as speech.
+
 ## What's new in v1.26.1
 
 **A one-line fix for v1.26.0.** The Appearance section — the theme picker

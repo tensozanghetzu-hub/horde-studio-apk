@@ -117,7 +117,7 @@ var App = sandbox.App;
 (async function () {
   console.log('\nthe registry');
   var ids = THEMES.list();
-  eq('sixteen themes', ids.length, 16);
+  eq('thirteen themes', ids.length, 13);
   ok('midnight is among them', ids.indexOf('midnight') !== -1, ids.join(','));
   ids.forEach(function (id) {
     var t = THEMES.get(id);
@@ -135,8 +135,8 @@ var App = sandbox.App;
   THEMES.apply('abyss');
   eq('--accent becomes abyss blue', docElStyle['--accent'], '#38bdf8');
   eq('every token landed', Object.keys(docElStyle).length, REQUIRED.length);
-  THEMES.apply('porcelain');
-  eq('light theme applies its light bg', docElStyle['--bg'], '#f2f5f8');
+  THEMES.apply('ember');
+  eq('another theme applies its own bg', docElStyle['--bg'], '#120c08');
   THEMES.apply('nope');
   eq('an unknown name applies midnight, not nothing', docElStyle['--accent'], THEMES.get('midnight').tokens['--accent']);
 
@@ -162,7 +162,15 @@ var App = sandbox.App;
     .map(function (m) { return m.match(/data-th="([a-z-]+)"/)[1]; });
   eq('exactly one row is marked on', onRows.length, 1, onRows.join(','));
   eq('…and it is the current one', onRows[0], 'crimson');
-  eq('…sixteen rows total', (body.innerHTML.match(/class="theme-row/g) || []).length, 16);
+  eq('…thirteen rows total', (body.innerHTML.match(/class="theme-row/g) || []).length, 13);
+
+  /* v1.27.0: models italicize NPC speech (*"…"*); that must read as speech,
+     not as faded grey narration. The rule is a contract, so pin it. */
+  console.log('\nquoted (em) speech is never grey');
+  var css = fs.readFileSync(src('css/app.css'), 'utf8');
+  var emRule = css.match(/\.bubble em\{([^}]*)\}/);
+  ok('.bubble em rule exists', !!emRule);
+  ok('em speech wears the accent tint, not dim', !!emRule && emRule[1].indexOf('var(--accent-tint)') !== -1 && emRule[1].indexOf('--dim') === -1, emRule && emRule[1]);
 
   console.log('\nthe settings hub offers the Appearance section');
   Views.settings({});
