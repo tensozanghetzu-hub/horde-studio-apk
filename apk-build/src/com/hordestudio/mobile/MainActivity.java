@@ -137,10 +137,21 @@ public class MainActivity extends Activity {
                 try {
                     Intent i = new Intent(Intent.ACTION_GET_CONTENT);
                     i.addCategory(Intent.CATEGORY_OPENABLE);
+                    /* v1.28.2: keep the picker open unless the page asks for
+                       exactly one well-known family. The old code kept only
+                       the FIRST accept type, so a multi-format import
+                       (".horde_world,.json,application/json") narrowed
+                       pickers like Xplore to a single type - and extension
+                       types have no MIME of their own, so a .horde_world
+                       file could never even be shown. The app validates
+                       whatever comes back. */
                     String type = "*/*";
                     String[] accept = params.getAcceptTypes();
-                    if (accept != null && accept.length > 0 && accept[0] != null && !accept[0].trim().isEmpty()) {
-                        type = accept[0].trim();
+                    if (accept != null && accept.length == 1 && accept[0] != null) {
+                        String t = accept[0].trim();
+                        if (t.startsWith("image/") || t.equals("application/json")) {
+                            type = t;
+                        }
                     }
                     i.setType(type);
                     startActivityForResult(Intent.createChooser(i, "Choose file"), REQ_FILE);

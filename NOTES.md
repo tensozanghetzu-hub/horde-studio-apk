@@ -566,6 +566,47 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.28.2 — Import: the file picker actually shows the files it accepts (2026-10-11)
+
+### The report
+
+From the device: importing a world, the system file picker (Xplore)
+showed only JSON files — "Filter: application/json" — although the app
+imports `.json`, `.png` and `.horde_world`.
+
+### Finding
+
+The web side was correct: the world import's file input declares
+`accept=".horde_world,.json,application/json"`. The native side was not:
+`onShowFileChooser` kept only the FIRST accept type and set it as the
+intent's type. Pickers that honor the intent's type (Xplore) then showed
+exactly that one family — and extension types like `.horde_world` have
+no MIME of their own to begin with, so those files could never appear,
+no matter how many times the web side named them.
+
+### The change
+
+`apk-build/.../MainActivity.java`, `onShowFileChooser`: the picker now
+stays open (`*/*`) unless the page asks for exactly one well-known
+family (`image/*` for pictures, `application/json` for JSON-only
+imports). Anything else — every multi-format import — shows all files,
+and the app validates whatever comes back (world parse, JSON parse,
+image processing), as before. No web change; the update arrives as an
+APK install (webRev unchanged, sw cache unchanged).
+
+### Verification
+
+`tests/filepicker-contract-test.js` (new, 8 checks) pins both halves of
+the contract: the world import's accept list names `.horde_world`,
+`.json` and `application/json` as more than one type, and the native
+handler defaults to the wildcard, narrows only on a single accepted
+type, and can never narrow on an extension type. All three native-side
+checks failed pre-patch. Full battery: **1153 node checks, 0 failed.**
+
+Bumps: 1.28.2 (patch — fix), apk code 59, sw cache v46 (unchanged).
+
+---
+
 ## v1.28.1 — Worlds: the ledger no longer celebrates nothing (2026-10-11)
 
 ### The report
