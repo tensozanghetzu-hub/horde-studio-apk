@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.25.0
+
+**The world's stats, one tap away — from anywhere.** The desktop app
+tracks your world's numbers in a side panel; on the phone there's now a
+**status button in the top bar of the world screen** (the little
+bar-chart icon, next to the turn count). Push it any time while you're
+reading or in the middle of a scene, and a sheet opens with the whole
+run: where you are and where you can go, time and turn, every stat,
+your purse, your pockets, your open tasks, and who is with you (and
+where they joined). If a reply finishes while it's open, the sheet
+refreshes itself — no stale numbers. There's also a shortcut to set
+the clock, purse or stats by hand.
+
 ## What's new in v1.24.2
 
 **A small world fix.** When a world reply finished, the view jumped to
