@@ -566,6 +566,55 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.28.1 — Worlds: the ledger no longer celebrates nothing (2026-10-11)
+
+### The report
+
+From a live world (The Elos Wayfinder): a turn whose reply was only an
+italic echo of the player's action, a `***`, and "What do you do?" — and
+the change-chip row reading `moved to Pine-Covered Ridge`, `0 minutes
+pass`, `+0 copper`, `ID +0` on a turn the player explicitly did not move.
+
+### Findings & the change
+
+- **The echo turn — world/model, not app.** The app displayed exactly
+  what the model returned; the constrained re-ask got a proper reply, so
+  the pipeline is fine. No app change; the lever is the world's model or
+  dmPrompt.
+- **The junk chips — model junk the app let through and celebrated.**
+  The model tagged `[[clock:0]]`, `[[cash:+0]]`, `[[stat:ID:+0]]` (a stat
+  id the world never declares — v2 validation checks places, items and
+  tasks but never stat ids) and a move to the location the player
+  already occupied. `js/hordeworld.js`:
+  - zero-value clock/cash/stat tags produce no change line and no ledger
+    entry;
+  - a move tag to the current location is a no-op (no chip, no log);
+  - a stat id the world never declares is not recorded — worlds that
+    declare stats are protected, stat-less worlds (Elos et al.) stay
+    free-form;
+  - the scene-discipline move advisory, which used to say "the move
+    went to X instead" when the model tagged the player's current place
+    (misleading — the player went nowhere), now says "no move was
+    recorded — you are still at X".
+- **Test-harness honesty:** the battery tally now also fails on
+  "N failed" (N > 0) in a suite's summary — it had been silently
+  accepting a failing suite whose summary line read "365 passed, 1
+  failed".
+
+### Verification
+
+Test-first: 7 new checks in `tests/hordeworld-test.js` (zero chips,
+same-place move no-op, real move/cash/clock still chip, undeclared stat
+id refused, declared stat still works, stat-less world free-form) — 3
+failed pre-patch. The audit-note change kept the existing
+scene-discipline check green (its "Reception" assertion now comes from
+"you are still at Reception"). Post-patch: full battery **1145 node
+checks, 0 failed**, under the stricter tally.
+
+Bumps: 1.28.1 (patch — ledger hygiene), apk code 58, sw cache v46.
+
+---
+
 ## v1.28.0 — Worlds: the party, correctable by hand (2026-10-11)
 
 ### The ask
