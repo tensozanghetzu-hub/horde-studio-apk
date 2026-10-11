@@ -473,6 +473,16 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
   border-bottom:1px solid var(--line-soft);
 }
 .wr-hud b{color:var(--text);font-weight:600}
+/* v1.25.0 - the world status sheet: the desktop sidebar, on demand */
+.sheet-body h3{margin:14px 0 4px;font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim)}
+.sheet-body h3:first-child{margin-top:2px}
+.ws-loc{font-size:14.5px;font-weight:600;color:var(--text);margin:2px 0 3px}
+.ws-time{font-size:13px;color:var(--text);margin:2px 0}
+.ws-stat{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+  padding:5px 0;border-bottom:1px solid var(--line-soft);font-size:13px;color:var(--muted)}
+.ws-stat b{color:var(--text);font-weight:600}
+.ws-item{padding:3px 0;font-size:13px;color:var(--text)}
+.ws-item .hint{font-size:12px}
 .wr-hud-row{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
 .wr-hud-more{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px}
 .wr-hud-more[hidden]{display:none}

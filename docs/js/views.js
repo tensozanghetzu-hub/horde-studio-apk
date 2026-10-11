@@ -2236,6 +2236,76 @@
     });
   };
 
+  /** v1.25.0: the whole run, in a sheet - the phone's answer to the desktop
+     sidebar. Everything the HUD knows, always expanded: place and exits,
+     time, numbers, purse, pockets, tasks, and the party. */
+  Views.worldStatusSheet = function (world, run) {
+    var gr = world.gameRules || {}, hud = world.hudConfig || {};
+    var loc = HW.location(world, run.locationId);
+    var stats = hud.stats || [];
+
+    var h = '';
+    h += '<h3>Where you are</h3>';
+    h += '<div class="ws-loc">' + esc(loc ? loc.name : 'Somewhere') + '</div>';
+    var ex = HW.exits(world, run.locationId) || [];
+    h += ex.length
+      ? '<div class="hint">You can go: ' + esc(ex.map(function (e) {
+          return String(e.text || e.to || '').replace(/^to\s+/i, '');
+        }).join(', ')) + '</div>'
+      : '<div class="hint">The world has not said where you can go yet.</div>';
+
+    h += '<h3>Time</h3>';
+    h += '<div class="ws-time">' + (hud.showClock !== false ? esc(HW.clockOf(run, hud).text) + ' · ' : '') +
+         'turn ' + (run.turn || 0) + '</div>';
+
+    h += '<h3>Numbers</h3>';
+    var anyStat = false;
+    stats.forEach(function (st) {
+      var v = run.stats[st.id];
+      if (v === undefined) return;
+      anyStat = true;
+      h += '<div class="ws-stat"><span>' + esc(st.name) + '</span><b>' + esc(String(v)) +
+           (st.max ? '/' + esc(String(st.max)) : '') + '</b></div>';
+    });
+    if ((gr.modules || {}).commerce !== false && run.stats[run.cashId] !== undefined) {
+      anyStat = true;
+      h += '<div class="ws-stat"><span>' + esc(gr.currencyName || 'Cash') + '</span><b>' +
+           esc(String(run.stats[run.cashId])) + '</b></div>';
+    }
+    if (!anyStat) h += '<div class="hint">This world keeps no numbers.</div>';
+
+    if ((gr.modules || {}).inventory !== false) {
+      h += '<h3>Pockets</h3>';
+      h += (run.inventory && run.inventory.length)
+        ? run.inventory.map(function (it) { return '<div class="ws-item">' + esc(it) + '</div>'; }).join('')
+        : '<div class="hint">Empty.</div>';
+    }
+
+    if ((gr.modules || {}).quests !== false) {
+      var all = run.quests || [];
+      var open = all.filter(function (q) { return !q.done; });
+      h += '<h3>Tasks</h3>';
+      h += open.length
+        ? open.map(function (q) { return '<div class="ws-item">' + esc(q.text) + '</div>'; }).join('')
+        : '<div class="hint">Nothing to do right now.</div>';
+      if (all.length - open.length) h += '<div class="hint">' + (all.length - open.length) + ' finished.</div>';
+    }
+
+    /* v1.24.0 companion ledger - the party, and where they joined */
+    var party = run.companions || [];
+    h += '<h3>Party</h3>';
+    h += party.length
+      ? party.map(function (c) {
+          var at = HW.location(world, c.at);
+          return '<div class="ws-item">' + esc(c.name) +
+                 (at ? ' <span class="hint">(joined at ' + esc(at.name) + ', turn ' + (c.since || 0) + ')</span>' : '') +
+                 '</div>';
+        }).join('')
+      : '<div class="hint">No one is with you right now.</div>';
+
+    return h;
+  };
+
   Views.worldRun = function (world, run, changes) {
     var hud = $('#wr-hud'), thread = $('#wr-thread');
     if (hud) {
