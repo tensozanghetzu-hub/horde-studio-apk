@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.28.0.apk` (versionCode 57) — size/sha256
-in the v1.28.0 entry. Built 2026-10-11: `docs/` serves v1.28.0
-(webRev `4e938a033f93`) and release `v1.28.0` is the latest on the repo.
+Current build: `HordeStudio-v1.28.1.apk` (versionCode 58) — size/sha256
+in the v1.28.1 entry. Built 2026-10-11: `docs/` serves v1.28.1
+(webRev `59403476092d`) and release `v1.28.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -610,6 +610,13 @@ failed pre-patch. The audit-note change kept the existing
 scene-discipline check green (its "Reception" assertion now comes from
 "you are still at Reception"). Post-patch: full battery **1145 node
 checks, 0 failed**, under the stricter tally.
+
+APK `HordeStudio-v1.28.1.apk` — 331,107 B, sha256
+`ade64a378de399cd03fbfd914c7c9f54d9d5358b4bd2f9a91e89774dcfa2f8ee`;
+in-APK bundle verified: the v1.28.1 ledger guards present in
+`hordeworld.js`, `VERSION = '1.28.1'`, sw cache `horde-studio-v46`. The
+superseded `HordeStudio-v1.28.0.apk` was dropped (release asset retains
+the copy).
 
 Bumps: 1.28.1 (patch — ledger hygiene), apk code 58, sw cache v46.
 
