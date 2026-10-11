@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.27.1
+
+**Two world fixes, one clearer answer.** Pockets could show the same item
+twice (or more) when a story mentioned it in more than one turn — it
+can't anymore, and a run that already duplicated its items cleans itself
+the next time you open the world. The "Correct world state" screen was
+opening blank — it now shows the form. And the "This world keeps no
+numbers" line now tells you which is true: the world declares no tracked
+stats, or the referee simply hasn't reported values yet. (A character's
+own level and skill numbers live in her description, not in that panel.)
+
 ## What's new in v1.27.0
 
 **A slimmer palette, and a voice for your characters' words.** The three

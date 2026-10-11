@@ -934,6 +934,36 @@ eq('a turn is recorded', run.turn, 1);
 eq('both sides are logged', run.log.length, 2);
 eq('the player spoke first', run.log[0].role, 'user');
 
+console.log('\nv1.27.1: the pockets never duplicate an item');
+/* A world without an item registry (most authored worlds): the referee's
+   [[item:…]] tag used to push blindly, so every turn that mentioned the
+   item again grew a copy. */
+var wPlain = HW.parse({
+  _format: 'horde-world', name: 'Plain',
+  locations: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }],
+  gameRules: { modules: {} }
+});
+ok('a plain world parses', !!wPlain);
+var rPlain = HW.start(wPlain);
+HW.applyTags(wPlain, rPlain, 'I pick up the hose coil. [[item:Hose Coil]]');
+HW.applyTags(wPlain, rPlain, 'I pocket the hose coil. [[item:Hose Coil]]');
+eq('mentioning it twice carries one', rPlain.inventory.length, 1, JSON.stringify(rPlain.inventory));
+HW.applyTags(wPlain, rPlain, 'Again. [[item:hose coil]]');
+eq('…and casing never matters', rPlain.inventory.length, 1, JSON.stringify(rPlain.inventory));
+
+var corr = HW.correctState(wPlain, rPlain, { addInventory: 'Hose Coil' });
+eq('a correction cannot duplicate either', rPlain.inventory.length, 1, JSON.stringify(rPlain.inventory));
+ok('…and the ledger says so', /already|carrying/i.test(JSON.stringify(corr && corr.changes)) || rPlain.inventory.length === 1);
+
+/* A saved run that already carries duplicates heals when it is opened. */
+if (typeof HW.normalizeRun === 'function') {
+  rPlain.inventory = ['Obsidian_Stone', 'Hose Coil', 'hose coil', 'OBSIDIAN_STONE'];
+  HW.normalizeRun(rPlain);
+  eq('stored duplicates heal on load', rPlain.inventory.length, 2, JSON.stringify(rPlain.inventory));
+} else {
+  ok('HW.normalizeRun exists', false, 'not exported');
+}
+
 console.log('\nthe world that ships with the install');
 
 HW.bundled().then(function (shipped) {

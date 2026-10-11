@@ -2306,7 +2306,9 @@
       h += '<div class="ws-stat"><span>' + esc(gr.currencyName || 'Cash') + '</span><b>' +
            esc(String(run.stats[run.cashId])) + '</b></div>';
     }
-    if (!anyStat) h += '<div class="hint">This world keeps no numbers.</div>';
+    if (!anyStat) h += stats.length
+      ? '<div class="hint">This world keeps ' + stats.length + ' number' + (stats.length === 1 ? '' : 's') + ', but the referee has not reported a value for any of them yet.</div>'
+      : '<div class="hint">This world keeps no numbers — its rules declare no tracked stats.</div>';
 
     if ((gr.modules || {}).inventory !== false) {
       h += '<h3>Pockets</h3>';
@@ -2372,7 +2374,11 @@
      carries the truth, not the story. */
   Views.worldCorrect = function (root) {
     var world = App.state.world, run = App.state.worldRun;
-    var body = root.querySelector('#world-correct-body');
+    /* v1.27.1: the body div lives in its own <section>. The root that
+       arrives here is the FIRST .screen in the DOM, where the div is not
+       - resolving it against root rendered a blank screen on the device.
+       Every other view resolves its container by id, so do that. */
+    var body = $('#world-correct-body');
     if (!body) return;
     if (!world || !run) {
       body.innerHTML = '<p class="hint">No run to correct.</p>';

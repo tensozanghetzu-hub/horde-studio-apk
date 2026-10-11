@@ -43,10 +43,15 @@ var sandbox = {
   App: null,   /* filled after the world/run exist */
   Store: { settings: { userName: 'Tester' } },
   document: {
-    querySelector: function () { return null; },
+    querySelector: function (sel) {
+      /* the view resolves its body by id at document level (v1.27.1) */
+      if (sel === '#world-correct-body') return currentCorrectBody;
+      return null;
+    },
     querySelectorAll: function () { return []; }
   }
 };
+var currentCorrectBody = null;
 sandbox.window = sandbox;
 vm.runInNewContext(fs.readFileSync(HW_SRC, 'utf8'), sandbox, { filename: 'hordeworld.js' });
 vm.runInNewContext(fs.readFileSync(VIEWS_SRC, 'utf8'), sandbox, { filename: 'views.js' });
@@ -129,8 +134,8 @@ function makeBody() {
 
 function renderCorrect() {
   var body = makeBody();
-  var root = { querySelector: function (sel) { return sel === '#world-correct-body' ? body : null; } };
-  Views.worldCorrect(root);
+  currentCorrectBody = body;
+  Views.worldCorrect();
   return body;
 }
 

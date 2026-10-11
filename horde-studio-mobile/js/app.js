@@ -911,7 +911,8 @@
       return HW.get(run.worldId).then(function (world) {
         if (!world) { UI.toast('That world is not installed'); App.go('worlds'); return; }
         App.state.world = world;
-        App.state.worldRun = run;
+        /* v1.27.1: heal runs saved before the pocket dedup */
+        App.state.worldRun = HW.normalizeRun(run);
         /* a world nobody has entered yet opens with its own words */
         if (!run.log.length && world.intro) {
           run.log.push({ role: 'assistant', content: world.intro, at: Date.now() });

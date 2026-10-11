@@ -566,6 +566,58 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.27.1 — Worlds: the pockets stop duplicating; Correct state renders (2026-10-11)
+
+### The report
+
+From a real world (The Elos Wayfinder), three observations: pockets listed
+"Hose Coil" twice and "Obsidian_Stone" four times though the player
+carried one of each; the **Correct world state** screen opened **blank**;
+and the status sheet said "This world keeps no numbers" in a world of
+levels and skills.
+
+### Findings & the change
+
+- **Duplicate pockets — app bug, fixed.** Worlds without an item registry
+  (most authored worlds; the Policy Panic fixture included) let the
+  referee's `[[item:…]]` tag push the name into `run.inventory` blindly,
+  so every turn that mentioned the item again grew another copy. All add
+  paths now dedupe case-insensitively: the tag path, the manual
+  correction (`corr.addInventory`), and `HW.normalizeRun` — a new
+  self-heal that runs when a world opens, so a saved run that already
+  carries duplicates cleans itself on the next open (first spelling wins).
+- **Blank Correct-state screen — app bug, fixed.** `Views.worldCorrect`
+  resolved its body with `root.querySelector('#world-correct-body')`, but
+  the root it receives is `document.querySelector('.screen')` — the FIRST
+  screen section in the DOM — while the body div lives in the
+  worldcorrect section. On a real device the lookup returned null and the
+  view silently returned, leaving the title over an empty screen. The
+  view now resolves the body by id at document level, like every other
+  view. (The VM harness had been masking this: its fake `.screen` answered
+  every `querySelector` with a deep fake. It is now honest — `'.screen'`
+  resolves to a first section that does not contain the body — and
+  asserts the screen actually renders.)
+- **"Keeps no numbers" — not an app bug, clarified.** The Numbers panel
+  shows the numbers the world's rules *declare* (`hudConfig.stats`),
+  updated by the referee's `STAT:` tags. A character like Azarin can be
+  "full of numbers" in her description while the world declares no
+  tracked stats, in which case the panel is honestly empty. The hint now
+  says which case it is: "its rules declare no tracked stats" vs
+  "the referee has not reported a value for any of them yet."
+
+### Verification
+
+Test-first: `tests/hordeworld-test.js` gained the dedup section (double
+mention → one item; casing; correction path; stored-run heal) — 5 fails
+pre-patch; `tests/worldstatus-test.js` now renders the correction screen
+against an honest fake DOM — 1 fail pre-patch (the blank screen);
+`tests/worldbusy-test.js` updated to the document-level body contract.
+Post-patch: **all green. Full battery: 1132 node checks, 0 failed.**
+
+Bumps: 1.27.1 (patch — defect fixes), apk code 56, sw cache v44.
+
+---
+
 ## v1.27.0 — Appearance trimmed to thirteen; quoted speech gets a voice (2026-10-11)
 
 ### The ask
