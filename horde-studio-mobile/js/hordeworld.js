@@ -740,7 +740,12 @@
             return '';
           }
         }
-        run.inventory.push(arg);
+        /* v1.27.1: a world without an item registry used to push blindly,
+           so every turn that mentioned the item again grew another copy
+           in the pockets. */
+        if (!run.inventory.some(function (x) {
+          return String(x).toLowerCase() === String(arg).toLowerCase();
+        })) run.inventory.push(arg);
         changes.push('picked up ' + arg);
         return '';
       }
@@ -875,6 +880,28 @@
   /** v1.17.0: the player sets the ledger straight by hand. Every corr field
    *  is optional; returns the list of human-readable changes (empty when
    *  nothing was actually changed). The caller records the entry and saves. */
+  /** v1.27.1: make a saved run safe to show. Runs saved before the pocket
+      dedup may hold duplicate items; opening a world heals them in place
+      (first spelling wins). Also guarantees the array shapes the views
+      rely on, so a hand-edited or half-written run cannot blank a screen. */
+  function normalizeRun(run) {
+    if (!run || typeof run !== 'object') return run;
+    if (!Array.isArray(run.inventory)) run.inventory = [];
+    var seen = {}, out = [];
+    run.inventory.forEach(function (x) {
+      var k = String(x).toLowerCase();
+      if (seen[k]) return;
+      seen[k] = true;
+      out.push(x);
+    });
+    run.inventory = out;
+    if (!Array.isArray(run.quests)) run.quests = [];
+    if (!Array.isArray(run.log)) run.log = [];
+    if (!Array.isArray(run.companions)) run.companions = [];
+    if (typeof run.stats !== 'object' || run.stats === null) run.stats = {};
+    return run;
+  }
+
   function correctState(world, run, corr) {
     corr = corr || {};
     var changes = [];
@@ -897,7 +924,10 @@
       });
     }
     if (corr.addInventory) {
-      run.inventory.push(corr.addInventory);
+      /* v1.27.1: same rule as the referee's tags - no duplicates */
+      if (!run.inventory.some(function (x) {
+        return String(x).toLowerCase() === String(corr.addInventory).toLowerCase();
+      })) run.inventory.push(corr.addInventory);
       changes.push('added ' + corr.addInventory);
     }
     if (corr.removeInventory) {
@@ -1452,6 +1482,7 @@
     bundled: bundled, installBundled: installBundled,
     applyTags: applyTags, buildPrompt: buildPrompt, commit: commit,
     ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
+    normalizeRun: normalizeRun,
     resolveChecks: resolveChecks, checkDef: checkDef,
     parseCheckRequest: parseCheckRequest, nextRand: nextRand,
     loreVisible: loreVisible, loreScore: loreScore, questReached: questReached,

@@ -85,11 +85,23 @@ function deepFake() {
   return e;
 }
 var bootListener = null;
+/* The real DOM has one section per screen, and
+   document.querySelector('.screen') returns the FIRST one in document
+   order. The correction body lives in its own section, so a view that
+   looks for it *inside the first .screen* finds nothing and the screen
+   renders blank on the device. The fake must be honest about that. */
+var screenFirst = el();
+var correctBody = el();
+correctBody.querySelector = function (sel) {
+  if (sel && sel.indexOf('#wc-') === 0) return el();
+  return null;
+};
 var documentStub = {
   documentElement: { style: { setProperty: function () {} } },
   addEventListener: function (ev, fn) { if (ev === 'DOMContentLoaded') bootListener = fn; },
   querySelector: function (sel) {
-    if (sel === '.screen') return { querySelector: function () { return deepFake(); } };
+    if (sel === '.screen') return screenFirst;
+    if (sel === '#world-correct-body') return correctBody;
     if (els[sel]) return els[sel];
     /* global id lookups (bindGlobal, the correction screen, boot) get a
        fresh honest fake; only class/attribute selectors return null */
@@ -208,6 +220,11 @@ function closeSheet() { UI.closeSheet(); }
     correct.onclick();
     await settle(5);
     eq('it goes to the correction screen', App.state.screen, 'worldcorrect');
+    /* the device bug: the view resolved its body against the wrong screen
+       and rendered nothing. The body element must actually be filled. */
+    ok('…and the correction screen actually renders',
+       String(correctBody.innerHTML).indexOf('Apply corrections') !== -1,
+       String(correctBody.innerHTML).slice(0, 60));
     App.go('worldrun');
   }
   els['#btn-bar-action'].onclick();           /* open again */
