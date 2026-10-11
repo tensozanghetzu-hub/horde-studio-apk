@@ -964,6 +964,40 @@ if (typeof HW.normalizeRun === 'function') {
   ok('HW.normalizeRun exists', false, 'not exported');
 }
 
+console.log('\nv1.28.1: the ledger does not celebrate nothing');
+/* A model can tag zero-value changes and phantom stat ids; the ledger
+   should not record or announce them. */
+var wZ = HW.parse({
+  _format: 'horde-world', name: 'Z',
+  locations: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }],
+  gameRules: { modules: {} },
+  hudConfig: { stats: [{ id: 'hp', name: 'HP' }] }
+});
+var rZ = HW.start(wZ);
+var z1 = HW.applyTags(wZ, rZ, 'x [[clock:0]] [[cash:+0]] [[stat:hp:+0]]');
+eq('zero changes leave no chips', z1.changes.length, 0, JSON.stringify(z1.changes));
+var z2 = HW.applyTags(wZ, rZ, 'x [[move:a]]');
+ok('a move to where you already are changes nothing', z2.changes.length === 0 && rZ.locationId === 'a',
+  JSON.stringify(z2.changes));
+var z3 = HW.applyTags(wZ, rZ, 'x [[move:b]]');
+ok('a real move still counts', z3.changes.length === 1 && rZ.locationId === 'b', JSON.stringify(z3.changes));
+var z4 = HW.applyTags(wZ, rZ, 'x [[stat:ID:+5]]');
+ok('a stat id the world never declared is not recorded', rZ.stats.ID === undefined && z4.changes.length === 0,
+  JSON.stringify(rZ.stats));
+var z5 = HW.applyTags(wZ, rZ, 'x [[stat:hp:+5]]');
+ok('a declared stat still counts', rZ.stats.hp === 5 && z5.changes.length === 1, JSON.stringify(rZ.stats));
+var z6 = HW.applyTags(wZ, rZ, 'x [[cash:+3]] [[clock:+10]]');
+ok('real cash and clock changes still chip', z6.changes.length === 2, JSON.stringify(z6.changes));
+/* a world that declares no stats keeps free-form stat tags (Elos et al) */
+var wNoStats = HW.parse({
+  _format: 'horde-world', name: 'N',
+  locations: [{ id: 'a', name: 'A' }],
+  gameRules: { modules: {} }
+});
+var rNo = HW.start(wNoStats);
+var z7 = HW.applyTags(wNoStats, rNo, 'x [[stat:whatever:+2]]');
+ok('a stat-less world stays free-form', rNo.stats.whatever === 2, JSON.stringify(rNo.stats));
+
 console.log('\nthe world that ships with the install');
 
 HW.bundled().then(function (shipped) {

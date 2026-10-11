@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.28.1
+
+**Quiet ledger.** The world's change chips no longer celebrate nothing:
+zero-value tags (a `+0` on the purse, "0 minutes pass", a stat that
+declares no change) and a "move" to where you already are no longer
+appear as changes, and a stat the world's rules don't know doesn't get
+invented into the record. (Separately: if a reply comes back as just an
+echo of what you did, that's the model under-delivering on that turn —
+re-ask, or give the world a stronger model.)
+
 ## What's new in v1.28.0
 
 **You can now keep score of who's with you.** The Correct-state screen
