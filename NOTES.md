@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.27.1.apk` (versionCode 56) — size/sha256
-in the v1.27.1 entry. Built 2026-10-11: `docs/` serves v1.27.1
-(webRev `db2b9daa0284`) and release `v1.27.1` is the latest on the repo.
+Current build: `HordeStudio-v1.28.0.apk` (versionCode 57) — size/sha256
+in the v1.28.0 entry. Built 2026-10-11: `docs/` serves v1.28.0
+(webRev `4e938a033f93`) and release `v1.28.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -606,6 +606,13 @@ screen contains the Party section (failed pre-patch).
 `tests/worldbusy-test.js` registers the new form ids. Post-patch:
 companions 28/0, worldstatus 29/0, full battery **1138 node checks,
 0 failed.**
+
+APK `HordeStudio-v1.28.0.apk` — 331,107 B, sha256
+`cb9240d4abd5ec116e1fc176af2b089a7aa89be3908207b2749aee8dc32b4a22`;
+in-APK bundle verified: `addCompanion`/`removeCompanion` in the engine,
+the `wc-companion` form in the views, `VERSION = '1.28.0'`, sw cache
+`horde-studio-v45`. The superseded `HordeStudio-v1.27.1.apk` was dropped
+(release asset retains the copy).
 
 Bumps: 1.28.0 (minor — user-visible feature), apk code 57, sw cache v45.
 

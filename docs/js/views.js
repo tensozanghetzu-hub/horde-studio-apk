@@ -2395,6 +2395,9 @@
 
     var inv = (run.inventory || []).slice();
     var quests = (run.quests || []).map(function (q) { return { text: q.text, done: !!q.done }; });
+    /* v1.28.0: the party, editable by hand (names only; the ledger keeps
+       where/when, and the referee keeps talking as if it were true). */
+    var party = (run.companions || []).map(function (c) { return c.name; });
 
     var h = '<div class="group">';
     h += '<h3>Where you are</h3>';
@@ -2419,6 +2422,10 @@
       '<div class="field row"><input id="wc-item" type="text" placeholder="Add an item…">' +
       '<button class="btn sm" id="wc-item-add">Add</button></div>';
 
+    h += '<h3>Party</h3><div class="wc-inv" id="wc-party"></div>' +
+      '<div class="field row"><input id="wc-companion" type="text" placeholder="Add a companion… (any name the story uses)">' +
+      '<button class="btn sm" id="wc-companion-add">Add</button></div>';
+
     h += '<h3>Tasks</h3><div id="wc-quests"></div>' +
       '<div class="field row"><input id="wc-quest" type="text" placeholder="Add a task…">' +
       '<button class="btn sm" id="wc-quest-add">Add</button></div>';
@@ -2436,6 +2443,12 @@
           '<button type="button" class="wc-x" data-wc-drop="' + i + '" aria-label="Remove ' + esc(it) + '">\u00D7</button></span>';
       }).join('') : '<p class="hint">Nothing to remove.</p>';
     }
+    function renderParty() {
+      body.querySelector('#wc-party').innerHTML = party.length ? party.map(function (nm, i) {
+        return '<span class="chip wc-chip">' + esc(nm) +
+          '<button type="button" class="wc-x" data-wc-comp="' + i + '" aria-label="Remove ' + esc(nm) + '">\u00D7</button></span>';
+      }).join('') : '<p class="hint">No one is with you.</p>';
+    }
     function renderQuests() {
       body.querySelector('#wc-quests').innerHTML = quests.length ? quests.map(function (q) {
         return q.done
@@ -2445,6 +2458,7 @@
       }).join('') : '<p class="hint">No tasks.</p>';
     }
     renderInv();
+    renderParty();
     renderQuests();
 
     /* container-level listeners: the chips re-render, the container does not */
@@ -2453,6 +2467,12 @@
       if (!btn) return;
       inv.splice(+btn.getAttribute('data-wc-drop'), 1);
       renderInv();
+    });
+    body.querySelector('#wc-party').addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('[data-wc-comp]') : null;
+      if (!btn) return;
+      party.splice(+btn.getAttribute('data-wc-comp'), 1);
+      renderParty();
     });
     body.querySelector('#wc-quests').addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('[data-wc-done]') : null;
@@ -2482,6 +2502,13 @@
       inv.push(v);
       body.querySelector('#wc-item').value = '';
       renderInv();
+    });
+    on(body, '#wc-companion-add', 'click', function () {
+      var v = body.querySelector('#wc-companion').value.trim();
+      if (!v) return;
+      party.push(v);
+      body.querySelector('#wc-companion').value = '';
+      renderParty();
     });
     on(body, '#wc-quest-add', 'click', function () {
       var v = body.querySelector('#wc-quest').value.trim();
@@ -2518,6 +2545,9 @@
       var oldInv = run.inventory || [];
       oldInv.forEach(function (x) { if (inv.indexOf(x) === -1) corrs.push({ removeInventory: x }); });
       inv.forEach(function (x) { if (oldInv.indexOf(x) === -1) corrs.push({ addInventory: x }); });
+      var oldParty = (run.companions || []).map(function (c) { return c.name; });
+      oldParty.forEach(function (x) { if (party.indexOf(x) === -1) corrs.push({ removeCompanion: x }); });
+      party.forEach(function (x) { if (oldParty.indexOf(x) === -1) corrs.push({ addCompanion: x }); });
       (run.quests || []).forEach(function (o) {
         var now = null;
         quests.forEach(function (q) { if (q.text === o.text) now = q; });
