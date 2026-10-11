@@ -13,7 +13,7 @@
   }
 
   var App = {
-    state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {}, settingsSection: 'connection' },
+    state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {}, settingsSection: 'connection', worldStatusOpen: false },
     stack: [],
     abort: null,
     deferredPrompt: null
@@ -36,7 +36,7 @@
 
     var back = $('#btn-back'), act = $('#btn-bar-action');
     back.hidden = !(name === 'chat' || name === 'editor' || name === 'worldrun' || name === 'worldcorrect' || name === 'personas' || name === 'settings-x');
-    act.hidden = !(name === 'chat' || name === 'characters');
+    act.hidden = !(name === 'chat' || name === 'characters' || name === 'worldrun');
     if (name === 'chat') act.setAttribute('aria-label', 'Conversation options');
 
     if (name === 'settings') {
@@ -106,6 +106,13 @@
       $('#bar-sub').textContent = '';
       Views.editor($('.screen'), params.char);
     }
+    /* v1.25.0: on the world screen the bar action is the status button
+       (stats, purse, pockets, tasks, party — the desktop sidebar, on
+       demand, reachable from anywhere in the conversation); elsewhere it
+       is the usual "more". */
+    act.innerHTML = name === 'worldrun' ?
+      '<svg viewBox="0 0 24 24"><path d="M5 20v-7M12 20V5M19 20v-4"/></svg>' :
+      '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>';
     window.scrollTo(0, 0);
   };
 
@@ -916,6 +923,27 @@
     });
   };
 
+  /** v1.25.0: the whole run, in a sheet - the desktop sidebar, on demand.
+     The bar button that opens it is above the thread, so it works from
+     anywhere in the conversation. A turn finishing while the sheet is
+     open re-renders it (finishTurn), so it never shows stale numbers. */
+  App.openWorldStatus = function () {
+    var world = App.state.world, run = App.state.worldRun;
+    if (!world || !run) return;
+    App.state.worldStatusOpen = true;
+    UI.sheet({
+      title: (world.name || 'World') + ' — status',
+      body: Views.worldStatusSheet(world, run),
+      actions: [
+        { label: 'Correct state…', cls: 'ghost', value: 'correct' },
+        { label: 'Close', cls: 'ghost', value: null }
+      ]
+    }).then(function (v) {
+      App.state.worldStatusOpen = false;
+      if (v === 'correct') App.go('worldcorrect');
+    });
+  };
+
   /** One turn: ask the referee, then let the world apply what it reported. */
   App.worldTurn = function () {
     var world = App.state.world, run = App.state.worldRun;
@@ -974,6 +1002,12 @@
         if (App.state.screen === 'worldrun') {
           var sub = $('#bar-sub');
           if (sub) sub.textContent = 'turn ' + (run.turn || 0);
+        }
+        /* v1.25.0: a status sheet left open must not show stale numbers */
+        if (App.state.worldStatusOpen) {
+          var wrap = document.getElementById('sheet-wrap');
+          var sb = document.getElementById('sheet-body');
+          if (wrap && !wrap.hidden && sb) sb.innerHTML = Views.worldStatusSheet(world, run);
         }
       });
     }
@@ -2130,6 +2164,8 @@
         });
       } else if (App.state.screen === 'chat' && App.state.session) {
         App.sessionMenu(App.state.session.id);
+      } else if (App.state.screen === 'worldrun') {
+        App.openWorldStatus();
       }
     };
 

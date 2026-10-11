@@ -567,6 +567,55 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.25.0 — Worlds: the status button — the desktop sidebar, on demand (2026-10-11)
+
+### The ask
+
+User request: the desktop app tracks the world's stats in a side panel;
+the phone can't show that alongside a conversation, but there should be
+**a button that, from anywhere in the world conversation, brings up the
+status**.
+
+### The change
+
+- **`js/app.js`:** the top bar's action slot (always visible — the bar
+  sits above the thread, so it is reachable wherever the conversation
+  has scrolled) is now a status button on the world screen: a
+  bar-chart icon, wired to the new `App.openWorldStatus`. The button
+  reverts to the usual "more" icon on every other screen (set once, per
+  navigation, in `App.go`).
+- **`js/views.js`:** new `Views.worldStatusSheet(world, run)` — the
+  whole run, always expanded: **where you are** (plus where you can
+  go), **time** (clock + turn), **numbers** (every stat, with maxes,
+  and the purse in the world's currency), **pockets**, **tasks** (open,
+  plus finished count), and **party** (the companion ledger — who's
+  with you, where and on what turn they joined). Empty corners say so
+  quietly.
+- **Live refresh:** a turn that finishes while the sheet is open
+  re-renders it (`finishTurn` checks `App.state.worldStatusOpen`), so
+  it never shows stale numbers.
+- The sheet offers **Correct state…** (jumps to the correction screen)
+  and Close.
+- **`css/app.css`:** `ws-*` row styles for the sheet (section headers,
+  stat rows, items). No native changes.
+
+### Verification
+
+`tests/worldstatus-test.js` (new, 27 checks): the sheet renders every
+part of the run (place, exits, clock + turn, each stat, purse in the
+world's currency, pockets, open tasks only, the party with join
+details); empty corners render quiet lines; the button is hidden off
+the world screen and visible on it; pushing it opens a sheet titled
+with the world and carrying the state; **a finishing turn refreshes an
+open sheet** (turn count visible in the live body); the correct-state
+action navigates to the correction screen; Close resolves and clears
+`worldStatusOpen`. Full battery: **1054 node checks, 0 failed.**
+
+Bumps: 1.25.0 (minor — user-visible feature), apk code 52, sw cache
+v40.
+
+---
+
 ## v1.24.2 — World thread: a finished turn lands at the start of the reply (2026-10-11)
 
 ### The problem
