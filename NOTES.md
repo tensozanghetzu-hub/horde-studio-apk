@@ -566,6 +566,35 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.26.1 — The Appearance row, actually visible in Settings (2026-10-11)
+
+### The problem
+
+v1.26.0 registered the Appearance section in `SETTINGS_SECTIONS` — and the
+sub-screen worked — but the Settings hub draws its rows from a separate
+hardcoded `ORDER` list in `Views.settings`, which never got the new key.
+Result: a published feature with no door to it. Reported from a real
+device (screenshots of the Settings hub showing ten rows, no Appearance).
+
+### The change
+
+`js/views.js`: `'appearance'` prepended to the hub's `ORDER` list. One
+line; the section registry, the picker screen, persistence and theming
+code are untouched.
+
+### Verification
+
+`tests/theming-test.js` gained two checks — the Settings hub renders a
+`data-gosec="appearance"` row, labeled Appearance. Pre-fix: reproduced the
+reported state (ten rows, no Appearance — 2 fails); post-patch:
+**81/81**. Full battery: **1135 node checks, 0 failed.**
+
+Bumps: 1.26.1 (patch — fix to v1.26.0), apk code 54, sw cache v42. The web
+update re-delivers the fixed `views.js`; existing installs pick it up in
+the app without reinstall.
+
+---
+
 ## v1.26.0 — Appearance: sixteen color themes, a persisted setting (2026-10-11)
 
 ### The ask

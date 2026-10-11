@@ -662,7 +662,9 @@
     var s = Store.settings;
     var info = settingsUpdateInfo();
     var personas = Store.personas || [];
-    var ORDER = ['connection', 'generation', 'you', 'personas', 'system', 'horde', 'memory', 'data', 'storage', 'update'];
+    /* v1.26.1: 'appearance' was registered in SETTINGS_SECTIONS but missed
+       from this ORDER list, so the hub never drew its row. */
+    var ORDER = ['appearance', 'connection', 'generation', 'you', 'personas', 'system', 'horde', 'memory', 'data', 'storage', 'update'];
     var rows = ORDER.map(function (k) {
       var label, hint, ic;
       if (k === 'personas') {
