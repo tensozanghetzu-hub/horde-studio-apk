@@ -1,9 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.20.0.apk` (versionCode 43) — size/sha256
-in the v1.20.0 entry. Built 2026-10-09, not yet synced:
-`docs/` serves v1.19.0 (webRev `80841ab18038`) and release `v1.19.0`
-is the latest on the repo.
+Current build: `HordeStudio-v1.26.0.apk` (versionCode 53) — size/sha256
+in the v1.26.0 entry. Built 2026-10-11: `docs/` serves v1.26.0
+(webRev `4857cc58ebf0`) and release `v1.26.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.

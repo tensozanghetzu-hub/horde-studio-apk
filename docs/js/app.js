@@ -923,6 +923,17 @@
     });
   };
 
+  /** v1.26.0: pick a theme from Settings → Appearance. Applies in place,
+     persists the pick, and quietly falls back to midnight for a name the
+     theme registry doesn't know (a forward-compat safety, in case an old
+     setting survives a world/app mismatch). */
+  App.chooseTheme = function (id) {
+    if (THEMES.list().indexOf(id) === -1) id = 'midnight';
+    Store.settings.theme = id;
+    THEMES.apply(id);
+    return Store.saveSettings();
+  };
+
   /** v1.25.0: the whole run, in a sheet - the desktop sidebar, on demand.
      The bar button that opens it is above the thread, so it works from
      anywhere in the conversation. A turn finishing while the sheet is
@@ -2296,6 +2307,8 @@
   /* ---------------- boot ---------------- */
   document.addEventListener('DOMContentLoaded', function () {
     Store.init().then(function () {
+      /* v1.26.0: wear the saved theme before the first paint */
+      THEMES.apply((Store.settings && Store.settings.theme) || 'midnight');
       bindGlobal();
       App.go('characters');
       var boot = $('#boot');
