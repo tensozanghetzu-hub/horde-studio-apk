@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.28.1.apk` (versionCode 58) — size/sha256
-in the v1.28.1 entry. Built 2026-10-11: `docs/` serves v1.28.1
-(webRev `59403476092d`) and release `v1.28.1` is the latest on the repo.
+Current build: `HordeStudio-v1.28.2.apk` (versionCode 59) — size/sha256
+in the v1.28.2 entry. Built 2026-10-11: `docs/` serves v1.28.2
+(webRev `fabc5f19eb86`) and release `v1.28.2` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -602,6 +602,14 @@ the contract: the world import's accept list names `.horde_world`,
 handler defaults to the wildcard, narrows only on a single accepted
 type, and can never narrow on an extension type. All three native-side
 checks failed pre-patch. Full battery: **1153 node checks, 0 failed.**
+
+APK `HordeStudio-v1.28.2.apk` — 331,107 B, sha256
+`6f7a8d0d0c756958d738fbf83811815a23ab0f2b2811eedb05de35d9ad7905b7`;
+in-APK bundle verified: `VERSION = '1.28.2'`, the recompiled
+`onShowFileChooser` in classes.dex. This is the first release since
+v1.25.0 whose fix lives in the native layer — the update is an APK
+install (webRev changed only by the version string). The superseded
+`HordeStudio-v1.28.1.apk` was dropped (release asset retains the copy).
 
 Bumps: 1.28.2 (patch — fix), apk code 59, sw cache v46 (unchanged).
 
