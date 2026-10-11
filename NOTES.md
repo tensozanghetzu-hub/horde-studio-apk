@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.27.0.apk` (versionCode 55) — size/sha256
-in the v1.27.0 entry. Built 2026-10-11: `docs/` serves v1.27.0
-(webRev `1ec7a8b3d229`) and release `v1.27.0` is the latest on the repo.
+Current build: `HordeStudio-v1.27.1.apk` (versionCode 56) — size/sha256
+in the v1.27.1 entry. Built 2026-10-11: `docs/` serves v1.27.1
+(webRev `db2b9daa0284`) and release `v1.27.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -613,6 +613,13 @@ pre-patch; `tests/worldstatus-test.js` now renders the correction screen
 against an honest fake DOM — 1 fail pre-patch (the blank screen);
 `tests/worldbusy-test.js` updated to the document-level body contract.
 Post-patch: **all green. Full battery: 1132 node checks, 0 failed.**
+
+APK `HordeStudio-v1.27.1.apk` — 331,107 B, sha256
+`1821fa2baa15cafdc14bff99c156fbb752182dc330b5269ccd86d3bbd0eee145`;
+in-APK bundle verified: `normalizeRun` present, the document-level
+`#world-correct-body` resolution, the clarified hint,
+`VERSION = '1.27.1'`, sw cache `horde-studio-v44`. The superseded
+`HordeStudio-v1.27.0.apk` was dropped (release asset retains the copy).
 
 Bumps: 1.27.1 (patch — defect fixes), apk code 56, sw cache v44.
 
