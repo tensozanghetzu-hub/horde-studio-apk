@@ -86,6 +86,7 @@ function deepFake() {
 }
 var bootListener = null;
 var documentStub = {
+  documentElement: { style: { setProperty: function () {} } },
   addEventListener: function (ev, fn) { if (ev === 'DOMContentLoaded') bootListener = fn; },
   querySelector: function (sel) {
     if (sel === '.screen') return { querySelector: function () { return deepFake(); } };
@@ -123,6 +124,7 @@ var sandbox = {
 sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 vm.runInNewContext(fs.readFileSync(src('js/hordeworld.js'), 'utf8'), sandbox, { filename: 'hordeworld.js' });
+vm.runInNewContext(fs.readFileSync(src('js/themes.js'), 'utf8'), sandbox, { filename: 'themes.js' });
 vm.runInNewContext(fs.readFileSync(src('js/ui.js'), 'utf8'), sandbox, { filename: 'ui.js' });
 vm.runInNewContext(fs.readFileSync(src('js/views.js'), 'utf8'), sandbox, { filename: 'views.js' });
 vm.runInNewContext(fs.readFileSync(src('js/app.js'), 'utf8'), sandbox, { filename: 'app.js' });

@@ -605,6 +605,18 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.26.0
+
+**Sixteen ways to wear the app — your pick, remembered.** Settings now
+opens with a new **Appearance** section: sixteen color themes, each shown
+as a strip of its own colors. Tap one and the whole app re-colors right
+then — no restart — and the pick is saved on this phone, so it's still
+yours next time you open the app. The original Midnight look is the
+default, so if you never touch it, nothing changes. The other fifteen:
+Abyss, Ember, Loam, Noir Rose, Paper (light), Graphite, Ultramarine,
+Crimson, Gilded, Sunset, Frost, Coral, Carbon, Porcelain (light) and
+Orchid (light).
+
 ## What's new in v1.25.0
 
 **The world's stats, one tap away — from anywhere.** The desktop app
