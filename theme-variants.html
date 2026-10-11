@@ -60,14 +60,6 @@
     --glow-1:rgba(251,113,133,.15); --glow-2:rgba(240,171,252,.10);
     --ok:#34d399; --warn:#fbbf24; --err:#fb7185;
   }
-  .card.paper{
-    --bg:#f5f4f9; --bg-2:#fbfafd; --surface:#ffffff; --surface-2:#f0eef6;
-    --line:#d9d5e6; --line-soft:#e6e3ef;
-    --text:#211d31; --muted:#5d5878; --dim:#8b86a5;
-    --accent:#7c3aed; --accent-2:#db2777; --accent-soft:rgba(124,58,237,.10);
-    --glow-1:rgba(124,58,237,.10); --glow-2:rgba(219,39,119,.06);
-    --ok:#059669; --warn:#d97706; --err:#dc2626;
-  }
   .card.graphite{
     --bg:#0d0e11; --bg-2:#131519; --surface:#191b21; --surface-2:#21242c;
     --line:#323641; --line-soft:#262a33;
@@ -132,22 +124,6 @@
     --glow-1:rgba(250,204,21,.12); --glow-2:rgba(163,163,163,.07);
     --ok:#34d399; --warn:#fbbf24; --err:#f87171;
   }
-  .card.porcelain{
-    --bg:#f2f5f8; --bg-2:#fafcfd; --surface:#ffffff; --surface-2:#edf1f6;
-    --line:#d5dde5; --line-soft:#e4e9ef;
-    --text:#1c2733; --muted:#526475; --dim:#8494a5;
-    --accent:#2563eb; --accent-2:#0891b2; --accent-soft:rgba(37,99,235,.10);
-    --glow-1:rgba(37,99,235,.08); --glow-2:rgba(8,145,178,.05);
-    --ok:#059669; --warn:#d97706; --err:#dc2626;
-  }
-  .card.orchid{
-    --bg:#f9f5fc; --bg-2:#fdfaff; --surface:#ffffff; --surface-2:#f3ecf9;
-    --line:#ddd0e8; --line-soft:#e9e0f2;
-    --text:#251c30; --muted:#5f5372; --dim:#8d7fa0;
-    --accent:#9333ea; --accent-2:#c026d3; --accent-soft:rgba(147,51,234,.10);
-    --glow-1:rgba(147,51,234,.09); --glow-2:rgba(192,38,211,.05);
-    --ok:#059669; --warn:#d97706; --err:#dc2626;
-  }
 
   /* ---------- card + phone frame ---------- */
   .card{
@@ -196,9 +172,6 @@
     position:relative;z-index:1;flex:0 0 auto;padding:9px 14px;font-size:12px;color:var(--dim);
     background:rgba(0,0,0,0);border-bottom:1px solid var(--line-soft);
   }
-  .card.paper .hud,.card.paper .appbar,
-  .card.porcelain .hud,.card.porcelain .appbar,
-  .card.orchid .hud,.card.orchid .appbar{background:var(--bg-2)}
   .hud .at{color:var(--text);font-size:13.5px;font-weight:650;margin-bottom:5px}
   .hud .row{display:flex;flex-wrap:wrap;gap:5px 14px;align-items:baseline}
   .hud b{color:var(--text);font-weight:600}
@@ -217,7 +190,6 @@
   .bubble .who{font-size:10.5px;font-weight:700;color:var(--accent-2);margin-bottom:3px}
   .msg.me{justify-content:flex-end}
   .msg.me .bubble{background:var(--accent);border:0;color:var(--bg);font-weight:550}
-  .card.paper .msg.me .bubble,.card.porcelain .msg.me .bubble,.card.orchid .msg.me .bubble{color:#fff}
 
   .composer{position:relative;z-index:1;flex:0 0 auto;display:flex;gap:8px;padding:10px 12px 12px;
     border-top:1px solid var(--line-soft);background:var(--bg-2)}
@@ -244,7 +216,7 @@
 <body>
 <div class="wrap">
   <h1>Horde Studio — color styles</h1>
-  <p class="sub">Sixteen ways to skin the same world screen. Tap one to pick it — the exact same content, only the palette differs. The first six were the original shortlist; ten more are below.</p>
+  <p class="sub">Thirteen ways to skin the same world screen. Tap one to pick it — the exact same content, only the palette differs. (The three light schemes — Paper, Porcelain, Orchid — were cut.)</p>
   <p class="pick-line" id="pick">Your pick: <b>none yet</b></p>
   <div class="grid" id="grid"></div>
   <p class="foot">Built from the app's real design tokens (184 var() sites). A chosen theme is applied by re-coloring the token set plus a handful of ambient glows — no layout changes, and it stays fully testable by the existing suites.</p>
@@ -256,7 +228,6 @@
     'ember':     ['Ember', 'Warm dark browns with amber and a touch of rose.'],
     'loam':      ['Loam', 'Deep forest greens — the quiet, grown-in one.'],
     'noir-rose': ['Noir Rose', 'Plum black with rose and fuchsia. Softest of the darks.'],
-    'paper':     ['Paper', 'The light one — violet accents on warm off-white.'],
     'graphite':  ['Graphite', 'Minimal charcoal and silver, one electric blue accent.'],
     'ultramarine':['Ultramarine', 'Deep blue-black with vivid indigo and cyan.'],
     'crimson':   ['Crimson', 'Oxblood darks with red and a flash of orange.'],
@@ -264,9 +235,7 @@
     'sunset':    ['Sunset', 'Plum-maroon with orange fading to rose.'],
     'frost':     ['Frost', 'Winter dark — pale ice blues, quiet and cold.'],
     'coral':     ['Coral', 'Deep navy reef with coral and teal.'],
-    'carbon':    ['Carbon', 'Pure black with electric yellow. Highest contrast.'],
-    'porcelain': ['Porcelain', 'Light blue-grey with blue and cyan accents.'],
-    'orchid':    ['Orchid', 'Light lavender with purple and fuchsia accents.']
+    'carbon':    ['Carbon', 'Pure black with electric yellow. Highest contrast.']
   };
   function phone() {
     return '' +
