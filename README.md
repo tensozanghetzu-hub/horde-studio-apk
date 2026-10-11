@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.28.2
+
+**Imports can see your world files again.** When the app asked the phone
+for a file to import, the system picker was told to show only the first
+accepted type — so in file managers that obey that hint you saw only
+`.json`, and `.horde_world` files (which have no standard file type at
+all) never appeared. The picker now stays open for every multi-format
+import — worlds, characters, backups — and the app checks the file it
+gets, as before. This one needs the APK update, not the small web
+update.
+
 ## What's new in v1.28.1
 
 **Quiet ledger.** The world's change chips no longer celebrate nothing:
