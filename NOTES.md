@@ -567,6 +567,66 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.26.0 — Appearance: sixteen color themes, a persisted setting (2026-10-11)
+
+### The ask
+
+User request: generate different color styles for the app ("show me a few
+variants to pick from"), then "make it a setting. But generate ten more for
+me to see." Acceptance: an in-app Appearance setting with a sixteen-theme
+picker — tap applies in place and persists — plus the expanded preview page
+showing all sixteen.
+
+### The change
+
+- **`js/themes.js`** (new): the theme registry. A theme is a map of 20 CSS
+  custom properties (bg/surface/line/text tones, accent + accent-2 + deep +
+  tint + soft, the two ambient glows, bar background, ok/warn/err).
+  `THEMES.list/get/apply` — apply writes the tokens onto
+  `document.documentElement`, so the whole app re-colors in place, no
+  reload, nothing else touched. The `:root` defaults in app.css ARE
+  Midnight, so the look before the theme code ever runs is exactly what it
+  always was. Sixteen themes: Midnight (default), Abyss, Ember, Loam, Noir
+  Rose, Paper, Graphite, Ultramarine, Crimson, Gilded, Sunset, Frost, Coral,
+  Carbon, Porcelain, Orchid. Light themes (Paper, Porcelain, Orchid) carry
+  deeper ok/warn/err so status colors stay readable on light surfaces.
+- **`css/app.css`:** the last hardcoded accent values became tokens — new
+  `:root` tokens `--accent-deep/--accent-tint/--glow-1/--glow-2/--bar-bg`,
+  translucent accent surfaces switched to `color-mix` over the accent
+  tokens, and the world's verdict lines ride the theme's ok/warn. Plus the
+  `.theme-row` styles.
+- **`js/store.js`:** `settings.theme` (default `'midnight'`).
+- **`js/views.js`:** a new first Settings section — Appearance (palette
+  icon) — one row per theme: five swatches of the theme's own colors, its
+  name, and an "on" mark on the current pick. **`js/app.js`:**
+  `App.chooseTheme` (apply + persist; an unknown name falls back to
+  Midnight) and the boot-time apply before first paint. **`js/ui.js`:** the
+  `palette` icon.
+- **`theme-variants.html`:** the browse page — sixteen phone mockups of the
+  same world screen, one per theme, tap to pick.
+
+### Verification
+
+`tests/theming-test.js` (new, 79 checks): every theme carries a display
+name and all 20 required tokens, with values that are valid colors; apply
+re-colors the document root (including a light theme's light bg); an
+unknown id falls back to Midnight without writing anything unknown;
+`chooseTheme` persists the pick and re-falls-back on a bogus name; the
+Appearance screen renders sixteen rows and exactly one is marked "on" —
+the current pick. `tests/worldstatus-test.js` gained the themes.js load and
+a `documentElement` stub, because boot now applies the saved theme. Full
+battery: **1133 node checks, 0 failed** (35 suites).
+
+APK `HordeStudio-v1.26.0.apk` — 331,107 B, sha256
+`30ef89f00068eb25c8d320795b8029905adcd0c5eb2dbe0b1618f2bc5abb5915`;
+in-APK bundle verified: 23 web files including `js/themes.js`,
+`VERSION = '1.26.0'`, sw cache `horde-studio-v41`. The superseded
+`HordeStudio-v1.25.0.apk` was dropped (the release asset retains the copy).
+
+Bumps: 1.26.0 (minor — user-visible feature), apk code 53, sw cache v41.
+
+---
+
 ## v1.25.0 — Worlds: the status button — the desktop sidebar, on demand (2026-10-11)
 
 ### The ask
