@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.26.0.apk` (versionCode 53) — size/sha256
-in the v1.26.0 entry. Built 2026-10-11: `docs/` serves v1.26.0
-(webRev `4857cc58ebf0`) and release `v1.26.0` is the latest on the repo.
+Current build: `HordeStudio-v1.26.1.apk` (versionCode 54) — size/sha256
+in the v1.26.1 entry. Built 2026-10-11: `docs/` serves v1.26.1
+(webRev `ed07842ef0d9`) and release `v1.26.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -588,6 +588,13 @@ code are untouched.
 `data-gosec="appearance"` row, labeled Appearance. Pre-fix: reproduced the
 reported state (ten rows, no Appearance — 2 fails); post-patch:
 **81/81**. Full battery: **1135 node checks, 0 failed.**
+
+APK `HordeStudio-v1.26.1.apk` — 331,107 B, sha256
+`571175d5ad32bfc35da29a20b68af8d2cbf45e728e35e9a03d302ef3214f8508`;
+in-APK bundle verified: `VERSION = '1.26.1'`, sw cache
+`horde-studio-v42`, the ORDER fix present in `assets/js/views.js`. The
+superseded `HordeStudio-v1.26.0.apk` was dropped (release asset retains
+the copy).
 
 Bumps: 1.26.1 (patch — fix to v1.26.0), apk code 54, sw cache v42. The web
 update re-delivers the fixed `views.js`; existing installs pick it up in
