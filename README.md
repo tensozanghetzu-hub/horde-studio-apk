@@ -605,6 +605,13 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.24.2
+
+**A small world fix.** When a world reply finished, the view jumped to
+the end of it — and you had to scroll back up to read the scene from the
+beginning. The view now lands at the start of the reply, where the scene
+begins. Opening a world and sending a message still behaves as before.
+
 ## What's new in v1.24.1
 
 **A small world fix.** The "turn N" line under the world's title used to

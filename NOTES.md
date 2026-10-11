@@ -567,6 +567,46 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.24.2 — World thread: a finished turn lands at the start of the reply (2026-10-11)
+
+### The problem
+
+User report: *after you type in your message, the response scrolls you to
+its end. Then you need to scroll back up to its start so you can read it
+from its beginning.*
+
+**Root cause** in `Views.worldRun`: a world reply is not streamed — one
+model call per turn, the whole scene lands at once — and the
+turn-completion re-render unconditionally did
+`thread.scrollTop = thread.scrollHeight`. For a scene that just appeared
+in full, the bottom of the thread is the *end* of the reply: the reader
+stranded at the last line. (Chat doesn't hit this — it streams and
+auto-scrolls while the reader follows.)
+
+### The change
+
+`js/views.js`, `Views.worldRun`: when the call carries the applied turn
+(`changes` — i.e. a turn finished), the scroll anchors at the **top of
+the reply that just arrived** (the last non-player `.msg` in the
+rebuilt thread) instead of the bottom. Check-result lines and correction
+notes that follow the reply in the log don't move the anchor. Opening a
+run and sending a message still land at the bottom, exactly as before.
+No native changes.
+
+### Verification
+
+`tests/worldthreadscroll-test.js` (new, 6 checks): a fake thread with an
+honest cumulative layout (top-level rows at real `offsetTop`s). Fresh
+open and send → bottom (unchanged); finished turn → top of the reply,
+not the bottom; a `check` line or a `correction` note after the reply
+keeps the anchor on the reply. **Reproduced the end-of-scene landing
+pre-fix (4 fails), 6/6 post-patch.** Full battery: **1027 node checks,
+0 failed.**
+
+Bumps: 1.24.2, apk code 51, sw cache v39.
+
+---
+
 ## v1.24.1 — World run: the "turn N" bar follows the run (2026-10-11)
 
 ### The problem
