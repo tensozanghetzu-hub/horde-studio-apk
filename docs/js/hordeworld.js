@@ -685,6 +685,9 @@
           if (v2) reject(whole, 'no such place as \u201C' + arg + '\u201D');
           return '';
         }
+        /* v1.28.1: a model tagging a move to where the player already is
+           changes nothing - not a chip, not a log line. */
+        if (target.id === run.locationId) return '';
         if (v2 && !reachable(world, run, target)) {
           var from = location(world, run.locationId);
           reject(whole, 'cannot get from ' + (from ? from.name : 'here') +
@@ -696,6 +699,8 @@
       }
       if (kind === 'clock') {
         if (isNaN(num)) { if (v2) reject(whole, 'minutes must be a number'); return ''; }
+        /* v1.28.1: zero is not a change */
+        if (num === 0) return '';
         run.extraMinutes = (run.extraMinutes || 0) + num;
         changes.push(num + ' minutes pass');
         return '';
@@ -706,6 +711,8 @@
           reject(whole, 'a change of ' + num + ' is beyond \u00B1' + statBound(world) + ' in one turn');
           return '';
         }
+        /* v1.28.1: zero is not a change */
+        if (num === 0) return '';
         run.stats[run.cashId] = (run.stats[run.cashId] || 0) + num;
         changes.push((num >= 0 ? '+' : '') + num + ' ' + ((world.gameRules || {}).currencyName || 'cash'));
         return '';
@@ -715,6 +722,12 @@
         if (bits.length < 2) { if (v2) reject(whole, 'expected STAT:+NUMBER'); return ''; }
         var sid = bits[0].trim(), delta = parseFloat(bits[1]);
         if (isNaN(delta)) { if (v2) reject(whole, 'a stat change must end in a number'); return ''; }
+        /* v1.28.1: zero is not a change, and a stat id the world never
+           declared is not a change either. Worlds that declare no stats
+           at all stay free-form, as before. */
+        if (delta === 0) return '';
+        var declared = (world.hudConfig || {}).stats || [];
+        if (declared.length && !declared.some(function (s) { return s.id === sid; })) return '';
         if (v2 && Math.abs(delta) > statBound(world)) {
           reject(whole, 'a change of ' + delta + ' is beyond \u00B1' + statBound(world) + ' in one turn');
           return '';
@@ -1227,7 +1240,10 @@
             var movedPh = applied.moved;
             if (movedPh && movedPh.id === tgtPh.loc.id) matched = true;
             else if (movedPh) note = 'the move went to ' + (movedPh.name || tgtPh.loc.name) + ' instead';
-            else note = 'no move tag recorded';
+            else {
+              var herePh = location(world, run.locationId);
+              note = 'no move was recorded' + (herePh ? ' \u2014 you are still at ' + herePh.name : '');
+            }
             if (!matched) out.push({ claim: claimText, note: note, kind: kind, at: Date.now() });
             continue;
           }
@@ -1255,7 +1271,10 @@
           var moved = applied.moved;
           if (moved && moved.id === tgt.loc.id) matched = true;
           else if (moved) note = 'the move went to ' + (moved.name || tgt.loc.name) + ' instead';
-          else note = 'no move tag recorded';
+          else {
+            var hereNow = location(world, run.locationId);
+            note = 'no move was recorded' + (hereNow ? ' \u2014 you are still at ' + hereNow.name : '');
+          }
         } else if (kind === 'cash') {
           var amt = claimAmount(after);
           if (!amt) continue;
