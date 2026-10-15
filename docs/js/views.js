@@ -117,6 +117,23 @@
     });
   }
 
+  /* v1.29.0: the card's pictures besides the avatar get the same storage
+     diet as the avatar — data-URLs down to a 512px long edge, web URLs
+     (and anything undecodable) pass through untouched. Resolves with the
+     (mutated) list, so the caller keeps one reference. */
+  function normalizeCardImages(images) {
+    var list = images || [];
+    return Promise.all(list.map(function (im) {
+      if (typeof im.src === 'string' && im.src.indexOf('data:image') === 0) {
+        return normalizeDataUrl(im.src, 512).then(function (s) {
+          if (s) im.src = s;
+          return im;
+        });
+      }
+      return Promise.resolve(im);
+    }));
+  }
+
   var Views = {};
 
   /* ================= PERSONA SWITCHER ================= */
@@ -1233,6 +1250,24 @@
         '</div></div>' +
       '</div>' +
 
+      /* v1.29.0: pictures the card itself carries, besides the avatar.
+         Display-only — never part of the prompt. */
+      (char.images && char.images.length
+        ? '<div class="group">' +
+          '<div class="group-title">Card images</div>' +
+          '<div class="field">' +
+            '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px">' +
+            char.images.map(function (im) {
+              return '<img src="' + esc(im.src) + '" alt="' + esc(im.name || 'card image') + '"' +
+                ' data-lightbox="' + esc(im.src) + '"' +
+                ' style="width:100%;height:84px;object-fit:cover;border-radius:8px;cursor:zoom-in" loading="lazy">';
+            }).join('') +
+            '</div>' +
+            '<div class="hint">From the card itself — for you to look at, never sent to the model.</div>' +
+          '</div>' +
+        '</div>'
+        : '') +
+
       '<div class="group">' +
         '<div class="group-title">Identity</div>' +
         '<div class="field"><div class="field-head"><label>Name</label></div>' +
@@ -1390,6 +1425,11 @@
       }
       return draft;
     }
+
+    /* v1.29.0: the card's own pictures open full-screen on tap */
+    on(body, '[data-lightbox]', 'click', function (e) {
+      UI.lightbox(e.currentTarget.getAttribute('data-lightbox'));
+    });
 
     on(body, '[data-act=av-url]', 'click', function () {
       UI.input('Avatar image URL').then(function (url) {
@@ -2102,6 +2142,7 @@
   Views.stateStrip = stateStrip;
   Views.normalizeImage = normalizeImage;
   Views.normalizeDataUrl = normalizeDataUrl;
+  Views.normalizeCardImages = normalizeCardImages;
   Views.imageTargetSize = imageTargetSize;
   Views.imageMime = imageMime;
   Views.initials = initials;

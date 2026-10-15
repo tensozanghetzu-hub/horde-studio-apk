@@ -20,7 +20,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.28.3';
+  var VERSION = '1.29.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -410,6 +410,40 @@
       return (/^data:image\//i.test(x) || /^https?:\/\//i.test(x)) ? x : '';
     },
 
+    /* v1.29.0 — pictures a card carries BESIDES its avatar. Card authors
+       (the v3 spec allows arbitrary fields in `data`) often stash extra
+       images there — data-URLs, or image web URLs, top-level or nested a
+       couple of levels deep. Collect them as [{name, src}]: char_x itself
+       and any duplicate of the avatar are excluded, non-image strings are
+       ignored, and the haul is capped at 8 pictures. */
+    cardImages: function (data, avatar) {
+      var out = [];
+      var seen = {};
+      if (avatar) seen[avatar] = true;
+      var isImage = function (v) {
+        if (typeof v !== 'string') return false;
+        v = v.trim();
+        if (!v) return false;
+        return /^data:image\//i.test(v) ||
+          /^https?:\/\/\S+\.(png|jpe?g|webp|gif)(?:\?\S*)?$/i.test(v);
+      };
+      (function walk(obj, prefix, depth) {
+        if (!obj || typeof obj !== 'object' || Array.isArray(obj) || depth > 3) return;
+        Object.keys(obj).forEach(function (k) {
+          if (out.length >= 8) return;
+          if (k === 'char_x') return;                 /* the avatar, handled separately */
+          var v = obj[k];
+          var name = prefix ? prefix + '_' + k : k;
+          if (isImage(v)) {
+            if (!seen[v]) { seen[v] = true; out.push({ name: name, src: v }); }
+          } else if (v && typeof v === 'object') {
+            walk(v, name, depth + 1);
+          }
+        });
+      })(data, '', 0);
+      return out;
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       if (card.spec === 'chara_card_v3' && card.data) {
@@ -420,6 +454,7 @@
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
           tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
+          images: Store.cardImages(data, Store.cardAvatar(data.char_x)),
           /* the normalizer guarantees the declared default is in the list
              (appended if the card forgot it), so it is always a valid pick */
           persona: desc, scenario: main ? main : (slist[0] || ''),
@@ -439,6 +474,7 @@
       return {
         id: UI.uid('c'), name: data.name || 'Imported character',
         tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
+        images: Store.cardImages(data, Store.cardAvatar(data.char_x)),
         persona: [data.description || '', data.personality || ''].filter(Boolean).join('\n\n'),
         scenario: (data.scenario || '').trim() || (list2[0] || ''),
         scenarioList: list2,
@@ -459,6 +495,11 @@
       };
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
       if (c.avatar) card.char_x = c.avatar;
+      /* v1.29.0: the card's other pictures ride back out in data, so a
+         round trip (export → import) keeps them */
+      (c.images || []).forEach(function (im, i) {
+        card.data['image_' + (i + 1)] = im.src;
+      });
       return card;
     },
 
