@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.29.0
+
+**Character cards can carry more pictures than the avatar.** Some cards
+hide extra images inside their data — reference art, alternate
+portraits. Those were silently dropped on import. Now they're kept
+(pictures the card carries, up to eight) and shown on the character's
+details screen, below the avatar — tap any of them to view it
+full-screen. They're for you to look at: they're never part of what's
+sent to the model, and exporting the character carries them back out
+for a round trip. (Small web update — no reinstall needed.)
+
 ## What's new in v1.28.3
 
 **Editing a message no longer flings you up the thread.** Accepting an

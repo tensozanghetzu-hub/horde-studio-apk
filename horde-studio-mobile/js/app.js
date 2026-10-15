@@ -323,8 +323,13 @@
            other imported image (512px long edge, PNG only with real
            transparency) so a 12 MP card art never becomes several MB of
            base64 sitting in IndexedDB. Non-image values pass through. */
+        /* v1.29.0: the card's other pictures join the avatar with the same
+           diet (512px long edge), so a picture-heavy card never becomes
+           several megabytes of base64 in IndexedDB. */
         return Views.normalizeDataUrl(c.avatar, 512).then(function (av) {
           if (av) c.avatar = av;
+          return Views.normalizeCardImages(c.images);
+        }).then(function () {
           UI.sheet({
             title: 'Import “' + (c.name || 'character') + '”',
             body: '<p style="margin:0 0 8px;color:var(--muted);font-size:13.5px">' +

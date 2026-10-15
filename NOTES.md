@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.28.3.apk` (versionCode 60) — 331,107 B,
-sha256 `a350f154b1b1defc63abc2fcf98e14f45d1baff1ff5d866a9ebb0ebdbcde7548`.
-Built 2026-10-15: `docs/` serves v1.28.3 (webRev `e5aa693ec6df`) and
-release `v1.28.3` is the latest on the repo.
+Current build: `HordeStudio-v1.29.0.apk` (versionCode 61) — 335,203 B,
+sha256 `49eb3aa192bebd404dbcdab3455c1138b38680136ce280c224f2943f9fb7f1b1`.
+Built 2026-10-15: `docs/` serves v1.29.0 and release `v1.29.0` is the
+latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -12,8 +12,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 40 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.28.3: 1184 checks in total).
+Tests: 41 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.29.0: 1205 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -564,6 +564,66 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.29.0 — Character cards can carry more pictures than the avatar (2026-10-15)
+
+### The ask
+
+"Some character cards come with images (beside the avatar one). Can the app
+show them, or don't they get imported?" — Answer at the time: they were
+dropped at import. The v3 spec allows arbitrary fields in a card's `data`
+block, and card authors often stash extra pictures there (data-URLs or
+image web URLs). Decision: **details screen only** — no in-chat strip,
+never part of the prompt.
+
+### The change
+
+- `js/store.js`, new `Store.cardImages(data, avatar)`: walks the card's
+  data (v3 `data` block or v2 root, objects nested up to 3 levels deep)
+  and collects string values that are `data:image/…` or http(s) image
+  URLs (`.png/.jpg/.jpeg/.webp/.gif`, query strings allowed) as
+  `[{name, src}]` — field names preserved, with the parent key prefixed
+  when nested (`gallery.cover` → `gallery_cover`). `char_x` is excluded
+  by name, any value duplicating the avatar is excluded by content,
+  non-image strings are ignored, and the haul is capped at 8 pictures.
+  Wired into `cardToCharacter` (v2 and v3 branches).
+- `js/views.js`, new `Views.normalizeCardImages`: the imported pictures
+  get the avatar's storage diet — data-URLs downsized to a 512px long
+  edge, web URLs (and anything undecodable) pass through untouched.
+  The editor gains a **Card images** group (grid below the avatar,
+  shown only when the character has pictures); tap opens the existing
+  lightbox full-screen. The hint says what they are: from the card,
+  never sent to the model.
+- `js/app.js`, `App.importCard`: runs `normalizeCardImages` right after
+  the avatar is normalized, before the import-confirmation sheet.
+- `js/store.js`, `characterToCard`: the pictures ride back out in the
+  exported card's `data` as `image_1…image_n`, so export → import keeps
+  them.
+
+Web-only: ships as the small in-app web update (sw cache v48).
+
+### Verification
+
+`tests/cardimages-test.js` (new, 21 checks): v3 nested + web-URL
+pictures found with their names, text and non-image URLs ignored,
+avatar duplicates excluded, v2 cards covered, empty cards get an empty
+list, the 8-picture cap keeps the first eight in key order,
+normalization downsizes data-URLs and leaves web URLs alone (plus the
+source contract that importCard runs it), the editor renders the
+guarded "Card images" group wired to the lightbox, and the export →
+re-import round trip preserves everything. Full battery, 41 suites:
+**1205 node checks, 0 failed.**
+
+APK `HordeStudio-v1.29.0.apk` — 335,203 B, sha256
+`49eb3aa192bebd404dbcdab3455c1138b38680136ce280c224f2943f9fb7f1b1`;
+in-APK bundle verified: `VERSION = '1.29.0'`, sw `horde-studio-v48`,
+`cardImages` in store.js, the "Card images" group in views.js. The
+superseded `HordeStudio-v1.28.3.apk` was dropped (release asset retains
+the copy).
+
+Bumps: 1.29.0 (minor — user-visible feature), apk code 61, sw cache v48.
 
 ---
 
