@@ -47,3 +47,4 @@ Thumbs.db
 # never commit: too large / scratch
 android-sdk/
 research/
+.npm/

@@ -605,6 +605,18 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.28.3
+
+**Editing a message no longer flings you up the thread.** Accepting an
+edit re-rendered the whole conversation from scratch; the avatars and
+generated images in it load a moment later and push the text down, so
+the view kept drifting up away from the edited message and its fresh
+reply. The view now stays pinned where you accepted the edit, and every
+image that lands re-anchors it — unless you've scrolled up to read
+something, in which case it never yanks you. (Small web update — no
+reinstall needed unless you're also picking up v1.28.2's file-picker
+fix.)
+
 ## What's new in v1.28.2
 
 **Imports can see your world files again.** When the app asked the phone

@@ -10,7 +10,9 @@ const { chromium } = require('playwright-core');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'https://8010-i7nlfw0lsd86vnlhldpcm.e2b.app/';   // baked into the build
+/* the production channel baked into the build (update.js DEFAULT_URL) -
+   the tests still exercise the HTTP contract against LOCAL below */
+const BASE = 'https://tensozanghetzu-hub.github.io/horde-studio-apk/';   // baked into the build
 const LOCAL = 'http://127.0.0.1:8010';                        // the same server, reachable in here
 
 function findBrowser() {
@@ -165,7 +167,9 @@ async function open(browser, script) {
   });
   ok('the in-app install is available', r.hasInstall === true);
   ok('it hands the APK to Android', r.installed === LOCAL + '/app', r.installed);
-  ok('the browser fallback still works', r.opened === LOCAL + '/', r.opened);
+  /* reset() cleared the cached version file, so the fallback lands on the
+     sandbox-style /app address - the browser then downloads the APK */
+  ok('the browser fallback still works', r.opened === LOCAL + '/app', r.opened);
 
   console.log('\n5b. applying from a file, with no network involved');
   r = await page.evaluate(async () => {
@@ -198,7 +202,9 @@ async function open(browser, script) {
     Updates.reloadFresh = function () { window.__u.reloaded = true; };
     await Updates.saveUrl(LOCAL);
     App.go('settings');
-    const body = document.getElementById('settings-body');
+    /* the hub (v1.16.0) lists one row per section; open the App updates row */
+    document.querySelector('#settings-body [data-gosec="update"]').click();
+    const body = document.getElementById('settings-x-body');
     const out = { group: /App updates/.test(body.textContent), url: (document.getElementById('set-updurl') || {}).value };
     document.getElementById('btn-upd-check').click();
     await new Promise(r => setTimeout(r, 2500));
@@ -214,7 +220,11 @@ async function open(browser, script) {
   }, LOCAL);
   ok('the App updates group is there', r.group);
   ok('the address is prefilled', /8010/.test(r.url || ''), r.url);
-  ok('checking shows what is available', /without reinstalling/.test(r.status), JSON.stringify((r.status || '').slice(0, 60)));
+  /* old build vs current channel = both the app and the files are newer:
+     the one guided path offers both, files applying without a reinstall */
+  ok('checking shows what is available',
+    /and new files are ready/.test(r.status) && /apply themselves/.test(r.status),
+    JSON.stringify((r.status || '').slice(0, 60)));
   ok('applying reports and reloads', /Applied/.test(r.after || '') && r.reloaded, JSON.stringify((r.after || '').slice(0, 40)));
 
   console.log('\n8. a build that cannot self-update says so');
@@ -225,6 +235,7 @@ async function open(browser, script) {
   await page.waitForTimeout(900);
   r = await page.evaluate(() => {
     App.go('settings');
+    document.querySelector('#settings-body [data-gosec="update"]').click();
     return {
       supported: Updates.supported(),
       note: (document.getElementById('upd-status') || {}).textContent || ''
