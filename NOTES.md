@@ -1,8 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.28.2.apk` (versionCode 59) — size/sha256
-in the v1.28.2 entry. Built 2026-10-11: `docs/` serves v1.28.2
-(webRev `fabc5f19eb86`) and release `v1.28.2` is the latest on the repo.
+Current build: `HordeStudio-v1.28.3.apk` (versionCode 60) — 331,107 B,
+sha256 `a350f154b1b1defc63abc2fcf98e14f45d1baff1ff5d866a9ebb0ebdbcde7548`.
+Built 2026-10-15: `docs/` serves v1.28.3 and release `v1.28.3` is the
+latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -11,8 +12,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 17 node-runnable suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.10.0: 422 checks in total).
+Tests: 40 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.28.3: 1184 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -563,6 +564,88 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.28.3 — Editing a message no longer flings you up the thread (2026-10-15)
+
+### The report
+
+"Every time I edit a message and accept the changes, the text scrolls up
+a few times. Then I need to scroll back down to the edited message and
+its response."
+
+### Finding
+
+Two halves, both in the chat re-render:
+
+1. `App.editAndResend` (the accept-edit flow) re-rendered the thread
+   **without** the forced bottom pin — so the reader landed wherever the
+   natural-stick/anchor logic decided, not on the message they just
+   edited.
+2. The re-render rebuilds the whole thread's HTML; the avatars and
+   generated images in it are zero-height until they load. The
+   bottom-pinning jump happens once, at layout time — then every image
+   that lands **below the fold** pushes the content down and strands the
+   pinned view higher in the thread (one visible "up" shift per image).
+   The guard that re-pins on image load existed, but was attached **only
+   on forced opens** (chat opening) — never on a bottom-stick that
+   happened naturally, which is exactly what the edit flow produced.
+
+### The change
+
+- `js/app.js`, `App.editAndResend`: the re-render after accepting an edit
+  is now the forced kind (`Views.thread(..., null, true)`). Accepting an
+  edit is an explicit "take me to the new bottom" — the fresh reply
+  lands below the edited message.
+- `js/views.js`, `Views.thread`: the image re-pin (re-jump to the bottom
+  when an unloaded image below the fold lands, if the reader is still
+  within 160px of the bottom) is now attached on **every** bottom stick,
+  forced or natural. The guard is unchanged: a reader who has scrolled
+  up to read something is never yanked back. Mid-thread anchored
+  re-renders (delete, swipe) keep the anchor-restore path.
+
+Web-only: the fix arrives as the small in-app web update (sw cache
+v47); the APK wrapper is rebuilt for the release as usual (code 60).
+
+### Verification
+
+`tests/threadscroll-test.js` gained the v1.28.3 section (6 checks): a
+forced bottom open re-pins when images land below the fold, a **natural**
+near-bottom pin does too (failed pre-patch), a reader who moved on is
+never yanked, and the edit-and-resend re-render is the forced kind
+(source contract; failed pre-patch).
+
+Full battery, all 40 suites: **1184 node checks, 0 failed** — with the
+two Playwright suites genuinely running (see below).
+
+### Also this release — test-battery repair (no app change)
+
+The turn boundary had wiped `node_modules`, the Playwright browser and
+`apk-download/server.py` (the :8010 channel server the update-test
+drives). Rebuilding them surfaced that `update-test.js` had been stale
+since v1.4.7 — it assumed the pre-v1.16 flat settings screen and a dead
+sandbox host for the baked update address, so it crashed at section 7
+while the old tally silently counted its partial passes. The suite now
+navigates the hub → App updates sub-screen, asserts the real baked
+default (`tensozanghetzu-hub.github.io`), and accepts the browser
+fallback's `/app` address. `server.py` rebuilt: serves `docs/` on :8010
+with CORS and `/app` → `HordeStudio-latest.apk`. 29/29 green.
+
+The same boundary had rolled local HEAD back two commits (the v1.28.2
+pair) and dropped the git identity + remote; origin was intact.
+Restored via `reset --mixed origin/main` + re-checkout of the v1.28.2
+`MainActivity.java` — the filepicker suite caught the worktree drift
+immediately (its 2 native checks failed until the restore).
+
+APK `HordeStudio-v1.28.3.apk` — 331,107 B, sha256
+`a350f154b1b1defc63abc2fcf98e14f45d1baff1ff5d866a9ebb0ebdbcde7548`;
+in-APK bundle verified: `VERSION = '1.28.3'`, sw `horde-studio-v47`,
+the re-pin block in `views.js`, the forced pin in `app.js`. The
+superseded `HordeStudio-v1.28.2.apk` was dropped (release asset retains
+the copy).
+
+Bumps: 1.28.3 (patch — fix), apk code 60, sw cache v47.
 
 ---
 
