@@ -1178,7 +1178,10 @@
         var del = after.map(function (x) { return Store.delMessage(x.id); });
         return Promise.all(del).then(function () {
           st.messages = st.messages.slice(0, st.messages.indexOf(msg) + 1);
-          Views.thread(App.state.char, App.state.session, st.messages);
+          /* force the bottom pin: the accepted edit is the new "you were
+             here", and the fresh reply lands below it - a mid-thread anchor
+             would strand the reader up the thread (v1.28.3). */
+          Views.thread(App.state.char, App.state.session, st.messages, null, true);
           return App.afterUserMessage(msg);
         });
       });
