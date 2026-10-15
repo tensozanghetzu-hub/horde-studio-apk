@@ -2,8 +2,8 @@
 
 Current build: `HordeStudio-v1.28.3.apk` (versionCode 60) — 331,107 B,
 sha256 `a350f154b1b1defc63abc2fcf98e14f45d1baff1ff5d866a9ebb0ebdbcde7548`.
-Built 2026-10-15: `docs/` serves v1.28.3 and release `v1.28.3` is the
-latest on the repo.
+Built 2026-10-15: `docs/` serves v1.28.3 (webRev `e5aa693ec6df`) and
+release `v1.28.3` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
