@@ -2035,10 +2035,10 @@
     var st = thread.querySelector('.msg.streaming .mtext') ||
       (streamingId ? thread.querySelector('[data-mid="' + streamingId + '"] .mtext') : null);
     if (stickToBottom(thread, forceBottom || !!streamingId)) {
-      if (forceBottom && thread.querySelectorAll) {
-        /* Images below the fold (generated art, avatars) load after this first
-           jump and push the content down — re-jump when they land, as long as
-           the user hasn't scrolled away. */
+      /* Re-pin when each image below the fold lands - for a forced open AND
+         a natural near-bottom pin - but never yank a reader who has already
+         scrolled up to read something. */
+      if (thread.querySelectorAll) {
         var imgs = thread.querySelectorAll('img');
         for (var ii = 0; ii < imgs.length; ii++) (function (im) {
           if (im.complete) return;
