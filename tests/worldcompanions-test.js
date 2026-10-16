@@ -128,7 +128,10 @@ ok('move + clock + companion in one reply', run9.locationId === loc && r9.change
 
 var run10 = freshRun();
 var r10 = HW.applyTags(world, run10, 'A tag nobody knows: [[frob:stuff]] and prose.');
-ok('unknown tags stay visible (unchanged rule)', r10.text.indexOf('[[frob:stuff]]') !== -1, r10.text);
+ok('v1.29.1: an unknown command is refused and kept out of the story',
+  r10.text.indexOf('[[frob:stuff]]') === -1 &&
+  (r10.rejections || []).some(function (r) { return /frob/.test(r.tag); }),
+  r10.text + ' | ' + JSON.stringify(r10.rejections));
 
 console.log('\nv1.28.0: the party can be corrected by hand');
 /* The referee tags the party; a manual correction is the same ledger,

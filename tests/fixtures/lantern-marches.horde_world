@@ -1,0 +1,61 @@
+{
+  "_format": "horde-world",
+  "id": "world_lantern",
+  "name": "The Lantern Marches",
+  "description": "A river town that trades in light.",
+  "startLocationId": "loc_contract",
+  "locations": [
+    {
+      "id": "loc_contract",
+      "name": "Contract Counter",
+      "mapType": "room",
+      "description": "A long table under a dead lamp.",
+      "exits": [{ "text": "to the Lane of Wicks", "to": "loc_lane" }]
+    },
+    {
+      "id": "loc_lane",
+      "name": "Lane of Wicks",
+      "mapType": "outdoor",
+      "description": "Wet stones, lantern smoke."
+    }
+  ],
+  "entities": [
+    {
+      "id": "e_bram",
+      "name": "Bram Kest",
+      "type": "npc",
+      "persona": "A broker who pays on time.",
+      "homeLocation": "loc_contract"
+    }
+  ],
+  "factions": [],
+  "relationships": [],
+  "lorebook": [],
+  "startingLives": [],
+  "gameRules": {
+    "currencyName": "crowns",
+    "dice": { "sides": 20 },
+    "statBound": 10,
+    "checks": [
+      {
+        "name": "Notice",
+        "dc": 12,
+        "on_success": { "stats": { "sharp": 1 } },
+        "on_failure": { "stats": { "sharp": -1 } }
+      }
+    ]
+  },
+  "hudConfig": {
+    "startWeekday": "Thursday",
+    "startTimeHours": 15,
+    "startTimeMinutes": 10,
+    "timeStep": 5,
+    "stats": [
+      { "id": "cash", "name": "Crowns", "value": 12 },
+      { "id": "sharp", "name": "Sharpness", "value": 3 }
+    ]
+  },
+  "dmPrompt": "You are the broker's ledger, not a cheerleader.",
+  "intro": "The lamp over the Contract Counter is dead, and Bram Kest slides a work slip across the table. He is offering the heartglass run to Ashbank. No task has been accepted yet.",
+  "authorNote": ""
+}

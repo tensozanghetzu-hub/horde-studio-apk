@@ -605,6 +605,32 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.29.1
+
+**Worlds: a turn is a transaction — the ledger can no longer disagree
+with the story.** A model reply used to be applied to your run twice on
+every turn (its clock shifts, cash and tags all counted double), and
+when the model's first draft was refused and repaired, the draft's
+changes — a task it invented, a companion it recruited, the time it
+moved — were already saved into the run, invisibly, under the repaired
+answer. The dice could roll for a check the answer never showed.
+
+Now every candidate answer is judged on a private copy of your run as it
+stood before your words, and only one final, validated answer is ever
+committed — once. A reply that is empty, a wall of code, the model's own
+planning notes ("Self-Correction Check… Ready to output"), or a repeat
+of the opening instead of an answer is not a turn: it is repaired once,
+and if the repair is also not a turn, nothing changes, your words go
+back in the box, and you're told exactly what stood in the way. The same
+applies when a save fails or you stop mid-turn: the pre-turn run stays
+intact. A check the world has no definition for is refused before it
+ever rolls; an unknown bookkeeping command is refused and kept out of
+the story instead of narrated. And the repair is now real: the
+Correct-state screen can remove a task the ledger never should have
+gained and shift the clock by minutes. The world's status sheet also
+says which model and worker actually answered the last turn. (Applies
+to every world run; nothing else changed.)
+
 ## What's new in v1.29.0
 
 **Character cards can carry more pictures than the avatar.** Some cards
