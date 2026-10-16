@@ -63,6 +63,51 @@ Needs the static server on port 8000: `python3 -m http.server 8000 --bind 0.0.0.
   already-installed builds work without a reinstall. Covered by 2 new assertions.
 
 
+## HAZARD: turn boundaries roll .git back to a stale state (×9, diagnosed 2026-10-16)
+
+Observed 9 times (8 before, 4 in one session on 2026-10-16). Fingerprint,
+always the same: the **worktree is current**, but git has been restored to
+the last snapshot state in which `.git` was captured *completely* — here
+always `b22b121` (the v1.28.1 era). HEAD and the remote-tracking ref
+rewind, the object DB is missing every commit made after that state,
+`origin` and the local identity are gone, and
+`MainActivity.java` comes back in an old partial state. Servers are down,
+`tests/node_modules` and the Playwright browser are wiped.
+
+**Cause (confirmed parts):** at a boundary the workspace is rebuilt from a
+snapshot that is **best-effort, capped at ~128 MB / 10,000 files**, and
+that **excludes** `node_modules`, `.cache`, build dirs, and credential
+paths — **`.git/config` is on that exclusion list**, which is why the
+remote and identity vanish every time. Processes don't survive at all,
+and `apk-build/android-sdk` is wiped (setup + build must stay one command).
+
+**Cause of the .git rollback (evidence-based):** the snapshot drops the
+loose-object cloud. Before the fix below, `.git` held **1,166 loose
+object files (30.6 MB)** — a file-count target under the 10k cap, so its
+capture is partial; a restore then merges the current worktree with the
+stale last-complete `.git`. Everything pushed to GitHub is never lost —
+every one of the 9 losses touched only unpushed commits, and all of them
+were cheap to reconstruct because the worktree survived.
+
+**The permanent fix is on the platform side** (snapshot `.git` reliably,
+or make it a first-class restore target) — report it to Arena with this
+fingerprint. In the meantime, losses are made harmless:
+
+1. **`bash tools/git-doctor.sh`** (add `--fix` to restore victim files) —
+   the full recovery as one idempotent command: key perms, identity,
+   remote, fetch, reset-to-origin (only when strictly behind), victim-file
+   check, and a `git gc`. Run it at the start of any turn that touches git.
+2. **Commit AND push in the same turn.** The remote is the durable source
+   of truth; an unpushed commit is the only thing a loss can eat.
+3. **`git gc` after every push** (the doctor does it automatically):
+   packs loose objects into a single ~1 MB pack file instead of a
+   thousand tiny files — the shape that survives the snapshot cap.
+4. Re-warm the wiped deps when needed: `cd tests && npm i` +
+   `npx playwright-core install chromium` (apt libs persist, the browser
+   binary and node_modules do not).
+
+---
+
 ## HAZARD: snapshots silently revert MainActivity.java
 
 Found on 2026-09-14: a restore dropped `pickUpdateZip`, `openDownload`, `finishSwap`,
