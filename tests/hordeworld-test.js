@@ -54,7 +54,7 @@ eq('every lorebook entry kept', (w.lorebook || []).length, 15);
 eq('every starting role kept', (w.startingLives || []).length, 7);
 eq('every relationship kept', (w.relationships || []).length, 14);
 
-ok('the base64 banner is dropped', w.banner === undefined);
+eq('a world without a banner is a stable empty banner (v1.30.0)', w.banner, '');
 ok('embedded media is dropped', w.mediaAssets === undefined);
 ok('per-location artwork is dropped',
   (w.locations || []).every(function (l) { return l.visuals === undefined; }));
@@ -1019,7 +1019,7 @@ HW.bundled().then(function (shipped) {
     eq('under the catalogue id, so it is not offered twice', installed.id, entry.id);
     eq('and it really is the same world', installed.name, entry.name);
     eq('with its places', (installed.locations || []).length, entry.places);
-    ok('with no artwork left in it', installed.banner === undefined);
+    ok('with no artwork left in it', !installed.banner);
     finish();
   });
 }).catch(function (e) { ok('bundled install', false, e && e.message); finish(); });

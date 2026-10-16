@@ -2143,6 +2143,8 @@
   Views.normalizeImage = normalizeImage;
   Views.normalizeDataUrl = normalizeDataUrl;
   Views.normalizeCardImages = normalizeCardImages;
+  /* v1.30.0: the same diet, by itself — a world's banner gets it on import */
+  Views.dietDataUrl = normalizeDataUrl;
   Views.imageTargetSize = imageTargetSize;
   Views.imageMime = imageMime;
   Views.initials = initials;
@@ -2320,6 +2322,9 @@
     var stats = hud.stats || [];
 
     var h = '';
+    /* v1.30.0: the world's face, the same banner the PC version shows */
+    h += '<div class="ws-head">' + avatarHtml(world.banner, world.name) +
+         '<div class="ws-head-name">' + esc(world.name) + '</div></div>';
     h += '<h3>Where you are</h3>';
     h += '<div class="ws-loc">' + esc(loc ? loc.name : 'Somewhere') + '</div>';
     var ex = HW.exits(world, run.locationId) || [];
@@ -2658,12 +2663,16 @@
       var have = {};
       list.forEach(function (w) { have[w.id] = 1; });
       var offered = shipped.filter(function (e) { return !have[e.id]; });
+      /* v1.30.0: the face each run card gets is its WORLD's banner */
+      var bannerOf = {};
+      list.forEach(function (w) { bannerOf[w.id] = w.banner; });
       var html = '';
 
       if (runs.length) {
         html += '<div class="group"><div class="group-title">In progress</div>' +
           runs.map(function (r) {
             return '<div class="wr-card" data-run="' + esc(r.id) + '">' +
+              '<span class="item-av">' + avatarHtml(bannerOf[r.worldId], r.worldName || 'World') + '</span>' +
               '<div style="flex:1;min-width:0">' +
                 '<div class="wr-name">' + esc(r.worldName || 'World') + '</div>' +
                 '<div class="wr-sub">' + esc(r.lifeName ? 'as ' + r.lifeName : '') +
@@ -2677,12 +2686,13 @@
       html += '<div class="group"><div class="group-title">Installed worlds</div>';
       if (!list.length) {
         html += '<div class="empty" style="padding:16px 4px"><p>No worlds yet. Describe one and let ' +
-          'AI create it, or import a <b>.horde_world</b> file (artwork is stripped on the ' +
-          'way in, so a 2.5 MB world arrives at about 50 KB).</p></div>';
+          'AI create it, or import a <b>.horde_world</b> file. Its artwork is stripped on the ' +
+          'way in — except the world&#39;s banner, which is kept (dieted down) as its avatar.</p></div>';
       } else {
         html += list.map(function (w) {
           var sum = HW.summarise(w);
           return '<div class="wr-card" data-world="' + esc(w.id) + '">' +
+            '<span class="item-av">' + avatarHtml(w.banner, w.name) + '</span>' +
             '<div style="flex:1;min-width:0">' +
               '<div class="wr-name">' + esc(w.name) + '</div>' +
               '<div class="wr-sub">' + sum.locations + ' places · ' + sum.people + ' people · ' +

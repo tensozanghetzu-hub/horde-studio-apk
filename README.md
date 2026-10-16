@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.30.0
+
+**Imported worlds keep their face.** The PC version shows each world's
+banner as its avatar — on the library card and in the world's header.
+The APK used to strip that artwork on import, so worlds arrived
+faceless. Now the world's banner comes in with it (dieted down to keep
+your storage small, like card images) and is shown on the phone: on the
+worlds screen, next to each installed world and each in-progress run,
+and at the top of the run's status sheet. Worlds without a banner fall
+back to initials, and all the world's other artwork is still stripped
+as before. (If you imported a world before this version, re-import the
+file to give it its face back.)
+
 ## What's new in v1.29.1
 
 **Worlds: a turn is a transaction — the ledger can no longer disagree
