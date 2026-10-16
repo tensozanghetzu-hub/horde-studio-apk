@@ -977,9 +977,21 @@
       return;
     }
 
-    input.value = '';
-    var built = HW.buildPrompt(world, run, text);
-    run.log.push({ role: 'user', content: text, at: Date.now() });
+    /* v1.29.1 - a turn is a transaction.
+       Every candidate answer (the first, then the one repair) is judged on
+       a deep copy of the run as it stood before the player's words. Only a
+       final, validated answer is applied - once - and only then is that
+       copy published as the run. A refused answer, a failed repair, an
+       empty or echoing reply, a failed save, a stop: none of them leaves a
+       quest, a minute, a coin, a companion, or a roll behind. The live run
+       is never mutated while the model is talking. */
+    var pre = HW.cloneRun(run);
+    var base = HW.cloneRun(pre);
+    var userLine = { role: 'user', content: text, at: Date.now() };
+    base.log.push(userLine);
+    /* optimistic display only - the player sees their words immediately;
+       if the turn fails, restorePre() brings the pre-turn run back */
+    run.log.push(userLine);
     Views.worldRun(world, run);
 
     App.state.worldBusy = true;
@@ -987,84 +999,141 @@
     var typing = $('#wr-typing');
     if (typing) typing.hidden = false;
 
-    function finishTurn(reply) {
-      var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
-      /* v1.20.0: scene discipline - the audit runs on the FINAL reply, so a
-         repaired turn is judged by what it actually stood as */
-      applied.advisories = HW.auditClaims(world, run, text, applied).advisories;
-      HW.commit(run, text, applied.text, applied);
+    /* v1.29.1: the run object keeps its identity for the whole session -
+       the bar, the sheet and the views all hold references to it. A
+       candidate's state reaches the player by COPYING the clone's fields
+       onto the live run, never by swapping objects. */
+    function adopt(next) {
+      for (var k in run) {
+        if (Object.prototype.hasOwnProperty.call(run, k) &&
+            !Object.prototype.hasOwnProperty.call(next, k)) delete run[k];
+      }
+      for (var k2 in next) {
+        if (Object.prototype.hasOwnProperty.call(next, k2)) run[k2] = next[k2];
+      }
+    }
+    function refreshChrome(usePre) {
+      var r = usePre ? pre : run;
+      if (App.state.screen === 'worldrun') {
+        var sub = $('#bar-sub');
+        if (sub) sub.textContent = 'turn ' + (r.turn || 0);
+      }
+      /* v1.25.0: a status sheet left open must not show stale numbers */
+      if (App.state.worldStatusOpen) {
+        var wrap = document.getElementById('sheet-wrap');
+        var sb = document.getElementById('sheet-body');
+        if (wrap && !wrap.hidden && sb) sb.innerHTML = Views.worldStatusSheet(world, r);
+      }
+    }
+
+    /* the turn happened: the validated candidate's state is the run's
+       state now (same object, new contents) */
+    function publish(next, hud) {
+      /* a turn that finishes after the player walked away still SAVED its
+         run - but it must not render onto another screen, or write a turn
+         count onto another screen's bar (v1.24.1) */
+      if (App.state.worldRun !== run) return;
+      adopt(next);
+      Views.worldRun(world, run, hud);
+      refreshChrome(false);
+    }
+
+    /* the turn did not happen: the pre-turn state is restored into the run
+       (same object), the player's words go back in the box, and they are
+       told exactly what stood in the way */
+    function failTurn(reason) {
+      adopt(pre);
+      if (input) input.value = text;
+      Views.worldRun(world, run);
+      refreshChrome(true);
+      UI.toast(reason, 5000);
+    }
+
+    /* Judge one candidate answer on a fresh copy of the pre-turn state.
+       Never touches the live run. */
+    function assess(candidate) {
+      var v = HW.validateReply(world, base, text, candidate);
+      if (!v.ok) return { ok: false, reasons: v.reasons, candidate: String(candidate || '').trim() };
+      var stage = HW.cloneRun(base);
+      var applied = HW.applyTags(world, stage, v.text);
+      /* v1.20.0: scene discipline - the audit compares the player's words
+         with what THIS candidate actually recorded */
+      applied.advisories = HW.auditClaims(world, stage, text, applied).advisories;
+      /* v1.29.1: a check the world has no definition for cannot be part
+         of this turn - refused before it is committed, not after the die
+         has already been rolled */
+      applied.rejections = applied.rejections.concat(HW.preflightChecks(world, applied));
+      var reasons = [];
+      if (HW.ledgerV2(world)) {
+        applied.rejections.forEach(function (r) { reasons.push(r.tag + ' — ' + r.reason); });
+        applied.advisories.forEach(function (a) { reasons.push(a.claim + ' — ' + a.note); });
+      }
+      if (reasons.length) {
+        return { ok: false, reasons: reasons, candidate: v.text, stage: stage, applied: applied };
+      }
+      return { ok: true, text: v.text, stage: stage, applied: applied };
+    }
+
+    /* Commit the one validated candidate. Runs inside the transaction:
+       the stage becomes the run only after it has also been saved. */
+    function commitTurn(a) {
+      HW.commit(a.stage, text, a.text, a.applied);
       /* v1.18.0: the world resolves the checks the final reply requested -
-         after commit, so the verdict lands in the log right after the
-         referee's line, and exactly once per turn even when repaired */
-      var res = HW.resolveChecks(world, run, applied);
+         in the transaction, so the verdict lands in the log right after
+         the referee's line, and exactly once per turn even when repaired */
+      var res = HW.resolveChecks(world, a.stage, a.applied);
       if (res.rejections.length) {
-        run.rejections = (run.rejections || []).concat(res.rejections.map(function (r) {
-          return { turn: run.turn, tag: r.tag, reason: r.reason, at: r.at };
+        a.stage.rejections = (a.stage.rejections || []).concat(res.rejections.map(function (r) {
+          return { turn: a.stage.turn, tag: r.tag, reason: r.reason, at: r.at };
         }));
-        if (run.rejections.length > 50) run.rejections = run.rejections.slice(-50);
+        if (a.stage.rejections.length > 50) a.stage.rejections = a.stage.rejections.slice(-50);
+      }
+      /* v1.29.1: the receipt for who actually answered this turn */
+      if (s.provider === 'horde' && API.lastHorde) {
+        a.stage.lastModel = API.lastHorde.model;
+        a.stage.lastWorker = API.lastHorde.worker;
       }
       var hud = {
-        changes: applied.changes.concat(res.changes),
-        rejections: applied.rejections.concat(res.rejections),
-        advisories: applied.advisories,
+        changes: a.applied.changes.concat(res.changes),
+        rejections: a.applied.rejections.concat(res.rejections),
+        advisories: a.applied.advisories,
         checks: res.list
       };
-      return HW.saveRun(run).then(function () {
-        Views.worldRun(world, run, hud);
-        /* v1.24.1: the bar's "turn N" was written only by App.go (navigation),
-           so a whole session could sit at the old count until the player
-           exited and reentered. Refresh it now, after commit has moved the
-           count. Guarded: a turn that finishes after the player walked away
-           must not write a turn count onto another screen's bar. */
-        if (App.state.screen === 'worldrun') {
-          var sub = $('#bar-sub');
-          if (sub) sub.textContent = 'turn ' + (run.turn || 0);
-        }
-        /* v1.25.0: a status sheet left open must not show stale numbers */
-        if (App.state.worldStatusOpen) {
-          var wrap = document.getElementById('sheet-wrap');
-          var sb = document.getElementById('sheet-body');
-          if (wrap && !wrap.hidden && sb) sb.innerHTML = Views.worldStatusSheet(world, run);
-        }
+      return HW.saveRun(a.stage).then(function () {
+        publish(a.stage, hud);
+      }, function (err) {
+        /* a run that cannot be saved is not a run that happened */
+        failTurn('The run could not be saved - the turn was not made. ' +
+          ((err && (err.message || err.name)) || ''));
       });
     }
 
     /* v1.17.0: when the world rejects the referee's bookkeeping, give the
-       referee ONE chance to fix it - with the reasons - then accept whatever
-       comes back. The repair reuses the same system prompt machinery, with a
-       system rebuilt so partial (valid) changes from the first reply are
-       visible. */
-    function repairOnce(reply, applied) {
-      if (!applied.rejections.length && !applied.advisories.length) return finishTurn(reply);
-      var repair;
-      if (!applied.advisories.length) {
-        /* rejection-only: the original v1.17.0 message, unchanged */
-        repair = 'The world ledger rejected part of that bookkeeping:\n' +
-          applied.rejections.map(function (r) { return '- ' + r.tag + ' — ' + r.reason; }).join('\n') +
-          '\nKeep the same story beats. Repeat the reply with only the tags corrected.';
-      } else {
-        var lines = [];
-        if (applied.rejections.length) {
-          lines.push('The world ledger rejected part of that bookkeeping:');
-          applied.rejections.forEach(function (r) { lines.push('- ' + r.tag + ' — ' + r.reason); });
-        }
-        lines.push('The player asked for things the reply did not record:');
-        applied.advisories.forEach(function (a) { lines.push('- ' + a.claim + ' — ' + a.note); });
-        repair = lines.join('\n') +
-          '\nKeep the same story beats. ' +
-          (applied.rejections.length ? 'Correct the refused tags. ' : '') +
-          'If an action happened, add its missing tag; if it did not, say so in the prose. ' +
-          'Repeat the reply.';
-      }
+       referee ONE chance to fix it - with the reasons. v1.29.1: the repair
+       is judged like any candidate (on a fresh pre-turn copy); a repair
+       that is not a valid turn fails the whole turn instead of standing
+       the first answer up anyway. */
+    function repairOnce(first) {
+      /* a candidate that failed validation has no stage; judge the repair
+         against the pre-turn state in that case */
+      var from = first.stage || base;
+      var prompt2 = HW.buildPrompt(world, from, text);
       /* the log alternates user/assistant (it may open with the world's
-         intro), so keep each entry's real role */
-      var msgs = run.log.filter(function (m) { return m.role !== 'correction'; })
+         intro), so keep each entry's real role; drop any old repair
+         instructions that reached the log */
+      var msgs = from.log.filter(function (m) { return m.role !== 'correction'; })
         .slice(-12).map(function (m) {
           return { role: m.role === 'user' ? 'user' : 'assistant', text: m.content };
         });
-      msgs.push({ role: 'assistant', text: applied.text });
+      msgs.push({ role: 'assistant',
+                  text: first.candidate || '(the previous answer was empty)' });
+      var repair = 'Your previous answer could not be used as a turn. The problems were:\n' +
+        first.reasons.map(function (r) { return '- ' + r; }).join('\n') +
+        '\nStart from the state of the world BEFORE this turn. Answer the player ONE ' +
+        'final time: one complete reply with ALL the bookkeeping tags it needs - and ' +
+        'only those. No analysis, no planning notes, no code blocks, no re-reading of ' +
+        'the instructions.';
       msgs.push({ role: 'user', text: repair });
-      var prompt2 = HW.buildPrompt(world, run, text);
       return API.generate({
         settings: s,
         character: {
@@ -1077,14 +1146,24 @@
                    role: m.role, text: m.text, createdAt: Date.now() };
         })
       }).then(function (reply2) {
-        if (reply2 && reply2.trim()) return finishTurn(reply2);
-        return finishTurn(reply);
-      }).catch(function (e2) {
-        if (e2 && e2.name === 'AbortError') throw e2;
-        return finishTurn(reply);   /* the repair failed: keep the first reply */
+        var second = assess(reply2);
+        if (!second.ok) {
+          failTurn('The referee could not produce a valid turn - nothing changed. ' +
+            second.reasons[0]);
+          return;
+        }
+        /* the draft's refusals are part of what happened this turn - the
+           ledger says so on the run, not just on the discarded draft */
+        if (first.applied && first.applied.rejections.length) {
+          second.stage.rejections = first.applied.rejections.map(function (r) {
+            return { turn: second.stage.turn, tag: r.tag, reason: r.reason, at: r.at };
+          }).concat(second.stage.rejections || []);
+        }
+        commitTurn(second);
       });
     }
 
+    var built = HW.buildPrompt(world, base, text);
     API.generate({
       settings: s,
       /* the world is the referee: its own prompt is the whole system prompt */
@@ -1097,17 +1176,22 @@
         return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
       })
     }).then(function (reply) {
-      var applied = HW.applyTags(world, run, (reply || '').trim() || '…');
-      /* v1.20.0: an ask the reply never recorded may spend the one repair
-         round, exactly like a rejection (still at most one per turn) */
-      applied.advisories = HW.auditClaims(world, run, text, applied).advisories;
-      if ((applied.rejections.length || applied.advisories.length) && HW.ledgerV2(world)) {
-        return repairOnce(reply, applied);
-      }
-      return finishTurn(reply);
+      /* v1 (opted-out) worlds: assess only refuses here for a broken
+         answer (empty, code, planning, echo) - ledger rejections stay
+         visible but do not fail the turn, the old leniency */
+      var a = assess(reply);
+      if (!a.ok) return repairOnce(a);
+      return commitTurn(a);
     }).catch(function (e) {
-      if (e && e.name === 'AbortError') { UI.toast('Stopped'); return; }
-      UI.toast('The referee could not answer: ' + (e && e.message), 5000);
+      if (e && e.name === 'AbortError') {
+        adopt(pre);
+        if (input) input.value = text;
+        Views.worldRun(world, run);
+        refreshChrome(true);
+        UI.toast('Stopped');
+        return;
+      }
+      failTurn('The referee could not answer: ' + (e && e.message));
     }).then(function () {
       App.state.worldBusy = false;
       if (typing) typing.hidden = true;

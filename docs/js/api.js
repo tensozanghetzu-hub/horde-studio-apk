@@ -583,7 +583,20 @@
     if (/\b(?:the\s+)?(?:prompt|instruction|system prompt|card|scenario)\s+(?:says?|asks?|tells?|wants?|instructs?)\b/i.test(l)) return true;
     if (/\b(?:refine|rework|rewrite|adjust|revise|tighten|trim)\s+(?:the\s+)?(?:response|reply|answer|draft|this)\b/i.test(l)) return true;
     if (/^(?:let's|lets|okay|ok,|alright|hmm|now,|finally,|in summary|to sum up|i'll|i will|i should)\b/i.test(l) && l.length > 20) return true;
+    /* v1.29.1: the observed Horde trailer - a self-audit, then a sign-off.
+       Deliberately strict: these only count as planning when they START a
+       line; a story line that merely contains the words is prose. */
+    if (/^self[- ]correction\s+check\b/i.test(l)) return true;
+    if (/^self[- ]check\s*:/i.test(l)) return true;
+    if (/^ready\s+to\s+output\b/i.test(l)) return true;
     return false;
+  }
+
+  /** v1.29.1: a line of pure separator characters. Tolerated (and dropped)
+   *  only while a trailer is being popped from the end of a reply, so a
+   *  story that legitimately ends on a divider is left alone. */
+  function isSeparatorLine(L) {
+    return /^\s*[-=*_]{3,}\s*$/.test(String(L || ''));
   }
 
   /**
@@ -639,7 +652,23 @@
         if (rest.length >= 25 && tailHasStory) out = rest;
       }
     }
-    return out;
+
+    /* 3. v1.29.1: a planning TRAILER at the end - the observed Horde
+          pattern is scene, divider, a self-check, and a sign-off. Same
+          pop rule as cleanReply: blanks and dividers go only while a
+          planning line is actually being dropped, so a story that merely
+          ends with the author's own divider is untouched. */
+    var tl = out.split('\n');
+    var sawT = false;
+    while (tl.length > 1) {
+      var lastL = tl[tl.length - 1];
+      if (isTrailerMeta(lastL)) { tl.pop(); sawT = true; continue; }
+      /* blanks and dividers go only while the trailer is going; a story
+         that ends on the author's own divider is left exactly as written */
+      if ((lastL.trim() === '' || isSeparatorLine(lastL)) && sawT) { tl.pop(); continue; }
+      break;
+    }
+    return tl.join('\n');
   }
 
   function cleanReply(text, charName, userName) {
@@ -663,6 +692,10 @@
     var META = /^(?:your\s+)?(?:next\s+)?response\b[\s\S]*$/i;
     var META_ANY = /\byour\s+(?:next\s+)?response\b/i;
     var ASK = /^(?:\[|<)?(?:write|continue|you\s+respond|your\s+turn)\b/i;
+    /* v1.29.1: a planning trailer (and the blanks/dividers around it) is
+       popped from the end; a story that merely ends on its own divider is
+       left exactly as written. */
+    var sawTrailer = false;
     while (out.length > 1) {
       var last = out[out.length - 1];
       var isMeta = META.test(last) ||
@@ -670,7 +703,9 @@
         (ASK.test(last) && last.length < 80) ||
         (META_ANY.test(last) && last.length < 80 && /[?:]\s*$/.test(last)) ||
         isTrailerMeta(last);
-      if (isMeta) out.pop(); else break;
+      if (isMeta) { out.pop(); sawTrailer = true; continue; }
+      if ((last.trim() === '' || isSeparatorLine(last)) && sawTrailer) { out.pop(); continue; }
+      break;
     }
 
     var t = out.join('\n').replace(/\s+$/, '');
@@ -805,7 +840,19 @@
             onProgress: o.onProgress,
             stopSequence: stopSeqs(char, s)
           });
-        }).then(function (r) { return r.text; });
+        }).then(function (r) {
+          /* v1.29.1: record who actually answered. "Requested" is a
+             setting; this is the receipt. The world's status sheet shows
+             it under the run - no other behaviour changes. */
+          API.lastHorde = {
+            model: r.model || '',
+            worker: r.worker || '',
+            kudos: r.kudos || null,
+            tries: r.tries || null,
+            requested: s.hordeTextModel || 'any'
+          };
+          return r.text;
+        });
       }
       var msgs = buildChat(char, session, o.history, s, o.note);
       if (idx > 0) msgs.push({ role: 'assistant', content: full });
@@ -1000,6 +1047,10 @@
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     plainText: plainText, repairMojibake: repairMojibake,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); },
+    /* v1.29.1: the last real Horde answer, as a receipt (model, worker,
+       kudos, tries, what was requested). Set by generate(); the world's
+       status sheet reads it. null until the first text generation. */
+    lastHorde: null,
     /* tests shorten the stream deadline; the app never calls this */
     _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; }
   };
