@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.29.1.apk` (versionCode 62) — 339,299 B,
-sha256 `8e87da10af2c31e54477a68e9399eec61a2ede0c9589b2683d08148e2876f766`.
-Built 2026-10-16: `docs/` serves v1.29.1 (webRev `a2eb0eea9c8b`) and
-release `v1.29.1` is the latest on the repo.
+Current build: `HordeStudio-v1.30.0.apk` (versionCode 63) — 339,299 B,
+sha256 `cc4660e04770e65b052d4a6c94792bc69f9ce445302faff28f22de5321d6b7b1`.
+Built 2026-10-16: `docs/` serves v1.30.0 (webRev `7646fe3fdc61`) and
+release `v1.30.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -12,8 +12,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 42 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.29.1: 1309 checks in total).
+Tests: 43 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.30.0: 1332 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -564,6 +564,72 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.30.0 — Worlds keep their face (2026-10-16)
+
+### The ask
+
+"Worlds on the PC version have an avatar. The APK doesn't import the
+avatar. Can you make it so it does?"
+
+The PC version renders `world.banner` — one top-level image in the
+`.horde_world` JSON — as the world's avatar: the library card's banner
+and the world's DM-header face (a 🌐 fallback when absent). The mobile
+import used to strip it: `banner` was in `MEDIA_KEYS`, and any
+top-level `data:` URI went with it, so a 2.5 MB world arrived at about
+50 KB of pure text and looked faceless on the phone.
+
+### The change
+
+- **`js/hordeworld.js`, `parse`** — `banner` is out of the strip list and
+  is now kept, exactly one image: the world's face. Every OTHER
+  top-level `data:` URI and the bulk media keys (`mediaAssets`,
+  `_mediaManifest`, `visuals`, `presentation`) are still stripped, so a
+  2.5 MB world still arrives small. A world without a banner gets a
+  stable empty `banner` field.
+- **`js/app.js`, `App.importWorld`** — the banner gets the same storage
+  diet as card images (512px long edge, via the existing
+  `normalizeDataUrl` canvas path, now exposed as
+  `Views.dietDataUrl`) BEFORE the world is stored. Web-URL banners and
+  anything undecodable pass the diet untouched.
+- **`js/views.js`**
+  - The worlds screen wears the face: installed-world cards and
+    in-progress run cards (a run card shows its WORLD's banner) get the
+    avatar box — image when there is one, initials when there isn't.
+  - The run's status sheet opens with the world's face and name, the
+    same banner the PC version shows in the world header.
+  - `avatarHtml`'s src was already attribute-escaped; banners from
+    imported files are safe.
+- **`css/app.css`** — `.ws-head` (the sheet's face row).
+
+### Verification
+
+`tests/worldavatar-test.js` (new, 23 checks): a bannered world parses
+with its banner byte-for-byte while every other top-level data: URI and
+the bulk media keys are still stripped; unknown keys still pass through;
+a bannerless world gets the stable empty banner; the import path stores
+the banner (dieted on a real device, pass-through in the bare sandbox),
+says so in the toast, and keeps web-URL banners untouched; the worlds
+screen shows the banner on installed and in-progress cards and initials
+for bannerless worlds; the status sheet shows the face (or initials)
+and keeps its sections; and the banner survives parse → JSON → parse
+and an IDB reload. The two legacy "banner is dropped" assertions in
+`hordeworld-test` now encode the stable-empty shape. Full battery, 43
+suites: **1332 node checks, 0 failed.**
+
+APK `HordeStudio-v1.30.0.apk` — 339,299 B, sha256
+`cc4660e04770e65b052d4a6c94792bc69f9ce445302faff28f22de5321d6b7b1`;
+in-APK bundle verified: `VERSION = '1.30.0'`, sw `horde-studio-v50`,
+`dietDataUrl` in views.js and app.js, the banner keep in hordeworld.js,
+`.ws-head` in app.css. The superseded `HordeStudio-v1.29.1.apk` was
+dropped (release asset retains the copy).
+
+Note: worlds imported BEFORE this version have no banner to show —
+re-import the file and it gets its face back.
+
+Bumps: 1.30.0 (minor — user-visible feature), apk code 63, sw cache v50.
 
 ---
 

@@ -43,7 +43,7 @@
 (function (global) {
   'use strict';
 
-  var MEDIA_KEYS = ['banner', 'mediaAssets', '_mediaManifest', 'visuals', 'presentation'];
+  var MEDIA_KEYS = ['mediaAssets', '_mediaManifest', 'visuals', 'presentation'];
 
   /* ---------------- import ---------------- */
 
@@ -75,10 +75,16 @@
     var w = {};
     Object.keys(raw).forEach(function (k) {
       if (MEDIA_KEYS.indexOf(k) !== -1) return;
+      /* v1.30.0: `banner` is the ONE image a world carries - its face. The
+         PC version shows it as the world's avatar; the phone keeps it (the
+         import path diets it before storing). Every OTHER top-level data:
+         URI is still art, not content, and still goes. */
+      if (k === 'banner') { w.banner = (typeof raw[k] === 'string' && raw[k]) ? raw[k] : ''; return; }
       /* anything still carrying a data: URI is art, not content */
       if (typeof raw[k] === 'string' && raw[k].indexOf('data:') === 0) return;
       w[k] = raw[k];
     });
+    if (!('banner' in w)) w.banner = '';
 
     w.id = w.id || 'world_' + Date.now().toString(36);
     w.name = w.name || 'Untitled world';

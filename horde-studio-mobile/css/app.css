@@ -495,6 +495,10 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 /* v1.25.0 - the world status sheet: the desktop sidebar, on demand */
 .sheet-body h3{margin:14px 0 4px;font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim)}
 .sheet-body h3:first-child{margin-top:2px}
+/* v1.30.0 - the world's face at the top of the status sheet */
+.ws-head{display:flex;align-items:center;gap:10px;padding:2px 2px 8px}
+.ws-head .item-av{width:44px;height:44px;border-radius:11px}
+.ws-head-name{font-size:15px;font-weight:600;color:var(--text);line-height:1.2;word-break:break-word}
 .ws-loc{font-size:14.5px;font-weight:600;color:var(--text);margin:2px 0 3px}
 .ws-time{font-size:13px;color:var(--text);margin:2px 0}
 .ws-stat{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
