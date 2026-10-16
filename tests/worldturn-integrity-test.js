@@ -190,6 +190,7 @@ function checks(run) { return (run.log || []).filter(function (m) { return m.rol
   eq('the player line is in the log once', users(r1).length, 1);
   eq('the answer is in the log once', assistants(r1).length, 2);
   eq('the pre-turn state is untouched in the save', r1.id, pre1.id);
+  eq('the input box is cleared once the turn commits', els['#wr-input'].value, '');
 
   console.log('\n2. a rejected draft leaves no trace; the repair is authoritative');
   var s2 = freshWorld();

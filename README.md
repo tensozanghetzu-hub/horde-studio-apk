@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.30.1
+
+**A small fix for world runs:** after the referee answered, your message
+stayed in the input box even though it had been sent. The box is
+cleared as soon as your words go into the thread, as before — and if a
+turn ever fails, your words still come back into the box so nothing is
+lost. (Small web update — no reinstall needed unless you're also picking
+up v1.30.0's world avatars.)
+
 ## What's new in v1.30.0
 
 **Imported worlds keep their face.** The PC version shows each world's
