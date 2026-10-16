@@ -126,6 +126,8 @@ function makeBody() {
   el('wc-quest-add');
   el('wc-inv');
   el('wc-quests');
+  el('wc-clock', { value: '' });
+  el('wc-clock-go');
   el('wc-save');
   return {
     _els: els,

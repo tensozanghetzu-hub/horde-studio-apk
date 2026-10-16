@@ -7,7 +7,7 @@
   function $(sel, root) { return (root || document).querySelector(sel); }
   function on(root, sel, ev, fn) {
     (root.querySelectorAll ? root.querySelectorAll(sel) : []).forEach(function (el) {
-      el.addEventListener(ev, fn);
+      if (el) el.addEventListener(ev, fn);   /* test stubs may lack the element */
     });
   }
   function initials(name) {
@@ -2332,6 +2332,13 @@
     h += '<h3>Time</h3>';
     h += '<div class="ws-time">' + (hud.showClock !== false ? esc(HW.clockOf(run, hud).text) + ' · ' : '') +
          'turn ' + (run.turn || 0) + '</div>';
+    /* v1.29.1: the referee's receipt - which Horde model actually answered
+       the last turn, and the worker it ran on. "Requested" is a setting;
+       this is what came back. */
+    if (run.lastModel) {
+      h += '<div class="hint">Referee: ' + esc(run.lastModel) +
+           (run.lastWorker ? ' · worker ' + esc(String(run.lastWorker).slice(0, 12)) : '') + '</div>';
+    }
 
     h += '<h3>Numbers</h3>';
     var anyStat = false;
@@ -2459,6 +2466,13 @@
         (run.stats[st.id] !== undefined ? run.stats[st.id] : 0) + '"></div>';
     });
 
+    /* v1.29.1: the clock by hand - a shift in minutes for a run whose
+       [[clock:+N]] tags have drifted from the story */
+    h += '<h3>Time</h3>' +
+      '<div class="field row"><input id="wc-clock" type="number" step="5" placeholder="Shift the clock by minutes (e.g. -30)">' +
+      '<button class="btn sm" id="wc-clock-go">Shift</button></div>' +
+      '<p class="hint">Applied with the corrections below; the shift is logged in the run.</p>';
+
     h += '<h3>Pockets</h3><div class="wc-inv" id="wc-inv"></div>' +
       '<div class="field row"><input id="wc-item" type="text" placeholder="Add an item…">' +
       '<button class="btn sm" id="wc-item-add">Add</button></div>';
@@ -2492,10 +2506,12 @@
     }
     function renderQuests() {
       body.querySelector('#wc-quests').innerHTML = quests.length ? quests.map(function (q) {
+        var rm = '<button type="button" class="btn sm ghost" data-wc-remove="' + esc(q.text) + '">Remove</button>';
         return q.done
-          ? '<div class="wc-quest done">' + esc(q.text) + ' <em>done</em></div>'
+          ? '<div class="wc-quest done">' + esc(q.text) + ' <em>done</em> ' + rm + '</div>'
           : '<div class="wc-quest">' + esc(q.text) +
-            '<button type="button" class="btn sm ghost" data-wc-done="' + esc(q.text) + '">Done</button></div>';
+            '<button type="button" class="btn sm ghost" data-wc-done="' + esc(q.text) + '">Done</button> ' +
+            rm + '</div>';
       }).join('') : '<p class="hint">No tasks.</p>';
     }
     renderInv();
@@ -2517,11 +2533,21 @@
     });
     body.querySelector('#wc-quests').addEventListener('click', function (e) {
       var btn = e.target.closest ? e.target.closest('[data-wc-done]') : null;
-      if (!btn) return;
-      var t = btn.getAttribute('data-wc-done');
-      quests.forEach(function (q) {
-        if (!q.done && q.text.toLowerCase().indexOf(t.toLowerCase()) !== -1) q.done = true;
-      });
+      if (btn) {
+        var t = btn.getAttribute('data-wc-done');
+        quests.forEach(function (q) {
+          if (!q.done && q.text.toLowerCase().indexOf(t.toLowerCase()) !== -1) q.done = true;
+        });
+        renderQuests();
+        return;
+      }
+      /* v1.29.1: a task that was recorded in error can leave the ledger */
+      var rm = e.target.closest ? e.target.closest('[data-wc-remove]') : null;
+      if (!rm) return;
+      var rt = rm.getAttribute('data-wc-remove');
+      for (var qi = quests.length - 1; qi >= 0; qi--) {
+        if (quests[qi].text === rt) { quests.splice(qi, 1); break; }
+      }
       renderQuests();
     });
 
@@ -2558,6 +2584,9 @@
       body.querySelector('#wc-quest').value = '';
       renderQuests();
     });
+    on(body, '#wc-clock-go', 'click', function () {
+      body.querySelector('#wc-save').click();
+    });
     on(body, '#wc-save', 'click', function () {
       /* v1.21.0 (upstream 18.3.5): a turn mid-apply and a manual correction
          writing the same run object at once is how tags lose each other. */
@@ -2592,13 +2621,20 @@
       (run.quests || []).forEach(function (o) {
         var now = null;
         quests.forEach(function (q) { if (q.text === o.text) now = q; });
-        if (now && now.done && !o.done) corrs.push({ doneQuestText: o.text });
+        if (!now) { corrs.push({ removeQuest: o.text }); return; }
+        if (now.done && !o.done) corrs.push({ doneQuestText: o.text });
       });
       quests.forEach(function (q) {
         if (!(run.quests || []).some(function (o) { return o.text === q.text; })) {
           corrs.push({ addQuest: q.text });
         }
       });
+      /* v1.29.1: a manual clock shift, applied like any other correction */
+      var clockEl = body.querySelector('#wc-clock');
+      if (clockEl && clockEl.value !== '' && !isNaN(Number(clockEl.value)) && Number(clockEl.value) !== 0) {
+        corrs.push({ clockDelta: Number(clockEl.value) });
+        clockEl.value = '';
+      }
 
       var changes = [];
       corrs.forEach(function (c) { changes = changes.concat(HW.correctState(world, run, c)); });

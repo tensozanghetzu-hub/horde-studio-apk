@@ -160,8 +160,13 @@ ok('and the die tag does not reach the player',
   rolled.text.indexOf('[[roll') === -1);
 
 var t9 = HW.applyTags(w, run, 'Something odd.[[nonsense:12]]');
-ok('an unknown tag is left visible rather than silently eaten',
-  t9.text.indexOf('[[nonsense:12]]') !== -1, t9.text);
+ok('v1.29.1: an unknown command is refused, not narrated',
+  t9.text.indexOf('[[nonsense:12]]') === -1 &&
+  (t9.rejections || []).some(function (r) { return /nonsense/.test(r.tag); }),
+  t9.text + ' | ' + JSON.stringify(t9.rejections));
+var t9b = HW.applyTags({ id: w.id, ledgerV2: false, locations: w.locations }, run, 'Something odd.[[nonsense:12]]');
+ok('…and an opted-out (ledgerV2:false) world still shows it',
+  t9b.text.indexOf('[[nonsense:12]]') !== -1, t9b.text);
 
 var t10 = HW.applyTags(w, run, 'Nowhere.[[move:loc_does_not_exist]]');
 ok('a move to somewhere that is not in the world is ignored', t10.moved === null);

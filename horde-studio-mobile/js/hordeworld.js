@@ -877,7 +877,11 @@
         else if (v2) reject(whole, 'malformed roll \u201C' + arg + '\u201D');
         return '';
       }
-      /* unknown tag: leave it, so a typo is visible rather than silently eaten */
+      /* v1.29.1: an unknown bracket command is the model's private
+         bookkeeping leaking through - refuse it (and keep it out of the
+         story) on a validating world. An opted-out world keeps the old
+         leniency: the typo stays visible. */
+      if (v2) { reject(whole, 'no such bookkeeping as \u201C' + kind + '\u201D'); return ''; }
       return whole;
     });
 
@@ -1002,6 +1006,25 @@
           changes.push('completed: ' + q.text);
         }
       });
+    }
+    /* v1.29.1: a task the ledger never should have gained can actually go.
+       The Correct-state screen used to offer only add/done, so a phantom
+       task was stuck in the run forever. */
+    if (corr.removeQuest) {
+      var rmq = String(corr.removeQuest).toLowerCase();
+      for (var qi = run.quests.length - 1; qi >= 0; qi--) {
+        if (String(run.quests[qi].text).toLowerCase() === rmq) {
+          changes.push('removed task: ' + run.quests[qi].text);
+          run.quests.splice(qi, 1);
+        }
+      }
+    }
+    /* v1.29.1: the clock, by hand - a logged shift in extraMinutes, the
+       same field the [[clock:+N]] tag writes, so the shift behaves like
+       any other minute. */
+    if (corr.clockDelta !== undefined && corr.clockDelta !== null && !isNaN(corr.clockDelta) && corr.clockDelta !== 0) {
+      run.extraMinutes = (run.extraMinutes || 0) + corr.clockDelta;
+      changes.push('clock: ' + (corr.clockDelta > 0 ? '+' : '') + corr.clockDelta + ' minutes');
     }
 
     if (changes.length) {
@@ -1497,6 +1520,98 @@
     return run;
   }
 
+  /** v1.29.1 — a deep copy of a run. Runs are plain JSON (the old Android
+   *  WebViews have no structuredClone), so a parse/stringify round trip is
+   *  an exact copy: every mutable field — seed, turn, extraMinutes,
+   *  location, stats, inventory, tasks, companions, log, rejections —
+   *  comes along. The turn transaction judges candidates on copies like
+   *  this, so the live run stays exactly as it was until one final
+   *  answer is validated. */
+  function cloneRun(run) { return JSON.parse(JSON.stringify(run)); }
+
+  /* ---------------- v1.29.1: validating a reply before it is a turn ---- */
+
+  /** A planning trailer the thinking filter can miss: a scene, then the
+   *  model's own quality check and sign-off. Deliberately narrow — a story
+   *  line merely CONTAINING these words is prose; only a line that STARTS
+   *  with one is planning. */
+  var TRAILER_LINE = /(^|\n)\s*(?:self[- ]correction\s+check|self[- ]check\s*:|ready\s+to\s+output)\b/im;
+
+  function wordTokens(t) {
+    return String(t || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ')
+      .split(/\s+/).filter(function (w) { return w.length > 1; });
+  }
+
+  /** How much of the reference text's vocabulary the candidate is built
+   *  out of. ~1.0 = the candidate is the reference (dressed up or not).
+   *  A short reference can't be "echoed" meaningfully, so ignore it. */
+  function echoOf(candidate, reference) {
+    var rt = wordTokens(reference);
+    if (rt.length < 12) return false;
+    var ct = {};
+    wordTokens(candidate).forEach(function (w) { ct[w] = true; });
+    var hit = 0;
+    rt.forEach(function (w) { if (ct[w]) hit++; });
+    return hit / rt.length >= 0.8;
+  }
+
+  /** v1.29.1 — is this reply even a world turn? Runs BEFORE any tag is
+   *  parsed: a code block is not narration, a planning trailer is not a
+   *  scene, an empty answer is not a turn, and a near-verbatim repeat of
+   *  the opening (or of the referee's own last line) is not an answer.
+   *  The reasons are safe to show the player — no raw tags in them. */
+  function validateReply(world, run, playerText, raw) {
+    var out = { ok: true, reasons: [], text: String(raw || '').trim() };
+    var t = out.text;
+    if (!t) { out.ok = false; out.reasons.push('the reply is empty'); return out; }
+    if (/```|~~~/.test(t)) {
+      out.ok = false; out.reasons.push('the reply contains a code block'); return out;
+    }
+    if (TRAILER_LINE.test(t)) {
+      out.ok = false; out.reasons.push('the reply ends in planning notes, not the scene'); return out;
+    }
+    /* the scene with the bookkeeping out */
+    var prose = t.replace(TAG, '').replace(/\s+/g, ' ').trim();
+    if (prose.length < 8) {
+      out.ok = false; out.reasons.push('the reply has no actual scene in it'); return out;
+    }
+    var lastAssistant = null;
+    (run.log || []).slice().reverse().forEach(function (m) {
+      if (!lastAssistant && m.role === 'assistant') lastAssistant = m;
+    });
+    var ref = (run.turn === 0 && world.intro) ? world.intro
+      : (lastAssistant ? lastAssistant.content : '');
+    if (ref && echoOf(prose, ref)) {
+      out.ok = false;
+      out.reasons.push(run.turn === 0
+        ? 'the reply repeats the opening instead of answering'
+        : 'the reply repeats the last answer instead of going on');
+      return out;
+    }
+    return out;
+  }
+
+  /** v1.29.1 — the checks a reply requested, checked BEFORE anything is
+   *  committed: a turn that asks for a check the world has no definition
+   *  for must not settle half and then fail. Same dedupe as resolveChecks:
+   *  one per name per turn. Returns rejection-shaped entries. */
+  function preflightChecks(world, applied) {
+    var out = [];
+    var seen = {};
+    ((applied && applied.checkRequests) || []).forEach(function (req) {
+      if (seen[req.name.toLowerCase()]) return;
+      seen[req.name.toLowerCase()] = true;
+      if (!checkDef(world, req.name)) {
+        out.push({
+          tag: '[[roll:' + req.spec + ':check:' + req.name + ']]',
+          reason: 'the world has no check named \u201C' + req.name + '\u201D',
+          at: Date.now()
+        });
+      }
+    });
+    return out;
+  }
+
   /** Worlds that came with the install but have not been added yet. */
   function bundled() {
     return fetch('worlds/authored.json').then(function (r) {
@@ -1536,7 +1651,8 @@
     bundled: bundled, installBundled: installBundled,
     applyTags: applyTags, buildPrompt: buildPrompt, commit: commit,
     ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
-    normalizeRun: normalizeRun,
+    normalizeRun: normalizeRun, cloneRun: cloneRun,
+    validateReply: validateReply, preflightChecks: preflightChecks,
     resolveChecks: resolveChecks, checkDef: checkDef,
     parseCheckRequest: parseCheckRequest, nextRand: nextRand,
     loreVisible: loreVisible, loreScore: loreScore, questReached: questReached,

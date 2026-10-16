@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.29.0.apk` (versionCode 61) — 335,203 B,
-sha256 `49eb3aa192bebd404dbcdab3455c1138b38680136ce280c224f2943f9fb7f1b1`.
-Built 2026-10-15: `docs/` serves v1.29.0 (webRev `0bd59010ed03`) and
-release `v1.29.0` is the latest on the repo.
+Current build: `HordeStudio-v1.29.1.apk` (versionCode 62) — 339,299 B,
+sha256 `8e87da10af2c31e54477a68e9399eec61a2ede0c9589b2683d08148e2876f766`.
+Built 2026-10-16: `docs/` serves v1.29.1 (webRev `a2eb0eea9c8b`) and
+release `v1.29.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -12,8 +12,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 41 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.29.0: 1205 checks in total).
+Tests: 42 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.29.1: 1309 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -564,6 +564,113 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.29.1 — Worlds: a turn is a transaction (2026-10-16)
+
+### The bug (P1, data integrity)
+
+`App.worldTurn` ran `HW.applyTags` on the **live** run to judge the first
+model reply, then `finishTurn` ran it on the **same** live run again.
+Every clean turn double-applied its tags (a `[[clock:+5]]` became +10);
+on a repair the draft's effects — the player never saw that reply — were
+already persisted, and the repaired answer was applied on top of them.
+The dice seed could advance for a check the player never saw. The same
+screen could not undo what had happened: the Correct-state screen had no
+way to remove a task, and no way to shift the clock. Meanwhile the Horde
+answered with model output that the thinking filter could not see — a
+scene, a divider, `Self-Correction Check: …`, `Ready to output.` — and
+the planning trailer was saved into the story along with the scene.
+
+### The change
+
+- **`js/hordeworld.js`**
+  - New `cloneRun` (a `JSON.parse(JSON.stringify(run))` deep copy — the
+    old Android WebViews have no `structuredClone`) — the transaction's
+    unit: candidates are judged on copies, the live run is only ever
+    written by one final, validated answer.
+  - New `validateReply(world, run, playerText, raw)`, run BEFORE any tag
+    is parsed: an empty answer, a reply containing a code block, a reply
+    that ends in a planning trailer (`Self-Correction Check` / `Ready to
+    output`, matched only when they START a line — a story line merely
+    containing the words is prose), a reply with no scene in it, or a
+    near-verbatim repeat of the opening (turn 0) / the referee's last
+    line (token containment ≥ 0.8) is not a turn; the reasons are safe to
+    show the player.
+  - New `preflightChecks(world, applied)`: a `[[roll:…:check:NAME]]` for a
+    check the world has no definition for is refused BEFORE the turn
+    commits — not after the die has already been rolled and the seed
+    consumed.
+  - `applyTags`: on a validating (v2) world an unknown bracket command is
+    refused and kept out of the story instead of left visible (a typo or
+    the model's private bookkeeping); a world that opts out with
+    `ledgerV2: false` keeps the old leniency.
+  - `correctState`: new `removeQuest` (a task the ledger never should have
+    gained can actually go) and `clockDelta` (a manual shift in
+    `extraMinutes`, the same field `[[clock:+N]]` writes).
+- **`js/api.js`**
+  - `stripThinking` and `cleanReply` now pop a planning TRAILER from the
+    end of a reply (the observed Horde pattern), including the divider
+    and blanks around it — while a story that merely ends on the
+    author's own divider is left exactly as written.
+  - The Horde text branch records `API.lastHorde` — the model and worker
+    that ACTUALLY answered, kudos/tries, and what was requested —
+    instead of dropping everything but `r.text`.
+- **`js/app.js`** — `App.worldTurn` rewritten as a transaction:
+  - snapshot the pre-turn run; every candidate (first reply, then the one
+    repair) is evaluated on a fresh deep copy — validation, tags, scene
+    audit, check preflight — and never touches the live run;
+  - only a validated final answer is committed: `HW.commit` + check
+    resolution + the Horde receipt (`lastModel`/`lastWorker`) happen in
+    the transaction, then the run is saved;
+  - a save failure, a failed API call, a stop, or a repair that is not a
+    valid turn restores the pre-turn state (same run object, pre-turn
+    contents), puts the player's words back in the box, and says exactly
+    what stood in the way — nothing is committed, nothing is half-made;
+  - a repair's refusals are kept on the run (the ledger says what the
+    draft tried and why it did not stand), but the draft's state and
+    prose never do.
+- **`js/views.js`**
+  - Correct-state screen: every task (open or done) has a **Remove**
+    button, and a **Time** field shifts the clock by minutes — both flow
+    through the same one-correction-per-change path as the rest.
+  - The status sheet gains a **Referee** line: the model and worker that
+    answered the last turn (when a Horde worker answered it).
+
+### Verification
+
+`tests/worldturn-integrity-test.js` (new, 88 checks) + fixture
+`tests/fixtures/lantern-marches.horde_world` — written FIRST, run against
+the unpatched code (38 passed / 50 failed: the whole P1 surface
+reproduced — double clock/cash, the draft's phantom quest and companion
+persisted with no repair ever called, the failed repair and failed save
+still committing, the code fence's `[[clock:+30]]` running twice, the
+planning trailer committed, the intro-echo's tags running), then green
+against the fix. Covers: single-apply clean turn; rejected draft leaves
+no trace and the repair is authoritative (seed untouched, no draft
+prose, no draft check line); a duplicate companion vs the pre-turn party
+is still refused AND the refusal survives onto the run; a failed repair /
+failed first answer / failed save changes nothing and returns the input;
+a valid check resolves exactly once (seed advances exactly one step);
+code, trailer, unknown tag, empty reply, and intro echo are not
+committed and their tags never run; `correctState` removes tasks and
+shifts the clock; the trailer is stripped from output; and the Horde
+receipt (model/worker/requested) survives the API. The two legacy
+unknown-tag assertions (`hordeworld-test`, `worldcompanions-test`) now
+encode the v2 contract (refused + kept out of the story; opt-out keeps
+the old visibility). Full battery, 42 suites: **1309 node checks,
+0 failed.**
+
+APK `HordeStudio-v1.29.1.apk` — 339,299 B, sha256
+`8e87da10af2c31e54477a68e9399eec61a2ede0c9589b2683d08148e2876f766`;
+in-APK bundle verified: `VERSION = '1.29.1'`, sw `horde-studio-v49`,
+`cloneRun`/`validateReply` in hordeworld.js, `lastHorde` in api.js, the
+transaction in app.js, `removeQuest`/`clockDelta` in views.js. The
+superseded `HordeStudio-v1.29.0.apk` was dropped (release asset retains
+the copy).
+
+Bumps: 1.29.1 (patch — data-integrity fix), apk code 62, sw cache v49.
 
 ---
 
