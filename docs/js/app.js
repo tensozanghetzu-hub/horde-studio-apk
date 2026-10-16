@@ -997,8 +997,10 @@
     var userLine = { role: 'user', content: text, at: Date.now() };
     base.log.push(userLine);
     /* optimistic display only - the player sees their words immediately;
-       if the turn fails, restorePre() brings the pre-turn run back */
+       if the turn fails, failTurn() brings the pre-turn run back AND the
+       words back into the box */
     run.log.push(userLine);
+    input.value = '';   /* the words are in the thread now; a failed turn puts them back */
     Views.worldRun(world, run);
 
     App.state.worldBusy = true;
