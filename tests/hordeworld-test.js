@@ -396,6 +396,8 @@ ok('a v2 world tells the model its tags will be checked',
 ok('and lists the items the world has', bpV2.system.indexOf('Items the world has: Lantern, Rope') !== -1);
 ok('and the tasks it knows',
   HW.buildPrompt(twQ, HW.start(twQ), 'x').system.indexOf('Tasks the world knows: Find the lamp; Pay the toll') !== -1);
+ok('the referee is told not to paste the state block back into the story',
+  /NEVER repeat, paste, or restate/.test(bpV2.system));
 var bpLegacy = HW.buildPrompt(tinyWorld({ ledgerV2: false }), HW.start(tinyWorld({ ledgerV2: false })), 'I look around.');
 ok('an opted-out world is told nothing new', bpLegacy.system.indexOf('The world checks your tags') === -1);
 
