@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.30.0.apk` (versionCode 63) — 339,299 B,
-sha256 `cc4660e04770e65b052d4a6c94792bc69f9ce445302faff28f22de5321d6b7b1`.
-Built 2026-10-16: `docs/` serves v1.30.0 (webRev `7646fe3fdc61`) and
-release `v1.30.0` is the latest on the repo.
+Current build: `HordeStudio-v1.30.1.apk` (versionCode 64) — 339,299 B,
+sha256 `12a6408ee93b4a1f3b2a1cc6ff87fe90d7797f94cf76e3ec82e049c80b4b1929`.
+Built 2026-10-16: `docs/` serves v1.30.1 (webRev `fd752b4737d7`) and
+release `v1.30.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.30.0: 1332 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.30.1: 1333 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,42 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.30.1 — The world's answer no longer leaves your words in the box (2026-10-16)
+
+### The bug (on-device, reported 2026-10-16)
+
+The v1.29.1 transaction rewrite changed when the world's input box gets
+cleared. The old code cleared it the instant the player hit send; the
+new code only ever RESTORED the text (on a failed turn) and never
+cleared it on success. So a perfectly committed turn — the message in
+the thread, the referee's answer arriving, the HUD updated — left the
+player's words sitting in the input box, looking un-sent.
+
+### The change
+
+- **`js/app.js`, `App.worldTurn`** — clear the input box at the moment
+  the words go into the thread (the original send-time behaviour). The
+  transaction's failure paths already put the words back into the box
+  when a turn fails or is stopped, so nothing is lost either way.
+
+### Verification
+
+`tests/worldturn-integrity-test.js` gained the regression check
+("the input box is cleared once the turn commits" — 89 checks now); the
+failed-turn sections already assert the words come BACK into the box.
+Full battery, 43 suites: **1333 node checks, 0 failed.**
+
+APK `HordeStudio-v1.30.1.apk` — 339,299 B, sha256
+`12a6408ee93b4a1f3b2a1cc6ff87fe90d7797f94cf76e3ec82e049c80b4b1929`;
+in-APK bundle verified: `VERSION = '1.30.1'`, sw `horde-studio-v51`,
+the clear in app.js. The superseded `HordeStudio-v1.30.0.apk` was
+dropped (release asset retains the copy).
+
+Bumps: 1.30.1 (patch — on-device regression fix), apk code 64,
+sw cache v51.
 
 ---
 
