@@ -880,7 +880,14 @@
         if (!raw) { UI.toast('That file is not readable JSON', 4000); return null; }
         var world = HW.parse(raw);
         if (!world) { UI.toast('That is not a .horde_world file', 4500); return null; }
-        return HW.save(world).then(function () {
+        /* v1.30.0: the world's face comes in with it - give the banner the
+           same storage diet as card images (512px long edge) BEFORE it is
+           stored, so a 2.5 MB world still arrives small. Web URLs and
+           anything undecodable pass through the diet untouched. */
+        return Promise.resolve(Views.dietDataUrl(world.banner, 512)).then(function (dieted) {
+          if (dieted) world.banner = dieted;
+          return HW.save(world);
+        }).then(function () {
           UI.toast('Imported ' + world.name, 3200);
           App.go('worlds');
         });
