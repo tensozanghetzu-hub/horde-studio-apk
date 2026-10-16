@@ -1445,6 +1445,13 @@
       '  [[item:THING]] [[drop:THING]] [[quest:TASK]] [[quest-done:TASK]] [[roll:2d6+1]]\n' +
       '  [[with:NAME]] [[part:NAME]] - who is with the player\n' +
       '- Only include a tag when something actually changed.\n' +
+      /* v1.30.2: some models echo the state block back into the story - the
+         observed dump was the Time/Stats/Money/Carrying block, verbatim,
+         appended to a scene. The block is THEIR bookkeeping, not the story. */
+      '- The state given above (Time / Stats / Money / Carrying / Tasks) is for ' +
+        'your own record-keeping. NEVER repeat, paste, or restate it in your ' +
+        'reply - the player has the sheet for that. Your reply is the scene ' +
+        'only, plus the tags it needs.\n' +
       '- Location ids for this world: ' +
         (world.locations || []).map(function (l) { return l.id; }).join(', ');
     if (ledgerV2(world)) {

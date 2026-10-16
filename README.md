@@ -605,6 +605,18 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.30.2
+
+**Worlds stop reciting your whole sheet at you.** On big worlds the
+referee was handed the full state every turn (time, every stat, money,
+what you're carrying) so it could keep score — and on the first turn it
+would sometimes paste all of that straight back into its reply, burying
+the scene under a wall of numbers. The referee is now told the sheet is
+its own bookkeeping, never to be restated in the story: you already have
+the sheet. Your reply is the scene, plus the score it needs to change.
+(Small web update — no reinstall needed unless you're also picking up a
+newer APK.)
+
 ## What's new in v1.30.1
 
 **A small fix for world runs:** after the referee answered, your message
