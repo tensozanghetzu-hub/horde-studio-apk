@@ -403,6 +403,37 @@ ok('the referee is told OOC notes are direct instructions, not in-fiction speech
 var bpLegacy = HW.buildPrompt(tinyWorld({ ledgerV2: false }), HW.start(tinyWorld({ ledgerV2: false })), 'I look around.');
 ok('an opted-out world is told nothing new', bpLegacy.system.indexOf('The world checks your tags') === -1);
 
+/* --- v1.30.4: the tag grammar carries no note for the model to copy --- */
+
+ok('the with/part grammar line carries no annotation (v2 world)',
+  !/who is with the player/i.test(bpV2.system));
+ok('...nor in an opted-out world', !/who is with the player/i.test(bpLegacy.system));
+ok('every world is told in prose what with/part mean',
+  /Party: tag \[\[with:NAME\]\]/.test(bpV2.system) && /Party: tag \[\[with:NAME\]\]/.test(bpLegacy.system));
+
+var runG = HW.start(w);
+var g1 = HW.applyTags(w, runG, 'The ferns rustle as Nyx steps out to join you.\n\n[[with:Nyx]] - who is with the player');
+eq('the copied note goes with the tags', g1.text, 'The ferns rustle as Nyx steps out to join you.');
+ok('unknown companions are still refused, as before', g1.rejections.length === 1, JSON.stringify(g1.rejections));
+
+var g2 = HW.applyTags(w, runG, 'Paths split ahead.\n\n- who is with the player\n\nWhat do you do?');
+eq('the bare note goes too', g2.text, 'Paths split ahead.\n\nWhat do you do?');
+
+var g3 = HW.applyTags(w, runG, 'The guard asks who is with the player, and why.');
+eq('mentioning it inside prose is not the note', g3.text, 'The guard asks who is with the player, and why.');
+
+var runH = HW.start(w);
+runH.log.push({ role: 'assistant', content: 'Old turn.\n\n- who is with the player', at: 1 });
+var bpH = HW.buildPrompt(w, runH, 'again');
+eq('stored copies never reach the referee again', bpH.messages[0].content, 'Old turn.');
+
+var runN = HW.start(w);
+runN.log.push({ role: 'user', content: 'who is with the player?', at: 1 });
+runN.log.push({ role: 'assistant', content: 'Scene one.\n\n- who is with the player', at: 2 });
+HW.normalizeRun(runN);
+eq('old stored replies are scrubbed on open', runN.log[1].content, 'Scene one.');
+eq('player lines are never scrubbed', runN.log[0].content, 'who is with the player?');
+
 var trP = HW.start(twS);
 trP.log.push({ role: 'user', content: 'I try the door.' });
 trP.log.push({ role: 'correction', content: 'State corrected: set to B' });
