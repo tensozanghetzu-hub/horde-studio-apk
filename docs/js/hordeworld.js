@@ -1452,6 +1452,12 @@
         'your own record-keeping. NEVER repeat, paste, or restate it in your ' +
         'reply - the player has the sheet for that. Your reply is the scene ' +
         'only, plus the tags it needs.\n' +
+      /* v1.30.3: OOC notes are a direct instruction to the referee, not
+         in-fiction speech - time-skips, house rules, corrections. */
+      '- If the player writes an OOC note (OOC:, [ooc], (ooc)), treat it as a ' +
+        'direct instruction to you the referee, not in-fiction speech: carry it ' +
+        'out (a time-skip, a house rule, a correction), continue the scene from ' +
+        'the new state, and never narrate the OOC itself in-fiction.\n' +
       '- Location ids for this world: ' +
         (world.locations || []).map(function (l) { return l.id; }).join(', ');
     if (ledgerV2(world)) {

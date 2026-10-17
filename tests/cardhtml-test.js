@@ -131,6 +131,12 @@ var HISTORY = [{ id: 'm1', role: 'user', text: 'Hi.', createdAt: 1 }];
     chat[0].content.indexOf('<img') === -1 && /<\s*\/?\s*(p|b|i)\b/.test(chat[0].content) === false,
     chat[0].content.slice(0, 300));
 
+  ok('both wire formats carry the OOC rule, names substituted',
+    chat[0].content.indexOf('Out of character: if Rin writes an OOC note') !== -1 &&
+    chat[0].content.indexOf('step out of Sera') !== -1 &&
+    prompt.indexOf('Out of character: if Rin writes an OOC note') !== -1,
+    chat[0].content.slice(0, 400));
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch(function (e) { console.error(e); process.exit(1); });
