@@ -613,7 +613,8 @@ the personas screen, tap the picture on a persona's row to import one
 identity-bar chip at the top of Cast and Chats, and on your own chat
 bubbles, which used to show only initials. Photos get the same 512px
 diet as card avatars, so they stay tiny in storage. The default
-identity keeps initials, exactly as before.
+identity keeps initials, exactly as before. (Small web update — no
+reinstall needed unless you're also picking up the new APK.)
 
 ## What's new in v1.30.4
 
