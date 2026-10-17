@@ -172,6 +172,18 @@ function closeSheet() { UI.closeSheet(); }
   ok('open task only', html.indexOf('Find the ferryman') !== -1 && html.indexOf('Pay the toll') === -1);
   ok('the party', html.indexOf('Nisha Patel') !== -1 && /joined at/.test(html));
 
+  console.log('\nthe calendar and the life on the sheet (v1.32.0)');
+  var runLife = HW.start(world, 'origin_new_hire');
+  var lifeHtml = Views.worldStatusSheet(world, runLife);
+  ok('season on the world calendar',
+    lifeHtml.indexOf('Season: Maplebridge civic year · early spring · day 1') !== -1);
+  ok('who you set out to be', lifeHtml.indexOf('You are: entry level · employee on probation') !== -1);
+  ok('what you are wearing', /Wearing: new office clothes/.test(lifeHtml));
+  var wNoSeas = Object.assign({}, world, { sandboxConfig: {} });
+  ok('a season-less world shows no season line',
+    Views.worldStatusSheet(wNoSeas, HW.start(wNoSeas, null)).indexOf('Season:') === -1 &&
+    lifeHtml.indexOf('Season:') !== -1);
+
   console.log('\nempty corners say so, quietly');
   var bare = HW.start(world, null);
   bare.stats.cash = 0;
