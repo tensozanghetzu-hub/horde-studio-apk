@@ -2,8 +2,8 @@
 
 Current build: `HordeStudio-v1.31.0.apk` (versionCode 68) — 343,395 B,
 sha256 `00025fff7a6bf996871f8d7b740fe8540538983022d0e4fe434b1e51475cd379`.
-Built 2026-10-17: `docs/` still serves v1.30.4 (webRev `849e9633734f`);
-v1.31.0 ships on the next publish (feature — awaiting the user's call).
+Built 2026-10-17: `docs/` serves v1.31.0 (webRev `e0ba3cd28a89`) and
+release `v1.31.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -651,9 +651,8 @@ APK `HordeStudio-v1.31.0.apk` — 343,395 B, sha256
 `00025fff7a6bf996871f8d7b740fe8540538983022d0e4fe434b1e51475cd379`;
 in-APK bundle verified: `VERSION = '1.31.0'`, sw `horde-studio-v55`,
 aapt badging versionCode 68 / versionName 1.31.0, avatar field +
-row/chip/bubble wiring + pavat styles all present. `HordeStudio-v1.30.4.apk`
-stays on disk until v1.31.0 actually ships. **Built and committed,
-not yet published — pending the user's call.**
+row/chip/bubble wiring + pavat styles all present. The superseded `HordeStudio-v1.30.4.apk` was dropped (the release
+asset retains its copy). **Published 2026-10-17** on the user's go-ahead.
 
 Bumps: 1.31.0 (minor — new feature), apk code 68, sw cache v55.
 
