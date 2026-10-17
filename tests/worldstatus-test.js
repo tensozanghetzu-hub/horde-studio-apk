@@ -184,6 +184,29 @@ function closeSheet() { UI.closeSheet(); }
     Views.worldStatusSheet(wNoSeas, HW.start(wNoSeas, null)).indexOf('Season:') === -1 &&
     lifeHtml.indexOf('Season:') !== -1);
 
+  /* v1.34.0: conditions and the health floor, on the sheet as in the scene */
+  var runCond = HW.start(world, null);
+  runCond.conditions = ['royal favor', 'itchy feet'];
+  var condHtml = Views.worldStatusSheet(world, runCond);
+  ok('conditions have a corner of the sheet',
+    condHtml.indexOf('<h3>Conditions</h3>') !== -1 &&
+    condHtml.indexOf('royal favor') !== -1 && condHtml.indexOf('itchy feet') !== -1);
+  ok('a module-less world keeps that corner shut',
+    Views.worldStatusSheet(Object.assign({}, world, { gameRules: { modules: {} } }), runCond)
+      .indexOf('<h3>Conditions</h3>') === -1);
+  ok('none right now says so, kindly',
+    Views.worldStatusSheet(world, HW.start(world, null)).indexOf('None, for the moment.') !== -1);
+
+  var wH3 = HW.parse(Object.assign({}, WORLD, { gameRules: Object.assign({}, WORLD.gameRules, {
+    vitalStatId: 'hp', modules: Object.assign({}, WORLD.gameRules.modules, { health: true }) }) }));
+  wH3.hudConfig = { stats: [{ id: 'hp', name: 'HP', value: 5, min: 0, max: 10 }] };
+  var runH3 = HW.start(wH3, null); runH3.stats.hp = 5;
+  ok('the vital stat is marked on the big sheet',
+    Views.worldStatusSheet(wH3, runH3).indexOf('HP ✧') !== -1);
+  runH3.stats.hp = 0; HW.syncDowned(wH3, runH3, []);
+  ok('downed announces itself by the clock',
+    Views.worldStatusSheet(wH3, runH3).indexOf('<b>Downed</b>') !== -1);
+
   console.log('\nempty corners say so, quietly');
   var bare = HW.start(world, null);
   bare.stats.cash = 0;

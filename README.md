@@ -605,6 +605,21 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.34.0
+
+**The dice roll at the world's own table now.** A world that declares
+its difficulty, its per-stat modifiers and its taste for drama finally
+gets them: checks without a DC run at the world's difficulty, named
+checks inherit their stat's authored modifier, and at tables that play
+with criticals a natural max triumphs over any DC while a natural one
+fails any roll. Worlds with real health get a real floor: the vital
+stat is marked, and at zero the story goes downed - consequences, not
+game over - until someone picks you back up. And conditions became a
+system: a pair of tags names and lifts them, they ride the referee's
+readout, and they sit on the sheet like they belong there. Which they
+do. (Small web update - no reinstall needed unless you're also picking
+up the new APK.)
+
 ## What's new in v1.33.0
 
 **The world moves without you.** Worlds with a world-agent now breathe
