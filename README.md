@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.33.0
+
+**The world moves without you.** Worlds with a world-agent now breathe
+on their declared tick: every so often the referee hears one line of
+what shifted off-screen - a faction pressing its agenda, a plot advancing
+one step - and lets it drift into the scene as background, not a ticker.
+Stories that ship goal programs show their current step right in the
+state block. And standing finally moves: a new `[[rep:…]]` tag turns
+deeds into faction reputation, with the world's own rules policing the
+deltas, and the sheet line reminds everyone who you are to the powers
+that be. (Small web update - no reinstall needed unless you're also
+picking up the new APK.)
+
 ## What's new in v1.32.0
 
 **Worlds keep office hours now.** The living-world truth pack: NPCs

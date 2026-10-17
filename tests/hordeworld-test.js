@@ -1148,6 +1148,82 @@ ok('startingQuests seed the same way',
     return HW.start(wq).quests[0].text === 'Find the lamp';
   })());
 
+/* --- v1.33.0: the world moves without you; standing has consequences --- */
+
+console.log('\noff-screen: the pulse');
+
+eq('the agent survives the parse - an 18-turn tick', HW.pulseInterval(w), 18);
+eq('a world with no agent does not tick', HW.pulseInterval(twPlain), 0);
+eq('an agent set to enabled:false stays quiet',
+  HW.pulseInterval(HW.parse(Object.assign({}, WORLD, { worldAgent: { enabled: false } }))), 0);
+eq('an interval-less agent falls back to fifteen',
+  HW.pulseInterval(HW.parse(Object.assign({}, WORLD, { worldAgent: {} }))), 15);
+ok('goal programs default to an empty list, not null',
+  Array.isArray(w.goalPrograms) && w.goalPrograms.length === 0);
+
+ok('the pulse lands on the tick', HW.pulseDue(w, Object.assign({}, run32, { turn: 18 })) === true &&
+  HW.pulseDue(w, Object.assign({}, run32, { turn: 36 })) === true);
+ok('...not one turn early', HW.pulseDue(w, Object.assign({}, run32, { turn: 17 })) === false);
+ok('...and never at the beginning', HW.pulseDue(w, Object.assign({}, run32, { turn: 0 })) === false);
+
+/* Policy Panic has no goal programs: the factions' own goals take the floor */
+var beat1 = HW.worldBeat(w, Object.assign({}, run32, { turn: 18 }));
+var beat2 = HW.worldBeat(w, Object.assign({}, run32, { turn: 36 }));
+ok('a beat names a faction and its goal', /is still working to: /.test(beat1), beat1);
+ok('...and the next beat says something different', beat1 !== beat2 && beat2.length > 0, beat2);
+ok('no beat at turn zero', HW.worldBeat(w, run32) === '');
+
+console.log('\noff-screen: goal programs');
+
+var wGoal = tinyWorld();
+wGoal.worldAgent = { enabled: true, intervalTurns: 10 };
+wGoal.goalPrograms = [{ id: 'gp1', name: 'The audit closes in', actor: 'fac_management',
+  steps: ['whispers from corporate', 'a courier with a folder', 'the final letter'] }];
+ok('the needle starts on step one',
+  HW.goalAhead(wGoal, HW.start(wGoal)).indexOf('"whispers from corporate"') !== -1,
+  HW.goalAhead(wGoal, HW.start(wGoal)));
+ok('...one step per beat that has landed',
+  HW.goalAhead(wGoal, Object.assign({}, HW.start(wGoal), { turn: 10 }))
+    .indexOf('"a courier with a folder"') !== -1);
+ok('...and pins on the last step once the program runs out',
+  HW.goalAhead(wGoal, Object.assign({}, HW.start(wGoal), { turn: 999 }))
+    .indexOf('"the final letter"') !== -1);
+var beatSys = HW.buildPrompt(wGoal, Object.assign({}, HW.start(wGoal), { turn: 10 }), 'hi').system;
+ok('a pulse turn tells the referee the world moved',
+  beatSys.indexOf('Off-screen, the world has moved:') !== -1);
+ok('...with the program step in it', beatSys.indexOf('a courier with a folder') !== -1);
+ok('quiet turns stay quiet',
+  HW.buildPrompt(wGoal, Object.assign({}, HW.start(wGoal), { turn: 9 }), 'hi').system
+    .indexOf('Off-screen, the world has moved:') === -1);
+ok('the goal needle rides the state block',
+  sysBlock(beatSys, 'Time:').indexOf('The world is working toward: The audit closes in') !== -1,
+  sysBlock(beatSys, 'Time:'));
+
+console.log('\noff-screen: standing');
+
+var runRep = HW.start(w, 'origin_new_hire');
+eq('the life seeds standing', JSON.stringify(runRep.reputation), '[{"factionId":"fac_frontdesk","score":5}]',
+  JSON.stringify(runRep.reputation));
+var rep1 = HW.applyTags(w, runRep, 'Gloria waves.[[rep:fac_frontdesk:+3]]');
+eq('a good turn moves the score', JSON.stringify(runRep.reputation),
+  '[{"factionId":"fac_frontdesk","score":8}]');
+ok('...and says so in the ledger', rep1.changes[0] === 'standing with The Switchboard +3', rep1.changes[0]);
+ok('the number leaves the prose', rep1.text === 'Gloria waves.');
+var rep2 = HW.applyTags(w, runRep, '[[rep:The Switchboard:-4]]');
+eq('a faction also answers to its name', runRep.reputation[0].score, 4);
+var rep3 = HW.applyTags(w, runRep, '[[rep:fac_management:+7]]');
+eq('a new faction joins the ledger', runRep.reputation.length, 2);
+eq('...at its own score', runRep.reputation[1].score, 7);
+ok('zero is not a change', HW.applyTags(w, runRep, '[[rep:fac_frontdesk:0]]').changes.length === 0 &&
+  runRep.reputation[0].score === 4);
+ok('an unknown faction is told off',
+  HW.applyTags(w, runRep, '[[rep:The Illuminati:+5]]').rejections.length === 1);
+var runCap = HW.start(w); runCap.reputation = [{ factionId: 'fac_town', score: 98 }];
+HW.applyTags(w, runCap, '[[rep:fac_town:+10]]');
+eq('standing is a ledger, not a runaway integer', runCap.reputation[0].score, 100);
+ok('the state block shows who you are to the world',
+  sysBlock(HW.buildPrompt(w, runRep, 'hi').system, 'Time:').indexOf('Standing: The Switchboard +4') !== -1);
+
 console.log('\nthe world that ships with the install');
 
 HW.bundled().then(function (shipped) {
