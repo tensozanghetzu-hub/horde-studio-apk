@@ -398,6 +398,8 @@ ok('and the tasks it knows',
   HW.buildPrompt(twQ, HW.start(twQ), 'x').system.indexOf('Tasks the world knows: Find the lamp; Pay the toll') !== -1);
 ok('the referee is told not to paste the state block back into the story',
   /NEVER repeat, paste, or restate/.test(bpV2.system));
+ok('the referee is told OOC notes are direct instructions, not in-fiction speech',
+  /direct instruction to you the referee/.test(bpV2.system));
 var bpLegacy = HW.buildPrompt(tinyWorld({ ledgerV2: false }), HW.start(tinyWorld({ ledgerV2: false })), 'I look around.');
 ok('an opted-out world is told nothing new', bpLegacy.system.indexOf('The world checks your tags') === -1);
 

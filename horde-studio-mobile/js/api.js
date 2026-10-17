@@ -16,6 +16,15 @@
       .replace(/\{\{persona\}\}/gi, (s && s.userPersona) || '');
   }
 
+  /* v1.30.3: OOC notes are the one sanctioned break. The default prompt says
+     "stay in character at all times" and forbids commentary, so without a
+     standing rule most models ignore "OOC: ..." lines entirely. */
+  var OOC_RULE =
+    'Out of character: if {{user}} writes an OOC note (OOC:, [ooc], (ooc)), ' +
+    'step out of {{char}} and answer it in one short plain line, then return ' +
+    'to the scene exactly where it left off. {{char}} never comments on OOC ' +
+    'inside the fiction.';
+
   /* ------------------------------------------------------------------
    * v1.13.1 — HTML in card text.
    *
@@ -280,6 +289,7 @@
     /* A world run (and any caller that knows better) supplies character.systemPrompt
        with the narrator rules plus live state. Fall back to the global prompt. */
     var system = macros(character.systemPrompt || s.systemPrompt, character, s);
+    system += '\n' + macros(OOC_RULE, character, s);
     var sheet = charSheet(character, s, session, recent);
     if (sheet) system += '\n\n' + sheet;
     if (note) system += '\n\n' + note;
@@ -311,6 +321,7 @@
     var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
       '\n\n' + charSheet(character, s, session, recent);
     if (note) head += '\n\n' + note;
+    head += '\n\n' + macros(OOC_RULE, character, s);
     var ex = examplesToMessages(character.examples, character, s).map(function (m) {
       return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
     }).join('\n');
