@@ -18,6 +18,15 @@
     return '<div class="ph" style="width:100%;height:100%;display:grid;place-items:center;font-size:12px;color:var(--dim)">' +
       esc(initials(name)) + '</div>';
   }
+  /* v1.31.0: the active persona's photo, if it has one. Personas carry
+     their avatar on the persona record; the default identity (no persona
+     selected) and a persona without a photo keep initials. */
+  function activePersonaAvatar(s) {
+    var id = (s && s.activePersona) || '';
+    if (!id) return '';
+    var p = (Store.personas || []).find(function (x) { return x.id === id; });
+    return (p && p.avatar) || '';
+  }
   function pickFile(accept) {
     return new Promise(function (resolve) {
       var inp = document.createElement('input');
@@ -154,8 +163,12 @@
       '<button class="pchip' + (active ? '' : ' on') + '" data-persona="">' +
         icon('user') + esc(defName) + '</button>' +
       list.map(function (p) {
+        /* v1.31.0: a persona with a photo shows its face in the chip. */
+        var face = p.avatar
+          ? '<img class="pchip-av" src="' + esc(p.avatar) + '" alt="">'
+          : icon('user');
         return '<button class="pchip' + (active === p.id ? ' on' : '') + '" data-persona="' +
-          esc(p.id) + '">' + icon('user') + esc(p.name || 'Unnamed') + '</button>';
+          esc(p.id) + '">' + face + esc(p.name || 'Unnamed') + '</button>';
       }).join('') +
       '<button class="pchip add" data-persona-new="1">' + icon('plus') + 'New</button>';
 
@@ -568,7 +581,14 @@
       ? personas.map(function (p) {
           var on = activeId === p.id;
           return '<div class="field" data-prow="' + esc(p.id) + '">' +
-            '<div class="field-head"><label>' + esc(p.name || 'Unnamed persona') + '</label>' +
+            '<div class="field-head">' +
+              /* v1.31.0: the persona's own photo - tap to import a picture,
+                 the small dot removes it. Initials until one is set. */
+              '<span class="pavat-wrap">' +
+                '<button class="pavat" data-persona-av="' + esc(p.id) + '" title="Set or change the photo" aria-label="' + esc('Set photo for ' + (p.name || 'persona')) + '">' + avatarHtml(p.avatar || '', p.name) + '</button>' +
+                (p.avatar ? '<button class="pavat-x" data-persona-avdel="' + esc(p.id) + '" aria-label="Remove photo">\u00d7</button>' : '') +
+              '</span>' +
+            '<label>' + esc(p.name || 'Unnamed persona') + '</label>' +
               '<span class="spacer"></span>' +
               (on ? '<span class="pill ok">active</span>'
                   : '<button class="chip" data-persona-use="' + esc(p.id) + '">Switch to</button>') +
@@ -605,6 +625,44 @@
     on(body, '[data-persona-text]', 'change', function (e) {
       App.editPersona(e.currentTarget.getAttribute('data-persona-text'), { text: e.target.value });
     });
+    /* v1.31.0: import a photo for the persona. The picture goes through the
+       image normalizer like every imported image, and the row's thumb and
+       remove dot update in place instead of re-rendering the screen. */
+    function personaById(id) {
+      return (Store.personas || []).find(function (x) { return x.id === id; });
+    }
+    function detachPhoto(xbtn) {
+      var id = xbtn.getAttribute('data-persona-avdel');
+      App.editPersona(id, { avatar: '' });
+      var btn = body.querySelector('[data-persona-av="' + id + '"]');
+      var p = personaById(id);
+      if (btn) btn.innerHTML = avatarHtml('', p && p.name, '');
+      if (xbtn.remove) xbtn.remove();
+    }
+    on(body, '[data-persona-av]', 'click', function (e) {
+      var id = e.currentTarget.getAttribute('data-persona-av');
+      pickFile('image/*').then(function (f) {
+        if (!f) return;
+        normalizeImage(f).then(function (d) {
+          if (!d) { UI.toast('Could not read that image'); return; }
+          App.editPersona(id, { avatar: d });
+          var btn = body.querySelector('[data-persona-av="' + id + '"]');
+          if (!btn) return;
+          btn.innerHTML = avatarHtml(d, '', '');
+          var wrap = btn.parentNode;
+          if (wrap && !wrap.querySelector('.pavat-x')) {
+            var x = document.createElement('button');
+            x.className = 'pavat-x';
+            x.setAttribute('data-persona-avdel', id);
+            x.setAttribute('aria-label', 'Remove photo');
+            x.textContent = '\u00d7';
+            x.addEventListener('click', function () { detachPhoto(x); });
+            wrap.appendChild(x);
+          }
+        });
+      });
+    });
+    on(body, '[data-persona-avdel]', 'click', function (e) { detachPhoto(e.currentTarget); });
     bind('#btn-persona-add', 'click', function () { App.newPersona(); });
   };
 
@@ -1948,8 +2006,10 @@
     var text = m.text || '';
     var body = m._stream !== undefined && m._stream !== null ? m._stream : text;
     return '<div class="msg' + (isMe ? ' me' : '') + (m.autonomous ? ' auto' : '') + '" data-mid="' + m.id + '">' +
+      /* v1.31.0: the player's own bubble shows the active persona's photo
+         when the persona has one, initials otherwise. */
       '<div class="av">' + (isMe
-        ? '<div class="ph">' + esc(initials(s.userName)) + '</div>'
+        ? avatarHtml(activePersonaAvatar(s), s.userName)
         : avatarHtml(char.avatar, char.name)) + '</div>' +
       '<div style="min-width:0;max-width:calc(100% - 44px)">' +
         '<div class="bubble">' +
@@ -2149,6 +2209,8 @@
   Views.imageMime = imageMime;
   Views.initials = initials;
   Views.avatarHtml = avatarHtml;
+  Views.activePersonaAvatar = activePersonaAvatar;
+  Views.personaRowsHtml = personaRowsHtml;
   Views.messageHtml = messageHtml;
 
   /* ================= AUTHORED WORLDS ================= */

@@ -20,7 +20,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.30.4';
+  var VERSION = '1.31.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -181,7 +181,9 @@
     },
 
     blankPersona: function () {
-      return { id: UI.uid('p'), name: '', text: '', createdAt: Date.now(), updatedAt: Date.now() };
+      /* v1.31.0: avatar is the persona's own photo; it lives on the persona
+         record (never in settings), so each identity keeps its own face. */
+      return { id: UI.uid('p'), name: '', text: '', avatar: '', createdAt: Date.now(), updatedAt: Date.now() };
     },
 
     putPersona: function (p) {
