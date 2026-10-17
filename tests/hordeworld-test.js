@@ -109,11 +109,12 @@ var life = w.startingLives[0];
 var run = HW.start(w, life.id);
 eq('it begins where the role says', run.locationId, 'loc_reception');
 ok('the role is remembered', run.lifeName && run.lifeName.length > 0, String(run.lifeName));
-eq('stats come from the world', run.stats.performance, 50);
+eq('v1.32.0: stats come from the world AND the life (override wins)',
+  run.stats.performance, 40);
 eq('the currency is the world\'s own', run.cashId, 'cash');
 ok('the starting kit is carried over',
   Array.isArray(run.inventory) && run.inventory.length > 0, JSON.stringify(run.inventory));
-eq('no tasks yet', run.quests.length, 0);
+eq('v1.32.0: the obligations of the role arrive as open tasks', run.quests.length, 3);
 
 var clock = HW.clockOf(run, w.hudConfig);
 eq('the world clock starts when the world says', clock.text, 'Monday 08:57');
@@ -137,7 +138,7 @@ var t2 = HW.applyTags(w, run, 'The coffee costs five dollars.[[cash:-5]]');
 eq('money is spent', run.stats.cash, purse - 5);
 
 var t3 = HW.applyTags(w, run, 'That rattled you.[[stat:performance:-5]]');
-eq('a stat moves', run.stats.performance, 45);
+eq('a stat moves', run.stats.performance, 35);
 
 HW.applyTags(w, run, '[[item:Brass key]]');
 ok('something picked up', run.inventory.indexOf('Brass key') !== -1);
@@ -145,9 +146,9 @@ HW.applyTags(w, run, '[[drop:Brass key]]');
 ok('and put down again', run.inventory.indexOf('Brass key') === -1);
 
 HW.applyTags(w, run, '[[quest:Survive the audit]]');
-eq('a task is taken on', run.quests.length, 1);
+eq('a task is taken on', run.quests.length, 4);
 HW.applyTags(w, run, '[[quest-done:Survive the audit]]');
-eq('and completed', run.quests[0].done, true);
+ok('and completed', run.quests.some(function (q) { return q.text === 'Survive the audit' && q.done; }));
 
 var before = HW.clockOf(run, w.hudConfig).text;
 HW.applyTags(w, run, '[[clock:+45]]');
@@ -1037,6 +1038,115 @@ var wNoStats = HW.parse({
 var rNo = HW.start(wNoStats);
 var z7 = HW.applyTags(wNoStats, rNo, 'x [[stat:whatever:+2]]');
 ok('a stat-less world stays free-form', rNo.stats.whatever === 2, JSON.stringify(rNo.stats));
+
+/* --- v1.32.0: the world the player is looking at --- */
+
+function sysBlock(sys, prefix) {
+  return (sys.split('\n\n').find(function (p) { return p.indexOf(prefix) === 0; }) || '');
+}
+
+var denton = HW.entityById(w, 'npc_denton');
+ok('the parse keeps the NPC day', denton.schedule.length === 6, JSON.stringify(denton.schedule));
+
+eq('weekday 09:15 - the motivational lap',
+  JSON.stringify(HW.scheduleActiveAt(denton, { minutes: 555, weekday: 'Monday' }).locationId), '"loc_bullpen"');
+eq('weekday 08:20 - the office address first',
+  HW.scheduleActiveAt(denton, { minutes: 500, weekday: 'Monday' }).locationId, 'loc_denton');
+eq('...with the activity attached',
+  HW.scheduleActiveAt(denton, { minutes: 555, weekday: 'Monday' }).activity,
+  'Performs a motivational lap through the branch');
+ok('before the first entry of the day - no governing entry',
+  HW.scheduleActiveAt(denton, { minutes: 460, weekday: 'Monday' }) === null);
+eq('...so the answer is home', HW.npcPlaceAt(denton, { minutes: 460, weekday: 'Monday' }), 'loc_denton_home');
+eq('a named-day entry works (saturday civic events)',
+  HW.scheduleActiveAt(denton, { minutes: 700, weekday: 'Saturday' }).locationId, 'loc_main_street');
+eq('saturday morning is not the office', HW.npcPlaceAt(denton, { minutes: 500, weekday: 'Saturday' }), 'loc_denton_home');
+ok('missing days means every day',
+  HW.scheduleActiveAt({ schedule: [{ time: '09:00', locationId: 'x' }] }, { minutes: 600, weekday: 'Wednesday' }).locationId === 'x');
+
+var run32 = HW.start(w, 'origin_new_hire');  /* Monday 08:57 */
+var bpD = HW.buildPrompt(Object.assign({}, w, {}), Object.assign({}, run32, { locationId: 'loc_bullpen', turn: 2 }), 'hi');
+var locBlock2 = sysBlock(bpD.system, 'You are at');
+ok('at 09:07 Denton is where his schedule says - the bullpen',
+  /Present:[^\n]*Denton Pike/.test(locBlock2));
+ok('...and the scene knows what he should be doing',
+  locBlock2.indexOf('Denton Pike should be: Performs a motivational lap through the branch') !== -1);
+
+var bp0 = HW.buildPrompt(w, Object.assign({}, run32, { locationId: 'loc_denton' }), 'hi');
+var locBlock0 = sysBlock(bp0.system, 'You are at');
+ok('at 08:57 Denton is in his office', /Present:[^\n]*Denton Pike/.test(locBlock0));
+ok('a present NPC brings his strongest ties along',
+  locBlock0.indexOf('Denton Pike ↔ Eli Finch: desperate for approval (51)') !== -1 &&
+  locBlock0.indexOf('Denton Pike ↔ Connor Vale: favorite rainmaker and possible successor (48)') !== -1 &&
+  locBlock0.indexOf('Denton Pike ↔ Gloria Bell: depends on her competence; pretends otherwise (32)') !== -1,
+  locBlock0.split('\n').filter(function (l) { return l.indexOf('↔') !== -1; }).join(' | '));
+ok('...at most three, so the web never floods the prompt',
+  locBlock0.split('\n').filter(function (l) { return l.indexOf('↔') !== -1; }).length === 3);
+
+var bpM = HW.buildPrompt(w, Object.assign({}, run32, { locationId: 'loc_maplebridge' }), 'hi');
+ok('authored place texture reaches the referee',
+  sysBlock(bpM.system, 'You are at').indexOf('(Referee texture: danger 8, prosperity 58 of 100.)') !== -1);
+var twPlain = tinyWorld();
+ok('no ratings, no texture line', HW.buildPrompt(twPlain, HW.start(twPlain), 'hi').system.indexOf('Referee texture') === -1);
+
+eq('a life actually starts like the life: performance', run32.stats.performance, 40);
+eq('...cash', run32.stats.cash, 160);
+eq('...nerve', run32.stats.nerve, 4);
+eq('the obligations arrive as open tasks', run32.quests.length, 3);
+eq('the first is onboarding', run32.quests[0].text, 'Complete onboarding');
+eq('identity rides the run', run32.identity, 'entry level · employee on probation');
+ok('the outfit too', run32.outfit.indexOf('new office clothes') === 0, run32.outfit);
+
+var state32 = sysBlock(bp0.system, 'Time:');
+ok('the state names the season on the world calendar',
+  state32.indexOf('Season: Maplebridge civic year · early spring · day 1') !== -1, state32.split('\n')[1] || '');
+ok('...and who you set out to be',
+  state32.indexOf('You are: entry level · employee on probation.') !== -1);
+ok('...and what you are wearing', state32.indexOf('Wearing: new office clothes') !== -1);
+ok('...and the obligations count in the ledger line',
+  state32.indexOf('Tasks: Complete onboarding; Protect client information; Survive ninety days of probation') !== -1);
+ok('a world without seasons says nothing', HW.buildPrompt(twPlain, HW.start(twPlain), 'hi').system.indexOf('Season:') === -1);
+
+var qDone = HW.applyTags(w, run32, 'First day done.[[quest-done:Complete onboarding]]');
+ok('a seeded obligation can be completed by name', qDone.changes.length === 1 && run32.quests[0].done, JSON.stringify(qDone));
+
+/* prompt budget: a played NPC reads as a synopsis, a stranger as a dossier */
+var rawDenton = '- Denton Pike: ' + denton.persona;
+var fresh = sysBlock(HW.buildPrompt(w, Object.assign({}, run32, { locationId: 'loc_denton' }), 'hi').system, 'You are at');
+ok('first meeting: the full dossier', fresh.indexOf(rawDenton) !== -1);
+var met = Object.assign({}, run32, { locationId: 'loc_denton' });
+met.log = [{ role: 'assistant', content: 'Denton Pike adjusts his tie and beams.' }];
+var metBlock = sysBlock(HW.buildPrompt(w, met, 'hi').system, 'You are at');
+var metLine = (metBlock.split('\n').find(function (l) { return l.indexOf('- Denton Pike: ') === 0; })) || '';
+ok('once played: a synopsis, not the dossier',
+  metLine.length > 0 && metLine.length < rawDenton.length && /…$/.test(metLine), metLine.length + ' vs ' + rawDenton.length);
+ok('metNpc itself', HW.metNpc(met, denton) === true && HW.metNpc(run32, denton) === false);
+
+/* the grammar's roll-call obeys kernel.sceneLocationLimit */
+var capRun = Object.assign({}, run32, { locationId: 'loc_bullpen' });
+ok('within the limit: the whole map, no "+N"',
+  HW.locationIdLine(w, capRun).split(', ').length === w.locations.length &&
+  HW.locationIdLine(w, capRun).indexOf('+') === -1);
+var wCap = Object.assign({}, w, { kernel: { sceneLocationLimit: 5 } });
+var capped = HW.locationIdLine(wCap, capRun);
+eq('over the limit: current place first, then "+N more"',
+  capped.slice(0, 'loc_bullpen'.length) + '|' + capped.slice(-8), 'loc_bullpen|+18 more');
+ok('...and exactly the limit names', capped.split(', +')[0].split(', ').length === 5);
+
+/* clamps + seeds on a synthetic life */
+var wTiny2 = tinyWorld();
+wTiny2.hudConfig = { stats: [{ id: 'hp', name: 'HP', value: 5, min: 0, max: 10 }] };
+wTiny2.startingLives = [{ id: 'l1', name: 'Hero', role: 'squire', startLocationId: 'a',
+  statOverrides: { hp: 99 }, obligations: ['Win', 'Win', ''], outfit: 'a plain cloak', socialRank: 'squire' }];
+var runTiny2 = HW.start(wTiny2, 'l1');
+eq('overrides clamp to the stat bounds', runTiny2.stats.hp, 10);
+eq('obligations dedupe and skip empties', runTiny2.quests.length, 1);
+eq('a life with only a rank still names you', runTiny2.identity, 'squire');
+ok('startingQuests seed the same way',
+  (function () {
+    var wq = tinyWorld(); wq.startingQuests = ['Find the lamp'];
+    return HW.start(wq).quests[0].text === 'Find the lamp';
+  })());
 
 console.log('\nthe world that ships with the install');
 

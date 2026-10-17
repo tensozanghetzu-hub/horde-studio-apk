@@ -605,6 +605,20 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.32.0
+
+**Worlds keep office hours now.** The living-world truth pack: NPCs
+follow their declared daily schedules — the referee is told who is
+actually present at your hour and what they should be doing. The people
+you meet arrive with their strongest relationships attached. Your chosen
+starting life really starts like that life: its stats, its obligations
+as open tasks, your rank and your clothes on the sheet. Places carry
+their authored danger and wealth into the scene. Worlds with a calendar
+show the season, which drifts with the world clock. And the referee's
+brief is leaner: characters you've already met read as summaries, and
+the map roll-call keeps to the world's own scene limit. (Small web
+update — no reinstall needed unless you're also picking up the new APK.)
+
 ## What's new in v1.31.0
 
 **Personas get a face.** Each persona can now have its own photo: on

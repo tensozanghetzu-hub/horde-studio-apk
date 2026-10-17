@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.31.0.apk` (versionCode 68) — 343,395 B,
-sha256 `00025fff7a6bf996871f8d7b740fe8540538983022d0e4fe434b1e51475cd379`.
-Built 2026-10-17: `docs/` serves v1.31.0 (webRev `e0ba3cd28a89`) and
-release `v1.31.0` is the latest on the repo.
+Current build: `HordeStudio-v1.32.0.apk` (versionCode 69) — 343,395 B,
+sha256 `434b8f9a6f3b1feaaf37b7d1d0e740d4e7a7e466dc4c2f36992dc02642fd0383`.
+Built 2026-10-17: `docs/` serves v1.32.0 (webRev `cd2c2e6847d8`) and
+release `v1.32.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.31.0: 1371 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.32.0: 1414 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,70 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.32.0 — The world you are looking at (the living-world truth pack, 1 of 4) (2026-10-17)
+
+### From research to roadmap
+
+"Research the concept for authored worlds... what does it need to be
+better... closer to the initial concept" produced
+`authored-worlds-gap-analysis.md`: the .horde_world format is a
+living-world spec (schedules, goal programs, faction state, an off-screen
+agent tick, weather/seasons, full starting lives), and the APK parsed
+most of it away or left it unread (grep-verified zeros for schedule,
+goalSteps, statOverrides; relationshipsFor exported with zero callers).
+"Start in the order you decided" began the plan: v1.32.0 truth pack →
+v1.33.0 pulse+standing → v1.34.0 RPG depth → v1.35.0 breadth.
+
+### What changed (all read-side, no new tags)
+
+- **Schedules honored.** The parser keeps `entity.schedule`; a
+  `scheduleActiveAt` resolver (weekday/weekend/named days, "governs
+  until the next entry") drives "who is actually present" — the single
+  most-violated upstream covenant. Present NPCs also get a
+  "should be: <activity>" line so the scene is true to the hour.
+- **Relationships in the prompt.** Present NPCs bring their strongest
+  three ties ("Denton ↔ Eli: desperate for approval (51)");
+  `relationshipsFor` finally has a caller.
+- **Started lives actually start like the life.** statOverrides apply
+  (clamped; a world's `max: 0` reads as "no cap" — the data's own
+  convention for currency); obligations and `startingQuests` arrive as
+  open tasks the ledger can complete by name; socialRank/legalStatus
+  become the identity line; the authored outfit is the "Wearing" state.
+- **Place texture.** Authored danger/prosperity reaches the referee
+  as-is ("Referee texture: danger 8, prosperity 58 of 100"), no invented
+  thresholds.
+- **Seasons.** Worlds declaring a calendar get "Season: Maplebridge
+  civic year · early spring · day 1" in state and on the status sheet —
+  from the run clock, no live weather on the phone.
+- **Prompt budget foundation.** A played NPC (name in any past reply)
+  downgrades from full dossier to a ~200-char synopsis; the location-id
+  roll-call obeys `kernel.sceneLocationLimit` (current + reachable
+  first, "+N more"); validation keeps the whole map either way.
+- **Status sheet** gains Season / You are / Wearing rows.
+
+### Verification
+
+New assertions in `hordeworld-test.js` (schedule math on the real
+fixture's 6-entry days, presence/activity/relationship lines, texture,
+life application incl. the cash `max: 0` no-cap convention, seeded-quest
+completion, synopsis-vs-dossier, scene-cap roll-call) and
+`worldstatus-test.js` (sheet rows). The classic "starting a run" block
+was re-pinned to the life now honored (performance 40, 3 obligations,
+35 after -5, 4 tasks after one more). Full battery: **44 suites, 1414
+checks, 0 failed** (typing+update re-run after the nth boundary dep
+wipe — system libs this time; install-deps cured it).
+
+APK `HordeStudio-v1.32.0.apk` — 343,395 B, sha256
+`434b8f9a6f3b1feaaf37b7d1d0e740d4e7a7e466dc4c2f36992dc02642fd0383`;
+in-APK verified (`VERSION = '1.32.0'`, sw `horde-studio-v56`, aapt
+badging code 69 / 1.32.0, all feature markers present). The superseded
+v1.31.0 APK was dropped (release asset retains its copy).
+**Published 2026-10-17** under the standing series go-ahead.
+
+Bumps: 1.32.0 (minor — feature), apk code 69, sw cache v56.
 
 ---
 

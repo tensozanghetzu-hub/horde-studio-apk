@@ -2399,6 +2399,11 @@
     h += '<h3>Time</h3>';
     h += '<div class="ws-time">' + (hud.showClock !== false ? esc(HW.clockOf(run, hud).text) + ' · ' : '') +
          'turn ' + (run.turn || 0) + '</div>';
+    /* v1.32.0: the calendar the world declares, and who you set out to be */
+    var wsSeas = HW.seasonText(world, run);
+    if (wsSeas) h += '<div class="hint">Season: ' + esc(wsSeas) + '</div>';
+    if (run.identity) h += '<div class="hint">You are: ' + esc(run.identity) + '</div>';
+    if (run.outfit) h += '<div class="hint">Wearing: ' + esc(run.outfit) + '</div>';
     /* v1.29.1: the referee's receipt - which Horde model actually answered
        the last turn, and the worker it ran on. "Requested" is a setting;
        this is what came back. */

@@ -111,6 +111,14 @@
         startLocation: e.startLocation || null, homeLocation: e.homeLocation || null,
         description: e.description || '', persona: e.persona || '',
         goal: e.goal || '', secrets: e.secrets || '',
+        /* v1.32.0: the NPC's declared day - where they are and when, so the
+           world can honor "work schedules, homes and who is actually
+           present" instead of parking everyone at home forever. */
+        schedule: (Array.isArray(e.schedule) ? e.schedule : []).map(function (sc) {
+          return { time: sc.time || '', locationId: sc.locationId || null,
+            activity: sc.activity || '',
+            days: Array.isArray(sc.days) ? sc.days.slice() : [] };
+        }),
         /* v1.19.0: when this entity's secret truth becomes discoverable */
         secretUnlock: e.secretUnlock || null
       };
@@ -225,9 +233,13 @@
     });
   }
 
-  function npcsAt(world, locationId) {
+  function npcsAt(world, locationId, clock) {
     return (world.entities || []).filter(function (e) {
       if (e.type && e.type !== 'npc') return false;
+      /* v1.32.0: with a clock this is "who is actually here now" (their
+         schedule governs); without one it's the old static answer, which
+         lore gating still uses. */
+      if (clock) return npcPlaceAt(e, clock) === locationId;
       return e.startLocation === locationId || e.homeLocation === locationId;
     });
   }
@@ -239,9 +251,112 @@
     }).map(function (e) { return e.name; }).filter(Boolean);
   }
 
+  /* ---------------- v1.32.0: the world the player is looking at -------- */
+
+  /* An NPC's declared day: schedule entries carry time, locationId, activity
+     and day tags ('weekday'/'weekend', a named day like 'saturday', or none
+     meaning every day). The governing entry is the latest one whose time
+     has passed today; before the day's first entry the answer is null and
+     the caller falls back to home. */
+  var DAY_TAGS = {
+    weekday: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY'],
+    weekend: ['SATURDAY', 'SUNDAY']
+  };
+  function scheduleActiveAt(entity, clock) {
+    var sch = entity && entity.schedule;
+    if (!sch || !sch.length || !clock) return null;
+    var wd = String(clock.weekday || '').toUpperCase(), best = null, bt = -1;
+    sch.forEach(function (s) {
+      var days = s.days || [];
+      var matches = !days.length || days.some(function (d) {
+        var low = String(d).toLowerCase();
+        if (DAY_TAGS[low]) return DAY_TAGS[low].indexOf(wd) !== -1;
+        if (low === 'daily' || low === 'everyday' || low === 'all') return true;
+        return low.toUpperCase() === wd;
+      });
+      if (!matches) return;
+      var m = /^(\d{1,2}):(\d{2})$/.exec(String(s.time || ''));
+      if (!m) return;
+      var t = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+      if (t <= clock.minutes && t > bt) { bt = t; best = s; }
+    });
+    return best ? { locationId: best.locationId || null, activity: best.activity || '' } : null;
+  }
+
+  /* Where an NPC is right now: their governing schedule entry when the world
+     declares one, else home, else the author's start. Callers without a
+     clock keep the old static answer. */
+  function npcPlaceAt(entity, clock) {
+    var act = scheduleActiveAt(entity, clock);
+    if (act && act.locationId) return act.locationId;
+    return entity.homeLocation || entity.startLocation || null;
+  }
+
+  /** Has the referee already spoken for this NPC in this run? Used to
+      shorten repeat dossiers, never to drop one. */
+  function metNpc(run, entity) {
+    var name = entity && entity.name;
+    if (!name || !run || !run.log) return false;
+    return run.log.some(function (m) {
+      return m.role === 'assistant' && String(m.content || '').indexOf(name) !== -1;
+    });
+  }
+
+  /** Shorten a reference text at a word boundary (prompt budget). */
+  function synopsis(t, max) {
+    var s = String(t || '');
+    if (s.length <= max) return s;
+    var cut = s.slice(0, max);
+    var sp = cut.lastIndexOf(' ');
+    if (sp > max * 0.5) cut = cut.slice(0, sp);
+    return cut.trim() + '…';
+  }
+
+  /* The world's own calendar, when it declares seasons: a short "early
+     autumn · day 47" line from the run clock. No live weather on the phone -
+     the authored calendar is the authority. */
+  function seasonText(world, run) {
+    var sb = world.sandboxConfig || {};
+    if (sb.seasons !== true) return '';
+    var seasonDays = sb.seasonDays > 0 ? Math.floor(sb.seasonDays) : 90;
+    var SEASONS = ['spring', 'summer', 'autumn', 'winter'];
+    var PARTS = ['early', 'mid', 'late'];
+    var day0 = clockOf(run, world.hudConfig || {}).day - 1;
+    var idx = Math.floor(day0 / seasonDays) % 4;
+    var part = Math.floor((day0 % seasonDays) / (seasonDays / 3));
+    if (part > 2) part = 2;
+    if (idx < 0) idx = 0;
+    return (sb.calendar ? String(sb.calendar) + ' · ' : '') + PARTS[part] + ' ' + SEASONS[idx] + ' · day ' + (day0 + 1);
+  }
+
+  /* The grammar's id roll-call obeys the world's own scene limit
+     (kernel.sceneLocationLimit): current place and reachable exits first,
+     the rest "+N more". Validation keeps the full map - this is purely the
+     prompt budget the file itself asked for. */
+  function locationIdLine(world, run) {
+    var ids = (world.locations || []).map(function (l) { return l.id; });
+    var limit = (world.kernel && world.kernel.sceneLocationLimit) || 0;
+    if (!limit || ids.length <= limit) return ids.join(', ');
+    var first = [];
+    if (run && run.locationId && ids.indexOf(run.locationId) !== -1) first.push(run.locationId);
+    exits(world, run && run.locationId).forEach(function (e) {
+      if (e.to && first.length < limit && first.indexOf(e.to) === -1) first.push(e.to);
+    });
+    ids.forEach(function (id) { if (first.length < limit && first.indexOf(id) === -1) first.push(id); });
+    var kept = first.slice(0, limit);
+    return kept.join(', ') + ', +' + (ids.length - kept.length) + ' more';
+  }
+
   function faction(world, id) {
     var f = (world && world.factions) || [];
     for (var i = 0; i < f.length; i++) if (f[i].id === id) return f[i];
+    return null;
+  }
+
+  /** v1.32.0: an entity by id (relationships reference ids, not names). */
+  function entityById(world, id) {
+    var list = (world && world.entities) || [];
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
     return null;
   }
 
@@ -573,9 +688,40 @@
 
     var stats = {};
     (hud.stats || []).forEach(function (s) { stats[s.id] = s.value; });
+    /* v1.32.0: the chosen life's own numbers sit on top of the sheet
+       defaults, clamped to each stat's bounds; overrides naming stats the
+       sheet never declared ride along as raw values. */
+    if (life && life.statOverrides) {
+      Object.keys(life.statOverrides).forEach(function (k) {
+        var v = Number(life.statOverrides[k]);
+        if (isNaN(v)) return;
+        var decl = null;
+        (hud.stats || []).forEach(function (s) { if (s.id === k) decl = s; });
+        if (decl) {
+          if (typeof decl.min === 'number') v = Math.max(decl.min, v);
+          /* world files use max: 0 for "no cap" (cash has no ceiling) -
+             honor it as unbounded, not as a cap of zero */
+          if (typeof decl.max === 'number' && decl.max > 0) v = Math.min(decl.max, v);
+        }
+        stats[k] = v;
+      });
+    }
 
     var cashId = (world.gameRules || {}).currencyStatId || 'cash';
     if (stats[cashId] === undefined) stats[cashId] = 0;
+
+    /* v1.32.0: a life's obligations (and a world's starting quests) arrive
+       as open tasks - the ledger can complete them by name from turn one. */
+    var seedList = [];
+    if (life && Array.isArray(life.obligations)) seedList = seedList.concat(life.obligations);
+    if (Array.isArray(world.startingQuests)) seedList = seedList.concat(world.startingQuests);
+    var seenQ = {}, quests = [];
+    seedList.forEach(function (t) {
+      t = String(t || '').trim();
+      if (!t || seenQ[t.toLowerCase()] || quests.length >= 8) return;
+      seenQ[t.toLowerCase()] = true;
+      quests.push({ text: t, done: false });
+    });
 
     var startAt = (life && life.startLocationId) || world.startLocationId || (world.locations[0] || {}).id;
 
@@ -593,7 +739,16 @@
       stats: stats,
       cashId: cashId,
       inventory: (life && Array.isArray(life.inventory)) ? life.inventory.slice() : [],
-      quests: [],
+      quests: quests,
+      /* v1.32.0: who the life says you are - rank and standing for the
+         state line, the authored clothes for the referee's eye. */
+      identity: (function () {
+        if (!life) return '';
+        var bits = [life.socialRank, life.legalStatus]
+          .map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+        return bits.join(' · ');
+      })(),
+      outfit: (life && life.outfit) ? String(life.outfit) : '',
       /* v1.24.0: the party - NPCs travelling with the player, as the
          referee records them ([[with:NAME]] / [[part:NAME]]). Each entry
          knows where and when they joined, so the prompt can say what they
@@ -1372,6 +1527,14 @@
     var out = ['You are at **' + l.name + '**' + (l.region && l.region !== l.name ? ', ' + l.region : '') + '.'];
     if (l.description) out.push(l.description);
     if (l.hiddenDescription) out.push('(Only the referee knows: ' + l.hiddenDescription + ')');
+    /* v1.32.0: authored place texture the format always carried - danger and
+       wealth weigh into the scene without inventing thresholds. */
+    if (typeof l.danger === 'number' || typeof l.prosperity === 'number') {
+      var tex = [];
+      if (typeof l.danger === 'number') tex.push('danger ' + l.danger);
+      if (typeof l.prosperity === 'number') tex.push('prosperity ' + l.prosperity);
+      out.push('(Referee texture: ' + tex.join(', ') + ' of 100.)');
+    }
 
     var ex = exits(world, l.id).filter(function (e) { return e.to; });
     if (ex.length) {
@@ -1379,14 +1542,36 @@
         return e.label + (e.minutes !== null ? ' (' + e.minutes + ' min)' : '');
       }).join(', ') + '.');
     }
-    var here = npcsAt(world, l.id);
+    var clock = clockOf(run, world.hudConfig || {});
+    var here = npcsAt(world, l.id, clock);
     if (here.length) {
       out.push('Present: ' + here.map(function (n) {
         return n.name + (n.isMajor ? '' : '');
       }).join(', ') + '.');
       here.forEach(function (n) {
-        if (n.persona) out.push('- ' + n.name + ': ' + n.persona);
+        if (n.persona) {
+          /* prompt budget (v1.32.0): a full dossier until the referee has
+             actually played them, a synopsis ever after */
+          out.push('- ' + n.name + ': ' + (metNpc(run, n) ? synopsis(n.persona, 200) : n.persona));
+        }
         if (n.goal) out.push('  ' + n.name + ' wants: ' + n.goal);
+        /* v1.32.0: honor the declared schedule - what they should be doing
+           right now lets the scene be true to the hour */
+        var act = scheduleActiveAt(n, clock);
+        if (act && act.activity) out.push('  ' + n.name + ' should be: ' + act.activity);
+        /* v1.32.0: the social web around a present NPC - strongest ties
+           first, at most three, or the referee writes isolates */
+        relationshipsFor(world, n.id)
+          .slice()
+          .sort(function (a, b) { return Math.abs(b.score || 0) - Math.abs(a.score || 0); })
+          .slice(0, 3)
+          .forEach(function (r) {
+            var label = r.label || r.reason || '';
+            if (!label) return;
+            var other = entityById(world, r.a === n.id ? r.b : r.a);
+            out.push('  ' + n.name + ' ↔ ' + (other ? other.name : '?') + ': ' + label +
+              (typeof r.score === 'number' ? ' (' + r.score + ')' : ''));
+          });
         secretLines(world, run, n).forEach(function (s) { out.push('  ' + s); });
       });
     }
@@ -1397,6 +1582,10 @@
     var hud = world.hudConfig || {}, gr = world.gameRules || {};
     var out = [];
     if (hud.showClock !== false) out.push('Time: ' + clockOf(run, hud).text);
+    /* v1.32.0: the world's own calendar, and who the player set out to be. */
+    var seas = seasonText(world, run);
+    if (seas) out.push('Season: ' + seas);
+    if (run.identity) out.push('You are: ' + run.identity + '.');
 
     var statLines = [];
     (hud.stats || []).forEach(function (s) {
@@ -1411,6 +1600,11 @@
     }
     if ((gr.modules || {}).inventory !== false && run.inventory.length) {
       out.push('Carrying: ' + run.inventory.join(', '));
+    }
+    /* v1.32.0: the life's own clothes, as authored - so the referee dresses
+       the player like their role, not like a blank. */
+    if ((gr.modules || {}).inventory !== false && run.outfit) {
+      out.push('Wearing: ' + run.outfit);
     }
     if ((gr.modules || {}).quests !== false) {
       var open = run.quests.filter(function (q) { return !q.done; });
@@ -1483,8 +1677,7 @@
         'direct instruction to you the referee, not in-fiction speech: carry it ' +
         'out (a time-skip, a house rule, a correction), continue the scene from ' +
         'the new state, and never narrate the OOC itself in-fiction.\n' +
-      '- Location ids for this world: ' +
-        (world.locations || []).map(function (l) { return l.id; }).join(', ');
+      '- Location ids for this world: ' + locationIdLine(world, run);
     /* v1.30.4: what the two party tags mean, told to every world in prose.
        It used to ride on the grammar line as a note ("- who is with the
        player") and models copied the note into their replies. */
@@ -1706,6 +1899,10 @@
     bundled: bundled, installBundled: installBundled,
     applyTags: applyTags, buildPrompt: buildPrompt, commit: commit,
     stripTagArtifacts: stripTagArtifacts,
+    /* v1.32.0: testable seams for the world-the-player-is-looking-at */
+    scheduleActiveAt: scheduleActiveAt, npcPlaceAt: npcPlaceAt,
+    entityById: entityById, seasonText: seasonText,
+    locationIdLine: locationIdLine, synopsis: synopsis, metNpc: metNpc,
     ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
     normalizeRun: normalizeRun, cloneRun: cloneRun,
     validateReply: validateReply, preflightChecks: preflightChecks,
