@@ -125,6 +125,28 @@
     });
     w.factions = w.factions || [];
     w.relationships = w.relationships || [];
+    /* v1.33.0: the off-screen agent and the world's goal programs. They pass
+       through the raw-key copy above, and are normalized here so the rest of
+       the module can trust the shape: worldAgent {enabled, intervalTurns},
+       goalPrograms [{name, actor, steps[]}]. A world without an agent does
+       not tick; a program without steps is no program at all. */
+    w.worldAgent = (function (a) {
+      if (!a || typeof a !== 'object') return null;
+      return {
+        enabled: a.enabled !== false,
+        intervalTurns: (typeof a.intervalTurns === 'number' && a.intervalTurns > 0)
+          ? Math.round(a.intervalTurns) : 15
+      };
+    })(w.worldAgent);
+    w.goalPrograms = (Array.isArray(w.goalPrograms) ? w.goalPrograms : [])
+      .map(function (g) {
+        if (!g || typeof g !== 'object') return null;
+        var steps = (Array.isArray(g.steps) ? g.steps : [])
+          .map(function (s) { return String(s || '').trim(); }).filter(Boolean);
+        if (!steps.length) return null;
+        return { id: g.id || '', name: String(g.name || g.goal || 'A scheme in motion'),
+          actor: g.actor || g.entityId || g.factionId || '', steps: steps };
+      }).filter(Boolean);
     w.lorebook = (w.lorebook || []).map(function (l) {
       return {
         id: l.id, keyword: l.keyword || '', text: l.text || '',
@@ -474,6 +496,66 @@
     return (world.relationships || []).filter(function (r) {
       return r.a === entityId || r.b === entityId;
     });
+  }
+
+  /* ---------------- the world's pulse (v1.33.0) ---------------- */
+
+  /** Turns between world beats; 0 = the world has no agent and does not
+   *  tick. An agent that only says `intervalTurns` ticks by default
+   *  (enabled is opt-out, matching the spec's {enabled:true} style). */
+  function pulseInterval(world) {
+    var a = world && world.worldAgent;
+    if (!a || a.enabled === false) return 0;
+    return (typeof a.intervalTurns === 'number' && a.intervalTurns > 0)
+      ? Math.round(a.intervalTurns) : 15;
+  }
+
+  /** A beat lands exactly on multiples of the interval (turn counts up on
+   *  commit), so each prompt builds the same beat whether asked once or
+   *  many times - buildPrompt stays pure. */
+  function pulseDue(world, run) {
+    var iv = pulseInterval(world);
+    return iv > 0 && (run.turn || 0) > 0 && run.turn % iv === 0;
+  }
+
+  /** How far along a goal program is: one step per beat that has landed,
+   *  pinned on the final step afterwards (a program past its last step
+   *  idles there - the deterministic world does not invent endings). */
+  function goalStepIndex(world, run, prog) {
+    var iv = pulseInterval(world);
+    if (!iv) return 0;
+    var beats = Math.floor((run.turn || 0) / iv);
+    return Math.min(beats, prog.steps.length - 1);
+  }
+
+  /** The standing "the world is working toward" line: the first program's
+   *  current step. Returns '' when the world has no goal programs. */
+  function goalAhead(world, run) {
+    var progs = (world && world.goalPrograms) || [];
+    if (!progs.length) return '';
+    var p = progs[0];
+    return 'The world is working toward: ' + p.name +
+      ' - now: "' + p.steps[goalStepIndex(world, run, p)] + '".';
+  }
+
+  /** The beat text for a pulse turn: what moved off-screen. Goal programs
+   *  when the world has them; otherwise the factions' own goals, rotating
+   *  one per beat so each breath says something different. */
+  function worldBeat(world, run) {
+    if (!pulseInterval(world)) return '';
+    var beats = Math.floor((run.turn || 0) / pulseInterval(world));
+    if (!beats) return '';   /* no beat has landed yet - the run just began */
+    var progs = (world.goalPrograms || []);
+    if (progs.length) {
+      return progs.slice(0, 2).map(function (g) {
+        return g.name + (g.actor ? ' (' + g.actor + ')' : '') +
+          ' is at "' + g.steps[goalStepIndex(world, run, g)] + '"';
+      }).join(' · ') + '.';
+    }
+    var fs = (world.factions || []).filter(function (f) { return f && f.goal; });
+    if (!fs.length) return '';
+    var f = fs[(beats - 1 + fs.length) % fs.length];
+    return f.name + ' is still working to: ' + f.goal + '.';
   }
 
   /* ---------------- dice ---------------- */
@@ -979,6 +1061,38 @@
         });
         if (done) changes.push('completed: ' + arg);
         else if (v2) reject(whole, 'no open task matches \u201C' + arg + '\u201D');
+        return '';
+      }
+      /* v1.33.0: standing has consequences - [[rep:FACTION:+N]] moves the
+         player's score with a faction (by id or name; a name with colons
+         still parses, the number is always last). Zero is not a change;
+         a faction the world never declared is not a change either. The
+         score itself is clamped to ±100 - a reputation is a ledger, not
+         a runaway integer. */
+      if (kind === 'rep' || kind === 'reputation') {
+        var rbits = arg.split(':');
+        if (rbits.length < 2) { if (v2) reject(whole, 'expected REP:FACTION:+N'); return ''; }
+        var rref = rbits.slice(0, -1).join(':').trim();
+        var rdelta = parseFloat(rbits[rbits.length - 1]);
+        if (isNaN(rdelta)) { if (v2) reject(whole, 'a standing change must end in a number'); return ''; }
+        if (rdelta === 0) return '';
+        var rf = faction(world, rref);
+        if (!rf) {
+          var rlow = rref.toLowerCase();
+          (world.factions || []).forEach(function (f) {
+            if (!rf && String(f.name).toLowerCase() === rlow) rf = f;
+          });
+        }
+        if (!rf) { if (v2) reject(whole, 'no such faction as \u201C' + rref + '\u201D'); return ''; }
+        if (v2 && Math.abs(rdelta) > statBound(world)) {
+          reject(whole, 'a change of ' + rdelta + ' is beyond \u00B1' + statBound(world) + ' in one turn');
+          return '';
+        }
+        if (!run.reputation) run.reputation = [];
+        var rent = run.reputation.filter(function (r) { return r.factionId === rf.id; })[0];
+        if (!rent) { rent = { factionId: rf.id, score: 0 }; run.reputation.push(rent); }
+        rent.score = Math.max(-100, Math.min(100, (rent.score || 0) + rdelta));
+        changes.push('standing with ' + rf.name + ' ' + (rdelta >= 0 ? '+' : '') + rdelta);
         return '';
       }
       if (kind === 'with') {
@@ -1610,6 +1724,17 @@
       var open = run.quests.filter(function (q) { return !q.done; });
       if (open.length) out.push('Tasks: ' + open.map(function (q) { return q.text; }).join('; '));
     }
+    /* v1.33.0: standing bleeds into the scene - who you are to the powers
+       that be, and what the world itself is working toward. */
+    if ((run.reputation || []).length) {
+      out.push('Standing: ' + run.reputation.slice(0, 4).map(function (r) {
+        var f = faction(world, r.factionId);
+        return (f ? f.name : r.factionId) + ' ' +
+          ((r.score || 0) >= 0 ? '+' : '') + (r.score || 0);
+      }).join('; '));
+    }
+    var ahead = goalAhead(world, run);
+    if (ahead) out.push(ahead);
     return out.join('\n');
   }
 
@@ -1632,6 +1757,15 @@
 
     parts.push(describeLocation(world, run));
     parts.push(describeState(world, run));
+
+    /* v1.33.0: on a pulse turn the world breathes - one line of off-screen
+       momentum the referee weaves in as texture, not a ticker-tape. */
+    if (pulseDue(world, run)) {
+      var beat = worldBeat(world, run);
+      if (beat) parts.push('Off-screen, the world has moved: ' + beat +
+        ' Let this color the background of the next scene - footsteps in ' +
+        'another corridor, word that travels - without stopping the current one.');
+    }
 
     /* v1.24.0: the party - who is with the player, and therefore what they
        have witnessed. This is what stops two men who went to the elder with
@@ -1662,7 +1796,7 @@
       '- End your reply with tags on their own line so the world can keep score:\n' +
       '  [[move:LOCATION_ID]] [[clock:+MINUTES]] [[cash:+N]] [[stat:ID:+N]]\n' +
       '  [[item:THING]] [[drop:THING]] [[quest:TASK]] [[quest-done:TASK]] [[roll:2d6+1]]\n' +
-      '  [[with:NAME]] [[part:NAME]]\n' +
+      '  [[with:NAME]] [[part:NAME]] [[rep:FACTION:+N]]\n' +
       '- Only include a tag when something actually changed.\n' +
       /* v1.30.2: some models echo the state block back into the story - the
          observed dump was the Time/Stats/Money/Carrying block, verbatim,
@@ -1690,6 +1824,13 @@
         'change, an item the world has no record of, or a task it does not know is ' +
         'rejected and reported back to you with the reason. Keep changes real and ' +
         'small (at most ' + statBound(world) + ' to any stat or the purse per turn).';
+      if (world.factions && world.factions.length) {
+        rules += '\n- When a faction\u2019s opinion of the player shifts by deed, tag ' +
+          '[[rep:FACTION:+N]] with the faction\u2019s id (' +
+          world.factions.map(function (f) { return f.id; }).slice(0, 6).join(', ') +
+          (world.factions.length > 6 ? ' \u2026' : '') + '). The sheet keeps the score; ' +
+          'do not narrate numbers - show the shift in how people treat the player.';
+      }
       var reg = itemNames(world);
       if (reg) {
         var names = Object.keys(reg).map(function (k) { return reg[k]; });
@@ -1903,6 +2044,9 @@
     scheduleActiveAt: scheduleActiveAt, npcPlaceAt: npcPlaceAt,
     entityById: entityById, seasonText: seasonText,
     locationIdLine: locationIdLine, synopsis: synopsis, metNpc: metNpc,
+    /* v1.33.0: the pulse and the goal needle, testable on their own */
+    pulseInterval: pulseInterval, pulseDue: pulseDue,
+    worldBeat: worldBeat, goalAhead: goalAhead,
     ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
     normalizeRun: normalizeRun, cloneRun: cloneRun,
     validateReply: validateReply, preflightChecks: preflightChecks,

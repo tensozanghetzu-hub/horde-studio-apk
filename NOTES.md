@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.32.0.apk` (versionCode 69) — 343,395 B,
-sha256 `434b8f9a6f3b1feaaf37b7d1d0e740d4e7a7e466dc4c2f36992dc02642fd0383`.
-Built 2026-10-17: `docs/` serves v1.32.0 (webRev `cd2c2e6847d8`) and
-release `v1.32.0` is the latest on the repo.
+Current build: `HordeStudio-v1.33.0.apk` (versionCode 70) — 347,491 B,
+sha256 `ea67e25d1d4a26132173efaa7b0e055544706da3745e35161000cd620bc69161`.
+Built 2026-10-17: `docs/` serves v1.33.0 (webRev `344c7bb76d5a`) and
+release `v1.33.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.32.0: 1414 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.33.0: 1443 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,59 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.33.0 — The world moves without you (living-world pack, 2 of 4) (2026-10-17)
+
+Second plank of the approved plan (after the v1.32.0 truth pack): the
+off-screen pulse and standing with consequences. Still no invention -
+everything on the wire comes from the authored files.
+
+### What changed
+
+- **The world ticks.** `worldAgent` is parsed and normalized
+  (`{enabled, intervalTurns}`; enabled is opt-out, interval defaults to
+  15). On every turn that lands exactly on the interval, the referee's
+  brief gains one line of off-screen momentum ("Off-screen, the world
+  has moved: …") and a nudge to weave it in as background. buildPrompt
+  stays pure: the beat is a pure function of the turn number.
+- **Goal programs surface and advance.** `goalPrograms` parse to
+  `{name, actor, steps[]}`; the state block always names what the world
+  is working toward ("…now: 'whispers from corporate'"), advancing one
+  step per landed beat and pinning on the final step once the program
+  runs out - the deterministic world does not invent endings. Worlds
+  without programs beat through their factions' own goals instead,
+  rotating one per beat so each breath says something different
+  (Policy Panic: six goal-bearing factions, a different agenda every
+  18 turns).
+- **Standing has consequences.** New ledger tag `[[rep:FACTION:±N]]`
+  (id or name, zero is not a change, unknown factions told off, per-turn
+  deltas obey the same ±bound as stats, the score itself clamps ±100).
+  The state block now shows "Standing: The Switchboard +4; …" (up to 4
+  entries), and the ledger-V2 rules explain the tag with the world's own
+  faction ids. The starting life's `factionReputation` seeds the ledger
+  as before - now it visibly continues from there.
+
+### Verification
+
+New hordeworld-test section ("off-screen"): pulse math (tick/multiples/
+off-by-one/turn-zero), agent parsing (absent/disabled/default interval),
+goal-needle progression and pinning, beat text rotation across the
+fixture's six goal-bearing factions, rep-tag ledger behavior (seed from
+the life - policy-panic's new hire starts `fac_frontdesk:5`, id vs name,
+accumulation, zero-silent, unknown-rejected, ±100 clamp) and the
+Standing/goal lines in the state block. Full battery: **44 suites,
+1443 checks, 0 failed** (typing+update re-run after the by-now-routine
+post-boundary dep wipe).
+
+APK `HordeStudio-v1.33.0.apk` — 347,491 B, sha256
+`ea67e25d1d4a26132173efaa7b0e055544706da3745e35161000cd620bc69161`;
+in-APK verified (VERSION/CACHE v57/aapt code 70 + 1.33.0, all feature
+markers). The v1.32.0 APK was dropped; release keeps its copy.
+**Published 2026-10-17** under the standing series go-ahead.
+
+Bumps: 1.33.0 (minor), apk code 70, sw cache v57.
 
 ---
 
