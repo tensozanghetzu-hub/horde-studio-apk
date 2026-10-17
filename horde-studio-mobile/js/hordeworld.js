@@ -614,6 +614,23 @@
      big is a story, not a retinue - beyond it the ledger refuses. */
   var COMPA_MAX = 6;
 
+  /* v1.30.4: the with/part grammar line used to carry an inline note -
+     "[[with:NAME]] [[part:NAME]] - who is with the player". Models copied
+     the note into their replies, either with the tags (the ledger strips
+     the [[...]] spans, leaving the bare words) or alone. The copy is
+     neither a tag nor a planning line, so nothing removed it and it
+     surfaced in the story turn after turn. Drop the note wherever it
+     stands as a line of its own; a player line or genuine prose is never
+     touched. */
+  var TAG_ARTIFACT = /^[-–—*:·(]?\s*who\s+is\s+with\s+the\s+player[.!?…)\]]*$/i;
+  function stripTagArtifacts(text) {
+    var t = String(text || '');
+    if (t.toLowerCase().indexOf('who is with the player') === -1) return text;
+    return t.split('\n').filter(function (line) {
+      return !TAG_ARTIFACT.test(line.trim());
+    }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   /* ---------------- ledger v2 (validation) ---------------- */
 
   /** v1.17.0: a world validates its referee's tags instead of trusting them.
@@ -892,7 +909,7 @@
     });
 
     return {
-      text: out.replace(/\n{3,}/g, '\n\n').trim(),
+      text: stripTagArtifacts(out).replace(/\n{3,}/g, '\n\n').trim(),
       changes: changes, moved: moved, rolled: rolled, rejections: rejections,
       checkRequests: checkRequests
     };
@@ -920,6 +937,14 @@
     run.inventory = out;
     if (!Array.isArray(run.quests)) run.quests = [];
     if (!Array.isArray(run.log)) run.log = [];
+    /* v1.30.4: scrub stored replies that predate the artifact cleanup, so
+       old runs stop showing the copied note on re-open. Assistant lines
+       only - what the player typed stays exactly as typed. */
+    run.log.forEach(function (m) {
+      if (m && m.role === 'assistant' && typeof m.content === 'string') {
+        m.content = stripTagArtifacts(m.content);
+      }
+    });
     if (!Array.isArray(run.companions)) run.companions = [];
     if (typeof run.stats !== 'object' || run.stats === null) run.stats = {};
     return run;
@@ -1443,7 +1468,7 @@
       '- End your reply with tags on their own line so the world can keep score:\n' +
       '  [[move:LOCATION_ID]] [[clock:+MINUTES]] [[cash:+N]] [[stat:ID:+N]]\n' +
       '  [[item:THING]] [[drop:THING]] [[quest:TASK]] [[quest-done:TASK]] [[roll:2d6+1]]\n' +
-      '  [[with:NAME]] [[part:NAME]] - who is with the player\n' +
+      '  [[with:NAME]] [[part:NAME]]\n' +
       '- Only include a tag when something actually changed.\n' +
       /* v1.30.2: some models echo the state block back into the story - the
          observed dump was the Time/Stats/Money/Carrying block, verbatim,
@@ -1460,15 +1485,18 @@
         'the new state, and never narrate the OOC itself in-fiction.\n' +
       '- Location ids for this world: ' +
         (world.locations || []).map(function (l) { return l.id; }).join(', ');
+    /* v1.30.4: what the two party tags mean, told to every world in prose.
+       It used to ride on the grammar line as a note ("- who is with the
+       player") and models copied the note into their replies. */
+    rules += '\n- Party: tag [[with:NAME]] when an NPC joins the player and ' +
+      '[[part:NAME]] when they part ways - one name per tag, names exactly ' +
+      'as listed in this world. Companions know everything they have ' +
+      'witnessed; never have one of them ask about a scene they were in.';
     if (ledgerV2(world)) {
       rules += '\n- The world checks your tags: an impossible move, an out-of-bounds ' +
         'change, an item the world has no record of, or a task it does not know is ' +
         'rejected and reported back to you with the reason. Keep changes real and ' +
         'small (at most ' + statBound(world) + ' to any stat or the purse per turn).';
-      rules += '\n- Party: tag [[with:NAME]] when an NPC joins the player and ' +
-        '[[part:NAME]] when they part ways - one name per tag, names exactly as ' +
-        'listed in this world. Companions know everything they have witnessed; ' +
-        'never have one of them ask about a scene they were in.';
       var reg = itemNames(world);
       if (reg) {
         var names = Object.keys(reg).map(function (k) { return reg[k]; });
@@ -1504,7 +1532,15 @@
     /* correction notes are for the player, not the referee's context -
        the corrected state itself is in the system prompt */
     var log = (run.log || []).filter(function (m) { return m.role !== 'correction'; }).slice(-12);
-    log.forEach(function (m) { messages.push({ role: m.role, content: m.content }); });
+    /* v1.30.4: a reply stored before the cleanup still carries the copied
+       note - keep the model from reading it as a pattern to repeat. The
+       player's own lines are never touched. */
+    log.forEach(function (m) {
+      messages.push({
+        role: m.role,
+        content: m.role === 'assistant' ? stripTagArtifacts(m.content) : m.content
+      });
+    });
     messages.push({ role: 'user', content: input });
 
     return { system: parts.join('\n\n'), messages: messages };
@@ -1669,6 +1705,7 @@
     roll: roll, clockOf: clockOf, start: start,
     bundled: bundled, installBundled: installBundled,
     applyTags: applyTags, buildPrompt: buildPrompt, commit: commit,
+    stripTagArtifacts: stripTagArtifacts,
     ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
     normalizeRun: normalizeRun, cloneRun: cloneRun,
     validateReply: validateReply, preflightChecks: preflightChecks,

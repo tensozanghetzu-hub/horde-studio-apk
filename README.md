@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.30.4
+
+**Worlds: no more "who is with the player" at the end of every reply.**
+That stray line was the referee quoting its own rulebook: the line that
+teaches the model its bookkeeping tags ended in a note ("… - who is
+with the player"), and some models copied the note into the story —
+right after their invisible tags, so the tags vanished and only the
+note stayed. The rulebook now explains the party tags in plain prose
+instead of a copyable caption, and any leftover note is quietly dropped
+from new replies, from what the referee is fed back, and from old runs
+when you reopen them. (Small web update — no reinstall needed unless
+you're also picking up a newer APK.)
+
 ## What's new in v1.30.3
 
 **The app finally understands OOC.** Until now, an "OOC: …" line was

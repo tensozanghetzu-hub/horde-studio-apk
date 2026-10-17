@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.30.3.apk` (versionCode 66) — 339,299 B,
-sha256 `cb0f1500d839670e8c6e42aa05d7df0f0e4e8106d67a2710669c5e41985e2f45`.
-Built 2026-10-17: `docs/` serves v1.30.3 (webRev `572765916862`) and
-release `v1.30.3` is the latest on the repo.
+Current build: `HordeStudio-v1.30.4.apk` (versionCode 67) — 339,299 B,
+sha256 `c1fdf82f360204144c1985298b0942802bb2023d8b19a5c36ee3e66b2110dd7a`.
+Built 2026-10-17: `docs/` serves v1.30.4 (webRev `849e9633734f`) and
+release `v1.30.4` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.30.3: 1336 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.30.4: 1346 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,60 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.30.4 — The referee stops quoting its own rulebook (2026-10-17)
+
+### The bug (on-device, reported 2026-10-17)
+
+"Why does it always say who is with the player at the end of every
+reply?" — a screenshot of The Elos Wayfinder, turn 1: the referee's
+answer ends with a bare "- who is with the player" line.
+
+### The diagnosis
+
+The referee's tag-grammar line was the only one carrying an inline note:
+`[[with:NAME]] [[part:NAME]] - who is with the player` — the note was
+meant as documentation of what the two tags track. Models copied the
+line into their replies: with real tags (the ledger strips [[...]] spans
+in place, leaving the bare words behind) or, when nothing about the
+party had changed, just the note on its own. The leftover is neither a
+tag nor a planning/thinking line, so neither applyTags nor cleanReply
+removed it; it surfaced in the story every turn, and once stored in the
+run it went back to the model as history and was parroted again.
+
+### The change
+
+- **`js/hordeworld.js`, rules** — the grammar line is now just
+  `[[with:NAME]] [[part:NAME]]`, like every other tag. What they mean
+  is told in prose instead: the "Party" rule, hoisted out of the
+  ledgerV2-only block so every world gets it.
+- **`js/hordeworld.js`, `stripTagArtifacts`** — a line that is just the
+  note (optional dash/bullet, optional trailing punctuation) is dropped;
+  prose that merely mentions it, and anything the player typed, is never
+  touched. Applied in three places: `applyTags` (the displayed and
+  stored reply), `buildPrompt` (stored turns going back to the model as
+  history), and `normalizeRun` (runs saved before the fix are scrubbed
+  when they are opened).
+
+### Verification
+
+New checks in `tests/hordeworld-test.js`: the grammar line carries no
+annotation (v2 and opted-out worlds), the Party rule is told to every
+world, the tag-plus-note and the bare note both vanish from the reply,
+mentioning the phrase inside prose is kept, stored notes never reach
+the referee again, old runs are scrubbed on open, player lines are
+never scrubbed. Full battery, 43 suites: **1346 node checks, 0 failed.**
+
+APK `HordeStudio-v1.30.4.apk` — 339,299 B, sha256
+`c1fdf82f360204144c1985298b0942802bb2023d8b19a5c36ee3e66b2110dd7a`;
+in-APK bundle verified: `VERSION = '1.30.4'`, sw `horde-studio-v54`,
+aapt badging versionCode 67 / versionName 1.30.4, grammar line clean,
+Party rule and stripTagArtifacts present. The superseded
+`HordeStudio-v1.30.3.apk` was dropped (release asset retains its copy).
+
+Bumps: 1.30.4 (patch — on-device prompt fix), apk code 67, sw cache v54.
 
 ---
 
