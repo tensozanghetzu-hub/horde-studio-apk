@@ -605,6 +605,20 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.30.3
+
+**The app finally understands OOC.** Until now, an "OOC: …" line was
+sent to the model as an ordinary in-fiction message — and the default
+prompt's "stay in character at all times" actively encouraged ignoring
+it. Now every character chat carries a standing rule: when you write an
+out-of-character note (OOC:, [ooc], (ooc)), the character steps out and
+answers it in one short plain line, then returns to the scene exactly
+where it left off — and never comments on OOC inside the fiction. In
+worlds, an OOC note is treated as a direct instruction to the referee
+(time-skip, house rule, correction), carried out without narrating it as
+story. (Small web update — no reinstall needed unless you're also picking
+up a newer APK.)
+
 ## What's new in v1.30.2
 
 **Worlds stop reciting your whole sheet at you.** On big worlds the
