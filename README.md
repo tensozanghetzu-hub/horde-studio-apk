@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.31.0
+
+**Personas get a face.** Each persona can now have its own photo: on
+the personas screen, tap the picture on a persona's row to import one
+(the small × removes it). The photo shows on the persona's row, in the
+identity-bar chip at the top of Cast and Chats, and on your own chat
+bubbles, which used to show only initials. Photos get the same 512px
+diet as card avatars, so they stay tiny in storage. The default
+identity keeps initials, exactly as before.
+
 ## What's new in v1.30.4
 
 **Worlds: no more "who is with the player" at the end of every reply.**

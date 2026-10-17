@@ -349,6 +349,35 @@ function testWipe() {
     });
 }
 
+/* ================= 8b. persona avatars (v1.31.0) ================= */
+function testAvatars() {
+  section('persona avatars: a photo on the persona record');
+  var L = load(null), p;
+  return L.Store.init().then(function () {
+    p = L.Store.blankPersona();
+    eq('a blank persona carries an empty avatar (stable shape)', p.avatar, '');
+    p.name = 'Elena'; p.text = 'wanderer';
+    p.avatar = 'data:image/jpeg;base64,PHOTO';
+    return L.Store.putPersona(p);
+  }).then(function () {
+    var got = L.Store.personas.find(function (x) { return x.id === p.id; });
+    eq('the photo survives the write/read round trip', got && got.avatar, 'data:image/jpeg;base64,PHOTO');
+    /* a persona written before avatars existed has no avatar key at all */
+    var old = L.Store.blankPersona();
+    old.name = 'Old'; delete old.avatar;
+    return L.Store.putPersona(old).then(function () {
+      var got2 = L.Store.personas.find(function (x) { return x.id === old.id; });
+      ok('an old record without the key reads back fine', !!got2 && got2.avatar === undefined);
+      return L.Store.switchPersona(old.id);
+    });
+  }).then(function () {
+    eq('switching still swaps name/text', L.Store.settings.userName, 'Old');
+    ok('the avatar is never copied into settings',
+      !('avatar' in L.Store.settings) && !('userAvatar' in L.Store.settings));
+    eq('it stays on the persona record', L.Store.activePersonaObj().name, 'Old');
+  });
+}
+
 /* ================= run ================= */
 testMigration()
   .then(testFresh)
@@ -356,6 +385,7 @@ testMigration()
   .then(testSwitching)
   .then(testSetIdentity)
   .then(testDelete)
+  .then(testAvatars)
   .then(testBackup)
   .then(testWipe)
   .then(function () {

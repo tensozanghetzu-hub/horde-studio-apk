@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.30.4.apk` (versionCode 67) — 339,299 B,
-sha256 `c1fdf82f360204144c1985298b0942802bb2023d8b19a5c36ee3e66b2110dd7a`.
-Built 2026-10-17: `docs/` serves v1.30.4 (webRev `849e9633734f`) and
-release `v1.30.4` is the latest on the repo.
+Current build: `HordeStudio-v1.31.0.apk` (versionCode 68) — 343,395 B,
+sha256 `00025fff7a6bf996871f8d7b740fe8540538983022d0e4fe434b1e51475cd379`.
+Built 2026-10-17: `docs/` still serves v1.30.4 (webRev `849e9633734f`);
+v1.31.0 ships on the next publish (feature — awaiting the user's call).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.30.4: 1346 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.31.0: 1371 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,53 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.31.0 — Personas get a face (2026-10-17)
+
+### The ask
+
+"Personas should have the option to import a photo for the avatar."
+
+### The shape
+
+A persona now carries its own photo. `avatar` lives on the persona
+record — never in settings — so each identity keeps its own face, and
+switching still swaps only name and text. Old installs need no
+migration: a persona record without the key simply reads as no photo.
+
+- **Import** — every persona row on the personas screen gained a thumb;
+  tap it to pick a picture, and a small × removes a set photo. The
+  picture goes through the shared image normalizer before IndexedDB —
+  the same 512px diet as card avatars and world banners, so a 12 MP
+  phone photo never becomes megabytes of base64.
+- **Where the face shows** — the persona row itself, the identity-bar
+  chip on Cast and Chats, and the player's own chat bubbles (they had
+  an avatar slot all along; it only ever rendered initials). The
+  default identity (no persona selected) and personas without a photo
+  keep initials everywhere.
+- Editing stays smooth: the thumb and the remove dot update in place
+  instead of re-rendering the screen, so the name/text fields never
+  lose the caret.
+
+### Verification
+
+New suite `personaavatar-test.js` (19 checks: rows, chips, chat
+bubbles, the avatar helper, every fallback) plus persona-record checks
+in `persona-test.js` (field shape, round-trip, pre-avatar records, the
+avatar-never-in-settings contract). Full battery, 44 suites:
+**1371 node checks, 0 failed.**
+
+APK `HordeStudio-v1.31.0.apk` — 343,395 B, sha256
+`00025fff7a6bf996871f8d7b740fe8540538983022d0e4fe434b1e51475cd379`;
+in-APK bundle verified: `VERSION = '1.31.0'`, sw `horde-studio-v55`,
+aapt badging versionCode 68 / versionName 1.31.0, avatar field +
+row/chip/bubble wiring + pavat styles all present. `HordeStudio-v1.30.4.apk`
+stays on disk until v1.31.0 actually ships. **Built and committed,
+not yet published — pending the user's call.**
+
+Bumps: 1.31.0 (minor — new feature), apk code 68, sw cache v55.
 
 ---
 
