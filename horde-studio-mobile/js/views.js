@@ -2260,15 +2260,23 @@
     var stats = hud.stats || [];
 
     var sheet = '';
+    var vitalId = (HW.vitalStat && HW.vitalStat(world)) || null;
     stats.forEach(function (st) {
       var v = run.stats[st.id];
       if (v === undefined) return;
-      sheet += '<span>' + esc(st.name) + ' <b>' + esc(String(v)) + '</b>' +
+      /* v1.34.0: the vital stat wears its mark on the sheet too */
+      sheet += '<span>' + esc(st.name) + (vitalId === st.id ? ' ✧' : '') + ' <b>' +
+             esc(String(v)) + '</b>' +
              (st.max ? '/' + esc(String(st.max)) : '') + '</span>';
     });
     if ((gr.modules || {}).inventory !== false && run.inventory && run.inventory.length) {
       sheet += '<span>' + esc(run.inventory.join(', ')) + '</span>';
     }
+    /* v1.34.0: conditions as sheet chips, and the floor shows itself */
+    if ((gr.modules || {}).conditions && run.conditions && run.conditions.length) {
+      run.conditions.forEach(function (c) { sheet += '<span class="ws-cond">' + esc(c) + '</span>'; });
+    }
+    if (run.downed) sheet += '<span class="ws-cond"><b>downed</b></span>';
 
     var head = '<span class="wr-at">' + esc(loc ? loc.name : 'Somewhere') + '</span>';
     if (hud.showClock !== false) {
@@ -2404,6 +2412,9 @@
     if (wsSeas) h += '<div class="hint">Season: ' + esc(wsSeas) + '</div>';
     if (run.identity) h += '<div class="hint">You are: ' + esc(run.identity) + '</div>';
     if (run.outfit) h += '<div class="hint">Wearing: ' + esc(run.outfit) + '</div>';
+    /* v1.34.0: the floor is not a number to glance past - it changes what
+       the next scene is about */
+    if (run.downed) h += '<div class="hint"><b>Downed</b> — the next scene starts from consequences, not game over.</div>';
     /* v1.29.1: the referee's receipt - which Horde model actually answered
        the last turn, and the worker it ran on. "Requested" is a setting;
        this is what came back. */
@@ -2414,11 +2425,14 @@
 
     h += '<h3>Numbers</h3>';
     var anyStat = false;
+    var wsVital = (HW.vitalStat && HW.vitalStat(world)) || null;
     stats.forEach(function (st) {
       var v = run.stats[st.id];
       if (v === undefined) return;
       anyStat = true;
-      h += '<div class="ws-stat"><span>' + esc(st.name) + '</span><b>' + esc(String(v)) +
+      /* v1.34.0: the vital stat's mark, even on the big sheet */
+      h += '<div class="ws-stat"><span>' + esc(st.name) + (wsVital === st.id ? ' ✧' : '') + '</span><b>' +
+           esc(String(v)) +
            (st.max ? '/' + esc(String(st.max)) : '') + '</b></div>';
     });
     if ((gr.modules || {}).commerce !== false && run.stats[run.cashId] !== undefined) {
@@ -2429,6 +2443,15 @@
     if (!anyStat) h += stats.length
       ? '<div class="hint">This world keeps ' + stats.length + ' number' + (stats.length === 1 ? '' : 's') + ', but the referee has not reported a value for any of them yet.</div>'
       : '<div class="hint">This world keeps no numbers — its rules declare no tracked stats.</div>';
+
+    /* v1.34.0: conditions get their own corner of the sheet, and the floor
+       is announced where the clock lives. */
+    if ((gr.modules || {}).conditions) {
+      h += '<h3>Conditions</h3>';
+      h += (run.conditions && run.conditions.length)
+        ? run.conditions.map(function (c) { return '<div class="ws-item">' + esc(c) + '</div>'; }).join('')
+        : '<div class="hint">None, for the moment.</div>';
+    }
 
     if ((gr.modules || {}).inventory !== false) {
       h += '<h3>Pockets</h3>';

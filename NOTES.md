@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.33.0.apk` (versionCode 70) — 347,491 B,
-sha256 `ea67e25d1d4a26132173efaa7b0e055544706da3745e35161000cd620bc69161`.
-Built 2026-10-17: `docs/` serves v1.33.0 (webRev `344c7bb76d5a`) and
-release `v1.33.0` is the latest on the repo.
+Current build: `HordeStudio-v1.34.0.apk` (versionCode 71) — 347,491 B,
+sha256 `b3018156dd0c0ca93dc68f7b130e20fe223b54f7997f685a8353cd98ebcf34eb`.
+Built 2026-10-17: `docs/` serves v1.34.0 (webRev `3ca4051a8888`) and
+release `v1.34.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.33.0: 1443 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.34.0: 1477 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,62 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.34.0 — The dice are the world's own (living-world pack, 3 of 4) (2026-10-17)
+
+Third plank: gameRules.dice, zeroHpMode and the conditions module stop
+being parsed-but-decorative and start governing play. Everything is
+read off the authored table; nothing was invented.
+
+### What changed
+
+- **The dice table is honored.** defaultDifficulty becomes the DC a
+  check falls back to when it declares none (Policy Panic: 11, said
+  once in the rules); modifierMode "per_stat" makes a named check
+  inherit its stat's authored fixedModifier from the sheet (only
+  numbers the world actually wrote - normalized curves remain the
+  author's job); dice.criticals turns an all-max roll into a critical
+  success that beats any DC and an all-one into a critical fumble that
+  fails any roll, marked in the check line. Tables that never opted in
+  just honor the numbers - criticals are opt-in, never imposed.
+- **The floor means something.** Worlds that switch the health module
+  on AND name vitalStatId get the zeroHp flow: at or below zero the run
+  is downed ("the next scene begins from consequences, not game over -
+  take their agency, never their story"), back above it they are on
+  their feet again; the ledger narrates both transitions. The vital
+  stat carries a ✧ in the referee's readout and on both sheets.
+  Half-declared health (Policy Panic: module off, empty vital id) stays
+  decor - the comedy's stats can dive without consequence.
+- **Conditions are a system, not a tag graveyard.** [[condition:NAME]]
+  / [[clear:NAME]] at tables that switched the module on (deduped,
+  case-insensitive, clear-of-nothing told off, module-off refused rather
+  than dropped); the grammar line teaches the tags only when the module
+  is on; the state block lists them; both sheets show them (compact
+  chips + a full Conditions corner in the status sheet) and the Downed
+  banner sits by the clock. Old runs grow the new fields quietly.
+
+### Verification
+
+hordeworld-test gains the three blocks: dice (fallback DC in words,
+branch landing, seeds found via the exported PRNG for natural-max and
+natural-one, opt-out world, per-stat modifier and its mode gate),
+conditions (dedupe, clear by case-insensitive name, refusals, grammar
+gating, state line) and the floor (vitalStat requiring both halves,
+downed/up transitions with ledger lines, the ✧ mark, the no-health
+world unaffected, normalizeRun backfill). worldstatus-test gains sheet
+coverage (Conditions corner with its kind empty state, module-off
+absence, vital mark, Downed banner). Full battery: **44 suites, 1477
+checks, 0 failed**.
+
+APK `HordeStudio-v1.34.0.apk` — 347,491 B, sha256
+`b3018156dd0c0ca93dc68f7b130e20fe223b54f7997f685a8353cd98ebcf34eb`;
+in-APK verified (VERSION/CACHE v58/aapt code 71 + 1.34.0, all feature
+markers). The v1.33.0 APK was dropped; release keeps its copy.
+**Published 2026-10-17** under the standing series go-ahead.
+
+Bumps: 1.34.0 (minor), apk code 71, sw cache v58.
 
 ---
 

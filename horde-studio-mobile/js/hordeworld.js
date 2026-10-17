@@ -627,6 +627,72 @@
     return null;
   }
 
+  /* ---------------- the world's own dice table (v1.34.0) ---------------- */
+
+  /** The DC a check falls back to when it does not declare its own - the
+   *  world's table rule, then the house ten. */
+  function defaultDifficulty(world) {
+    var d = ((world && world.gameRules) || {}).dice || {};
+    return (typeof d.defaultDifficulty === 'number' && d.defaultDifficulty > 0)
+      ? d.defaultDifficulty : 10;
+  }
+
+  /** modifierMode "per_stat": a named check attached to a stat inherits the
+   *  stat's authored fixedModifier from the sheet (roll.fixedModifier).
+   *  Anything livelier (normalized curves) stays the author's job - only
+   *  numbers the world actually wrote reach the dice. */
+  function statRollMod(world, run, def) {
+    var d = ((world && world.gameRules) || {}).dice || {};
+    if (d.modifierMode !== 'per_stat' || !def || !def.stat) return 0;
+    var st = ((world.hudConfig || {}).stats || []).filter(function (s) {
+      return s.id === def.stat;
+    })[0];
+    var mod = st && st.roll && typeof st.roll.fixedModifier === 'number'
+      ? st.roll.fixedModifier : 0;
+    return Math.round(mod) || 0;
+  }
+
+  /** criticals: every die showing its max is a critical success, every die
+   *  showing a one a critical failure - only at tables that opted in
+   *  (dice.criticals). Returns 'crit' | 'fumble' | ''. Extremes override
+   *  the DC both ways; the text says what the table saw. */
+  function criticalOutcome(world, r) {
+    var d = ((world && world.gameRules) || {}).dice || {};
+    if (d.criticals !== true || !r || !r.rolls || !r.rolls.length) return '';
+    var allMax = true, allMin = true;
+    r.rolls.forEach(function (v) {
+      if (v !== r.sides) allMax = false;
+      if (v !== 1) allMin = false;
+    });
+    return allMax ? 'crit' : (allMin ? 'fumble' : '');
+  }
+
+  /* ---------------- health: the one stat whose zero means something (v1.34.0) */
+
+  /** The vital stat exists only when the world opts the health module in
+   *  AND names it - half-declared health is decor, not a heart. */
+  function vitalStat(world) {
+    var gr = (world && world.gameRules) || {};
+    if (!(gr.modules || {}).health || !gr.vitalStatId) return null;
+    return gr.vitalStatId;
+  }
+
+  /** Keep the downed flag honest after any movement of the vital stat:
+   *  at zero you drop; back above it you are on your feet again.
+   *  zeroHpMode "fail_forward" means the story continues from here -
+   *  consequences, not a credits roll (that is the only mode we assert). */
+  function syncDowned(world, run, changes) {
+    var vs = vitalStat(world);
+    if (!vs || run.stats[vs] === undefined) return;
+    if (run.stats[vs] <= 0 && !run.downed) {
+      run.downed = true;
+      if (changes) changes.push('downed');
+    } else if (run.stats[vs] > 0 && run.downed) {
+      run.downed = false;
+      if (changes) changes.push('back on their feet');
+    }
+  }
+
   /** Parse a world-authored branch into the typed vocabulary the engine
    *  applies: stats {id:delta}, cash, items [names], quests [texts],
    *  clock minutes. Anything else is ignored - this is author data, not
@@ -717,19 +783,29 @@
         rejections.push({ tag: tag, reason: 'the world has no check named \u201C' + req.name + '\u201D', at: Date.now() });
         return;
       }
-      var dc = (typeof def.dc === 'number') ? def.dc : 10;
-      var success = r.total >= dc;
+      /* v1.34.0: the check runs at the world's table - its fallback DC, its
+         per-stat modifier, its criticals. The referee proposed; the table
+         decides. */
+      var dc = (typeof def.dc === 'number') ? def.dc : defaultDifficulty(world);
+      var mod = statRollMod(world, run, def);
+      var total = r.total + mod;
+      var crit = criticalOutcome(world, r);
+      var success = crit === 'crit' ? true : (crit === 'fumble' ? false : total >= dc);
       var eff = applyCheckEffects(run, world, success ? def.on_success : def.on_failure);
+      var modTxt = mod ? (mod >= 0 ? ' +' : ' ') + mod + ' (' + def.stat + ')' : '';
+      var critTxt = crit === 'crit' ? ' natural ' + r.sides + ' \u2014 critical!'
+        : (crit === 'fumble' ? ' natural 1 \u2014 critical fumble' : '');
       var label = String(def.name || def.stat || req.name);
-      var line = label + ' check: ' + r.text + ' vs DC ' + dc +
+      var line = label + ' check: ' + r.text + modTxt + ' vs DC ' + dc + critTxt +
         (success ? ' \u2014 success' : ' \u2014 failure') + (eff.length ? ' (' + eff.join('; ') + ')' : '');
       run.log.push({ role: 'check', content: line, at: Date.now() });
       if (run.log.length > 200) run.log = run.log.slice(-200);
       list.push({
-        name: label, text: line, chip: label + ' ' + r.total + ' vs ' + dc + (success ? ' \u2713' : ' \u2717'),
-        success: success, total: r.total, dc: dc
+        name: label, text: line, chip: label + ' ' + total + ' vs ' + dc + (success ? ' \u2713' : ' \u2717'),
+        success: success, total: total, dc: dc
       });
       changes.push(list[list.length - 1].chip);
+      syncDowned(world, run, changes);
     });
     return { list: list, changes: changes, rejections: rejections };
   }
@@ -1095,6 +1171,40 @@
         changes.push('standing with ' + rf.name + ' ' + (rdelta >= 0 ? '+' : '') + rdelta);
         return '';
       }
+      /* v1.34.0: conditions - the world's named states on the player.
+         [[condition:NAME]] names one (idempotent), [[clear:NAME]] lifts it
+         (names match case-insensitively). Only at tables that switched the
+         module on; elsewhere the tag is refused, not dropped. */
+      if (kind === 'condition' || kind === 'cond') {
+        if (!(((world.gameRules || {}).modules || {}).conditions)) {
+          if (v2) reject(whole, 'conditions are off in this world');
+          return '';
+        }
+        var cnew = arg.replace(/\s+/g, ' ').trim();
+        if (!cnew) { if (v2) reject(whole, 'name the condition'); return ''; }
+        if (!run.conditions) run.conditions = [];
+        if (!run.conditions.some(function (c) { return c.toLowerCase() === cnew.toLowerCase(); })) {
+          run.conditions.push(cnew);
+          changes.push('condition: ' + cnew);
+        }
+        return '';
+      }
+      if (kind === 'clear' || kind === 'cond-clear' || kind === 'clear-condition' || kind === 'condition-clear') {
+        if (!(((world.gameRules || {}).modules || {}).conditions)) {
+          if (v2) reject(whole, 'conditions are off in this world');
+          return '';
+        }
+        var clow = arg.replace(/\s+/g, ' ').trim().toLowerCase();
+        if (!clow) { if (v2) reject(whole, 'name the condition to lift'); return ''; }
+        var cidx = -1;
+        (run.conditions || []).forEach(function (c, i) {
+          if (cidx === -1 && c.toLowerCase() === clow) cidx = i;
+        });
+        if (cidx === -1) { if (v2) reject(whole, 'no such condition as \u201C' + arg + '\u201D'); return ''; }
+        changes.push('condition lifts: ' + run.conditions[cidx]);
+        run.conditions.splice(cidx, 1);
+        return '';
+      }
       if (kind === 'with') {
         /* v1.24.0: an NPC joins the player. Names are matched against the
            world's cast (case-insensitive, canonical spelling stored); one
@@ -1177,6 +1287,10 @@
       return whole;
     });
 
+    /* v1.34.0: whatever the tags did to the vital stat, the sheet's floor
+       is checked once, here. */
+    syncDowned(world, run, changes);
+
     return {
       text: stripTagArtifacts(out).replace(/\n{3,}/g, '\n\n').trim(),
       changes: changes, moved: moved, rolled: rolled, rejections: rejections,
@@ -1216,6 +1330,9 @@
     });
     if (!Array.isArray(run.companions)) run.companions = [];
     if (typeof run.stats !== 'object' || run.stats === null) run.stats = {};
+    /* v1.34.0: runs written before conditions and health floors existed */
+    if (!Array.isArray(run.conditions)) run.conditions = [];
+    if (run.downed === undefined) run.downed = false;
     return run;
   }
 
@@ -1702,10 +1819,14 @@
     if (run.identity) out.push('You are: ' + run.identity + '.');
 
     var statLines = [];
+    var vital = vitalStat(world);
     (hud.stats || []).forEach(function (s) {
       var v = run.stats[s.id];
       if (v === undefined) return;
-      statLines.push(s.name + ' ' + v + (s.max !== undefined ? '/' + s.max : ''));
+      /* v1.34.0: the vital stat carries its mark into the referee's readout -
+         this is the number whose floor matters. */
+      statLines.push(s.name + (vital === s.id ? ' ✧' : '') + ' ' + v +
+        (s.max !== undefined ? '/' + s.max : ''));
     });
     if (statLines.length) out.push('Stats: ' + statLines.join(', '));
 
@@ -1723,6 +1844,15 @@
     if ((gr.modules || {}).quests !== false) {
       var open = run.quests.filter(function (q) { return !q.done; });
       if (open.length) out.push('Tasks: ' + open.map(function (q) { return q.text; }).join('; '));
+    }
+    /* v1.34.0: what ails the player, and the floor that outranks every
+       other number on the sheet. */
+    if (((gr.modules || {}).conditions) && (run.conditions || []).length) {
+      out.push('Conditions: ' + run.conditions.join('; '));
+    }
+    if (run.downed && vital) {
+      out.push('The player is downed - the next scene begins from consequences, ' +
+        'not game over. Take their agency, never their story.');
     }
     /* v1.33.0: standing bleeds into the scene - who you are to the powers
        that be, and what the world itself is working toward. */
@@ -1796,7 +1926,9 @@
       '- End your reply with tags on their own line so the world can keep score:\n' +
       '  [[move:LOCATION_ID]] [[clock:+MINUTES]] [[cash:+N]] [[stat:ID:+N]]\n' +
       '  [[item:THING]] [[drop:THING]] [[quest:TASK]] [[quest-done:TASK]] [[roll:2d6+1]]\n' +
-      '  [[with:NAME]] [[part:NAME]] [[rep:FACTION:+N]]\n' +
+        '  [[with:NAME]] [[part:NAME]] [[rep:FACTION:+N]]' +
+      (((world.gameRules || {}).modules || {}).conditions
+        ? ' [[condition:NAME]] [[clear:NAME]]' : '') + '\n' +
       '- Only include a tag when something actually changed.\n' +
       /* v1.30.2: some models echo the state block back into the story - the
          observed dump was the Time/Stats/Money/Carrying block, verbatim,
@@ -1857,7 +1989,9 @@
         });
         rules += '\n  Request one with [[roll:SPEC:check:NAME]]. The world rolls it ' +
           'and applies the outcome itself - never narrate or guess a check ' +
-          'outcome, and request each check at most once per reply.';
+          'outcome, and request each check at most once per reply.' +
+          /* v1.34.0: the table's own fallback difficulty, told once */
+          ' A check that declares no DC runs at ' + defaultDifficulty(world) + '.';
       }
     }
     parts.push(rules);
@@ -2055,6 +2189,10 @@
     loreVisible: loreVisible, loreScore: loreScore, questReached: questReached,
     secretLines: secretLines,
     auditClaims: auditClaims,
+    /* v1.34.0: the dice table and the health floor, testable directly
+       instead of through the prompt */
+    defaultDifficulty: defaultDifficulty, statRollMod: statRollMod,
+    criticalOutcome: criticalOutcome, vitalStat: vitalStat, syncDowned: syncDowned,
     /* tests inject a store; the app uses IDB directly */
     _useStore: function (s) { store = s; }
   };

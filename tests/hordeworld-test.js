@@ -1224,6 +1224,113 @@ eq('standing is a ledger, not a runaway integer', runCap.reputation[0].score, 10
 ok('the state block shows who you are to the world',
   sysBlock(HW.buildPrompt(w, runRep, 'hi').system, 'Time:').indexOf('Standing: The Switchboard +4') !== -1);
 
+/* --- v1.34.0: the dice table, the floor, and what ails you --- */
+
+console.log('\nthe dice are the world\u2019s own');
+
+eq('defaultDifficulty reads the table', HW.defaultDifficulty(w), 11);
+eq('...and the house ten when the table is silent', HW.defaultDifficulty(twPlain), 10);
+
+var wDice = Object.assign({}, w, { gameRules: Object.assign({}, w.gameRules, {
+  checks: [{ name: 'daring', stat: 'nerve',
+    on_success: { stats: { performance: 2 } }, on_failure: { stats: { stress: 3 } } }] }) });
+var runDice = HW.start(w, 'origin_new_hire');
+function seedProducing(pred) {
+  for (var s = 0; s < 9000; s++) { var p = { seed: s }; if (pred(HW.nextRand(p))) return s; }
+  return -1;
+}
+runDice.seed = seedProducing(function (r) { return Math.floor(r * 20) === 5; });
+var dres = HW.resolveChecks(wDice, runDice, { checkRequests: [{ spec: '1d20', name: 'daring' }] });
+eq('a dc-less check runs at the world\u2019s difficulty', dres.list[0].dc, 11);
+ok('...in words on the line', dres.list[0].text.indexOf('vs DC 11') !== -1, dres.list[0].text);
+eq('...and the branch lands (6 vs 11 is a failure)', runDice.stats.stress, 23);
+eq('...not the success\u2019s branch', runDice.stats.performance, 40);
+
+var runCrit = HW.start(w, 'origin_new_hire');
+runCrit.seed = seedProducing(function (r) { return Math.floor(r * 20) === 19; });
+var dCrit = HW.resolveChecks(Object.assign({}, wDice, { gameRules: Object.assign({}, wDice.gameRules, {
+  checks: [{ name: 'daring', stat: 'nerve', dc: 21, on_success: { stats: { performance: 2 } },
+    on_failure: { stats: { stress: 3 } } }] }) }),
+  runCrit, { checkRequests: [{ spec: '1d20', name: 'daring' }] });
+ok('criticals: a natural max beats any DC', dCrit.list[0].success === true &&
+  dCrit.list[0].text.indexOf('critical!') !== -1, dCrit.list[0].text);
+eq('...and pays the success', runCrit.stats.performance, 42);
+
+var runFum = HW.start(w, 'origin_new_hire');
+runFum.seed = seedProducing(function (r) { return Math.floor(r * 20) === 0; });
+var dFum = HW.resolveChecks(Object.assign({}, wDice, { gameRules: Object.assign({}, wDice.gameRules, {
+  checks: [{ name: 'daring', stat: 'nerve', dc: 2, on_success: { stats: { performance: 2 } },
+    on_failure: { stats: { stress: 3 } } }] }) }),
+  runFum, { checkRequests: [{ spec: '1d20', name: 'daring' }] });
+ok('...and a natural one fails any roll', dFum.list[0].success === false &&
+  dFum.list[0].text.indexOf('critical fumble') !== -1, dFum.list[0].text);
+eq('...with the failure\u2019s bill attached', runFum.stats.stress, 23);
+
+var wNoCrit = Object.assign({}, wDice, { gameRules: Object.assign({}, wDice.gameRules, {
+  dice: Object.assign({}, w.gameRules.dice, { criticals: false }),
+  checks: [{ name: 'daring', stat: 'nerve', dc: 21, on_success: { stats: { performance: 2 } },
+    on_failure: { stats: { stress: 3 } } }] }) });
+var runNoCrit = HW.start(w, 'origin_new_hire');
+runNoCrit.seed = seedProducing(function (r) { return Math.floor(r * 20) === 19; });
+var dNoCrit = HW.resolveChecks(wNoCrit, runNoCrit, { checkRequests: [{ spec: '1d20', name: 'daring' }] });
+ok('a table without criticals just honors the numbers', dNoCrit.list[0].success === false &&
+  dNoCrit.list[0].text.indexOf('critical') === -1, dNoCrit.list[0].text);
+
+var wMod = Object.assign({}, wDice, { hudConfig: { stats: [{ id: 'nerve', name: 'Nerve', value: 5, roll: { enabled: true, mode: 'direct', fixedModifier: 3 } }] } });
+eq('per_stat: the check inherits the stat\u2019s fixed modifier', HW.statRollMod(wMod, null, { stat: 'nerve' }), 3);
+eq('...only in modifierMode per_stat', HW.statRollMod(Object.assign({}, wDice, {
+    gameRules: Object.assign({}, wDice.gameRules, { dice: { modifierMode: 'flat' } }) }),
+  null, { stat: 'nerve' }), 0);
+
+console.log('\nconditions');
+
+var runC = HW.start(w, 'origin_new_hire');
+var c1 = HW.applyTags(w, runC, 'The copier bites. [[condition:paper-cut hand]] and again [[condition:paper-cut hand]]');
+eq('naming a condition once names it once', JSON.stringify(runC.conditions), '["paper-cut hand"]');
+eq('...and it is a ledger line', c1.changes.length, 1);
+ok('the state block wears it', sysBlock(HW.buildPrompt(w, runC, 'hi').system, 'Time:').indexOf('Conditions: paper-cut hand') !== -1);
+var c2 = HW.applyTags(w, runC, '[[clear:PAPER-CUT HAND]]');
+ok('clearing matches regardless of case', runC.conditions.length === 0 &&
+  c2.changes[0] === 'condition lifts: paper-cut hand', JSON.stringify(c2.changes));
+ok('clearing nothing is told off', HW.applyTags(w, runC, '[[clear:Nothing]]').rejections.length === 1);
+var wNoCond = HW.parse(Object.assign({}, WORLD, { gameRules: Object.assign({}, WORLD.gameRules, {
+  modules: Object.assign({}, WORLD.gameRules.modules, { conditions: false }) }) }));
+ok('a table without the module refuses rather than drops',
+  HW.applyTags(wNoCond, HW.start(wNoCond, null), '[[condition:cursed]]').rejections.length === 1);
+ok('...and its grammar stays silent about condition tags',
+  HW.buildPrompt(wNoCond, HW.start(wNoCond, null), 'hi').system.indexOf('[[condition:') === -1);
+ok('...while Policy Panic\u2019s grammar teaches them',
+  HW.buildPrompt(w, runC, 'hi').system.indexOf('[[condition:NAME]] [[clear:NAME]]') !== -1);
+
+console.log('\nthe floor');
+
+eq('Policy Panic\u2019s comedy has no vital stat - the module stays decor', HW.vitalStat(w), null);
+var wH = HW.parse(Object.assign({}, WORLD, { gameRules: Object.assign({}, WORLD.gameRules, {
+  vitalStatId: 'hp',
+  modules: Object.assign({}, WORLD.gameRules.modules, { health: true }) }) }));
+wH.hudConfig = { stats: [{ id: 'hp', name: 'HP', value: 3, min: 0, max: 10 }] };
+var runH = HW.start(wH, null); runH.stats.hp = 3;
+eq('the vital stat answers when both halves are declared', HW.vitalStat(wH), 'hp');
+var dh = HW.applyTags(wH, runH, '[[stat:hp:-3]]');
+ok('zero drops the player', runH.downed === true && dh.changes[dh.changes.length - 1] === 'downed',
+  JSON.stringify(dh.changes));
+var hSys = HW.buildPrompt(wH, runH, 'hi').system;
+ok('the referee is told the floor fell through',
+  hSys.indexOf('downed - the next scene begins from consequences') !== -1);
+ok('...and the stat wears its mark', /HP ✧ 0\/10/.test(hSys), sysBlock(hSys, 'Stats:').split('\n')[0]);
+var uh = HW.applyTags(wH, runH, '[[stat:hp:+4]]');
+ok('back above zero, back on your feet', runH.downed === false &&
+  uh.changes[uh.changes.length - 1] === 'back on their feet', JSON.stringify(uh.changes));
+ok('no floor in a world without health: the tags just move numbers',
+  (function () {
+    var rg = HW.start(w, 'origin_new_hire');
+    HW.applyTags(w, rg, '[[stat:performance:-99]]');
+    return rg.downed !== true;
+  })());
+var norm34 = HW.normalizeRun({ stats: {} });
+ok('old runs grow the new fields quietly',
+  Array.isArray(norm34.conditions) && norm34.downed === false);
+
 console.log('\nthe world that ships with the install');
 
 HW.bundled().then(function (shipped) {
