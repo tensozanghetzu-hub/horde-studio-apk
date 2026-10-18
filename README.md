@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.35.1
+
+**The world chat wears faces now.** A thread in an authored world shows
+the world's banner on the referee's bubbles and your persona's photo on
+your own - the same treatment the persona chat got in v1.31.0, carried
+through the seam it had missed. Initials still stand in when no face
+was set. (Tiny web update - check for updates on your phone; no
+reinstall.)
+
 ## What's new in v1.35.0
 
 **Worn words, open books.** Worlds with equipment slots now know the

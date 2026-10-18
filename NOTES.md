@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.35.0.apk` (versionCode 72) — 351,587 B,
-sha256 `851925e1789c144574f19e3f4224c585e03b0d0872b65bb0255d615836db43f5`.
-Built 2026-10-18: `docs/` serves v1.35.0 (webRev `091a220ca9df`) and
+Current build: `HordeStudio-v1.35.1.apk` (versionCode 73) — 351,587 B,
+sha256 `1254b6870f72c4ab80dd37e77498a0d239b0719743103a624bb74fc71c1ba279`.
+Built 2026-10-18: `docs/` serves v1.35.1 (webRev `13a5fb45750f`) and
 release `v1.35.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.35.0: 1516 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.35.1: 1520 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,33 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.35.1 — Faces in the world chat (2026-10-18)
+
+Day-after report from play: "Persona avatar and world avatars don't show
+in authored world chat." True: worldBubble hard-coded initials into both
+sides of the thread and never looked at either face - v1.30.0 had covered
+cards and the status sheet, v1.31.0 the persona chat, and the thread
+itself slipped through the seam between them. The fix mirrors
+messageHtml's semantics exactly: the referee bubble wears the world's
+banner, the player's bubble the active persona's photo when it has one,
+initials stand in when a face was never set (never an empty <img>).
+
+worldavatar-test gains section F: banner on the referee side, persona
+photo on the player side, and both fallbacks asserted against a
+bannerless world and a photo-less persona. Full battery: **44 suites,
+1520 checks, 0 failed**.
+
+APK `HordeStudio-v1.35.1.apk` — 351,587 B, sha256
+`1254b6870f72c4ab80dd37e77498a0d239b0719743103a624bb74fc71c1ba279`;
+in-APK verified (VERSION/CACHE v60/aapt code 73 + 1.35.1, both avatar
+paths present in views.js). The web channel carries the fix - avatar
+rendering is pure web code, so "Check for update" on the phone picks it
+up without a reinstall. Published 2026-10-18.
+
+Bumps: 1.35.1 (patch), apk code 73, sw cache v60.
 
 ---
 

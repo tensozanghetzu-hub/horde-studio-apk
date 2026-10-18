@@ -249,6 +249,41 @@ function settledWorld(id) { return HW.get(id); }
   var fromDb = await HW.get('world_lantern');
   ok('and the saved copy keeps it across a reload', fromDb.banner === saved.banner);
 
+  /* --------------- F. the thread wears faces (v1.35.1) ------------------ */
+  console.log('\nF. the thread wears faces (v1.35.1)');
+  /* The two avatars the world chat must show: the world's banner on the
+     referee's bubbles, the active persona's photo on the player's own.
+     Initials stand in when a face was never set - never a broken image. */
+  var wChat = HW.parse(JSON.parse(JSON.stringify(FILE_WORLD)));
+  var runChat = HW.start(wChat, null);
+  runChat.log = [
+    { role: 'assistant', content: 'The hall is quiet.', at: Date.now() },
+    { role: 'user', content: 'I lift a lantern.', at: Date.now() }
+  ];
+  var PERSONA_AV = 'data:image/png;base64,personaface';
+  sandbox.Store.settings.activePersona = 'p_test';
+  sandbox.Store.personas = [{ id: 'p_test', name: 'Sam', avatar: PERSONA_AV }];
+  Views.worldRun(wChat, runChat);
+  var threadHtml = els['#wr-thread'].innerHTML;
+  ok('the referee bubble wears the world banner', threadHtml.indexOf(BANNER.slice(0, 40)) !== -1);
+  ok('the player bubble wears the active persona photo', threadHtml.indexOf(PERSONA_AV) !== -1);
+
+  /* bannerless world + photo-less persona: initials, no empty <img> */
+  var wPlain = HW.parse({ _format: 'horde-world', name: 'Bare Fields',
+    locations: [{ id: 'a', name: 'A' }] });
+  var runPlain = HW.start(wPlain, null);
+  runPlain.log = [
+    { role: 'assistant', content: 'Wind over the hedge.', at: Date.now() },
+    { role: 'user', content: 'I keep walking.', at: Date.now() }
+  ];
+  sandbox.Store.personas = [{ id: 'p_test', name: 'Sam', avatar: '' }];
+  Views.worldRun(wPlain, runPlain);
+  var plainHtml = els['#wr-thread'].innerHTML;
+  ok('no banner: the referee falls back to initials (BF)',
+    /class="ph"[^>]*>BF/.test(plainHtml), plainHtml.slice(0, 300));
+  ok('no persona photo: the player falls back to initials',
+    /class="ph"/.test(plainHtml) && plainHtml.indexOf('<img') === -1, plainHtml.slice(0, 300));
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch(function (e) {

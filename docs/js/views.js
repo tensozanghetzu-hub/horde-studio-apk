@@ -2230,8 +2230,14 @@
     }
     var isMe = m.role === 'user';
     var who = isMe ? (Store.settings.userName || 'You') : (world.name || 'Referee');
+    /* v1.35.1: the thread wears faces, like the persona chat - the referee
+       bubble carries the world's banner, the player's bubble the active
+       persona's photo when it has one. Initials when a face was never set. */
+    var av = isMe
+      ? avatarHtml(activePersonaAvatar(Store.settings), who)
+      : avatarHtml((world && world.banner) || '', who);
     return '<div class="msg' + (isMe ? ' me' : '') + '">' +
-      '<div class="av"><div class="ph">' + esc(initials(who)) + '</div></div>' +
+      '<div class="av">' + av + '</div>' +
       '<div style="min-width:0;max-width:calc(100% - 44px)">' +
         '<div class="bubble">' +
           (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +
