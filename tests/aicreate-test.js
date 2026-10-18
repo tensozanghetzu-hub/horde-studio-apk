@@ -224,9 +224,30 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     ok('the richer drafts get room to breathe', appSrc.indexOf('700, prog') !== -1 &&
       appSrc.indexOf('800, prog') !== -1);
 
-    console.log('');
-    if (fail) { console.log(fail + ' FAILED, ' + pass + ' ok'); process.exit(1); }
-    console.log('aicreate-test: ' + pass + ' ok');
+    /* v1.36.0: the world's memory keeper - transcript shapes up, ledger
+       mechanics excluded by instruction, and memory parses loose output */
+    var memText = 'Despite noise {"summary":"The keeper of Thornkeep confessed the flood was his doing.","facts":["The keeper caused the flood","The ferry fare is two apples"],"junk":true} trailing';
+    var memCall = loadApi(memText);
+    return memCall.api.summarizeWorld({
+      settings: settings(),
+      world: { name: 'Thornkeep' },
+      run: { log: [
+        { role: 'user', content: 'I ask who sank the town.' },
+        { role: 'assistant', content: 'The keeper lowers his lamp: "That was me."' },
+        { role: 'system', content: '[move:crossroads]' },
+        { role: 'user', content: 'I say nothing.' }
+      ]}
+    }).then(function (mem) {
+      ok('the memory parses out of noisy text', !!mem && /confessed/.test(mem.summary || ''), JSON.stringify(mem && mem.summary).slice(0, 80));
+      ok('...with its durable facts', (mem.facts || []).length === 2 && mem.facts[0].indexOf('caused the flood') !== -1);
+      var asked = String(memCall.sent().prompt || '');
+      ok('the transcript speaks in world voices', /Thornkeep:/.test(asked) && /Player: I ask who sank the town/.test(asked), asked.slice(-160));
+      ok('dice verdicts stay out of the story', asked.indexOf('crossroads') === -1);
+      ok('the instruction keeps the ledger off the menu', /Do NOT record tag commands/.test(asked));
+      console.log('');
+      if (fail) { console.log(fail + ' FAILED, ' + pass + ' ok'); process.exit(1); }
+      console.log('aicreate-test: ' + pass + ' ok');
+    }, function (e) { ok('summarizeWorld resolves', false, e && e.message); process.exit(1); });
   })
   .catch(function (e) {
     console.log('  FAIL threw ' + (e && e.stack || e));

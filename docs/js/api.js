@@ -957,6 +957,46 @@
       .then(parseMemory);
   }
 
+  /* v1.36.0: a world run gets the same memory discipline as a persona
+     chat - same strict-JSON instruction shape, but the transcript is the
+     referee's scene log, and ledger mechanics are explicitly off the
+     menu (the ledger itself tracks those). */
+  function summarizeWorld(o) {
+    var s = o.settings, world = o.world, run = o.run;
+    var convo = (run.log || []).slice(-40).map(function (m) {
+      if (m.role === 'user') return 'Player: ' + (m.content || '');
+      if (m.role === 'assistant') return String((world && world.name) || 'Referee') + ': ' + (m.content || '');
+      return '';   /* corrections and dice verdicts are not story */
+    }).filter(Boolean).join('\n');
+
+    var instruction =
+      'You are a memory manager for the text roleplay world "' +
+        String((world && world.name) || 'World') + '".\n' +
+      'Read the transcript and return STRICT JSON only, with no commentary:\n' +
+      '{"summary":"<3-6 sentences capturing plot, tone and where things stand>",' +
+      '"facts":["<short durable fact>","..."]}\n' +
+      'Keep at most 12 facts. Facts must be durable: names, places, relationships, ' +
+      'promises, objects, goals, conditions, what was decided or revealed.\n' +
+      'Do NOT record tag commands, stat numbers, cheese-and-ledger mechanics - ' +
+      'the world tracks those itself.\n' +
+      (run.memory && run.memory.summary ? 'Existing summary to extend:\n' + run.memory.summary + '\n' : '') +
+      (run.memory && run.memory.facts && run.memory.facts.length
+        ? 'Existing facts:\n' + run.memory.facts.join('\n') + '\n' : '') +
+      '\nTranscript:\n' + convo;
+
+    if (s.provider === 'horde') {
+      return Horde.generateText({
+        prompt: instruction + '\n\nJSON:',
+        model: s.hordeTextModel || '',
+        maxLength: 320, temperature: 0.3, topP: 0.9, apikey: s.hordeKey,
+        maxWait: 300
+      }).then(function (r) { return parseMemory(r.text); });
+    }
+    var msgs = [{ role: 'system', content: instruction }, { role: 'user', content: 'Return the JSON now.' }];
+    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 500 })
+      .then(parseMemory);
+  }
+
   function parseMemory(text) {
     var out = { summary: '', facts: [] };
     if (!text) return out;
@@ -1053,6 +1093,7 @@
     CONTEXT_CAP: CONTEXT_CAP,
     HORDE_CTX_TOKENS: HORDE_CTX_TOKENS,
     summarize: summarize, listModels: listModels, testConnection: testConnection,
+    summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     parseAiJson: parseAiJson, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,

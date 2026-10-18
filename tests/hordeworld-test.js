@@ -1331,6 +1331,93 @@ var norm34 = HW.normalizeRun({ stats: {} });
 ok('old runs grow the new fields quietly',
   Array.isArray(norm34.conditions) && norm34.downed === false);
 
+/* --- v1.36.0: the story remembers itself, and lore answers the scene --- */
+
+(function () {
+  /* the memory cadence: same rhythm as the persona chats, keyed to turns */
+  var mr = { turn: 0, memAt: 0 };
+  ok('nothing due before the first turn', !HW.memoryDue(mr, 14));
+  mr.turn = 12; ok('not due mid-interval', !HW.memoryDue(mr, 14));
+  mr.turn = 14; ok('due on the cadence turn', HW.memoryDue(mr, 14));
+  HW.applyMemory(mr, { summary: 'They searched the lamp shop and took a beating from the lamp keeper.', facts: ['The lamp keeper cheats at dice', 'the lamp keeper cheats at dice', '  '] });
+  ok('after the pass the cadence is satisfied', !HW.memoryDue(mr, 14));
+  mr.turn = 28; ok('...and due again next interval', HW.memoryDue(mr, 14));
+  var hollow = { turn: 14, memAt: 0 };
+  HW.applyMemory(hollow, { summary: '  ', facts: [] });
+  eq('an empty pass does not burn the marker', hollow.memAt, 0);
+
+  /* the write-side is bounded and deduped */
+  var wr = { turn: 3, memAt: 0 };
+  var longText = new Array(2001).join('q');
+  var manyFacts = [];
+  for (var i = 0; i < 20; i++) manyFacts.push('fact ' + i);
+  HW.applyMemory(wr, { summary: longText, facts: manyFacts });
+  ok('the summary is capped at 1500', wr.memory.summary.length <= 1500, wr.memory.summary.length + '');
+  eq('the facts list is capped at twelve', wr.memory.facts.length, 12);
+
+  /* recall: the memory rides the prompt, labelled as memory, not ledger */
+  var mw = {
+    id: 'wmem', name: 'Memorable', startLocationId: 'a',
+    locations: [{ id: 'a', name: 'A', exits: [], description: '', region: '' }],
+    entities: [], factions: [], relationships: [], startingLives: [],
+    gameRules: {}, hudConfig: {}, dmPrompt: '', authorNote: '', intro: ''
+  };
+  var pr = HW.start(mw);
+  HW.applyMemory(pr, { summary: 'The lamp shop burned before they got there.', facts: ['A matchstick is still missing'] });
+  var mp = HW.buildPrompt(mw, pr, 'What happened here?').system;
+  ok('the prompt recalls the story so far', /Story so far/.test(mp) && /lamp shop burned/.test(mp));
+  ok('...and the established facts', /Established facts/.test(mp) && /matchstick/.test(mp));
+  ok('memory is subordinate to the ledger', /the ledger above outranks/i.test(mp));
+  ok('a run without memory pushes no memory block', !/Story memory/.test(HW.buildPrompt(mw, HW.start(mw), 'hello').system));
+
+  /* lore answers the scene, not just the player's latest line */
+  var lw = {
+    id: 'wlre', name: 'Loreful', startLocationId: 'a',
+    locations: [{ id: 'a', name: 'A', exits: [], description: '', region: '' }],
+    entities: [], factions: [], relationships: [], startingLives: [],
+    lorebook: [{ id: 'll1', keyword: 'thornkeep', text: 'Thornkeep sank under the great flood.', knownBy: '' }],
+    gameRules: {}, hudConfig: {}, dmPrompt: '', authorNote: '', intro: ''
+  };
+  var lr = HW.start(lw);
+  lr.log = [
+    { role: 'user', content: 'I wander the old road.', turn: 1 },
+    { role: 'assistant', content: 'The sign says Thornkeep, though no one has seen it whole in an age.', turn: 1 }
+  ];
+  lr.turn = 2;
+  var lp = HW.buildPrompt(lw, lr, 'Tell me more about this place.').system;
+  ok('lore the referee just mentioned surfaces', /Established lore/.test(lp) && /great flood/.test(lp));
+  var lrClean = HW.start(lw);
+  lrClean.log = [{ role: 'user', content: 'I wander.', turn: 1 }, { role: 'assistant', content: 'A quiet shore.', turn: 1 }];
+  lrClean.turn = 2;
+  ok('uncharted chatter still surfaces nothing', !/Established lore/.test(HW.buildPrompt(lw, lrClean, 'Anything else?').system));
+
+  /* and a found fact lingers a beat, so a conversation can chase it.
+     Each round owes the log the exchange that just happened - like the
+     app does before the next prompt is built. */
+  var sr = HW.start(lw);
+  sr.turn = 4;
+  var fired = HW.buildPrompt(lw, sr, 'We approach Thornkeep.').system;
+  ok('a direct mention lights it', /great flood/.test(fired));
+  sr.log.push({ role: 'user', content: 'We approach Thornkeep.', turn: 4 });
+  sr.log.push({ role: 'assistant', content: 'You arrive at dusk.', turn: 4 });
+  sr.turn = 5;
+  ok('a fresh hit still shows next turn', /great flood/.test(HW.buildPrompt(lw, sr, 'What do I see?').system));
+  sr.log.push({ role: 'user', content: 'What do I see?', turn: 5 });
+  sr.log.push({ role: 'assistant', content: 'Mist gathers on the stones.', turn: 5 });
+  sr.turn = 6;
+  ok('...and a second turn', /great flood/.test(HW.buildPrompt(lw, sr, 'And then?').system));
+  sr.log.push({ role: 'user', content: 'And then?', turn: 6 });
+  sr.log.push({ role: 'assistant', content: 'Rain begins.', turn: 6 });
+  sr.log.push({ role: 'user', content: 'And then?', turn: 6 });
+  sr.log.push({ role: 'assistant', content: 'Rain begins.', turn: 6 });
+  sr.turn = 7;
+  ok('...and it lingers a third', /great flood/.test(HW.buildPrompt(lw, sr, 'And then?').system));
+  sr.log.push({ role: 'user', content: 'And then?', turn: 7 });
+  sr.log.push({ role: 'assistant', content: 'Night falls.', turn: 7 });
+  sr.turn = 8;
+  ok('...but not forever', !/Established lore/.test(HW.buildPrompt(lw, sr, 'And then?').system));
+})();
+
 /* --- v1.35.0: worn apart from carried; the catalogue has a peephole --- */
 
 console.log('\nequipment');
