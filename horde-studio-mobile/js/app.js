@@ -847,6 +847,7 @@
                     '\"goalPrograms\":[0-2 of {\"id\":\"scheme_snake\",\"name\":string,\"actor\":one entity or faction id,\"steps\":[3 short steps, in order]}], ' +
                     '\"gameRules\":{\"modules\":{\"quests\":true,\"relationships\":true,\"livingWorld\":true}}, ' +
                     '\"hudConfig\":{\"showClock\":true,\"startWeekday\":\"Monday\",\"startTimeHours\":8,\"startTimeMinutes\":integer 0-59,\"timeStep\":10,\"stats\":[3-5 of {\"id\":\"stat_snake\",\"name\":string,\"value\":integer,\"min\":0,\"max\":integer}]}, ' +
+                    '\"lorebook\":[{\"keyword\":string (a word or short phrase that will really come up in play - a place name, a family name, an artefact; never a word that hides inside a longer word),\"text\":string (1-2 sentences of established fact),\"knownBy\":string (usually empty; npc:<an entity id> | faction:<a faction id> | secret, when it is not general knowledge)}, 3-5 entries on the ids and names above], ' +
                     '\"kernel\":{\"sceneLocationLimit\":integer 10-30}}',
                     800, prog).then(function (rules) {
                       if (!rules || !rules.dmPrompt) {

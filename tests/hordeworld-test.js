@@ -726,7 +726,48 @@ var lone = HW.loreHits({ lorebook: [{ id: 'z', keyword: 'kayak', text: new Array
   bRun, 'kayak', 8, 1000);
 eq('a lone match still gets in', lone.length, 1);
 
-/* --- the old matcher finds exactly the entries the new one does --- */
+/* --- v1.36.1: keywords know their own edges --- */
+
+var bw = {
+  id: 'wb', name: 'Bounds', startLocationId: 'a',
+  locations: [{ id: 'a', name: 'A', exits: [], description: '', region: '' }],
+  entities: [], factions: [], relationships: [], startingLives: [],
+  lorebook: [
+    { id: 'w1', keyword: 'bell', text: 'The bells announce high water.', knownBy: '' },
+    { id: 'w2', keyword: 'mark', text: 'The Mark is the old countinghouse.', knownBy: '' },
+    { id: 'w3', keyword: 'gossip', text: 'Gossip here travels faster than boats.', knownBy: '' },
+    { id: 'w4', keyword: 'lamp keeper', text: 'The lamp keeper keeps the tide maps.', knownBy: '' },
+    { id: 'w5', keyword: 'c.q.', text: 'C.Q. keeps the salty alphabet.', knownBy: '' },
+    { id: 'w6', keyword: 'go', text: 'The go-between passes notes.', knownBy: '' }
+  ],
+  gameRules: {}, hudConfig: {}, dmPrompt: '', authorNote: '', intro: ''
+};
+var br = HW.start(bw);
+ok('an embedded mention is not a mention (labelling ≠ bell)',
+  HW.loreHits(bw, br, 'the labelling faded years ago').every(function (e) { return e.id !== 'w1'; }));
+ok('a word that merely begins a longer word is not a mention (market ≠ mark)',
+  HW.loreHits(bw, br, 'the market is open').every(function (e) { return e.id !== 'w2'; }));
+ok('the word itself still fires',
+  HW.loreHits(bw, br, 'the bell rings low').length === 1 &&
+  HW.loreHits(bw, br, 'ask the mark about it').length === 1);
+ok('a bare plural still carries (gossips → gossip)',
+  HW.loreHits(bw, br, 'the gossips of the upper floors').some(function (e) { return e.id === 'w3'; }));
+ok('a multi-word key meets its whole self',
+  HW.loreHits(bw, br, 'the lamp keeper cheats at dice').some(function (e) { return e.id === 'w4'; }));
+ok('a half-finished phrase does not',
+  HW.loreHits(bw, br, 'the lamp is cold').every(function (e) { return e.id !== 'w4'; }));
+ok('punctuation in a key is literal, not a wildcard',
+  HW.loreHits(bw, br, 'before c.q. you must make the sign').some(function (e) { return e.id === 'w5'; }));
+ok('...and the scorer never explodes on it', (function () {
+  var t = true;
+  try { HW.loreHits(bw, br, "c.q's desk is locked"); } catch (e) { t = false; }
+  return t;
+})());
+ok('the short-key floor stands', HW.loreHits(bw, br, 'go go go').every(function (e) { return e.id !== 'w6'; }));
+ok('repeated mentions still outrank single ones',
+  HW.loreHits(bw, br, 'ask the mark at the bell, past the bell')[0].id === 'w1');
+
+/* --- where whole words meet, the v1.36.1 matcher keeps old ground --- */
 
 function oldLore(w, text) {
   var t = String(text || '').toLowerCase();

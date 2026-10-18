@@ -58,8 +58,10 @@
     /* v1.35.0: a richer tape through the same three-part machine - whatever
        the drafts carry (goal programs, task seeds, the calendar, the scene
        cap) becomes the world the player meets. */
+    /* v1.36.1: lorebook joins the tape - a drafted world arrives with a
+       living book, gates and all, not an empty one. */
     ['name', 'description', 'startLocationId', 'locations',
-     'entities', 'factions', 'relationships',
+     'entities', 'factions', 'relationships', 'lorebook',
      'dmPrompt', 'intro', 'authorNote', 'startingLives', 'gameRules', 'hudConfig',
      'goalPrograms', 'startingQuests', 'sandboxConfig', 'kernel'
     ].forEach(function (k) {
@@ -427,9 +429,19 @@
     return true;
   }
 
+  function escRe(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  /** v1.36.1: keywords know their own edges. A hit must begin and end on
+   *  a word edge - "bell" no longer fires on "labelling", nor "mark" on
+   *  "market" - while a bare plural still carries ("gossip" finds
+   *  "gossips"), which the substring matcher had only by accident of the
+   *  same rule it was wrong by. The regex is built at match time; stored
+   *  keywords are never touched. */
   function countHits(hay, needle) {
-    var n = 0, i = 0;
-    while ((i = hay.indexOf(needle, i)) !== -1) { n++; i += needle.length; }
+    if (!needle || !hay) return 0;
+    var re = new RegExp('(^|[^a-z0-9])' + escRe(needle) + '(?:s|es)?(?=$|[^a-z0-9])', 'g');
+    var n = 0;
+    while (re.exec(hay)) n++;
     return n;
   }
 

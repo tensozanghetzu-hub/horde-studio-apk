@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.36.0.apk` (versionCode 74) — 355,683 B,
-sha256 `83a8e0ecd00bf39ae3ac251bbc358f1a95249dfdcb48da7f400b13a75e37896f`.
-Built 2026-10-18: `docs/` serves v1.36.0 (webRev `8769c5ea717b`) and
-release `v1.35.1` is the latest on the repo.
+Current build: `HordeStudio-v1.36.1.apk` (versionCode 75) — 355,683 B,
+sha256 `2779ca70e376b3e965996c3799859199308af1c73f57e3106db5770b1a950c5d`.
+Built 2026-10-18: `docs/` serves v1.36.1 (webRev `18622dc9a411`) and
+release `v1.36.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.36.0: 1544 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.36.1: 1560 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,44 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.36.1 — Words with edges, books with spines (2026-10-18)
+
+Second fold of the lore series (`lore-aspect-analysis.md`, gaps #3 and
+#4). **Keywords know their own edges now.** The world matcher no longer
+treats a substring as a sighting — "bell" stays quiet for "labelling",
+"mark" for "market" — while a bare plural keeps working ("gossip" still
+finds "gossips"): the good half of the old rule kept deliberately
+instead of by accident. The match is a regex built at trigger time
+(match-time only; stored keywords untouched), the >2-char floor stands,
+and a multi-word key must meet its whole self. The character-side
+lorebooks learned the same rule, minus a floor they never had — word
+edges already blunt the short-key risk. **The AI author drafts a book
+now.** The third draft (the rules) asks for 3–5 lore entries whose
+keywords will really come up in play — a place name, a family name, an
+artefact, never a word hiding inside a longer word — and assemble()
+finally carries `lorebook` through to parse, gates (npc/faction/secret)
+intact. A created world arrives with a living book instead of an empty
+one.
+
+hordeworld-test +10 (labelling/market false positives, plural carry,
+multi-word and punctuation keys, the floor, repeat-outranks),
+aicreate-test +6 (assemble carries the book with gates, char-side word
+edges through the real buildChat, and the draft asks for it). Full
+battery: **44 suites, 1560 checks, 0 failed**.
+
+APK `HordeStudio-v1.36.1.apk` — 355,683 B, sha256
+`2779ca70e376b3e965996c3799859199308af1c73f57e3106db5770b1a950c5d`;
+in-APK verified (VERSION 1.36.1 / CACHE v62 / aapt code 75 / the
+edge-matcher and lorebook-draft strands present). The web channel serves
+1.36.1 (rev `18622dc9a411`) — "Check for update" on the phone picks it
+up, no reinstall. Published 2026-10-18.
+
+Bumps: 1.36.1 (patch), apk code 75, sw cache v62. Next: v1.37.0 "the
+open book" — the lore browser in the world viewer (secrets sealed), the
+character-side byte budget, and the import-time dead-key lint.
 
 ---
 
