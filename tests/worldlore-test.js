@@ -114,5 +114,23 @@ var bare = HW.parse(JSON.parse(JSON.stringify(FILE_WORLD)));
 bare.lorebook = [];
 ok('no book, no book section', Views.worldSummary(bare).indexOf('known book') === -1);
 
+/* v1.38.0: the classes page - bundles visible, like everything that is
+   not a secret */
+console.log('\nthe classes page\n');
+var CLASS_WORLD = JSON.parse(JSON.stringify(FILE_WORLD));
+CLASS_WORLD.skillsCatalog = [
+  { id: 'skill_lockpicking', name: 'Lockpicking', description: 'Thin wire.', stat: 'finesse' }
+];
+CLASS_WORLD.classes = [
+  { id: 'cls_thief', name: 'Cutpurse', description: 'Fingers first.',
+    statOverrides: { finesse: 8 }, skills: ['skill_lockpicking'],
+    obligations: ['Repay the fence'], outfit: 'too many pockets' }
+];
+var ch = Views.worldSummary(HW.parse(CLASS_WORLD));
+ok('the classes page shows its walkers', /Cutpurse/.test(ch));
+ok('...and what they bring', /Lockpicking/.test(ch));
+ok('...without inventing a page for worlds with none',
+  Views.worldSummary(HW.parse(JSON.parse(JSON.stringify(FILE_WORLD)))).indexOf('Classes') === -1);
+
 console.log('\n  ' + pass + ' passed, ' + fail + ' failed\n');
 process.exit(fail ? 1 : 0);

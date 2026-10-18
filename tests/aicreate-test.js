@@ -219,6 +219,22 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     ok('...with its gates intact', loreDraft && loreDraft.lorebook[0].knownBy === 'faction:fac_tide' &&
       loreDraft.lorebook[1].knownBy === '');
 
+    /* v1.38.0: classwork rides the third draft too - the catalog and its
+       classes, whole, through the three-part machine */
+    var classDraft = wbox.HW.parse(wbox.HW.assemble({
+      places: partPlaces, people: partPeople,
+      rules: {
+        dmPrompt: 'You are the showrunner and referee. ' + 'Filler. '.repeat(30),
+        intro: 'The water is at your ankles.',
+        skillsCatalog: [{ id: 'skill_ropes', name: 'Knotwork', description: 'Rope tells the truth.', stat: 'grit' }],
+        classes: [{ id: 'cls_boatwright', name: 'Boatwright', description: 'Builds what floats.',
+          statOverrides: { grit: 7 }, skills: ['skill_ropes'], obligations: [], outfit: 'tar-thick apron' }]
+      }
+    }));
+    ok('a drafted catalog rides assemble through', classDraft && (classDraft.skillsCatalog || []).length === 1);
+    ok('...and the classes that use it', classDraft && (classDraft.classes || []).length === 1 &&
+      classDraft.classes[0].skills[0] === 'skill_ropes');
+
     /* v1.36.1: the character side learns its word edges too */
     var cchar = {
       name: 'Mara', persona: 'Dry and watchful.',
@@ -274,6 +290,9 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
       appSrc.indexOf('800, prog') !== -1);
     ok('the rules draft asks for a living book (v1.36.1)',
       appSrc.indexOf('\\"lorebook\\"') !== -1 && /keyword.{0,120}really (come up|type)/s.test(appSrc));
+    ok('the rules draft offers classwork with real stats (v1.38.0)',
+      appSrc.indexOf('\\"classes\\"') !== -1 && appSrc.indexOf('\\"skillsCatalog\\"') !== -1 &&
+      /skills.{0,160}stat/.test(appSrc));
 
     /* v1.36.0: the world's memory keeper - transcript shapes up, ledger
        mechanics excluded by instruction, and memory parses loose output */
