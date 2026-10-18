@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.35.1.apk` (versionCode 73) — 351,587 B,
-sha256 `1254b6870f72c4ab80dd37e77498a0d239b0719743103a624bb74fc71c1ba279`.
-Built 2026-10-18: `docs/` serves v1.35.1 (webRev `13a5fb45750f`) and
-release `v1.35.0` is the latest on the repo.
+Current build: `HordeStudio-v1.36.0.apk` (versionCode 74) — 355,683 B,
+sha256 `83a8e0ecd00bf39ae3ac251bbc358f1a95249dfdcb48da7f400b13a75e37896f`.
+Built 2026-10-18: `docs/` serves v1.36.0 (webRev `8769c5ea717b`) and
+release `v1.35.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.35.1: 1520 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.36.0: 1544 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,46 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.36.0 — Recall: the story remembers itself (2026-10-18)
+
+First cut of the lore series (the map lives in `lore-aspect-analysis.md`):
+a saved world run knew only its ledger and its last twelve messages -
+two hours in, every earlier beat was gone. Two quiet mechanisms now keep
+the past alive. **World memory:** on the persona-chat cadence (autoMemory,
+every N turns, the same settings) the run asks the model once for a
+strict-JSON {summary, facts} - dice verdicts and tag mechanics explicitly
+excluded - and the next prompt carries it as "Story memory", prose
+subordinate by instruction to the ledger above it. The hook is
+fire-and-forget in commitTurn, so a memory pass can never hold up or
+break a turn; the write-side (HW.memoryDue / HW.applyMemory) is bounded
+(1500-char summary, 12 deduped facts) and an empty pass does not burn the
+cadence marker. **Lore recall:** the trigger text is now the player's
+line plus the last exchange's referee reply - "Tell me more" about a
+place the referee just named finally surfaces its entry - and a fresh hit
+lingers warm for two turns (loreFired, pruned after three) inside the
+existing byte budget, so a conversation can chase a fact without
+re-uttering the keyword every line.
+
+hordeworld-test +21 (cadence / write-side bounds / the prompt carries
+memory labelled / window / linger-then-expire), aicreate-test +3
+(summarizeWorld: world-flavoured transcript, ledger-off-the-menu
+instruction, noisy output still parses). Full battery: **44 suites,
+1544 checks, 0 failed**.
+
+APK `HordeStudio-v1.36.0.apk` — 355,683 B, sha256
+`83a8e0ecd00bf39ae3ac251bbc358f1a95249dfdcb48da7f400b13a75e37896f`;
+in-APK verified (VERSION 1.36.0 / CACHE v61 / aapt code 74 / the
+summarizeWorld, Story-memory and loreFired strands present). The web
+channel serves 1.36.0 (rev `8769c5ea717b`) - "Check for update" on the
+phone picks it up, no reinstall. Published 2026-10-18.
+
+Bumps: 1.36.0 (minor), apk code 74, sw cache v61; the series continues
+with v1.36.1 (word-boundary keyword matching, the AI author drafting a
+lorebook) and v1.37.0 (the lore browser in the world viewer, secrets
+sealed).
 
 ---
 
