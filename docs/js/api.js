@@ -140,15 +140,24 @@
     return re.test(text);
   }
 
-  function loreHits(entries, recent, limit) {
+  function loreHits(entries, recent, limit, budget) {
     if (!entries || !entries.length) return [];
     var text = (recent || '').toLowerCase();
-    return entries.filter(function (e) {
-      if (e.enabled === false) return false;
-      return (e.keys || []).some(function (k) {
-        return k && keyStands(text, k);
-      });
-    }).slice(0, limit || 6);
+    var out = [], bytes = 0;
+    /* v1.37.0: the same byte discipline the world side has - the pile
+       stops at the budget, and a lone match may exceed it alone. */
+    var cap = (typeof budget === 'number' && budget > 0) ? budget : 1536;
+    entries.forEach(function (e) {
+      if (out.length >= (limit || 6)) return;
+      if (e.enabled === false) return;
+      var hit = (e.keys || []).some(function (k) { return k && keyStands(text, k); });
+      if (!hit) return;
+      var cost = String(e.content || '').length;
+      if (out.length && bytes + cost > cap) return;
+      out.push(e);
+      bytes += cost;
+    });
+    return out;
   }
 
   function charSheet(char, s, session, recent) {

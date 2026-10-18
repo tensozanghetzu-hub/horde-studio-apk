@@ -237,6 +237,19 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     var csys3 = chatBox.api.buildChat(cchar, {}, [{ role: 'assistant', text: 'She trades in gossips.' }], settings())[0].content;
     ok('char lore still knows a bare plural (gossips → gossip)', csys3.indexOf('gossip has wings') !== -1);
 
+    /* v1.37.0: the character side learns the byte budget - the pile stops
+       at the budget (world rule), and a lone match may exceed it alone */
+    var fat = function (n, ch, key) { return { keys: [key], content: new Array(n + 1).join(ch), enabled: true }; };
+    var fatChar = { name: 'Fat', lorebook: [fat(600, 'a', 'alpha'), fat(600, 'b', 'bravo'), fat(600, 'c', 'charlie')] };
+    var fsheet = chatBox.api.buildChat(fatChar, {}, [{ role: 'assistant', text: 'alpha bravo charlie all night' }], settings())[0].content;
+    var fblock = (fsheet.split('Relevant world facts:')[1] || '').split('\n\n')[0];
+    var frows = fblock.split('\n').filter(function (l) { return l.indexOf('- ') === 0; });
+    ok('the char-lore pile stops at the byte budget', frows.length === 2, frows.length + ' injected');
+    ok('...and the latecomer waits its turn', fsheet.indexOf(new Array(40).join('c')) === -1);
+    var loneChar = { name: 'Lone', lorebook: [fat(2000, 'q', 'only')] };
+    var lsheet = chatBox.api.buildChat(loneChar, {}, [{ role: 'assistant', text: 'only the truth' }], settings())[0].content;
+    ok('a lone match still gets in (the budget floor)', lsheet.indexOf(new Array(2001).join('q')) !== -1);
+
     var richRun = wbox.HW.start(rich, 'origin_main');
     ok('a life starts like the life, straight from the draft',
       richRun.stats.grit === 7 && richRun.outfit === 'borrowed oilskins' &&

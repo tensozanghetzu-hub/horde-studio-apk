@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.36.1.apk` (versionCode 75) — 355,683 B,
-sha256 `2779ca70e376b3e965996c3799859199308af1c73f57e3106db5770b1a950c5d`.
-Built 2026-10-18: `docs/` serves v1.36.1 (webRev `18622dc9a411`) and
-release `v1.36.0` is the latest on the repo.
+Current build: `HordeStudio-v1.37.0.apk` (versionCode 76) — 355,683 B,
+sha256 `367616d0e6f9f5d5c2181f68ed207e5b54a1961359d64533298d5a7e860377bf`.
+Built 2026-10-18: `docs/` serves v1.37.0 (webRev `81413b072b18`) and
+release `v1.36.1` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.36.1: 1560 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.37.0: 1618 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,43 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.37.0 — The open book (2026-10-18)
+
+The lore series closes with the reader's chair (gaps #5, #6 and #7 of
+`lore-aspect-analysis.md`). The world viewer — the eye button on any
+installed or catalogue world — now shows **the known book**: every lore
+entry with its keywords and what it says, *except* secret-gated entries,
+which stay sealed forever: no content, but the hinge named (a task
+reaching «...», or the witness whose presence opens it), so a peek
+teaches the mechanism without printing the spoiler. An entry whose
+keyword the world's own text never says gets a quiet "may go unheard"
+hint — the dead-key lint, honest as a hint because a player can still
+type anything (HW.deadKey: corpus = places and exits, people, factions,
+ways in, plans, opening, and the OTHER entries, matched with the same
+word edges play uses). Character-side lore injection gains the world
+side's byte budget: the pile stops at 1536 bytes with first-come order
+kept, and one fact may still exceed it alone. That closes the lore
+series: memory that remembers (v1.36.0), words with edges and books
+that arrive written (v1.36.1), and now a book you can trust without
+being spoiled (v1.37.0).
+
+New suite worldlore-test (15: sealed content never, hinges named, gates
+labelled, dead-key hinted, empty book hides the section), aicreate-test
++3 (budget pile stop at 2×600, latecomer waits, lone 2000-char floor).
+Full battery: **45 suites, 1618 checks, 0 failed**.
+
+APK `HordeStudio-v1.37.0.apk` — 355,683 B, sha256
+`367616d0e6f9f5d5c2181f68ed207e5b54a1961359d64533298d5a7e860377bf`;
+in-APK verified (VERSION 1.37.0 / CACHE v63 / aapt code 76 / the
+deadKey, open-book and char-budget strands present). The web channel
+serves 1.37.0 (rev `81413b072b18`) — "Check for update" on the phone
+picks it up, no reinstall. Published 2026-10-18.
+
+Bumps: 1.37.0 (minor), apk code 76, sw cache v63. The lore series is
+complete.
 
 ---
 

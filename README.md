@@ -605,6 +605,18 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.37.0
+
+**Peek before you install.** The eye button on any world — yours or a
+catalogue one — now opens its lorebook: every keyword, what the world
+treats as public knowledge, what's faction or someone-specific, and
+which entries are **sealed secrets** — with the hinge named (a task to
+reach, a witness to meet) but never the content, so browsing can never
+spoil the story. Keywords the world itself never mentions are politely
+hinted. Character lorebooks adopted the worlds' byte discipline too:
+many facts can no longer crowd the prompt, but at least one always gets
+through. (Web update — check for updates on your phone; no reinstall.)
+
 ## What's new in v1.36.1
 
 **The lorebook learned spelling.** A keyword fires on the word it is —
