@@ -848,6 +848,8 @@
                     '\"gameRules\":{\"modules\":{\"quests\":true,\"relationships\":true,\"livingWorld\":true}}, ' +
                     '\"hudConfig\":{\"showClock\":true,\"startWeekday\":\"Monday\",\"startTimeHours\":8,\"startTimeMinutes\":integer 0-59,\"timeStep\":10,\"stats\":[3-5 of {\"id\":\"stat_snake\",\"name\":string,\"value\":integer,\"min\":0,\"max\":integer}]}, ' +
                     '\"lorebook\":[{\"keyword\":string (a word or short phrase that will really come up in play - a place name, a family name, an artefact; never a word that hides inside a longer word),\"text\":string (1-2 sentences of established fact),\"knownBy\":string (usually empty; npc:<an entity id> | faction:<a faction id> | secret, when it is not general knowledge)}, 3-5 entries on the ids and names above], ' +
+                    '\"skillsCatalog\":[{\"id\":\"skill_snake\",\"name\":string (a training a player can really claim, short words),\"description\":string (one line),\"stat\":string (one of the stat ids above - the stat it leans on)}, 2-6 trainings], ' +
+                    '\"classes\":[{\"id\":\"cls_snake\",\"name\":string,\"description\":string (one sentence - the bent it gives a run),\"statOverrides\":{stat id:integer},\"skills\":[1-3 skill ids from skillsCatalog],\"obligations\":[0-2 short commitments],\"outfit\":string}, 2-3, or an empty array [] if the world would not wear classes - ask whether the concept even wants them], ' +
                     '\"kernel\":{\"sceneLocationLimit\":integer 10-30}}',
                     800, prog).then(function (rules) {
                       if (!rules || !rules.dmPrompt) {
@@ -910,14 +912,25 @@
       if (!world) { UI.toast('That world is not installed'); return; }
       var lives = world.startingLives || [];
       if (lives.length > 1) { Views.worldRoles(world); return; }
-      App.beginWorld(worldId, lives.length === 1 ? lives[0].id : null);
+      App.beginOrPickClass(worldId, lives.length === 1 ? lives[0].id : null);
     });
   };
 
-  App.beginWorld = function (worldId, lifeId) {
+  /* v1.38.0: after the life, the class. Worlds without classes pass
+     straight through to the begin - no sheet for a question a world
+     never asks. */
+  App.beginOrPickClass = function (worldId, lifeId) {
+    HW.get(worldId).then(function (world) {
+      if (!world) { UI.toast('That world is not installed'); return; }
+      if ((world.classes || []).length) { Views.worldClasses(world, lifeId); return; }
+      App.beginWorld(worldId, lifeId, null);
+    });
+  };
+
+  App.beginWorld = function (worldId, lifeId, classId) {
     HW.get(worldId).then(function (world) {
       if (!world) return;
-      var run = HW.start(world, lifeId);
+      var run = HW.start(world, lifeId, classId);
       return HW.saveRun(run).then(function () { App.openWorldRun(run.id); });
     });
   };

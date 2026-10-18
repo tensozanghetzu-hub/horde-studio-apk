@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.38.0
+
+**The world now asks what you're good at.** Worlds can declare
+**classes** (archetype bundles: stat tweaks, starting skills,
+obligations, an outfit) and a **skills catalog**. Begin a run in such a
+world and it asks after your life is chosen: every class says what it
+brings, and "No class" is a real answer. Trainings live in the ledger:
+the referee can teach you (`[[skill:…]]` — one level a lesson, five is
+mastery), and any dice check that names a skill you know counts your
+level into the roll. Bonus, never a penalty. The world viewer shows
+both pages, plain worlds are untouched. (Check for updates on your
+phone; if the app wrapper changed, Android will ask once.)
+
 ## What's new in v1.37.0
 
 **Peek before you install.** The eye button on any world — yours or a

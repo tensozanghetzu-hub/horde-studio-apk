@@ -61,7 +61,7 @@
     /* v1.36.1: lorebook joins the tape - a drafted world arrives with a
        living book, gates and all, not an empty one. */
     ['name', 'description', 'startLocationId', 'locations',
-     'entities', 'factions', 'relationships', 'lorebook',
+     'entities', 'factions', 'relationships', 'lorebook', 'classes', 'skillsCatalog',
      'dmPrompt', 'intro', 'authorNote', 'startingLives', 'gameRules', 'hudConfig',
      'goalPrograms', 'startingQuests', 'sandboxConfig', 'kernel'
     ].forEach(function (k) {
@@ -162,6 +162,27 @@
         unlockNpc: l.unlockNpc || ''
       };
     });
+    /* v1.38.0: classwork arrives authored, or absent - worlds without a
+       catalog simply never ask. Only arrays survive; unknown shapes are
+       dropped rather than scrubbed into lies. */
+    w.skillsCatalog = Array.isArray(w.skillsCatalog) ? w.skillsCatalog.map(function (s, i) {
+      s = s || {};
+      return {
+        id: s.id || ('skill_imported_' + i), name: String(s.name || 'A training'),
+        description: String(s.description || ''), stat: String(s.stat || '')
+      };
+    }) : [];
+    w.classes = Array.isArray(w.classes) ? w.classes.map(function (c, i) {
+      c = c || {};
+      return {
+        id: c.id || ('cls_imported_' + i), name: String(c.name || 'Unbent'),
+        description: String(c.description || ''),
+        statOverrides: (c.statOverrides && typeof c.statOverrides === 'object') ? c.statOverrides : {},
+        skills: Array.isArray(c.skills) ? c.skills.filter(function (k) { return typeof k === 'string' && k; }) : [],
+        obligations: Array.isArray(c.obligations) ? c.obligations : [],
+        outfit: String(c.outfit || '')
+      };
+    }) : [];
     w.startingLives = w.startingLives || [];
     w.gameRules = w.gameRules || {};
     w.hudConfig = w.hudConfig || {};
@@ -708,6 +729,22 @@
     return null;
   }
 
+  /* ---------------- classwork (v1.38.0) ---------------- */
+
+  /** The catalog entry a skill claim points at - by id or by name, the
+   *  same way the referee writes [[skill:Rudderwork]] tag arg. Unknown
+   *  skills are not learnable; the catalog is the only syllabus. */
+  function skillDef(world, ref) {
+    var catalog = (world && world.skillsCatalog) || [];
+    var low = String(ref || '').toLowerCase().trim();
+    if (!low) return null;
+    for (var i = 0; i < catalog.length; i++) {
+      var s = catalog[i] || {};
+      if (String(s.id || '').toLowerCase() === low || String(s.name || '').toLowerCase() === low) return s;
+    }
+    return null;
+  }
+
   /* ---------------- the world's own dice table (v1.34.0) ---------------- */
 
   /** The DC a check falls back to when it does not declare its own - the
@@ -894,11 +931,16 @@
          decides. */
       var dc = (typeof def.dc === 'number') ? def.dc : defaultDifficulty(world);
       var mod = statRollMod(world, run, def);
-      var total = r.total + mod;
+      /* v1.38.0: a check that names a cataloged skill counts your level in
+         it - known trainings tip the dice, unknown ones withhold nothing. */
+      var skill = def.skill ? skillDef(world, def.skill) : null;
+      var skLv = skill ? (((run.skills || {})[skill.id]) || 0) : 0;
+      var total = r.total + mod + skLv;
       var crit = criticalOutcome(world, r);
       var success = crit === 'crit' ? true : (crit === 'fumble' ? false : total >= dc);
       var eff = applyCheckEffects(run, world, success ? def.on_success : def.on_failure);
       var modTxt = mod ? (mod >= 0 ? ' +' : ' ') + mod + ' (' + def.stat + ')' : '';
+      modTxt += skLv ? ' +' + skLv + ' (' + skill.name + ')' : '';
       var critTxt = crit === 'crit' ? ' natural ' + r.sides + ' \u2014 critical!'
         : (crit === 'fumble' ? ' natural 1 \u2014 critical fumble' : '');
       var label = String(def.name || def.stat || req.name);
@@ -941,7 +983,32 @@
   }
 
   /** Begin a playthrough. lifeId is the starting role, if the world offers any. */
-  function start(world, lifeId) {
+  /* v1.38.0: a promised number on the sheet - life's and class's
+     overrides walk the same clamp as each other, class speaking last. */
+  function applyOverrides(world, stats, overrides) {
+    var hud = world.hudConfig || {};
+    Object.keys(overrides || {}).forEach(function (k) {
+      var v = Number(overrides[k]);
+      if (isNaN(v)) return;
+      var decl = null;
+      (hud.stats || []).forEach(function (s) { if (s.id === k) decl = s; });
+      if (decl) {
+        if (typeof decl.min === 'number') v = Math.max(decl.min, v);
+        /* world files use max: 0 for "no cap" (cash has no ceiling) -
+           honor it as unbounded, not as a cap of zero */
+        if (typeof decl.max === 'number' && decl.max > 0) v = Math.min(decl.max, v);
+      }
+      stats[k] = v;
+    });
+  }
+
+  function classDef(world, classId) {
+    var cls = null;
+    (world.classes || []).forEach(function (c) { if (c.id === classId) cls = c; });
+    return cls;
+  }
+
+  function start(world, lifeId, classId) {
     var hud = world.hudConfig || {};
     var life = null;
     if (lifeId) {
@@ -949,27 +1016,18 @@
     } else if ((world.startingLives || []).length === 1) {
       life = world.startingLives[0];
     }
+    var cls = classId ? classDef(world, classId) : null;
 
     var stats = {};
     (hud.stats || []).forEach(function (s) { stats[s.id] = s.value; });
     /* v1.32.0: the chosen life's own numbers sit on top of the sheet
        defaults, clamped to each stat's bounds; overrides naming stats the
        sheet never declared ride along as raw values. */
-    if (life && life.statOverrides) {
-      Object.keys(life.statOverrides).forEach(function (k) {
-        var v = Number(life.statOverrides[k]);
-        if (isNaN(v)) return;
-        var decl = null;
-        (hud.stats || []).forEach(function (s) { if (s.id === k) decl = s; });
-        if (decl) {
-          if (typeof decl.min === 'number') v = Math.max(decl.min, v);
-          /* world files use max: 0 for "no cap" (cash has no ceiling) -
-             honor it as unbounded, not as a cap of zero */
-          if (typeof decl.max === 'number' && decl.max > 0) v = Math.min(decl.max, v);
-        }
-        stats[k] = v;
-      });
-    }
+    /* v1.32.0 (life) and v1.38.0 (class): the chosen life's numbers sit on
+       the sheet first, the class's on top of those, each clamped to each
+       stat's bounds. */
+    if (life && life.statOverrides) applyOverrides(world, stats, life.statOverrides);
+    if (cls && cls.statOverrides) applyOverrides(world, stats, cls.statOverrides);
 
     var cashId = (world.gameRules || {}).currencyStatId || 'cash';
     if (stats[cashId] === undefined) stats[cashId] = 0;
@@ -978,6 +1036,7 @@
        as open tasks - the ledger can complete them by name from turn one. */
     var seedList = [];
     if (life && Array.isArray(life.obligations)) seedList = seedList.concat(life.obligations);
+    if (cls && Array.isArray(cls.obligations)) seedList = seedList.concat(cls.obligations);
     if (Array.isArray(world.startingQuests)) seedList = seedList.concat(world.startingQuests);
     var seenQ = {}, quests = [];
     seedList.forEach(function (t) {
@@ -1004,6 +1063,15 @@
       cashId: cashId,
       inventory: (life && Array.isArray(life.inventory)) ? life.inventory.slice() : [],
       quests: quests,
+      /* v1.38.0: the chosen class and its trainings, at level one -
+         levels rise when the referee says someone taught you ([[skill:]]). */
+      classId: cls ? cls.id : null,
+      className: cls ? cls.name : null,
+      skills: (function () {
+        var sk = {};
+        (cls ? cls.skills : []).forEach(function (id) { sk[id] = 1; });
+        return sk;
+      })(),
       /* v1.32.0: who the life says you are - rank and standing for the
          state line, the authored clothes for the referee's eye. */
       identity: (function () {
@@ -1012,7 +1080,12 @@
           .map(function (x) { return String(x || '').trim(); }).filter(Boolean);
         return bits.join(' · ');
       })(),
-      outfit: (life && life.outfit) ? String(life.outfit) : '',
+      outfit: (function () {
+        var bits = [];
+        if (life && life.outfit) bits.push(String(life.outfit));
+        if (cls && cls.outfit) bits.push(String(cls.outfit));
+        return bits.join('; ');
+      })(),
       /* v1.24.0: the party - NPCs travelling with the player, as the
          referee records them ([[with:NAME]] / [[part:NAME]]). Each entry
          knows where and when they joined, so the prompt can say what they
@@ -1413,6 +1486,20 @@
         });
         return '';
       }
+      /* v1.38.0: being taught - the referee says someone taught you, the
+         ledger grows the training by a level (the catalog is the only
+         syllabus; five is mastery and no lesson lands past it). */
+      if (kind === 'skill' || kind === 'teach' || kind === 'learn') {
+        var skRef = skillDef(world, arg);
+        if (!skRef) { reject(whole, 'the world knows no such skill as \u201C' + arg + '\u201D'); return ''; }
+        if (!run.skills || typeof run.skills !== 'object' || Array.isArray(run.skills)) run.skills = {};
+        var curLv = run.skills[skRef.id] || 0;
+        if (curLv >= 5) { changes.push('no ' + skRef.name + ' lesson lands - masterful already'); return ''; }
+        run.skills[skRef.id] = curLv + 1;
+        changes.push(curLv === 0 ? ('learned ' + skRef.name) : (skRef.name + ' improves to ' + (curLv + 1)));
+        return '';
+      }
+
       if (kind === 'roll') {
         /* v1.18.0: "1d20:check:DEX" is a check request - the dice and the
            outcome are resolved by the world (resolveChecks), never by the
@@ -1496,6 +1583,8 @@
     if (!Array.isArray(run.memory.facts)) run.memory.facts = [];
     if (typeof run.memory.summary !== 'string') run.memory.summary = '';
     if (!run.loreFired || typeof run.loreFired !== 'object') run.loreFired = {};
+    /* v1.38.0: ...or before anyone was taught anything */
+    if (!run.skills || typeof run.skills !== 'object' || Array.isArray(run.skills)) run.skills = {};
     return run;
   }
 
@@ -2182,6 +2271,19 @@
           world.factions.map(function (f) { return f.id; }).slice(0, 6).join(', ') +
           (world.factions.length > 6 ? ' \u2026' : '') + '). The sheet keeps the score; ' +
           'do not narrate numbers - show the shift in how people treat the player.';
+      }
+      /* v1.38.0: what the run is good at, in words the referee can lean
+         on - checks the world names for a taught skill count the level in. */
+      var skillNames = Object.keys(run.skills || {}).map(function (id) {
+        var s = skillDef(world, id);
+        return s ? (s.name + ' (' + run.skills[id] + ')') : null;
+      }).filter(Boolean);
+      if (run.className || skillNames.length) {
+        rules += '\n- The player ' + (run.className ? 'is the ' + run.className +
+          (skillNames.length ? ' and knows: ' + skillNames.join(', ') : '') :
+          'knows: ' + skillNames.join(', ')) +
+          '. A check that names a known skill counts its level in; when someone ' +
+          'teaches the player, tag [[skill:NAME]] once per lesson.';
       }
       var reg = itemNames(world);
       if (reg) {

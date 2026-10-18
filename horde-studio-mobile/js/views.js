@@ -2486,6 +2486,23 @@
       }).join('');
     }
 
+    /* v1.38.0: the classes page - bundles are chosen openly at begin, so
+       the peek says what each brings. No secrets here. */
+    if ((world.classes || []).length) {
+      h += '<h3>Classes</h3>';
+      h += world.classes.map(function (c) {
+        var sk = (c.skills || []).map(function (id) {
+          var s = null;
+          (world.skillsCatalog || []).forEach(function (t) { if (t.id === id) s = t; });
+          return (s && s.name) || id;
+        });
+        return '<div class="ws-item"><b>' + esc(c.name) + '</b>' +
+          (c.description ? ' <span class="hint">' + esc(HW.synopsis(c.description, 120)) + '</span>' : '') +
+          (sk.length ? '<div class="hint">brings: ' + esc(sk.join(', ')) + '</div>' : '') +
+          (c.outfit ? '<div class="hint">wears: ' + esc(c.outfit) + '</div>' : '') + '</div>';
+      }).join('');
+    }
+
     if ((world.startingLives || []).length) {
       h += '<h3>Ways to begin</h3>';
       h += world.startingLives.map(function (l) {
@@ -3044,7 +3061,45 @@
       '<div class="field"><button class="btn ghost block sm" data-act="worlds-back">Back to worlds</button></div>';
 
     on(body, '[data-life]', 'click', function () {
-      App.beginWorld(world.id, this.getAttribute('data-life'));
+      /* v1.38.0: after the life, the class gate (which passes plain
+         worlds straight through to the begin) */
+      App.beginOrPickClass(world.id, this.getAttribute('data-life'));
+    });
+    on(body, '[data-act=worlds-back]', 'click', function () { App.go('worlds'); });
+  };
+
+  /* v1.38.0: the class gate - worlds that declare classes ask after the
+     life is chosen; every row carries what the class brings, and "No
+     class" is always a legitimate door. */
+  Views.worldClasses = function (world, lifeId) {
+    var body = $('#worlds-body');
+    if (!body) return;
+    body.innerHTML =
+      '<div class="group"><div class="group-title">Pick a class</div>' +
+      ((world.classes || []).map(function (c) {
+        var sk = (c.skills || []).map(function (id) {
+          var s = null;
+          (world.skillsCatalog || []).forEach(function (t) { if (t.id === id) s = t; });
+          return (s && s.name) || id;
+        });
+        return '<div class="wr-card" data-cls="' + esc(c.id) + '">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="wr-name">' + esc(c.name) + '</div>' +
+            (c.description ? '<div class="wr-sub">' + esc(c.description) + '</div>' : '') +
+            (sk.length ? '<div class="wr-sub">brings ' + esc(sk.join(', ')) + ' at level 1</div>' : '') +
+            (c.outfit ? '<div class="wr-sub">wears ' + esc(c.outfit) + '</div>' : '') +
+          '</div></div>';
+      }).join('') +
+      '<div class="wr-card" data-cls="">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="wr-name">No class</div>' +
+          '<div class="wr-sub">Just you, unbent.</div>' +
+        '</div></div>') +
+      '</div>' +
+      '<div class="field"><button class="btn ghost block sm" data-act="worlds-back">Back to worlds</button></div>';
+
+    on(body, '[data-cls]', 'click', function () {
+      App.beginWorld(world.id, lifeId, this.getAttribute('data-cls') || null);
     });
     on(body, '[data-act=worlds-back]', 'click', function () { App.go('worlds'); });
   };

@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.37.0.apk` (versionCode 76) — 355,683 B,
-sha256 `367616d0e6f9f5d5c2181f68ed207e5b54a1961359d64533298d5a7e860377bf`.
-Built 2026-10-18: `docs/` serves v1.37.0 (webRev `81413b072b18`) and
-release `v1.36.1` is the latest on the repo.
+Current build: `HordeStudio-v1.38.0.apk` (versionCode 77) — 359,779 B,
+sha256 `a3dae432e8d400f0b8b294e1f7727391f5bfaeaf06762c40c05c60807ede86b9`.
+Built 2026-10-18: `docs/` serves v1.38.0 (webRev `97344824a144`) and
+release `v1.37.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.37.0: 1618 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.38.0: 1627 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,55 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.38.0 — Classwork: the world asks what you're good at (2026-10-18)
+
+The classless shelf is off the waiting list (authored-worlds gap #18,
+parked on the record, requested today). New format keys, all optional:
+`skillsCatalog` (trainings with the stat they lean on) and `classes`
+(archetype bundles: statOverrides, starting skills, obligations,
+outfit). At begin, a world that declares classes asks after the life is
+chosen - every row says what the class brings, and "No class" is always
+a legitimate door; plain worlds pass straight through unchanged. Runs
+record `classId`, `className`, and `skills: {id: level}`. The referee
+can teach: `[[skill:Rudderwork]]` levels the training in the ledger,
+one level per lesson, five is mastery, lessons past mastery land as a
+line saying so - and the catalog is the only syllabus (unknown skills
+are rejected with a reason, same table as the other tags). Checks gain
+`skill`: a named check attached to a catalog skill counts the player's
+level into the roll ("+1 (Lockpicking)"), known trainings tip the dice,
+unknown ones withhold nothing - a bonus, never a penalty. The ledger
+line in buildPrompt names the class and trainings, so prose and
+catalogue agree; the book's viewer got a Classes page (no secrets
+involved); assemble() carries both keys, and the AI author's rules
+draft offers them (with explicit permission to say: this world would
+not wear classes).
+
+Engine-first as always: hordeworld-test +29 (parse/assemble keep the
+keys, class-topped stats with clamps, quests+outfit from both origins,
+seed-matched dice differing by exactly the level, mastery caps, catalog
+rejection, the ledger line), new suite worldclass-test (14: the begin
+sheet for classed worlds, the no-class door, many-lived chains into the
+class gate, plain worlds never quizzed, saved-run payloads),
+worldlore-test +3 (the classes page, no page when no classes),
+aicreate-test +3 (assemble carries both keys; the draft offers them).
+Git house note: the local main pointer reverted mid-turn again - the
+commit was staged **mixed** on top of origin/main instead of rebased on
+the stale pointer, so no surprise rebase conflict sweep this time.
+Full battery: **46 suites, 1627 checks, 0 failed**.
+
+APK `HordeStudio-v1.38.0.apk` — 359,779 B, sha256
+`a3dae432e8d400f0b8b294e1f7727391f5bfaeaf06762c40c05c60807ede86b9`;
+in-APK verified (VERSION 1.38.0 / CACHE v64 / aapt code 77 / the
+skillDef, worldClasses and skillsCatalog strands present). The web
+channel serves 1.38.0 (rev `97344824a144`) — "Check for update" on the
+phone picks it up, no reinstall. Published 2026-10-18.
+
+Bumps: 1.38.0 (minor), apk code 77, sw cache v64. Next: v1.38.1 - the
+AI-creator quality pass against a live model (the second half of
+today's request).
 
 ---
 

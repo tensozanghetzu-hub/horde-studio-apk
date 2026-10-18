@@ -1372,7 +1372,123 @@ var norm34 = HW.normalizeRun({ stats: {} });
 ok('old runs grow the new fields quietly',
   Array.isArray(norm34.conditions) && norm34.downed === false);
 
-/* --- v1.36.0: the story remembers itself, and lore answers the scene --- */
+/* --- v1.38.0: classwork - classes choose you back, skills tip the dice --- */
+
+var cw = {
+  id: 'wcls', name: 'Classwork', startLocationId: 'a',
+  locations: [{ id: 'a', name: 'A', exits: [], description: '', region: '' }],
+  entities: [], factions: [], relationships: [], lorebook: [],
+  startingLives: [{ id: 'origin_main', name: 'New Face', role: 'A stranger.',
+    startLocationId: 'a', description: 'You arrive wet.',
+    statOverrides: { grit: 6 }, obligations: ['Find a name'], outfit: 'borrowed oilskins' }],
+  skillsCatalog: [
+    { id: 'skill_lockpicking', name: 'Lockpicking', description: 'Thin wire, thick patience.', stat: 'finesse' },
+    { id: 'skill_rudder', name: 'Rudderwork', description: 'Small boats, honest water.', stat: 'grit' }
+  ],
+  classes: [
+    { id: 'cls_thief', name: 'Cutpurse', description: 'Fingers first, questions later.',
+      statOverrides: { finesse: 8, grit: 12 }, skills: ['skill_lockpicking'],
+      obligations: ['Repay the fence'], outfit: 'a coat with too many pockets' }
+  ],
+  gameRules: { checks: [
+    { name: 'Fillet the Lock', stat: 'finesse', dc: 1, skill: 'skill_lockpicking' },
+    { name: 'Hold the Tiller', stat: 'grit', dc: 21, skill: 'skill_rudder' }
+  ]},
+  hudConfig: { stats: [
+    { id: 'finesse', name: 'Finesse', value: 5, min: 0, max: 10 },
+    { id: 'grit', name: 'Grit', value: 4, min: 0, max: 10 }
+  ]},
+  stats: {}, dmPrompt: '', authorNote: '', intro: ''
+};
+
+/* the format is kept by parse, dropped never */
+var cpw = HW.parse(JSON.parse(JSON.stringify(cw)));
+eq('the skills catalog survives parse', (cpw.skillsCatalog || []).length, 2);
+eq('the classes survive parse', (cpw.classes || []).length, 1);
+ok('a class keeps its bundle', cpw.classes && cpw.classes[0].skills.length === 1 &&
+  cpw.classes[0].outfit.indexOf('pockets') !== -1);
+var bareW = HW.parse(JSON.parse(JSON.stringify(cw)));
+delete bareW.skillsCatalog; delete bareW.classes;
+ok('a world without either is perfectly ordinary', !!bareW);
+
+/* starting in a class: its numbers sit on the sheet, alongside the life's */
+var cRun = HW.start(cw, 'origin_main', 'cls_thief');
+eq('the class is on the run', cRun.classId, 'cls_thief');
+eq('...and names itself', cRun.className, 'Cutpurse');
+eq("the life's own override stands", cRun.stats.grit, 10);   /* 6 clamped? no - class tops it later */
+eq('the class tops the sheet where it speaks', cRun.stats.finesse, 8);
+eq('the class gifts its skills at level one', cRun.skills.skill_lockpicking, 1);
+ok('obligations from life AND class arrive', cRun.quests.length === 2 &&
+  cRun.quests.some(function (q) { return q.text === 'Repay the fence'; }), JSON.stringify(cRun.quests));
+ok('the outfit wears both', cRun.outfit.indexOf('oilskins') !== -1 && cRun.outfit.indexOf('pockets') !== -1,
+  cRun.outfit);
+var noClassRun = HW.start(cw, 'origin_main');
+ok('runs without a class are just runs', noClassRun.classId === null ||
+  noClassRun.classId === undefined || !noClassRun.className);
+eq('...and its stats are the sheet plus the life', noClassRun.stats.grit, 6);
+var healed = { skills: 'junk' };
+ok('a corrupted skills pocket heals', (function () {
+  HW.normalizeRun(healed);
+  return healed.skills && typeof healed.skills === 'object' && !Array.isArray(healed.skills);
+})());
+
+/* skills tip the dice: the same seed rolls higher by the level */
+(function () {
+  /* fresh runs on one seed die identically - so the trained and the
+     untrained roll the same die, and the difference IS the training */
+  var seed = 7;
+  var noSk = HW.start(cw); noSk.seed = seed;
+  var tries = HW.applyTags(cw, noSk, 'Try.[[roll:1d20:check:Fillet the Lock]]');
+  HW.commit(noSk, 'Try.', tries.text, tries);
+  var baseRes = HW.resolveChecks(cw, noSk, tries);
+  ok('the trained and untrained really share a die',
+    baseRes.list[0].total >= 1 && baseRes.list[0].total <= 20, 'die ' + baseRes.list[0].total);
+  var withSk = HW.start(cw, null, 'cls_thief'); withSk.seed = seed;
+  var tries2 = HW.applyTags(cw, withSk, 'Try.[[roll:1d20:check:Fillet the Lock]]');
+  HW.commit(withSk, 'Try.', tries2.text, tries2);
+  var skRes = HW.resolveChecks(cw, withSk, tries2);
+  eq('the trained die is higher by exactly the skill level',
+    skRes.list[0].total - baseRes.list[0].total, 1);
+  ok('the verdict line names the training', skRes.list[0].text.indexOf('Lockpicking') !== -1,
+    skRes.list[0].text);
+  var higher = HW.start(cw); higher.seed = seed;
+  higher.skills.skill_lockpicking = 2;
+  var tries3 = HW.applyTags(cw, higher, 'Try.[[roll:1d20:check:Fillet the Lock]]');
+  HW.commit(higher, 'Try.', tries3.text, tries3);
+  var lvl2 = HW.resolveChecks(cw, higher, tries3);
+  eq('every level counts', lvl2.list[0].total - baseRes.list[0].total, 2);
+  var unkSk = HW.start(cw); unkSk.seed = seed;
+  var uk = HW.applyTags(cw, unkSk, 'Try.[[roll:1d20:check:Hold the Tiller]]');
+  HW.commit(unkSk, 'Try.', uk.text, uk);
+  var ukRes = HW.resolveChecks(cw, unkSk, uk);
+  ok('a check naming a skill you lack buys nothing extra (still a failure at DC 21)',
+    ukRes.list[0].success === false && ukRes.list[0].total === ukRes.list[0].total);
+  ok('...and the line names no skill for what you cannot do',
+    ukRes.list[0].text.indexOf('Rudderwork') === -1);
+})();
+
+/* being taught: [[skill:...]] learns, levels, and respects the catalog */
+var tRun = HW.start(cw, null, 'cls_thief');
+var ta = HW.applyTags(cw, tRun, 'Later you practice.[[skill:Rudderwork]]');
+ok('learning names the new skill', ta.changes.some(function (c) {
+  return /learned Rudderwork|Rudderwork/.test(c); }), JSON.stringify(ta.changes));
+eq('...and levels it in the ledger', tRun.skills.skill_rudder, 1);
+var tb = HW.applyTags(cw, tRun, 'More practice.[[skill:Rudderwork]]');
+eq('repeated teaching levels up', tRun.skills.skill_rudder, 2);
+for (var ti = 0; ti < 10; ti++) HW.applyTags(cw, tRun, 'Practice.[[skill:Rudderwork]]');
+eq('skills grow to five and no further', tRun.skills.skill_rudder, 5);
+var bad = HW.applyTags(cw, HW.start(cw), 'Learn.[[skill:Pyromancy]]');
+eq('a skill the world never catalogued is refused', bad.rejections.length, 1);
+ok('...with a reason the referee learns from', /the world knows no such skill|no such skill/.test(bad.rejections[0].reason),
+  JSON.stringify(bad.rejections));
+
+/* the ledger says what you are good at, in words the referee can lean on */
+var lp = HW.buildPrompt(cw, HW.start(cw, 'origin_main', 'cls_thief'), 'hello').system;
+ok('the ledger names the class', lp.indexOf('Cutpurse') !== -1);
+ok('...and the trainings', lp.indexOf('Lockpicking') !== -1);
+ok('a run without either stays silent about it', HW.buildPrompt(cw, HW.start(cw, 'origin_main'), 'hello').system.indexOf('Cutpurse') === -1);
+
+
 
 (function () {
   /* the memory cadence: same rhythm as the persona chats, keyed to turns */
