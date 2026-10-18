@@ -23,6 +23,7 @@
   var TITLES = { characters: 'Horde Studio', now: 'Now', chats: 'Conversations', world: 'World', settings: 'Settings', settingsx: 'Settings', personas: 'Personas' };
 
   App.go = function (name, params) {
+    if (App.stopSpeech) App.stopSpeech();
     params = params || {};
     if (name === 'now') name = 'life';                 // v1.x name for the Life screen
     if (name !== App.state.screen) App.stack.push(App.state.screen);
@@ -401,6 +402,8 @@
   };
 
   App.openSession = function (id) {
+    App.stopSpeech();
+    App.state.attach = null; App.renderAttach();   /* staging belongs to the chat you leave */
     IDB.get('sessions', id).then(function (s) {
       if (!s) return UI.toast('Chat not found');
       return Promise.resolve(Store.getCharacter(s.charId)).then(function (c) {
@@ -415,13 +418,328 @@
     });
   };
 
+  /** v1.39.0 G: the chat health numbers, computed off the ledger itself.
+   *  Pure for tests: no DOM, no promises. */
+  App.chatHealth = function (session, messages, settings) {
+    messages = messages || [];
+    var replies = 0, words = 0, rerolls = 0, auto = 0;
+    messages.forEach(function (m) {
+      if (m.role === 'assistant') {
+        replies++;
+        words += String(m.text || '').trim().split(/\s+/).filter(Boolean).length;
+        rerolls += Math.max(0, (m.alts ? m.alts.length : 1) - 1);
+      }
+      if (m.autonomous) auto++;
+    });
+    var memAt = session.memAt || session.memoryAt || 0;
+    var windowed = messages.slice(-(settings.contextMessages || 40))
+      .map(function (m) { return (m.role === 'user' ? 'You' : 'They') + ': ' + (m.text || ''); }).join('\n');
+    var contextChars = (session.summary || '').length +
+      ((session.facts || []).join('\n')).length + windowed.length;
+    return {
+      messages: messages.length,
+      replies: replies,
+      rerolls: rerolls,
+      autonomousMessages: auto,
+      wordsPerReply: replies ? Math.round(words / replies) : 0,
+      sinceSummary: Math.max(0, (session.messageCount || messages.length) - memAt),
+      memoryEvery: settings.memoryEvery || 14,
+      contextTokens: Math.ceil(contextChars / 4)
+    };
+  };
+
+  App.chatHealthSheet = function (sessionId) {
+    Promise.all([IDB.all('messages').then(function (all) {
+      return all.filter(function (m) { return m.sessionId === sessionId; });
+    }), IDB.get('sessions', sessionId)]).then(function (r) {
+      var msgs = (r[0] || []).sort(function (a, b) { return a.createdAt - b.createdAt; });
+      var sess = r[1];
+      var h = App.chatHealth(sess, msgs, Store.settings);
+      UI.sheet({
+        title: 'Chat health',
+        body: '<div class="group">' +
+          '<div class="kv"><span>Messages</span><b>' + h.messages + '</b></div>' +
+          '<div class="kv"><span>Replies from the character</span><b>' + h.replies + '</b></div>' +
+          '<div class="kv"><span>Average reply length</span><b>' + h.wordsPerReply + ' words</b></div>' +
+          '<div class="kv"><span>Rerolls spent</span><b>' + h.rerolls + '</b></div>' +
+          (h.autonomousMessages ? '<div class="kv"><span>Sent on their own</span><b>' + h.autonomousMessages + '</b></div>' : '') +
+          '<div class="kv"><span>Prompt weight (estimate)</span><b>~' + h.contextTokens + ' tokens</b></div>' +
+          '<div class="kv"><span>Since last memory write</span><b>' + h.sinceSummary + ' of ' + h.memoryEvery + '</b></div>' +
+          '</div>' +
+          '<div class="hint" style="margin-top:10px">The weight estimate counts the memory and the ' +
+          'recent history your next message will carry - if the model starts forgetting, ' +
+          'let memory catch up or trim the thread.</div>'
+      });
+    }).catch(function (e) { UI.toast('Could not read the chat: ' + (e && e.message), 4000); });
+  };
+
+  App.chatSettingsSheet = function (sessionId) {
+    IDB.get('sessions', sessionId).then(function (s) {
+      if (!s) return;
+      var ov = s.overrides || {}, sheetBody = document;
+      UI.sheet({
+        title: 'Chat settings — ' + (s.title || 'New chat'),
+        body:
+          '<div class="field"><div class="field-head"><label>Temperature (leave empty for the character\'s default)</label></div>' +
+            '<input id="cs-temp" type="number" min="0" max="2" step="0.05" value="' + (ov.temperature === 0 || ov.temperature ? ov.temperature : '') + '" placeholder="default"></div>' +
+          '<div class="field"><div class="field-head"><label>Max reply tokens (leave empty for default)</label></div>' +
+            '<input id="cs-maxtok" type="number" min="32" max="2048" step="16" value="' + (ov.maxTokens || '') + '" placeholder="default"></div>' +
+          '<div class="field"><div class="field-head"><label>Style note for this chat only</label></div>' +
+            '<textarea id="cs-note" class="tall" placeholder="e.g. answer in short, clipped lines">' + esc(ov.note || '') + '</textarea></div>',
+        actions: [
+          { label: 'Save', value: 'save' },
+          { label: 'Reset to defaults', cls: 'ghost', value: 'reset' },
+          { label: 'Cancel', cls: 'ghost', value: null }
+        ],
+        onMount: function (b) { sheetBody = b; }
+      }).then(function (res) {
+        if (!res) return;
+        if (res === 'reset') { s.overrides = null; return Store.putSession(s).then(function () { UI.toast('Chat follows the character again'); }); }
+        var temp = $('#cs-temp', sheetBody).value.trim();
+        var maxt = parseInt($('#cs-maxtok', sheetBody).value, 10);
+        var note = $('#cs-note', sheetBody).value.trim();
+        s.overrides = {};
+        if (temp !== '') s.overrides.temperature = parseFloat(temp);
+        if (maxt > 0) s.overrides.maxTokens = maxt;
+        if (note) s.overrides.note = note;
+        if (!Object.keys(s.overrides).length) s.overrides = null;
+        return Store.putSession(s).then(function () { UI.toast('Chat settings saved'); });
+      });
+    });
+  };
+
+  /** v1.39.0 H: after the third real exchange, an untitled chat learns its
+      name from one tiny one-shot call. Silent on failure (a title is a
+      nicety, not an availability problem). */
+  App.maybeAutoTitle = function () {
+    var st = App.state;
+    if (!st.session || !st.char) return;
+    var s = st.session;
+    if (s.title && s.title !== 'New chat' && !s.titleAuto) return;   /* user-named: hands off */
+    if (s.titleAuto) return;                                          /* we named it once */
+    var turns = st.messages.filter(function (m) { return m.role === 'user' || m.role === 'assistant'; });
+    if (turns.length < 6) return;
+    if (s._titling) return;
+    s._titling = true;
+    var transcript = turns.slice(0, 10).map(function (m) {
+      return (m.role === 'user' ? Store.settings.userName : st.char.name) + ': ' + (m.text || '').slice(0, 220);
+    }).join('\n').slice(0, 1400);
+    return API.generateFree({
+      settings: Store.settings, name: 'title',
+      system: 'Name this conversation in at most five words. No quotes, no commentary, just the title.',
+      instruction: transcript,
+      maxTokens: 24, signal: null
+    }).then(function (text) {
+      s._titling = false;
+      text = String(text || '').trim().replace(/^[\"'《]+|[\"'》]+$/g, '').split('\n')[0].slice(0, 60);
+      if (!text) return;
+      s.title = text;
+      s.titleAuto = true;
+      return Store.putSession(s).then(function () {
+        if (App.state.screen === 'chats') Views.chats($('.screen'));
+      });
+    }).catch(function () { s._titling = false; });
+  };
+
+  /** v1.39.0 F: read a reply aloud. The engine lives on the device
+      (speechSynthesis), so it works offline against whatever voice the
+      platform carries. One utterance at a time; a second tap stops it. */
+  App.stopSpeech = function () {
+    try {
+      if (global.speechSynthesis) global.speechSynthesis.cancel();
+    } catch (e) { /* best effort */ }
+    if (App.state.speakingBtn) {
+      App.state.speakingBtn.innerHTML = iconSafe('volume');
+      App.state.speakingBtn = null;
+    }
+  };
+
+  function iconSafe(name) {
+    return (typeof icon === 'function') ? '<svg viewBox="0 0 24 24">' + '</svg>' : name;
+  }
+
+  App.speakMessage = function (msg, btn) {
+    if (!global.speechSynthesis) {
+      UI.toast('This device offers no speech engine', 3200);
+      return;
+    }
+    if (App.state.speakingBtn === btn) { App.stopSpeech(); return; }
+    App.stopSpeech();
+    var text = Views.speechText(msg.text || '');
+    if (!text) return UI.toast('Nothing to say on this one');
+    var u = new SpeechSynthesisUtterance(text);
+    u.rate = 1; u.pitch = 1;
+    u.onerror = u.onend = function () {
+      if (App.state.speakingBtn === btn) {
+        App.state.speakingBtn = null;
+        btn.innerHTML = iconSafe('volume');
+      }
+    };
+    App.state.speakingBtn = btn;
+    btn.innerHTML = iconSafe('pause');
+    global.speechSynthesis.speak(u);
+  };
+
+  /** v1.39.0 E: staged photo for the next send. The model reads only the
+      caption the player writes - that is the honest translation from pixels
+      to text-model words. */
+  App.stageAttach = function () {
+    if (App.state.busy) return UI.toast('Wait for the current reply');
+    Views.pickFile('image/*').then(function (file) {
+      if (!file) return;
+      return Views.normalizeImage ? Views.normalizeImage(file, 640) :
+        new Promise(function (resolve) {
+          var fr = new FileReader();
+          fr.onload = function () { resolve(fr.result); };
+          fr.readAsDataURL(file);
+        });
+    }).then(function (dataUrl) {
+      if (!dataUrl) return;
+      return UI.input('Describe the photo - the character will read this', {
+        placeholder: 'e.g. a red door with three locks'
+      }).then(function (cap) {
+        if (cap === null || !String(cap).trim()) return;
+        App.state.attach = { image: dataUrl, caption: String(cap).trim() };
+        App.renderAttach();
+        $('#input').focus();
+      });
+    }).catch(function (e) { UI.toast('Could not read that image: ' + (e && e.message), 4000); });
+  };
+
+  App.renderAttach = function () {
+    var el = $('#attach-stage');
+    if (!el) return;
+    var a = App.state.attach;
+    if (!a) { el.hidden = true; el.innerHTML = ''; return; }
+    el.hidden = false;
+    el.innerHTML = '<img src="' + UI.esc(a.image) + '" alt="staged photo">' +
+      '<span class="attach-cap">' + UI.esc(a.caption) + '</span>' +
+      '<button class="chip" data-attach-x="1">✕</button>';
+    el.querySelector('[data-attach-x]').onclick = function () {
+      App.state.attach = null; App.renderAttach();
+    };
+  };
+
+  /** v1.39.0 B: one readable export, one real backup Import is its twin. */
+  App.exportSheet = function (id) {
+    UI.sheet({
+      title: 'Export transcript',
+      body: '<div class="opt" data-a="text">' + icon('edit') + ' For reading (.txt)</div>' +
+        '<div class="opt" data-a="json">' + icon('download') + ' Backup (.json) — for Horde Studio</div>',
+      onMount: function (b, close) {
+        b.querySelectorAll('.opt').forEach(function (el) {
+          el.onclick = function () {
+            var a = el.getAttribute('data-a'); close();
+            if (a === 'text') App.exportTranscript(id);
+            else App.exportTranscriptJson(id);
+          };
+        });
+      }
+    });
+  };
+
+  App.exportTranscriptJson = function (id) {
+    Promise.all([IDB.get('sessions', id), Store.getMessages(id)]).then(function (r) {
+      var s = r[0], msgs = r[1];
+      return Promise.resolve(Store.getCharacter(s.charId)).then(function (c) {
+        var data = {
+          k: 'hordesession', v: 1, title: s.title || 'New chat',
+          charName: c ? c.name : 'Character', createdAt: s.createdAt,
+          summary: s.summary || '', facts: s.facts || [],
+          messages: msgs.map(function (m) {
+            return { role: m.role, text: m.text || '', createdAt: m.createdAt, image: m.image || null, imageCaption: m.imageCaption || null, autonomous: !!m.autonomous };
+          })
+        };
+        UI.download(((c && c.name) || 'chat') + '-' + (s.title || 'chat') + '.hordechat.json',
+          JSON.stringify(data, null, 2), 'application/json');
+      });
+    });
+  };
+
+  /** The twin: ingest a .hordechat.json backup as a NEW session under a
+      character you choose. Never overwrites: import always creates. */
+  App.importChatData = function (raw, charId) {
+    var data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!data || !(data.k === 'hordesession') || !Array.isArray(data.messages)) {
+      throw new Error('not a Horde Studio chat backup');
+    }
+    var s = Store.newSession(charId, (data.title || 'Imported chat'));
+    s.summary = data.summary || '';
+    s.facts = Array.isArray(data.facts) ? data.facts : [];
+    s.createdAt = data.createdAt || Date.now();
+    var msgs = data.messages.filter(function (m) {
+      return m && (m.role === 'user' || m.role === 'assistant' || m.role === 'system');
+    }).map(function (m) {
+      return {
+        id: UI.uid('m'), sessionId: s.id, role: m.role,
+        text: String(m.text || ''), image: m.image || null,
+        imageCaption: m.imageCaption || null,
+        alts: m.text ? [String(m.text)] : [], altIdx: 0,
+        autonomous: !!m.autonomous,
+        createdAt: m.createdAt || Date.now()
+      };
+    });
+    s.messageCount = msgs.filter(function (m) { return m.role !== 'system'; }).length;
+    return Store.putSession(s).then(function () {
+      return IDB.putMany('messages', msgs);
+    }).then(function () { return s; });
+  };
+
+  App.importChat = function () {
+    Views.pickFile('.json,application/json').then(function (file) {
+      if (!file) return;
+      return file.text().then(function (txt) {
+        if (!Store.characters.length) return UI.toast('Make a character first - the chat needs someone to talk to', 4200);
+        function pickChar() {
+          if (Store.characters.length === 1) return Promise.resolve(Store.characters[0]);
+          return UI.sheet({
+            title: 'Import to which character?',
+            body: Store.characters.map(function (c, i) {
+              return '<div class="opt" data-i="' + i + '">' + esc(c.name || 'Unnamed') + '</div>';
+            }).join(''),
+            onMount: function (b, close) {
+              var promise = App._pickCharResolve = null;
+            }
+          });
+        }
+        /* a single sheet returning the chosen character through a promise */
+        return new Promise(function (resolve) {
+          if (Store.characters.length === 1) return resolve(Store.characters[0]);
+          var closeRef = null;
+          UI.sheet({
+            title: 'Import to which character?',
+            body: Store.characters.map(function (c, i) {
+              return '<div class="opt" data-i="' + i + '">' + esc(c.name || 'Unnamed') + '</div>';
+            }).join(''),
+            onMount: function (b, close) {
+              closeRef = close;
+              b.querySelectorAll('.opt').forEach(function (el) {
+                el.onclick = function () { close(); resolve(Store.characters[parseInt(el.getAttribute('data-i'), 10)]); };
+              });
+            }
+          });
+        }).then(function (char) {
+          if (!char) return;
+          return App.importChatData(txt, char.id).then(function () {
+            UI.toast('Chat imported for ' + (char.name || 'the character'), 3200);
+            App.openSession && Views.chats($('.screen'));
+          });
+        }).catch(function (e) { UI.toast('Import failed: ' + (e && e.message), 4200); });
+      });
+    });
+  };
+
   App.sessionMenu = function (id) {
     IDB.get('sessions', id).then(function (s) {
       if (!s) return;
       UI.sheet({
         title: s.title || 'New chat',
         body:
+          '<div class="opt" data-a="pin">' + icon('plus') + (s.pinned ? ' Unpin' : ' Pin to top') + '</div>' +
+          '<div class="opt" data-a="archive">' + icon('download') + (s.archived ? ' Unarchive' : ' Archive') + '</div>' +
           '<div class="opt" data-a="rename">' + icon('edit') + ' Rename</div>' +
+          '<div class="opt" data-a="settings">' + icon('edit') + ' Chat settings</div>' +
+          '<div class="opt" data-a="health">' + icon('brain') + ' Chat health</div>' +
           '<div class="opt" data-a="mem">' + icon('brain') + ' Story memory</div>' +
           '<div class="opt" data-a="fork">' + icon('copy') + ' Fork an alternate timeline</div>' +
           '<div class="opt" data-a="export">' + icon('download') + ' Export transcript</div>' +
@@ -435,11 +753,21 @@
                 UI.input('Rename chat', { value: s.title || '' }).then(function (v) {
                   if (v === null) return;
                   s.title = v.trim() || 'New chat';
+                  s.titleAuto = false;   /* a name you chose is never overwritten (v1.39.0) */
                   Store.putSession(s).then(function () { Views.chats($('.screen')); });
                 });
-              } else if (a === 'fork') App.forkTimeline(id);
+              } else if (a === 'pin') {
+                s.pinned = !s.pinned;
+                Store.putSession(s).then(function () { Views.chats($('.screen')); });
+              } else if (a === 'archive') {
+                s.archived = !s.archived;
+                if (s.archived) s.pinned = false;
+                Store.putSession(s).then(function () { Views.chats($('.screen')); });
+              } else if (a === 'settings') App.chatSettingsSheet(id);
+              else if (a === 'health') App.chatHealthSheet(id);
+              else if (a === 'fork') App.forkTimeline(id);
               else if (a === 'mem') App.memorySheet(id);
-              else if (a === 'export') App.exportTranscript(id);
+              else if (a === 'export') App.exportSheet(id);
               else if (a === 'del') {
                 /* v1.21.0 (upstream 18.3.5): the active chat's reply is still
                    generating — deleting it now would orphan the in-flight
@@ -574,6 +902,17 @@
     if (char.temperature !== null && char.temperature !== undefined) charSettings.temperature = char.temperature;
     if (char.maxTokens) charSettings.maxTokens = char.maxTokens;
 
+    /* v1.39.0 chatwork: the most local layer wins - this chat over this
+       character over the global defaults. The chat's own style note joins
+       whatever one-off note this generation was asked to hold. */
+    var ov = (session && session.overrides) || null;
+    if (ov) {
+      if (ov.temperature !== null && ov.temperature !== undefined && ov.temperature !== '') charSettings.temperature = ov.temperature;
+      if (ov.maxTokens) charSettings.maxTokens = ov.maxTokens;
+    }
+    var finalNote = [vhNote, ov && ov.note].filter(Boolean).join('\n\n') || null;
+    vhNote = finalNote;
+
     /* v1.21.0 (upstream 18.3.5): a save failure is not a provider failure.
        The model already did its work — a finished reply stays in the thread
        and the storage error is surfaced on its own, instead of the generic
@@ -678,6 +1017,7 @@
          user scrolled up to read it — follow only when they're at the bottom. */
       Views.stickToBottom($('#thread'));
       App.afterReply();
+      App.maybeAutoTitle();
     }).catch(function (e) {
       /* The handler must never throw: if it did, the cleanup below would be
          skipped and the "thinking" dots would run forever. */
@@ -1318,11 +1658,15 @@
   App.send = function () {
     var input = $('#input');
     var text = input.value.trim();
-    if (!text || App.state.busy) return;
+    var stage = App.state.attach || null;
+    /* v1.39.0 E: a staged photo is a full message by itself - words optional */
+    if ((!text && !stage) || App.state.busy) return;
     var draft = input.value;
     input.value = ''; input.style.height = 'auto';
+    if (stage) { App.state.attach = null; App.renderAttach(); }
     var char = App.state.char, session = App.state.session;
     var msg = { sessionId: session.id, role: 'user', text: text, createdAt: Date.now() };
+    if (stage) { msg.image = stage.image; msg.imageCaption = stage.caption; }
     Store.addMessage(msg).then(function (m) {
       App.state.messages.push(m);
       Views.appendMessage(char, m);
@@ -1332,6 +1676,7 @@
       /* v1.21.0 (upstream 18.3.5): a storage failure is not a failed send —
          give the text back instead of letting it vanish with the box. */
       if (input.value === '') input.value = draft;
+      if (stage) { App.state.attach = stage; App.renderAttach(); }   /* give the photo back too */
       UI.toast('Your message was not sent — saving failed: ' + (e && e.message), 6000);
       console.error('send save failed:', e);
     });
@@ -2394,6 +2739,16 @@
       App.state.query = this.value;
       Views.characters($('.screen'));
     };
+    /* v1.39.0 boot wiring: chat search, photo staging, chat backup import */
+    var _chs = $('#chat-search');
+    if (_chs) _chs.oninput = function () {
+      App.state.chatSearch = _chs.value;
+      Views.chats($('.screen'));
+    };
+    var _att = $('#send-attach');
+    if (_att) _att.onclick = function () { App.stageAttach(); };
+    var _imp = $('#chats-import');
+    if (_imp) _imp.onclick = function () { App.importChat(); };
 
     var input = $('#input');
     input.addEventListener('input', function () {
@@ -2472,6 +2827,14 @@
       } else if (act === 'reroll') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
         App.generateReply({ rerollFor: msg });
+      } else if (act === 'rerollnote') {
+        if (App.state.busy) return UI.toast('Wait for the current reply');
+        UI.input('Steer the reroll', { placeholder: 'e.g. shorter, gentler, more hearts' }).then(function (note) {
+          if (note === null) return;
+          App.generateReply({ rerollFor: msg, note: 'Reroll instruction: ' + note.trim() });
+        });
+      } else if (act === 'say') {
+        App.speakMessage(msg, btn);
       } else if (act === 'retry') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
         /* Same message, fresh attempt: the Horde re-dispatches to whatever

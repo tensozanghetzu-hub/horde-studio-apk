@@ -605,6 +605,23 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.0
+
+**Eight chat powers in one sweep.** The chats list learns **search** (every
+word matches name, title or memory), **pins**, and **archives** tucked behind
+a count you can peek at. Any chat can now **lean local over its character**:
+its own temperature, reply budget and style note ("Chat settings…"). The
+assistant action row gains **Listen** (reads replies aloud with the device's
+own speech engine) and **Reroll with a note** (steer one retry), and the
+rewind row shows each alternative's **word count**. A paperclip in the
+composer stages a **photo with a caption** - you write what the character
+should take away from the pixels; that's the part they actually see. Export
+grew a **backup (.json)** that the chats screen can **import** as a fresh
+session under a character you pick, "Chat health" totals what each chat
+spends in tokens and rerolls, and after the third exchange an untitled chat
+**names itself** - once, quietly, and it never second-guesses a name you
+typed yourself. (Check for updates on your phone.)
+
 ## What's new in v1.38.0
 
 **The world now asks what you're good at.** Worlds can declare

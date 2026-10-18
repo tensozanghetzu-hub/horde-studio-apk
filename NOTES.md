@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.38.0.apk` (versionCode 77) — 359,779 B,
-sha256 `a3dae432e8d400f0b8b294e1f7727391f5bfaeaf06762c40c05c60807ede86b9`.
-Built 2026-10-18: `docs/` serves v1.38.0 (webRev `97344824a144`) and
-release `v1.37.0` is the latest on the repo.
+Current build: `HordeStudio-v1.39.0.apk` (versionCode 79) — 367,971 B,
+sha256 `93298de87b64caa567a6d282db1daca95768cfaed75f82dd57eee5a8da551e7f`.
+Built 2026-10-18: `docs/` serves v1.39.0 (webRev `551f84a16409`) and
+release `v1.39.0` ships the chat overhaul (eight features, one release).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -12,8 +12,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.38.0: 1627 checks in total).
+Tests: 47 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.39.0: 1650+ checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -611,6 +611,69 @@ the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
 
 ---
+
+---
+
+## v1.39.0 - eight small chat powers, one release (2026-10-18)
+
+A sweep across the single most-lived-in screen of the app. All additive, all
+migrating cleanly from v1.38.x sessions (new fields default off/absent).
+
+**A. Find, pin, tidy.** The chats list gains a search box (every word must be
+found in the character name, chat title or memory summary - query `night blue`
+finds chats owning both). Chats can be **pinned** (they ride above the rest,
+newest-first inside the pin pile) and **archived** (tucked away behind a
+"Show archived (N)" row - nothing is deleted). Pin/archive chips mark their
+holders in the list; manual renames set `titleAuto:false` so the app never
+overwrites a name you chose.
+
+**B. Take chats with you - both ways.** The chat menu's Export opens a
+two-way sheet: "For reading (.txt)" is the old prose transcript; "Backup
+(.json)" emits a `.hordechat.json` (kind-tagged, `k:"hordesession", v:1`)
+holding title, memory, facts and every message. The chats screen's Import
+button reads such a file back as a brand-new session under a character you
+pick (import always creates, never overwrites); the payload kind is
+validated up front.
+
+**C. A chat may lean local over its character.** "Chat settings…" in the
+session menu carries temperature, max-reply-tokens and a per-chat style note.
+These are the most local generation layer (chat over character over global
+defaults): an empty field defers downward, a filled one wins. The style note
+joins any one-off generation note in the prompt.
+
+**D. Rerolls compare and can be steered.** The alternate-reply swipe row now
+shows each alternate's word count, and a new 📝 chip on the assistant action
+row asks "Steer the reroll" - the answer rides that generation only as a
+reroll instruction.
+
+**E. Say it with a photo.** A paperclip in the composer stages a picture:
+it is downscaled to 640px through the existing `normalizeImage`, then you
+write the caption the character actually *reads* (the honest pixel-to-words
+translation). The message stores `image` + `imageCaption`; prompt history
+decorates it `[photo: caption]`, so the text model sees what was meant, not
+opaque binary. A photo alone is a complete send (no text required).
+
+**F. Every reply can be heard.** A Listen chip on every assistant message
+reads the reply with the platform's own speech engine (works offline; text is
+stripped of markdown first, `Views.speechText`). One voice at a time, a
+second tap stops it, and navigating away or switching chats always silences
+speech (`App.stopSpeech`).
+
+**G. The health sheet.** "Chat health" totals what the chat is spending:
+message/reply counts, average reply length, rerolls spent, messages since the
+last memory write (against the memory cadence), and an estimated prompt
+weight in tokens (~chars/4 of memory + facts + the rolling window). Pure
+`App.chatHealth` for tests.
+
+**H. Chats name themselves.** After three full exchanges, an untitled chat
+gets exactly one tiny one-shot title call (`API.generateFree`, ≤5 words) and
+saves it with `titleAuto:true`. Failures are silent - a title is a nicety,
+not an availability problem - and user-chosen names are never overwritten.
+
+Tests: new suite `tests/chatwork-test.js` (39 checks, A-H, vm-sandbox +
+fakeIDB; loadCoreLite carves `App.chatHealth`/`App.maybeAutoTitle` out of
+app.js so the pure helpers run for real). Full battery: 47 suites, zero
+failures.
 
 ## v1.38.1 - the honest budget: the AI world-creator vs the 512-token wall (2026-10-18)
 

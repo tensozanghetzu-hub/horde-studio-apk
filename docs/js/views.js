@@ -466,15 +466,41 @@
   Views.chats = function (root) {
     renderPersonaBar();
     var list = $('#chat-list'), empty = $('#chats-empty');
-    Store.allSessions().then(function (sessions) {
+    Store.allSessions().then(function (all) {
       var chars = {};
       Store.characters.forEach(function (c) { chars[c.id] = c; });
+      /* v1.39.0 chatwork: find-pin-archive. Hidden counts (search rows,
+         archived piles) stay readable; nothing is ever deleted here. */
+      var q = (App.state.chatSearch || '').trim().toLowerCase();
+      var words = q ? q.split(/\s+/).filter(Boolean) : [];
+      function matches(s) {
+        if (!words.length) return true;
+        var c = chars[s.charId] || { name: '' };
+        var hay = ((c.name || '') + ' ' + (s.title || '') + ' ' + (s.summary || '')).toLowerCase();
+        return words.every(function (w) { return hay.indexOf(w) !== -1; });
+      }
+      var archived = all.filter(function (s) { return s.archived; }).length;
+      var sessions = all.filter(function (s) {
+        return (App.state.showArchived || !s.archived) && matches(s);
+      });
+      /* pins ride first, newest first inside each pile (allSessions already
+         sorts by updatedAt; Array.sort is stable in modern engines) */
+      sessions = sessions.slice().sort(function (a, b) {
+        return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+      });
+      var searchEl = $('#chat-search');
+      if (searchEl && searchEl.value !== (App.state.chatSearch || '')) {
+        searchEl.value = App.state.chatSearch || '';
+      }
       list.innerHTML = sessions.map(function (s) {
         var c = chars[s.charId] || { name: 'Deleted character' };
         return '<div class="item" data-open="' + s.id + '">' +
           '<div class="item-av">' + avatarHtml(c.avatar, c.name) + '</div>' +
           '<div class="item-main">' +
-            '<div class="item-title">' + esc(c.name) + ' <span style="color:var(--dim);font-weight:400">· ' + esc(s.title || 'New chat') + '</span></div>' +
+            '<div class="item-title">' + esc(c.name) + ' <span style="color:var(--dim);font-weight:400">· ' + esc(s.title || 'New chat') + '</span>' +
+              (s.pinned ? '<span class="item-badge">pinned</span>' : '') +
+              (s.archived ? '<span class="item-badge">archived</span>' : '') +
+            '</div>' +
             '<div class="item-sub">' + esc(s.summary ? s.summary.slice(0, 90) : (s.messageCount || 0) + ' messages') + '</div>' +
           '</div>' +
           '<div class="item-side">' + esc(UI.fmtTime(s.updatedAt)) +
@@ -483,7 +509,14 @@
             '</button>' +
           '</div>' +
         '</div>';
-      }).join('');
+      }).join('') +
+      (archived && !App.state.showArchived
+        ? '<div class="field"><button class="btn ghost block sm" data-act="show-archived">Show archived (' + archived + ')</button></div>'
+        : (App.state.showArchived && archived ? '<div class="field"><button class="btn ghost block sm" data-act="hide-archived">Hide archived</button></div>' : '')) +
+      (!sessions.length && archived && !App.state.showArchived ? '' :
+        (!sessions.length && (q || all.length)
+          ? '<div class="field"><span class="hint">' + (q ? 'No chats match \"' + esc(q) + '\" as ' + esc(Store.personaLabel()) + '.' : '') + '</span></div>'
+          : ''));
       empty.hidden = sessions.length > 0;
       if (!empty.hidden) {
         /* An empty list is usually not data loss: every persona keeps its
@@ -496,6 +529,12 @@
           }
         });
       }
+      on(list, '[data-act=show-archived]', 'click', function () {
+        App.state.showArchived = true; Views.chats(root);
+      });
+      on(list, '[data-act=hide-archived]', 'click', function () {
+        App.state.showArchived = false; Views.chats(root);
+      });
       on(list, '[data-open]', 'click', function (e) {
         if (e.target.closest('[data-menu]')) return;
         App.openSession(e.currentTarget.getAttribute('data-open'));
@@ -1999,6 +2038,23 @@
     });
   };
 
+  /* word-count under the alt pager: cheap, honest, testable */
+  function altWordCount(t) {
+    return String(t || '').trim().split(/\s+/).filter(Boolean).length;
+  }
+  Views.altWordCount = altWordCount;
+
+  /* what the listener hears: markdown and directions stripped, just prose */
+  function speechText(t) {
+    return String(t || '')
+      .replace(/!\[[^\]\]]*\]\([^)]*\)/g, ' ')      /* images */
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')        /* links keep their text */
+      .replace(/[\*_`#>~]+/g, '')
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+  }
+  Views.speechText = speechText;
+
   /* ================= chat helpers ================= */
   function messageHtml(m, char, s) {
     var isMe = m.role === 'user';
@@ -2015,7 +2071,8 @@
         '<div class="bubble">' +
           (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +
           '<div class="mtext">' + md(body) + '</div>' +
-          (m.image ? '<img class="gen" src="' + esc(m.image) + '" alt="generated image" data-lightbox="' + esc(m.image) + '">' : '') +
+          (m.image ? '<img class="gen" src="' + esc(m.image) + '" alt="' + esc(m.imageCaption || 'image') + '" data-lightbox="' + esc(m.image) + '">' : '') +
+          (m.imageCaption ? '<div class="imgcap">' + esc(m.imageCaption) + '</div>' : '') +
           (m.autonomous ? '<div class="auto-tag">· sent on their own</div>' : '') +
         '</div>' +
         '<div class="msg-actions">' +
@@ -2024,7 +2081,9 @@
               '<button class="chip" data-act="edit">' + icon('edit') + ' Edit</button>' +
               '<button class="chip" data-act="del">' + icon('trash') + '</button>'
             : '<button class="chip" data-act="reroll">' + icon('refresh') + ' Reroll</button>' +
+              '<button class="chip" data-act="rerollnote" title="Reroll with a steering note">' + icon('refresh') + '+📝</button>' +
               '<button class="chip" data-act="cont">Continue</button>' +
+              '<button class="chip" data-act="say" title="Listen">' + icon('volume') + '</button>' +
               '<button class="chip" data-act="edit">' + icon('edit') + '</button>' +
               '<button class="chip" data-act="copy">' + icon('copy') + '</button>' +
               '<button class="chip" data-act="del">' + icon('trash') + '</button>') +
@@ -2033,6 +2092,7 @@
           ? '<div class="swipe">' +
             '<button data-act="swipe" data-dir="-1"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' +
             '<span>' + ((m.altIdx || 0) + 1) + ' / ' + m.alts.length + '</span>' +
+            '<span class="swipe-words">' + altWordCount(m.alts[m.altIdx || 0] || '') + ' words</span>' +
             '<button data-act="swipe" data-dir="1"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>' +
             '</div>'
           : '') +
