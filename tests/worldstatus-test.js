@@ -207,6 +207,36 @@ function closeSheet() { UI.closeSheet(); }
   ok('downed announces itself by the clock',
     Views.worldStatusSheet(wH3, runH3).indexOf('<b>Downed</b>') !== -1);
 
+  /* v1.35.0: equipment on the sheet, and the world lays itself open */
+  var wEqS = HW.parse(Object.assign({}, WORLD, { gameRules: Object.assign({}, WORLD.gameRules, {
+    modules: Object.assign({}, WORLD.gameRules.modules, { equipment: true }),
+    equipment: { slots: ['hand', 'back'] } }) }));
+  var runEqS = HW.start(wEqS, null);
+  runEqS.inventory = ['rusted key', 'lamp']; runEqS.equip = { hand: 'lamp' }; runEqS.inventory.splice(runEqS.inventory.indexOf('lamp'), 1);
+  var eqHtml = Views.worldStatusSheet(wEqS, runEqS);
+  ok('equipment has a corner of the sheet',
+    eqHtml.indexOf('<h3>Equipment</h3>') !== -1 && eqHtml.indexOf('lamp') !== -1);
+  ok('...with the pocket it came from noted', eqHtml.indexOf('(hand)') !== -1);
+  runEqS.equip = {};
+  ok('bare hands say so',
+    Views.worldStatusSheet(wEqS, runEqS).indexOf('Nothing equipped.') !== -1);
+  ok('a module-less world keeps that corner shut',
+    Views.worldStatusSheet(world, runEqS).indexOf('<h3>Equipment</h3>') === -1);
+
+  /* the read-only viewer - the same parsed truth, shaped for eyes */
+  var sum = Views.worldSummary(world);
+  ok('the summary introduces the place', sum.indexOf('Policy Panic at Bramble &amp; Pike') !== -1);
+  ok('the clock line says when it begins', /Begins Monday 08:57/.test(sum), sum.match(/Begins[^\n<]*/));
+  ok('places list under a heading', sum.indexOf('<h3>Places</h3>') !== -1 &&
+    sum.indexOf('Reception Lobby') !== -1);
+  ok('people with their wants and their days',
+    sum.indexOf('<h3>People</h3>') !== -1 && /a 6-stop day/.test(sum));
+  ok('factions under their own heading', sum.indexOf('<h3>Factions</h3>') !== -1);
+  ok('lives under theirs', sum.indexOf('<h3>Ways to begin</h3>') !== -1);
+  ok('the hood is honest about the count',
+    sum.indexOf('23 places · 8 people · 6 factions · 14 ties') !== -1,
+    (sum.match(/Under the hood[\s\S]{0,220}/) || ['-'])[0].replace(/\s+/g, ' ').slice(0, 220));
+
   console.log('\nempty corners say so, quietly');
   var bare = HW.start(world, null);
   bare.stats.cash = 0;

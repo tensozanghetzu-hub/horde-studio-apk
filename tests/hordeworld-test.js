@@ -1331,6 +1331,55 @@ var norm34 = HW.normalizeRun({ stats: {} });
 ok('old runs grow the new fields quietly',
   Array.isArray(norm34.conditions) && norm34.downed === false);
 
+/* --- v1.35.0: worn apart from carried; the catalogue has a peephole --- */
+
+console.log('\nequipment');
+
+var wEq2 = HW.parse(Object.assign({}, WORLD, { gameRules: Object.assign({}, WORLD.gameRules, {
+  modules: Object.assign({}, WORLD.gameRules.modules, { equipment: true }),
+  equipment: { slots: ['hand', 'back'] } }) }));
+eq('slots arrive in the world\u2019s order', JSON.stringify(HW.equipmentSlots(wEq2)), '["hand","back"]');
+eq('the module switch governs', HW.equipmentSlots(w).length, 0);
+var runEq = HW.start(wEq2, 'origin_new_hire');
+var e1 = HW.applyTags(wEq2, runEq, '[[equip:hand:employee badge]]');
+ok('equipping moves the thing from pocket to slot',
+  runEq.equip.hand === 'employee badge' && runEq.inventory.indexOf('employee badge') === -1,
+  JSON.stringify({ equip: runEq.equip, inv: runEq.inventory }));
+eq('...as a ledger line', e1.changes[0], 'equipped employee badge (hand)');
+var e2 = HW.applyTags(wEq2, runEq, 'picked [[item:lanyard]] [[equip:hand:lanyard]]');
+ok('a fuller slot swaps, not clobbers',
+  runEq.equip.hand === 'lanyard' && runEq.inventory.indexOf('employee badge') !== -1 &&
+  /swapped employee badge for lanyard/.test(e2.changes[e2.changes.length - 1]),
+  JSON.stringify(e2.changes));
+ok('the state block wears the kit',
+  sysBlock(HW.buildPrompt(wEq2, runEq, 'hi').system, 'Time:').indexOf('Equipped: lanyard (hand)') !== -1);
+ok('...and the grammar teaches the tags only at equipped tables',
+  HW.buildPrompt(wEq2, runEq, 'hi').system.indexOf('[[equip:SLOT:ITEM]]') !== -1 &&
+  HW.buildPrompt(w, run32, 'hi').system.indexOf('[[equip:') === -1);
+ok('what you do not carry, you do not wear',
+  HW.applyTags(wEq2, runEq, '[[equip:back:doghouse]]').rejections.length === 1);
+ok('an unnamed slot is named back to the referee',
+  /name the slot/.test(HW.applyTags(wEq2, runEq, '[[equip:shoulder:lanyard]]').rejections[0].reason));
+var e3 = HW.applyTags(wEq2, runEq, '[[unequip:hand]]');
+ok('unwearing stows the thing',
+  runEq.equip.hand === undefined && runEq.inventory.indexOf('lanyard') !== -1 &&
+  e3.changes[0] === 'stowed lanyard', JSON.stringify(e3.changes));
+ok('unwearing an empty slot is told off',
+  HW.applyTags(wEq2, runEq, '[[unequip:back]]').rejections.length === 1);
+var wEq1 = HW.parse(Object.assign({}, WORLD, { gameRules: Object.assign({}, WORLD.gameRules, {
+  modules: Object.assign({}, WORLD.gameRules.modules, { equipment: true }), equipment: ['hand'] }) }));
+var runEq1 = HW.start(wEq1, 'origin_new_hire');
+ok('a one-slot table forgives the shorthand',
+  HW.applyTags(wEq1, runEq1, '[[equip:employee badge]]').changes[0] === 'equipped employee badge (hand)');
+var wEqOff = HW.parse(Object.assign({}, WORLD, { gameRules: Object.assign({}, WORLD.gameRules, {
+  modules: Object.assign({}, WORLD.gameRules.modules, { equipment: false }) }) }));
+ok('equipment off refuses rather than drops',
+  HW.applyTags(wEqOff, HW.start(wEqOff, 'origin_new_hire'), '[[equip:hand:employee badge]]').rejections.length === 1);
+ok('old runs grow pockets for worn things', (function () {
+  var rn = HW.normalizeRun({ stats: {} });
+  return rn.equip && typeof rn.equip === 'object' && !Array.isArray(rn.equip);
+})());
+
 console.log('\nthe world that ships with the install');
 
 HW.bundled().then(function (shipped) {
@@ -1342,13 +1391,24 @@ HW.bundled().then(function (shipped) {
      entry.places + ' places, ' + entry.people + ' people');
   ok('it carries attribution', !!entry.attribution, String(entry.attribution).slice(0, 60));
 
-  return HW.installBundled(entry.id).then(function (installed) {
-    ok('installing parses it', !!installed);
-    eq('under the catalogue id, so it is not offered twice', installed.id, entry.id);
-    eq('and it really is the same world', installed.name, entry.name);
-    eq('with its places', (installed.locations || []).length, entry.places);
-    ok('with no artwork left in it', !installed.banner);
-    finish();
+  /* v1.35.0: a look before the leap - peeking parses without persisting */
+  return HW.peekBundled(entry.id).then(function (peeked) {
+    ok('peeking parses the same world', !!peeked && peeked.name === entry.name);
+    eq('...with all its places', (peeked.locations || []).length, entry.places);
+    return HW.peekBundled('not_a_real_world_id').then(function () {
+      ok('an unknown catalogue id is told off', false);
+    }, function () {
+      ok('an unknown catalogue id is told off', true);
+    }).then(function () {
+      return HW.installBundled(entry.id).then(function (installed) {
+        ok('installing parses it', !!installed);
+        eq('under the catalogue id, so it is not offered twice', installed.id, entry.id);
+        eq('and it really is the same world', installed.name, entry.name);
+        eq('with its places', (installed.locations || []).length, entry.places);
+        ok('with no artwork left in it', !installed.banner);
+        finish();
+      });
+    });
   });
 }).catch(function (e) { ok('bundled install', false, e && e.message); finish(); });
 
