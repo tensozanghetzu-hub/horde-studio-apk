@@ -454,6 +454,42 @@
     return score;
   }
 
+  /* ---------------- the open book (v1.37.0) ---------------- */
+
+  /** The corpus a keyword must live in to ever sound: the world's own
+   *  text - places and their exits, people, factions, the ways in, the
+   *  plans, the opening and the OTHER entries (a book's entries mention
+   *  each other all the time). Matched with the same edges play uses, so
+   *  this reports whether the world itself ever says the key. A miss is
+   *  a hint, not a verdict - the player can still type anything. */
+  function loreCorpus(world, except) {
+    var bits = [];
+    (world.locations || []).forEach(function (l) {
+      bits.push(l.name, l.description);
+      (l.exits || []).forEach(function (x) { bits.push(x.text); });
+    });
+    (world.entities || []).forEach(function (e) { bits.push(e.name, e.description, e.persona, e.goal); });
+    (world.factions || []).forEach(function (f) { bits.push(f.name, f.description, f.goal); });
+    (world.startingLives || []).forEach(function (l) { bits.push(l.name, l.role, l.description); });
+    (world.goalPrograms || []).forEach(function (g) { bits.push(g.name, (g.steps || []).join(' ')); });
+    (world.startingQuests || []).forEach(function (q) { bits.push(questText(q)); });
+    bits.push(world.name, world.description, world.intro, world.dmPrompt, world.authorNote);
+    (world.lorebook || []).forEach(function (e) { if (e !== except) bits.push(e.text); });
+    return bits.filter(Boolean).join('\n').toLowerCase();
+  }
+
+  /** Is this entry's keyword said anywhere in the world's own text? */
+  function deadKey(world, entry) {
+    if (!entry) return false;
+    var corpus = loreCorpus(world, entry);
+    var alive = false;
+    String(entry.keyword || '').split(',').forEach(function (k) {
+      k = k.trim().toLowerCase();
+      if (k.length > 2 && countHits(corpus, k) > 0) alive = true;
+    });
+    return !alive;
+  }
+
   /** Lorebook entries the player's situation can know and the input
    *  touches - best matches first, within the byte budget. The budget is
    *  what keeps a 120-place pack from eating the prompt: a single matching
@@ -2400,6 +2436,8 @@
     /* v1.36.0: the memory cadence and its write-side, testable without
        a model in the room */
     memoryDue: memoryDue, applyMemory: applyMemory,
+    /* v1.37.0: the dead-key hint, for the open book */
+    deadKey: deadKey,
     /* tests inject a store; the app uses IDB directly */
     _useStore: function (s) { store = s; }
   };

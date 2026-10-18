@@ -2400,6 +2400,19 @@
 
   /* v1.35.0: a look inside a world before you live in it. Read-only - the
      same parsed truth the referee runs on, shaped for a person's eyes. */
+  /* v1.37.0: name a gate without opening it */
+  function worldFactionName(world, id) {
+    var f = (world.factions || []).find(function (x) { return x.id === id; });
+    return (f && f.name) || id;
+  }
+  function worldNpcName(world, ref) {
+    var low = String(ref || '').toLowerCase();
+    var n = (world.entities || []).find(function (e) {
+      return String(e.id).toLowerCase() === low || String(e.name).toLowerCase() === low;
+    });
+    return (n && n.name) || ref;
+  }
+
   Views.worldSummary = function (world) {
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var h = '';
@@ -2437,6 +2450,39 @@
       h += world.factions.map(function (f) {
         return '<div class="ws-item"><b>' + esc(f.name) + '</b>' +
                (f.goal ? ' <span class="hint">' + esc(HW.synopsis(f.goal, 120)) + '</span>' : '') + '</div>';
+      }).join('');
+    }
+
+    /* v1.37.0, the open book: a peek tells you the book exists - keys and
+       gates visible, secret entries sealed so the story is never spoiled;
+       a keyword the world itself never says is hinted, not hidden. */
+    var book = world.lorebook || [];
+    if (book.length) {
+      h += '<h3>The known book</h3>';
+      h += book.map(function (entry) {
+        var kb = String(entry.knownBy || '').toLowerCase().trim();
+        var row = '<div class="ws-item"><b>' + esc(entry.keyword || '(no keyword)') + '</b>';
+        if (kb === 'secret') {
+          var hinges = [];
+          if (entry.unlockQuest) hinges.push('a task reaching «' + entry.unlockQuest + '»');
+          if (entry.unlockNpc) hinges.push(worldNpcName(world, entry.unlockNpc) + ' being here');
+          row += ' <span class="hint">sealed - ' +
+            (hinges.length ? 'opens with ' + esc(hinges.join('; '))
+                           : 'nothing that opens it is named') + '</span>';
+        } else {
+          if (kb.indexOf('faction:') === 0) {
+            row += ' <span class="hint">known inside ' + esc(worldFactionName(world, kb.slice(8).trim())) + '</span>';
+          } else if (kb.indexOf('npc:') === 0) {
+            row += ' <span class="hint">speaks near ' + esc(worldNpcName(world, kb.slice(4).trim())) + '</span>';
+          } else if (kb && kb !== 'anyone') {
+            row += ' <span class="hint">known by ' + esc(entry.knownBy) + '</span>';
+          }
+          if (HW.deadKey && HW.deadKey(world, entry)) {
+            row += ' <span class="hint" style="opacity:.7">never said anywhere in the world itself - this key may go unheard</span>';
+          }
+          if (entry.text) row += ' <span class="hint">' + esc(HW.synopsis(entry.text, 140)) + '</span>';
+        }
+        return row + '</div>';
       }).join('');
     }
 
