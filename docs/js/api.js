@@ -127,13 +127,26 @@
       .map(function (m) { m.content = macros(m.content, char, s); return m; });
   }
 
+  /** v1.36.1: the character side learns its word edges - the same rule the
+   *  world lorebook got: a key must stand on its own ("label" inside
+   *  "labelling" is not a sighting) while a bare plural still carries
+   *  ("gossips" finds "gossip"). Match-time regex only; stored keys
+   *  untouched, and the character policy keeps its no-length-floor rule
+   *  since word edges already blunt the short-key risk. */
+  function keyStands(text, key) {
+    var k = String(key || '').toLowerCase().trim();
+    if (!k) return false;
+    var re = new RegExp('(^|[^a-z0-9])' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:s|es)?(?=$|[^a-z0-9])');
+    return re.test(text);
+  }
+
   function loreHits(entries, recent, limit) {
     if (!entries || !entries.length) return [];
     var text = (recent || '').toLowerCase();
     return entries.filter(function (e) {
       if (e.enabled === false) return false;
       return (e.keys || []).some(function (k) {
-        return k && text.indexOf(String(k).toLowerCase()) !== -1;
+        return k && keyStands(text, k);
       });
     }).slice(0, limit || 6);
   }

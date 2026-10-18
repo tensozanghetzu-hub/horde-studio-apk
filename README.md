@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.36.1
+
+**The lorebook learned spelling.** A keyword fires on the word it is —
+"bell" no longer rings inside "labelling", "mark" stays out of
+"market" — while "gossips" still find their "gossip". The same on
+character lorebooks. And when you ask the phone to dream up a world, it
+now writes the lorebook too: a few entries with keywords that will
+really come up in play, living from the referee's first line. (Web
+update — check for updates on your phone; no reinstall.)
+
 ## What's new in v1.36.0
 
 **World runs remember their story.** Every few turns, quietly, an

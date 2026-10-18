@@ -201,6 +201,42 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     ok('the stat registry survives', rich && rich.hudConfig.stats.length === 1 &&
       rich.hudConfig.stats[0].id === 'grit');
     ok('the scene cap survives too', rich && rich.kernel.sceneLocationLimit === 12);
+
+    /* v1.36.1: the book has a spine - lore rides the third draft through */
+    var loreDraft = wbox.HW.parse(wbox.HW.assemble({
+      places: partPlaces,
+      people: partPeople,
+      rules: {
+        dmPrompt: 'You are the showrunner and referee. ' + 'Filler. '.repeat(30),
+        intro: 'The water is at your ankles.',
+        lorebook: [
+          { keyword: 'tide guild', text: 'The Tide Guild owns every mooring north of the Shallows.', knownBy: 'faction:fac_tide' },
+          { keyword: 'the shallows', text: 'The flood took the city on a night tide.' }
+        ]
+      }
+    }));
+    ok('a drafted lorebook rides assemble through', loreDraft && loreDraft.lorebook.length === 2);
+    ok('...with its gates intact', loreDraft && loreDraft.lorebook[0].knownBy === 'faction:fac_tide' &&
+      loreDraft.lorebook[1].knownBy === '');
+
+    /* v1.36.1: the character side learns its word edges too */
+    var cchar = {
+      name: 'Mara', persona: 'Dry and watchful.',
+      lorebook: [
+        { keys: ['bell'], content: 'bells at noon', enabled: true },
+        { keys: ['mark'], content: 'the Mark counts coin', enabled: true },
+        { keys: ['gossip'], content: 'gossip has wings', enabled: true }
+      ]
+    };
+    var chatBox = loadApi('');
+    var csys = chatBox.api.buildChat(cchar, {}, [{ role: 'assistant', text: 'The labelling faded years ago.' }], settings())[0].content;
+    ok('char lore ignores an embedded mention (labelling ≠ bell)', csys.indexOf('Relevant world facts') === -1, csys.slice(0, 60));
+    var csys2 = chatBox.api.buildChat(cchar, {}, [{ role: 'assistant', text: 'The market is open; the bell rings.' }], settings())[0].content;
+    ok('char lore keeps the real word but not the embedded one',
+      csys2.indexOf('bells at noon') !== -1 && csys2.indexOf('the Mark counts coin') === -1);
+    var csys3 = chatBox.api.buildChat(cchar, {}, [{ role: 'assistant', text: 'She trades in gossips.' }], settings())[0].content;
+    ok('char lore still knows a bare plural (gossips → gossip)', csys3.indexOf('gossip has wings') !== -1);
+
     var richRun = wbox.HW.start(rich, 'origin_main');
     ok('a life starts like the life, straight from the draft',
       richRun.stats.grit === 7 && richRun.outfit === 'borrowed oilskins' &&
@@ -223,6 +259,8 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
       appSrc.indexOf('outfit') !== -1);
     ok('the richer drafts get room to breathe', appSrc.indexOf('700, prog') !== -1 &&
       appSrc.indexOf('800, prog') !== -1);
+    ok('the rules draft asks for a living book (v1.36.1)',
+      appSrc.indexOf('\\"lorebook\\"') !== -1 && /keyword.{0,120}really (come up|type)/s.test(appSrc));
 
     /* v1.36.0: the world's memory keeper - transcript shapes up, ledger
        mechanics excluded by instruction, and memory parses loose output */
