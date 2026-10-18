@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.36.0
+
+**World runs remember their story.** Every few turns, quietly, an
+authored world asks itself what just happened - and the next prompt
+carries the answer as story memory, marked as memory so it is never
+mistaken for the ledger's truth. Its lorebook also answers the scene
+now, not just your one latest line: lore the referee *just mentioned*
+surfaces, and a fact you touched stays at hand while you chase it.
+(Web update - check for updates on your phone; no reinstall.)
+
 ## What's new in v1.35.1
 
 **The world chat wears faces now.** A thread in an authored world shows
