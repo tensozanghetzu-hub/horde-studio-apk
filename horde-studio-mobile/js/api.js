@@ -1066,6 +1066,57 @@
         if (v && typeof v === 'object') return v;
       } catch (e) { /* next attempt */ }
     }
+    /* v1.38.1: a live-model pathology the world-creator bench caught -
+       some Horde worker styles answer with SEVERAL top-level objects in a
+       row (one entity per object) even when asked for one. Salvage: close
+       each complete top-level object by brace depth, parse the clean ones,
+       deep-merge same-key arrays across them. Deterministic, no guessing:
+       a chunk that does not parse is dropped, scalar collisions are last
+       write wins. */
+    var objs = [], depth = 0, start = -1, inStr = false, esc = false;
+    for (var j = 0; j < s.length; j++) {
+      var ch = s[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === '\\') esc = true;
+        else if (ch === '"') inStr = false;
+      } else if (ch === '"') inStr = true;
+      else if (ch === '{') { if (depth === 0) start = j; depth++; }
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start !== -1) {
+          /* a live-model pathology: the last tokens often bleed junk
+             bracket permutations ("]}]}}]") - trim up to three closing
+             brackets off the chunk tail and try again before dropping */
+          var tails = [s.slice(start, j + 1)];
+          for (var t = 0; t < 3; t++) tails.push(tails[tails.length - 1].replace(/[\]}']+[^\]}']*$/, ''));
+          var piece = null;
+          for (var ti = 0; ti < tails.length && !piece; ti++) {
+            try { piece = JSON.parse(tails[ti]); } catch (e2) { /* next tail */ }
+          }
+          if (piece && typeof piece === 'object' && !Array.isArray(piece)) objs.push(piece);
+          start = -1;
+        }
+      }
+    }
+    /* one or more complete objects: pick the key-salvation path. A single
+       clean chunk beats nothing when the model wrote one good object and
+       then slop or a truncated echo - the app says "press Create" only
+       when there is really nothing to hold. */
+    if (objs.length >= 1) {
+      var merged = null;
+      objs.forEach(function (o) {
+        if (merged === null) { merged = o; return; }
+        Object.keys(o).forEach(function (key) {
+          if (Array.isArray(merged[key]) && Array.isArray(o[key])) merged[key] = merged[key].concat(o[key]);
+          else if (merged[key] && o[key] && typeof merged[key] === 'object' && typeof o[key] === 'object' &&
+            !Array.isArray(merged[key]) && !Array.isArray(o[key])) {
+            Object.keys(o[key]).forEach(function (inner) { merged[key][inner] = o[key][inner]; });
+          } else if (merged[key] === undefined) merged[key] = o[key];
+        });
+      });
+      return merged;
+    }
     return null;
   }
 

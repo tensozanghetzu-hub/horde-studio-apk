@@ -277,7 +277,7 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     /* the ask itself, asserted against app.js - the schema is the product */
     var appSrc = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
     ok('the people draft asks for homes and days',
-      appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('\\"schedule\\"') !== -1);
+      appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('schedule: [{') !== -1);
     ok('...and is told the place ids', appSrc.indexOf('var placeIds') !== -1 &&
       appSrc.indexOf('The place ids that exist') !== -1);
     ok('the rules draft asks for tasks, schemes, and a stat registry',
@@ -286,13 +286,25 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     ok('lives are asked to arrive lived (overrides, obligations, outfit)',
       appSrc.indexOf('statOverrides') !== -1 && appSrc.indexOf('obligations') !== -1 &&
       appSrc.indexOf('outfit') !== -1);
-    ok('the richer drafts get room to breathe', appSrc.indexOf('700, prog') !== -1 &&
-      appSrc.indexOf('800, prog') !== -1);
+    /* v1.38.1 the honest budget: the bench proved the old 700/800 asks die
+       anonymously (the Horde walls requests over 512 without kudos). The
+       flow is five small asks now, each at most 512 - the first bench
+       round then caught the single-bones ask overflowing the wall again,
+       so the numbers and the book are two asks. */
+    var createBlock = appSrc.slice(appSrc.indexOf('App.aiCreateWorld = function'));
+    createBlock = createBlock.slice(0, createBlock.indexOf('App.importWorld'));
+    var asks = (createBlock.match(/,\s*(\d+), prog\)/g) || []).map(function (m) {
+      return parseInt(m.replace(/[^\d]/g, ''), 10);
+    });
+    ok('the creation flow makes five bounded requests', asks.length === 5, JSON.stringify(asks));
+    ok('...and every ask fits the anonymous wall', asks.every(function (n) { return n <= 512; }),
+      JSON.stringify(asks));
+    ok('...saying so on the button', createBlock.indexOf('Create (5 requests)') !== -1);
     ok('the rules draft asks for a living book (v1.36.1)',
-      appSrc.indexOf('\\"lorebook\\"') !== -1 && /keyword.{0,120}really (come up|type)/s.test(appSrc));
+      /lorebook.{0,220}keyword/.test(appSrc) && /keyword.{0,120}really (come up|type)/s.test(appSrc));
     ok('the rules draft offers classwork with real stats (v1.38.0)',
-      appSrc.indexOf('\\"classes\\"') !== -1 && appSrc.indexOf('\\"skillsCatalog\\"') !== -1 &&
-      /skills.{0,160}stat/.test(appSrc));
+      appSrc.indexOf('classes') !== -1 && appSrc.indexOf('skillsCatalog') !== -1 &&
+      /skillsCatalog.[\s\S]{0,220}stat/.test(appSrc));
 
     /* v1.36.0: the world's memory keeper - transcript shapes up, ledger
        mechanics excluded by instruction, and memory parses loose output */

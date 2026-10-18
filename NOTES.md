@@ -612,6 +612,44 @@ chat, off by default, VHs excluded. No third-party content.
 
 ---
 
+## v1.38.1 - the honest budget: the AI world-creator vs the 512-token wall (2026-10-18)
+
+The real-model quality pass (bench rig: `tools/ai-world-bench.cjs`, runs the app's own
+prompt strings live against Horde models, judges the answers) found a production-fatal
+bug hiding behind the "each under the Horde's 512-token anonymous limit" comment: the
+three-request flow's asks had drifted to 480/700/800, and the Horde **rejects anything
+over 512 without kudos** - proven live ("Due to heavy demand... requires kudos").
+Anonymous players could never finish a world draft; every run died at part 2 of 3 with
+a queue wait and a kudos error.
+
+- The AI world-creator is now **five small bounded requests, every one at most 480
+  tokens**: the places, the people, the referee, the ways in (lives, quests, stats),
+  and the book and the bent (skills, classes, lore). Same stop-on-failure semantics,
+  same assemble -> parse -> save chain, button says "Create (5 requests)". The referee,
+  the ways in and the book merge into the same single rules tape the old three-part
+  machine knew, so HW.parse/assemble is untouched.
+- Each ask echoes a tiny **example object** of the exact one-line shape it wants back
+  (built with JSON.stringify, no quote soup) and pre-anchors the output ("Answer with
+  ONE JSON object only, first and last characters curlies"). All spec text demonstrates
+  quoted identifiers - an early bones draft died copying bare `id:origin_main` style.
+- `API.parseAiJson` gained a deterministic **salvage pass** after the direct attempts:
+  several top-level objects in a row (one entity each, a live-model pathology) are
+  closed by brace depth, parsed, deep-merged by key; a single clean chunk beats
+  nothing when the model writes one good object and then commentary or a truncated
+  echo; junk bracket endings get trimming retries. Applies everywhere aiJson is used,
+  not just world creation.
+- Live bench validation, anonymous Stheno class worker (the realistic anon target):
+  all five stages produce structurally clean, playable output (4 connected places, 2
+  major people with schedules, referee prompt, 1-2 walk-in lives with stats, skills
+  catalog, classes left empty when the model judged the world wouldn't wear them,
+  concrete one-word lore keywords). Model-style flake modes catalogued: pretty-print
+  budget burn, "Here's how you can add more locations" tutorial slop, multi-object
+  distribution, repetition past the close, blank replies on some worker families -
+  the app surfaces them as "press Create to try again", never a partial save.
+- The bench tool stays in the repo: `node tools/ai-world-bench.cjs "<idea>" <model>
+  <outdir>` / `--print-only`. It lifts the ask expressions straight out of app.js so
+  the bench can never drift from what the phone sends.
+
 ## v1.38.0 — Classwork: the world asks what you're good at (2026-10-18)
 
 The classless shelf is off the waiting list (authored-worlds gap #18,

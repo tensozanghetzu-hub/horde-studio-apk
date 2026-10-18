@@ -772,22 +772,27 @@
 
   /* ---------------- authored worlds ---------------- */
 
-  /** Describe a world, get a world: THREE bounded JSON requests, each under
-   * the Horde's 512-token anonymous limit (places, people, rules), joined by
-   * HW.assemble and run through the SAME HW.parse() an imported file goes
-   * through, then HW.save(). Stop-on-failure: a failed part is said so in the
-   * status line, nothing partial is saved, and the player presses again.
-   * Opening the sheet spends nothing. */
+  /** Describe a world, get a world: FIVE bounded JSON requests, each at
+   * most 480 tokens - under the Horde's 512-token anonymous wall, which the
+   * v1.38.1 bench caught the old three-request flow dying against (stages
+   * asking 700/800 are rejected outright when the client holds no kudos),
+   * and whose model styles spend half their budget pretty-printing; every
+   * ask therefore echoes a tiny example object of the exact one-line shape
+   * it wants back. The four parts assemble into the same single-tape the
+   * old three-part machine made, then run through the SAME HW.parse() an
+   * imported file goes through, then HW.save(). Stop-on-failure: a failed
+   * part is said so in the status line, nothing partial is saved, and the
+   * player presses again. Opening the sheet spends nothing. */
   App.aiCreateWorld = function () {
     var closeRef = null;
     UI.sheet({
       title: 'Create a world with AI',
       body: '<div class="field"><div class="field-head"><label>Describe your world</label></div>' +
         '<textarea class="tall" id="aiw-idea" placeholder="e.g. a drowned city where the streets are canals and the oldest families live in the upper floors, above the water"></textarea>' +
-        '<div class="hint">One or two lines is plenty — the model drafts the places, people, factions and rules. Three small requests, spent only when you press Create.</div></div>' +
+        '<div class="hint">One or two lines is plenty — the model drafts the places, people, factions and rules. Five small requests, spent only when you press Create.</div></div>' +
         '<div id="aiw-status" class="hint" style="margin-top:8px"></div>',
       actions: [
-        { label: 'Create (3 requests)', cls: 'primary', close: false, onClick: function (body) {
+        { label: 'Create (5 requests)', cls: 'primary', close: false, onClick: function (body) {
           var idea = $('#aiw-idea', body).value.trim();
           if (!idea) { UI.toast('Describe the world — even one line'); return; }
           var st = $('#aiw-status', body);
@@ -799,76 +804,145 @@
             else if (info.state === 'rate-limited') st.textContent = stage + ' — rate-limited, waiting ' + (info.waitTime || '?') + 's…';
             else st.textContent = stage + ' — the model is writing…';
           }
-          /* 1/3 the places: a connected place you can walk */
-          stage = '1 of 3, the places';
+          var placesShape = JSON.stringify({
+            name: 'Harbor of Rust', description: 'Salt wind over drowned docks.', startLocationId: 'loc_pier',
+            locations: [{ id: 'loc_pier', name: 'Old Pier', mapType: 'outdoor', parentLocationId: null,
+              description: 'Rotted planks, black water',
+              exits: [{ to: 'loc_kettle', text: 'to the Salt Kettle' }] }] });
+          /* 1 of 4 the places: a connected place you can walk */
+          stage = '1 of 5, the places';
           status(stage + '…');
           API.aiJson(Store.settings,
-            'You are creating a playable text roleplay world. The player\'s direction: "' +
-            idea + '". Preserve that direction exactly — if it describes a dark, strange, ' +
-            'oppressive or eccentric place, create that place, not a safe version of it. ' +
-            'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
-            '{"name":string (the world\'s title), ' +
-            '"description":string (2-3 sentences), ' +
-            '"startLocationId":string (the id of the first room), ' +
-            '"locations":[{"id":"loc_snake","name":string,"mapType":"region|building|outdoor|route|room","parentLocationId":string or null (the place it is inside of, null for the top region),"description":string (1-2 sentences),"exits":[{"text":"to <place name>","travelTime":integer minutes,"isOneWay":false}]}, 5-7 places that form one connected place you can walk, with exits between them]}',
+            'You are creating a playable text roleplay world. The player’s direction: ' + idea + '. ' +
+            'Preserve that direction exactly — if it describes a dark, strange, oppressive or eccentric ' +
+            'place, create that place, not a safe version of it. ' +
+            'Answer with the JSON only - the first character you write is {. Compact, single line, no ' +
+            'markdown, no commentary. Echo this tiny shape, sized exactly, filling it with your own world: ' +
+            placesShape + ' where mapType is one of region|building|outdoor|route|room, parentLocationId is ' +
+            'the place it sits inside (null for the top region), every exit to and text names the ' +
+            'destination place exactly as written, and the locations array holds exactly 4 places forming ' +
+            'one connected place you can walk - every place reaches every other.',
             480, prog).then(function (places) {
-              if (!places || !Array.isArray(places.locations) || !places.locations.length) {
-                throw new Error('the model sent no places — press Create to try again');
+            if (!places || !Array.isArray(places.locations) || !places.locations.length) {
+              throw new Error('the model sent no places — press Create to try again');
+            }
+            /* 2 of 4 the people: the cast that lives there */
+            stage = '2 of 5, the people';
+            status(stage + '…');
+            var placeIds = places.locations.map(function (l) { return l.id; }).join(', ');
+            var peopleShape = JSON.stringify({
+              entities: [{ id: 'npc_mara', name: 'Mara Vess', type: 'npc', isMajor: true,
+                description: 'Hollow-eyed tide warden',
+                persona: 'Patient and watchful, but she pockets what is not nailed down.',
+                goal: 'To keep the toll honest', secrets: 'She takes a cut of every crossing',
+                homeLocation: 'loc_pier',
+                schedule: [{ time: '08:30', locationId: 'loc_pier', activity: 'On the toll desk', days: ['weekday'] },
+                  { time: '20:00', locationId: 'loc_kettle', activity: 'Cards and quiet', days: ['weekday'] }] }],
+              factions: [], relationships: [] }) +
+              ' where factions is 0-1 of {id:fac_snake,name:string,goal:a few words} and relationships is ' +
+              'a few of {a:an entity id,b:an entity id,label:short,score:integer from -100 to 100}';
+            return API.aiJson(Store.settings,
+              'For the roleplay world ' + (places.name || 'the world') + ' (the player wanted: ' + idea + '), ' +
+              'draft its people. The place ids that exist: ' + placeIds + '. ' +
+              'Answer with ONE JSON object only, first and last characters curlies. ' +
+              'Single line, no markdown, no commentary. ' +
+              'Echo this exact shape, filling it with people who belong to that world: ' + peopleShape + ' ' +
+              '- all 3 people live inside the ONE entities array of that one object, each with a schedule ' +
+              'of 2 entries across one ordinary day, each homeLocation and schedule locationId one of the ' +
+              'place ids above.',
+              480, prog).then(function (people) {
+              if (!people || !Array.isArray(people.entities) || !people.entities.length) {
+                throw new Error('the model sent no people — press Create to try again');
               }
-              /* v1.35.0: the people stage knows the place ids, so schedules
-                 and homes point at real rooms, not invented ones */
-              var placeIds = places.locations.map(function (l) { return l.id; }).join(', ');
-              /* 2/3 the people: the cast that lives there */
-              stage = '2 of 3, the people';
+              /* 3 of 4 the referee: the voice, the opening */
+              stage = '3 of 5, the referee';
               status(stage + '…');
+              var locIds = placeIds;
               return API.aiJson(Store.settings,
-                'For the roleplay world \"' + (places.name || '') + '\" (the player wanted: \"' +
-                idea + '\"), draft its people. The place ids that exist: ' + placeIds + '. ' +
-                'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
-                '{\"entities\":[{\"id\":\"npc_snake\",\"name\":string,\"type\":\"npc\",\"isMajor\":boolean,\"description\":string (1-2 sentences),\"persona\":string (2-3 sentences, with a real flaw),\"goal\":string (one sentence),\"secrets\":string (one sentence),\"homeLocation\":one of the place ids above,\"schedule\":[{\"time\":\"HH:MM\",\"locationId\":one of the place ids above,\"activity\":string (a short line),\"days\":[\"weekday\"]}, 2-4 entries spread across one ordinary day]}, 3-4 people, fitting that world], ' +
-                '\"factions\":[{\"id\":\"fac_snake\",\"name\":string,\"description\":string (one sentence),\"goal\":string (one sentence - what the faction is working toward)}, 1-3], ' +
-                '\"relationships\":[{\"a\":\"npc_id\",\"b\":\"npc_id\",\"label\":string (short),\"score\":integer from -100 to 100}, 3-6 pairs between the entities above]}',
-                700, prog).then(function (people) {
-                  if (!people || !Array.isArray(people.entities) || !people.entities.length) {
-                    throw new Error('the model sent no people — press Create to try again');
-                  }
-                  /* 3/3 the rules: the referee, the opening, how to begin */
-                  stage = '3 of 3, the rules';
-                  status(stage + '…');
-                  var locIds = placeIds;
-                  return API.aiJson(Store.settings,
-                    'Finish the roleplay world "' + (places.name || '') + '". The place ids that exist: ' +
-                    locIds + '. Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
-                    '{"dmPrompt":string (150-220 words: you are the showrunner and referee of this world; the core promise that the player can do anything; what persists and what never resets; simulation discipline — honor the clock, exits, who is present, and what characters could plausibly know; player agency — never write the player\'s words, thoughts or consent; voice: second person, present tense, concrete, no purple prose), ' +
-                    '"intro":string (the opening scene, 3-5 sentences, second person present tense, ending on a small hook), ' +
-                    '"authorNote":string (one sentence on what keeps this world honest), ' +
-                    '\"startingLives\":[{\"id\":\"origin_main\",\"name\":string (a walk-in role such as \\\"New Face in Town\\\"),\"role\":string (one sentence),\"startLocationId\":string (one of the ids listed above),\"description\":string (1-2 sentences),\"statOverrides\":{stat id:integer},\"obligations\":[1-3 short commitments that become open tasks],\"outfit\":string (what they wear)}], ' +
-                    '\"startingQuests\":[1-3 short open tasks this world really starts with], ' +
-                    '\"goalPrograms\":[0-2 of {\"id\":\"scheme_snake\",\"name\":string,\"actor\":one entity or faction id,\"steps\":[3 short steps, in order]}], ' +
-                    '\"gameRules\":{\"modules\":{\"quests\":true,\"relationships\":true,\"livingWorld\":true}}, ' +
-                    '\"hudConfig\":{\"showClock\":true,\"startWeekday\":\"Monday\",\"startTimeHours\":8,\"startTimeMinutes\":integer 0-59,\"timeStep\":10,\"stats\":[3-5 of {\"id\":\"stat_snake\",\"name\":string,\"value\":integer,\"min\":0,\"max\":integer}]}, ' +
-                    '\"lorebook\":[{\"keyword\":string (a word or short phrase that will really come up in play - a place name, a family name, an artefact; never a word that hides inside a longer word),\"text\":string (1-2 sentences of established fact),\"knownBy\":string (usually empty; npc:<an entity id> | faction:<a faction id> | secret, when it is not general knowledge)}, 3-5 entries on the ids and names above], ' +
-                    '\"skillsCatalog\":[{\"id\":\"skill_snake\",\"name\":string (a training a player can really claim, short words),\"description\":string (one line),\"stat\":string (one of the stat ids above - the stat it leans on)}, 2-6 trainings], ' +
-                    '\"classes\":[{\"id\":\"cls_snake\",\"name\":string,\"description\":string (one sentence - the bent it gives a run),\"statOverrides\":{stat id:integer},\"skills\":[1-3 skill ids from skillsCatalog],\"obligations\":[0-2 short commitments],\"outfit\":string}, 2-3, or an empty array [] if the world would not wear classes - ask whether the concept even wants them], ' +
-                    '\"kernel\":{\"sceneLocationLimit\":integer 10-30}}',
-                    800, prog).then(function (rules) {
-                      if (!rules || !rules.dmPrompt) {
-                        throw new Error('the model sent no referee prompt — press Create to try again');
-                      }
-                      var world = HW.parse(HW.assemble({
-                        places: places, people: people, rules: rules
-                      }));
-                      if (!world) {
-                        throw new Error('the assembled world was missing its places — press Create to try again');
-                      }
-                      return HW.save(world).then(function () {
-                        UI.toast('Created ' + world.name, 3200);
-                        if (closeRef) closeRef();
-                        App.go('worlds');
-                      });
-                    });
-                  });
+                'Finish the roleplay world ' + (places.name || 'the world') + '. ' +
+                'Answer with ONE JSON object only, first and last characters curlies. Single line, no ' +
+                'markdown, no commentary, with exactly these keys: ' +
+                JSON.stringify({ dmPrompt: '', intro: '', authorNote: '', kernel: { sceneLocationLimit: 15 } }) + ' ' +
+                'where dmPrompt is 120-180 words: you are the showrunner and referee of this world; ' +
+                'the core promise that the player can do anything; what persists and what never resets; ' +
+                'simulation discipline — honor the clock, exits, who is present, and what characters ' +
+                'could plausibly know; player agency — never write the player’s words, thoughts or ' +
+                'consent; voice: second person, present tense, concrete, no purple prose. ' +
+                'intro is the opening scene, 2-3 sentences, second person present tense, ending on a ' +
+                'small hook. authorNote is one sentence on what keeps this world honest. ' +
+                'kernel.sceneLocationLimit is an integer 10-30.',
+                480, prog).then(function (referee) {
+                if (!referee || !referee.dmPrompt) {
+                  throw new Error('the model sent no referee prompt — press Create to try again');
                 }
+                /* 4 of 5 the ways in: the walks, the work, the numbers */
+                stage = '4 of 5, the ways in';
+                status(stage + '…');
+                var waysInShape = JSON.stringify({
+                  startingLives: [], startingQuests: [], goalPrograms: [],
+                  gameRules: { modules: { quests: true, relationships: true, livingWorld: true } },
+                  hudConfig: {} });
+                return API.aiJson(Store.settings,
+                  'Finish the roleplay world ' + (places.name || 'the world') + ' on the way in. ' +
+                  'The place ids that exist: ' + locIds + '. ' +
+                  'Answer with ONE JSON object only, first and last characters curlies. Single line, no ' +
+                  'markdown, no commentary, with exactly these keys: ' +
+                  waysInShape + ' and fill them so: ' +
+                  'startingLives is 1-2 of {"id":"origin_main", "name":"a walk-in role such as New Face in Town", ' +
+                  '"role":"a few words", "startLocationId":"one of the ids above", "description":"one tight sentence", ' +
+                  '"statOverrides":{"stat id":integer}, "obligations":["1-2 short commitments that become open tasks"], ' +
+                  '"outfit":"what they wear"}. ' +
+                  'startingQuests is 1-2 short open tasks this world really starts with. ' +
+                  'goalPrograms is 0 or 1 of {"id":"scheme_snake", "name":"short", "actor":"an entity or faction id", ' +
+                  '"steps":["3 short steps, in order"]}. ' +
+                  'hudConfig is {"showClock":true, "startWeekday":"Monday", "startTimeHours":8, ' +
+                  '"startTimeMinutes":integer 0-59, "timeStep":10, "stats":[3 of {"id":"stat_snake", "name":"string", ' +
+                  '"value":integer, "min":0, "max":integer}]}.',
+                  480, prog).then(function (/* waysIn */ waysIn) {
+                  /* 5 of 5 the book and the bent: skills, classes, lore */
+                  stage = '5 of 5, the book and the bent';
+                  status(stage + '…');
+                  var statIds = (((waysIn && waysIn.hudConfig) || {}).stats || [])
+                    .map(function (s) { return s.id; }).join(', ') || 'the stat id';
+                  var bookShape = JSON.stringify({ skillsCatalog: [], classes: [], lorebook: [] });
+                  return API.aiJson(Store.settings,
+                    'Finish the roleplay world ' + (places.name || 'the world') + ' one last time. ' +
+                    'The stat ids the world tracks: ' + statIds + '. ' +
+                    'Answer with ONE JSON object only, first and last characters curlies. Single line, no ' +
+                    'markdown, no commentary, with exactly these keys: ' +
+                    bookShape + ' and fill them so: ' +
+                    'skillsCatalog is 2-3 of {"id":"skill_snake", "name":"a training a player can really claim, ' +
+                    'short words", "description":"one line", "stat":"one of the stat ids the world tracks"}. ' +
+                    'classes is 1-2 of {"id":"cls_snake", "name":"string", "description":"one sentence - the bent it ' +
+                    'gives a run", "statOverrides":{"the stat id":integer}, "skills":["1-2 skill ids from skillsCatalog"], ' +
+                    '"obligations":["0-1 short commitments"], "outfit":"string"}, or an empty array [] if the world ' +
+                    'would not wear classes - ask whether the concept even wants them. ' +
+                    'lorebook is 3 entries on the names and places of this world, each {"keyword":"a word or short phrase ' +
+                    'that will really come up in play - a place name, a family name, an artefact; never a ' +
+                    'word that hides inside a longer word", "text":"1-2 sentences of established fact", ' +
+                    '"knownBy":"usually empty; npc:an entity id or faction:a faction id or secret, when it is ' +
+                    'not general knowledge"}.',
+                    480, prog).then(function (book) {
+                  /* one tape: the referee, the ways in and the book ARE the
+                     rules the old three-part machine knew */
+                  var rules = {};
+                  Object.keys(referee || {}).forEach(function (k) { rules[k] = referee[k]; });
+                  Object.keys(waysIn || {}).forEach(function (k) { rules[k] = waysIn[k]; });
+                  Object.keys(book || {}).forEach(function (k) { rules[k] = book[k]; });
+                  var world = HW.parse(HW.assemble({ places: places, people: people, rules: rules }));
+                  if (!world) {
+                    throw new Error('the assembled world was missing its places — press Create to try again');
+                  }
+                  return HW.save(world).then(function () {
+                    UI.toast('Created ' + world.name, 3200);
+                    if (closeRef) closeRef();
+                    App.go('worlds');
+                  });
+                });
+              });
+            });
+          });
+          }
           ).catch(function (e) {
             status('World draft failed: ' + (e && e.message || e) +
               ' Nothing partial was saved — press Create to try again.');
