@@ -464,6 +464,35 @@
     return out;
   }
 
+  /* ---------------- the world's story memory (v1.36.0) ---------------- */
+
+  /** The world's memory keeps to the same cadence as the persona chats:
+   *  every `every` turns, once per turn. memAt marks the last turn the
+   *  memory was refreshed, so a re-render or a second turn never asks
+   *  twice for the same beat. */
+  function memoryDue(run, every) {
+    var e = (typeof every === 'number' && every > 0) ? every : 14;
+    var t = (run && run.turn) || 0;
+    return t > 0 && t % e === 0 && (run.memAt || 0) !== t;
+  }
+
+  /** Write the memory the model handed back: bounded, deduped, and only
+   *  stamped when something actually arrived - an empty pass must not
+   *  burn the cadence marker, or the next due turn never happens. */
+  function applyMemory(run, mem) {
+    var summary = String((mem && mem.summary) || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
+    var facts = [], seen = {};
+    ((mem && mem.facts) || []).forEach(function (f) {
+      var t = String(f || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      var k = t.toLowerCase();
+      if (t && !seen[k] && facts.length < 12) { seen[k] = true; facts.push(t); }
+    });
+    if (!summary && !facts.length) return run;
+    run.memory = { summary: summary, facts: facts };
+    run.memAt = run.turn || 0;
+    return run;
+  }
+
   /** What the referee may know about a PRESENT npc's secrets. The hint is
    *  observable and flows while the npc is present; the truth is gated
    *  behind the entity's secretUnlock ({quest} or {stat:{id,min}}) and
@@ -1412,6 +1441,13 @@
     if (run.downed === undefined) run.downed = false;
     /* v1.35.0: ...or before anything was ever worn */
     if (!run.equip || typeof run.equip !== 'object' || Array.isArray(run.equip)) run.equip = {};
+    /* v1.36.0: ...or before the story could remember itself */
+    if (!run.memory || typeof run.memory !== 'object' || Array.isArray(run.memory)) {
+      run.memory = { summary: '', facts: [] };
+    }
+    if (!Array.isArray(run.memory.facts)) run.memory.facts = [];
+    if (typeof run.memory.summary !== 'string') run.memory.summary = '';
+    if (!run.loreFired || typeof run.loreFired !== 'object') run.loreFired = {};
     return run;
   }
 
@@ -1999,9 +2035,55 @@
       );
     }
 
-    /* lore that the player's situation may know and the player just
-       mentioned - scored, gated, budgeted (v1.19.0) */
-    var hits = loreHits(world, run, input);
+    /* v1.36.0: the story remembers itself in prose - marked as memory, so
+       nothing mistakes a summary for the ledger above it. */
+    if (run.memory && (run.memory.summary || (run.memory.facts || []).length)) {
+      var memPart = 'Story memory - what the past scenes established in prose ' +
+        '(the ledger above outranks it):\n';
+      if (run.memory.summary) memPart += 'Story so far: ' + run.memory.summary + '\n';
+      if ((run.memory.facts || []).length) {
+        memPart += 'Established facts:\n' +
+          run.memory.facts.map(function (f) { return '- ' + f; }).join('\n');
+      }
+      parts.push(memPart);
+    }
+
+    /* v1.36.0: lore surfaces when it comes up - and "coming up" includes
+       what the referee just said, not only what the player types this
+       line. A hit also lingers a couple of turns (loreFired), so a
+       conversation can chase a fact without every line re-uttering the
+       keyword; the byte budget stays the ceiling either way. */
+    var loreWindow = [String(input || '')];
+    (run.log || []).slice(-2).forEach(function (m) {
+      if (m && (m.role === 'user' || m.role === 'assistant')) loreWindow.push(m.content);
+    });
+    var hits = loreHits(world, run, loreWindow.join('\n\n'));
+    var fired = run.loreFired;
+    if (!fired || typeof fired !== 'object') fired = run.loreFired = {};
+    var loreIds = (world.lorebook || []).map(function (e, i) { return e.id || ('i' + i); });
+    hits.forEach(function (e) {
+      fired[loreIds[(world.lorebook || []).indexOf(e)]] = run.turn || 0;
+    });
+    Object.keys(fired).forEach(function (k) {
+      if ((run.turn || 0) - fired[k] > 3) delete fired[k];   /* warm memories expire */
+    });
+    if ((world.lorebook || []).length) {
+      var hitSet = {};
+      hits.forEach(function (e) { hitSet[loreIds[(world.lorebook || []).indexOf(e)]] = true; });
+      var bytes = hits.reduce(function (n, e) { return n + String(e.text || '').length; }, 0);
+      var sticky = 0;
+      (world.lorebook || []).forEach(function (e, i) {
+        if (sticky >= 2) return;
+        var warm = (run.turn || 0) - (fired[loreIds[i]] === undefined ? -99 : fired[loreIds[i]]);
+        if (!hitSet[loreIds[i]] && warm >= 1 && warm <= 2 &&
+            bytes + String(e.text || '').length <= 1536) {
+          hits.push(e);
+          hitSet[loreIds[i]] = true;
+          bytes += String(e.text || '').length;
+          sticky++;
+        }
+      });
+    }
     if (hits.length) {
       parts.push('Established lore:\n' + hits.map(function (e) { return '- ' + e.text; }).join('\n'));
     }
@@ -2303,6 +2385,9 @@
     criticalOutcome: criticalOutcome, vitalStat: vitalStat, syncDowned: syncDowned,
     /* v1.35.0: worn things, and a peephole into the catalogue */
     equipmentSlots: equipmentSlots, peekBundled: peekBundled,
+    /* v1.36.0: the memory cadence and its write-side, testable without
+       a model in the room */
+    memoryDue: memoryDue, applyMemory: applyMemory,
     /* tests inject a store; the app uses IDB directly */
     _useStore: function (s) { store = s; }
   };

@@ -20,7 +20,11 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
+<<<<<<< HEAD
   var VERSION = '1.35.1';
+=======
+  var VERSION = '1.36.0';
+>>>>>>> b9fab8a (Update 2026-10-18T06:19:42Z)
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },

@@ -1120,6 +1120,19 @@
         /* a run that cannot be saved is not a run that happened */
         failTurn('The run could not be saved - the turn was not made. ' +
           ((err && (err.message || err.name)) || ''));
+      }).then(function () {
+        /* v1.36.0: the story remembers itself. On the persona-chat
+           cadence the run quietly asks the model once for a summary and
+           facts, then saves the memory so the NEXT prompt carries it.
+           Fire and forget: a memory pass must never hold up or fail the
+           turn that triggered it. */
+        if (s.autoMemory && HW.memoryDue(a.stage, s.memoryEvery || 14)) {
+          API.summarizeWorld({ settings: s, world: world, run: a.stage }).then(function (mem) {
+            if (!mem || (!mem.summary && (!mem.facts || !mem.facts.length))) return;
+            HW.applyMemory(a.stage, mem);
+            return HW.saveRun(a.stage);
+          }).then(function () { /* the turn is already told; the memory waits for the next one */ }, function () {});
+        }
       });
     }
 
