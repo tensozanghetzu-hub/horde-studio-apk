@@ -2277,6 +2277,12 @@
       run.conditions.forEach(function (c) { sheet += '<span class="ws-cond">' + esc(c) + '</span>'; });
     }
     if (run.downed) sheet += '<span class="ws-cond"><b>downed</b></span>';
+    /* v1.35.0: worn things, named with their pockets */
+    if ((gr.modules || {}).equipment && run.equip && HW.equipmentSlots) {
+      HW.equipmentSlots(world).forEach(function (s) {
+        if (run.equip[s]) sheet += '<span>' + esc(run.equip[s]) + ' <i>(' + esc(s) + ')</i></span>';
+      });
+    }
 
     var head = '<span class="wr-at">' + esc(loc ? loc.name : 'Somewhere') + '</span>';
     if (hud.showClock !== false) {
@@ -2386,6 +2392,69 @@
     });
   };
 
+  /* v1.35.0: a look inside a world before you live in it. Read-only - the
+     same parsed truth the referee runs on, shaped for a person's eyes. */
+  Views.worldSummary = function (world) {
+    var gr = world.gameRules || {}, hud = world.hudConfig || {};
+    var h = '';
+    h += '<div class="ws-head">' + avatarHtml(world.banner, world.name) +
+         '<div class="ws-head-name">' + esc(world.name) + '</div></div>';
+    if (world.description) h += '<div class="hint">' + esc(world.description) + '</div>';
+
+    h += '<h3>The clock</h3>';
+    var hh = ('0' + (hud.startTimeHours || 8)).slice(-2), mm = ('0' + (hud.startTimeMinutes || 0)).slice(-2);
+    h += '<div class="hint">Begins ' + esc((hud.startWeekday || 'Monday')) + ' ' + hh + ':' + mm +
+         ' · ' + (hud.timeStep || 5) + ' minutes a turn</div>';
+
+    var mods = gr.modules || {};
+    var on = Object.keys(mods).filter(function (k) { return !!mods[k]; });
+    if (on.length) h += '<div class="hint">Systems: ' + esc(on.join(', ')) + '</div>';
+
+    h += '<h3>Places</h3>';
+    h += (world.locations || []).map(function (l) {
+      return '<div class="ws-item">' + esc(l.name) +
+             ' <span class="hint">' + esc(l.mapType || 'room') + '</span></div>';
+    }).join('');
+
+    h += '<h3>People</h3>';
+    h += (world.entities || []).map(function (e) {
+      var day = (e.schedule || []).length;
+      return '<div class="ws-item"><b>' + esc(e.name) + '</b>' +
+        (e.persona ? ' <span class="hint">' + esc(HW.synopsis(e.persona, 140)) + '</span>' : '') +
+        (e.goal ? '<div class="hint">wants: ' + esc(e.goal) + '</div>' : '') +
+        (day ? '<div class="hint">a ' + day + '-stop day</div>' : '') +
+        '</div>';
+    }).join('');
+
+    if ((world.factions || []).length) {
+      h += '<h3>Factions</h3>';
+      h += world.factions.map(function (f) {
+        return '<div class="ws-item"><b>' + esc(f.name) + '</b>' +
+               (f.goal ? ' <span class="hint">' + esc(HW.synopsis(f.goal, 120)) + '</span>' : '') + '</div>';
+      }).join('');
+    }
+
+    if ((world.startingLives || []).length) {
+      h += '<h3>Ways to begin</h3>';
+      h += world.startingLives.map(function (l) {
+        return '<div class="ws-item">' + esc(l.name) +
+               (l.role ? ' <span class="hint">' + esc(l.role) + '</span>' : '') + '</div>';
+      }).join('');
+    }
+
+    h += '<h3>Under the hood</h3>';
+    h += '<div class="hint">' +
+      (world.locations || []).length + ' places · ' +
+      (world.entities || []).length + ' people · ' +
+      ((world.factions || []).length) + ' factions · ' +
+      ((world.relationships || []).length) + ' ties · ' +
+      ((world.lorebook || []).length) + ' lore, ' +
+      ((hud.stats || []).length) + ' numbers tracked' +
+      (((gr.checks || []).length) ? ' · ' + gr.checks.length + ' named checks' : '') +
+      '</div>';
+    return h;
+  };
+
   Views.worldStatusSheet = function (world, run) {
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var loc = HW.location(world, run.locationId);
@@ -2458,6 +2527,21 @@
       h += (run.inventory && run.inventory.length)
         ? run.inventory.map(function (it) { return '<div class="ws-item">' + esc(it) + '</div>'; }).join('')
         : '<div class="hint">Empty.</div>';
+    }
+
+    /* v1.35.0: equipment on the big sheet, slot by slot, in the order the
+       world declared the slots */
+    if ((gr.modules || {}).equipment && HW.equipmentSlots) {
+      h += '<h3>Equipment</h3>';
+      var slots = HW.equipmentSlots(world), worn = [];
+      slots.forEach(function (s) {
+        if (run.equip && run.equip[s]) worn.push([s, run.equip[s]]);
+      });
+      h += worn.length
+        ? worn.map(function (pair) {
+            return '<div class="ws-item">' + esc(pair[1]) + ' <span class="hint">(' + esc(pair[0]) + ')</span></div>';
+          }).join('')
+        : '<div class="hint">Nothing equipped.</div>';
     }
 
     if ((gr.modules || {}).quests !== false) {
@@ -2791,6 +2875,8 @@
                 ? '<div class="wr-sub" style="margin-top:4px">' +
                   esc(String(w.description).slice(0, 160)) + '</div>' : '') +
             '</div>' +
+            '<button class="chip" data-act="world-peek" data-world="' + esc(w.id) + '" ' +
+              'title="Look inside - read-only">' + icon('eye') + '</button>' +
             '<button class="chip" data-act="world-del" data-world="' + esc(w.id) + '">' + icon('trash') + '</button>' +
           '</div>';
         }).join('');
@@ -2808,6 +2894,8 @@
                 (e.attribution ? '<div class="wr-sub" style="margin-top:4px;opacity:.7">' +
                   esc(e.attribution) + '</div>' : '') +
               '</div>' +
+              '<button class="chip" data-act="world-peek-bundled" data-install="' + esc(e.id) + '" ' +
+                'title="Look inside before installing">' + icon('eye') + '</button>' +
               '<button class="chip" data-act="world-install" data-install="' + esc(e.id) + '">Install</button>' +
             '</div>';
           }).join('') + '</div>';
@@ -2831,6 +2919,30 @@
       on(body, '[data-run]', 'click', function (e) {
         if (e.target.closest('[data-act]')) return;
         App.openWorldRun(this.getAttribute('data-run'));
+      });
+      /* v1.35.0: peek without commitment - installed worlds from the
+         library, catalogue worlds fetched without saving */
+      on(body, '[data-act=world-peek]', 'click', function () {
+        var id = this.getAttribute('data-world');
+        var w = null;
+        list.forEach(function (x) { if (x.id === id) w = x; });
+        if (!w) return;
+        UI.sheet({ title: w.name, body: Views.worldSummary(w),
+          actions: [{ label: 'Begin here', cls: 'primary', onClick: function () { App.startWorld(id); } },
+                    { label: 'Close', cls: 'ghost', value: null }] });
+      });
+      on(body, '[data-act=world-peek-bundled]', 'click', function () {
+        var id = this.getAttribute('data-install');
+        HW.peekBundled(id).then(function (w) {
+          UI.sheet({ title: w.name, body: Views.worldSummary(w),
+            actions: [{ label: 'Install', cls: 'primary', onClick: function () {
+                        HW.installBundled(id).then(function (iw) {
+                          UI.toast('Installed ' + (iw && iw.name), 3200);
+                          App.go('worlds');
+                        }).catch(function (e2) { UI.toast((e2 && e2.message) || 'Could not install', 4500); });
+                      } },
+                      { label: 'Close', cls: 'ghost', value: null }] });
+        }).catch(function (e) { UI.toast((e && e.message) || 'Could not open that world', 4500); });
       });
       on(body, '[data-act=world-install]', 'click', function () {
         var id = this.getAttribute('data-install');

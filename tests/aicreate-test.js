@@ -169,6 +169,61 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     ok('starting lives keep their start location', w && w.startingLives[0].startLocationId === 'loc_dock');
     ok('a world with no locations is rejected', wbox.HW.parse({ _format: 'horde-world', name: 'X' }) === null);
 
+    /* v1.35.0: the richer schema survives the same three-part machine */
+    var rich = wbox.HW.parse(wbox.HW.assemble({
+      places: partPlaces,
+      people: {
+        entities: [{ id: 'npc_mara', name: 'Mara', type: 'npc', persona: 'Dry and watchful.',
+          homeLocation: 'loc_dock',
+          schedule: [{ time: '09:00', locationId: 'loc_dock', activity: 'Mends the nets', days: ['weekday'] }] }],
+        factions: [{ id: 'fac_tide', name: 'Tide Guild', description: 'Runs the boats.', goal: 'Own every mooring.' }]
+      },
+      rules: {
+        dmPrompt: 'You are the showrunner and referee. ' + 'Filler. '.repeat(30),
+        intro: 'The water is at your ankles.',
+        startingLives: [{ id: 'origin_main', name: 'New Face in Town', role: 'A visitor.',
+          startLocationId: 'loc_dock', statOverrides: { grit: 7 },
+          obligations: ['Find dry shoes'], outfit: 'borrowed oilskins' }],
+        startingQuests: ['Learn which bells mean high water'],
+        goalPrograms: [{ id: 'scheme_tide', name: 'The Tide takes the north', actor: 'fac_tide',
+          steps: ['buy up moorings', 'fix the ferry tolls', 'dam the upper canal'] }],
+        gameRules: { modules: { quests: true, relationships: true, livingWorld: true } },
+        hudConfig: { showClock: true, startWeekday: 'Monday', startTimeHours: 8, startTimeMinutes: 57, timeStep: 10,
+          stats: [{ id: 'grit', name: 'Grit', value: 3, min: 0, max: 10 }] },
+        kernel: { sceneLocationLimit: 12 }
+      }
+    }));
+    ok('a rich draft still parses', !!rich);
+    ok('the cast keeps its day', rich && rich.entities[0].schedule.length === 1 &&
+      rich.entities[0].schedule[0].time === '09:00' && rich.entities[0].homeLocation === 'loc_dock');
+    ok('goal programs ride assemble through', rich && rich.goalPrograms.length === 1 &&
+      rich.goalPrograms[0].steps.length === 3);
+    ok('the stat registry survives', rich && rich.hudConfig.stats.length === 1 &&
+      rich.hudConfig.stats[0].id === 'grit');
+    ok('the scene cap survives too', rich && rich.kernel.sceneLocationLimit === 12);
+    var richRun = wbox.HW.start(rich, 'origin_main');
+    ok('a life starts like the life, straight from the draft',
+      richRun.stats.grit === 7 && richRun.outfit === 'borrowed oilskins' &&
+      richRun.quests.length === 2 &&
+      richRun.quests[0].text === 'Find dry shoes' &&
+      richRun.quests[1].text === 'Learn which bells mean high water',
+      JSON.stringify({ stats: richRun.stats, quests: richRun.quests, outfit: richRun.outfit }));
+
+    /* the ask itself, asserted against app.js - the schema is the product */
+    var appSrc = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
+    ok('the people draft asks for homes and days',
+      appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('\\"schedule\\"') !== -1);
+    ok('...and is told the place ids', appSrc.indexOf('var placeIds') !== -1 &&
+      appSrc.indexOf('The place ids that exist') !== -1);
+    ok('the rules draft asks for tasks, schemes, and a stat registry',
+      appSrc.indexOf('startingQuests') !== -1 && appSrc.indexOf('goalPrograms') !== -1 &&
+      appSrc.indexOf('stat_snake') !== -1);
+    ok('lives are asked to arrive lived (overrides, obligations, outfit)',
+      appSrc.indexOf('statOverrides') !== -1 && appSrc.indexOf('obligations') !== -1 &&
+      appSrc.indexOf('outfit') !== -1);
+    ok('the richer drafts get room to breathe', appSrc.indexOf('700, prog') !== -1 &&
+      appSrc.indexOf('800, prog') !== -1);
+
     console.log('');
     if (fail) { console.log(fail + ' FAILED, ' + pass + ' ok'); process.exit(1); }
     console.log('aicreate-test: ' + pass + ' ok');

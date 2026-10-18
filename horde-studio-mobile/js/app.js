@@ -815,34 +815,40 @@
               if (!places || !Array.isArray(places.locations) || !places.locations.length) {
                 throw new Error('the model sent no places — press Create to try again');
               }
+              /* v1.35.0: the people stage knows the place ids, so schedules
+                 and homes point at real rooms, not invented ones */
+              var placeIds = places.locations.map(function (l) { return l.id; }).join(', ');
               /* 2/3 the people: the cast that lives there */
               stage = '2 of 3, the people';
               status(stage + '…');
               return API.aiJson(Store.settings,
-                'For the roleplay world "' + (places.name || '') + '" (the player wanted: "' +
-                idea + '"), draft its people. ' +
+                'For the roleplay world \"' + (places.name || '') + '\" (the player wanted: \"' +
+                idea + '\"), draft its people. The place ids that exist: ' + placeIds + '. ' +
                 'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
-                '{"entities":[{"id":"npc_snake","name":string,"type":"npc","isMajor":boolean,"description":string (1-2 sentences),"persona":string (2-3 sentences, with a real flaw),"goal":string (one sentence),"secrets":string (one sentence)}, 3-4 of them, fitting that world], ' +
-                '"factions":[{"id":"fac_snake","name":string,"description":string (one sentence)}, 1-3], ' +
-                '"relationships":[{"a":"npc_id","b":"npc_id","label":string (short),"score":integer from -100 to 100}, 3-6 pairs between the entities above]}',
-                480, prog).then(function (people) {
+                '{\"entities\":[{\"id\":\"npc_snake\",\"name\":string,\"type\":\"npc\",\"isMajor\":boolean,\"description\":string (1-2 sentences),\"persona\":string (2-3 sentences, with a real flaw),\"goal\":string (one sentence),\"secrets\":string (one sentence),\"homeLocation\":one of the place ids above,\"schedule\":[{\"time\":\"HH:MM\",\"locationId\":one of the place ids above,\"activity\":string (a short line),\"days\":[\"weekday\"]}, 2-4 entries spread across one ordinary day]}, 3-4 people, fitting that world], ' +
+                '\"factions\":[{\"id\":\"fac_snake\",\"name\":string,\"description\":string (one sentence),\"goal\":string (one sentence - what the faction is working toward)}, 1-3], ' +
+                '\"relationships\":[{\"a\":\"npc_id\",\"b\":\"npc_id\",\"label\":string (short),\"score\":integer from -100 to 100}, 3-6 pairs between the entities above]}',
+                700, prog).then(function (people) {
                   if (!people || !Array.isArray(people.entities) || !people.entities.length) {
                     throw new Error('the model sent no people — press Create to try again');
                   }
                   /* 3/3 the rules: the referee, the opening, how to begin */
                   stage = '3 of 3, the rules';
                   status(stage + '…');
-                  var locIds = places.locations.map(function (l) { return l.id; }).join(', ');
+                  var locIds = placeIds;
                   return API.aiJson(Store.settings,
                     'Finish the roleplay world "' + (places.name || '') + '". The place ids that exist: ' +
                     locIds + '. Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
                     '{"dmPrompt":string (150-220 words: you are the showrunner and referee of this world; the core promise that the player can do anything; what persists and what never resets; simulation discipline — honor the clock, exits, who is present, and what characters could plausibly know; player agency — never write the player\'s words, thoughts or consent; voice: second person, present tense, concrete, no purple prose), ' +
                     '"intro":string (the opening scene, 3-5 sentences, second person present tense, ending on a small hook), ' +
                     '"authorNote":string (one sentence on what keeps this world honest), ' +
-                    '"startingLives":[{"id":"origin_main","name":string (a walk-in role such as "New Face in Town"),"role":string (one sentence),"startLocationId":string (one of the ids listed above),"description":string (1-2 sentences)}], ' +
-                    '"gameRules":{"modules":{"quests":true,"relationships":true,"livingWorld":true}}, ' +
-                    '"hudConfig":{"showClock":true,"startWeekday":"Monday","startTimeHours":8,"timeStep":10}}',
-                    480, prog).then(function (rules) {
+                    '\"startingLives\":[{\"id\":\"origin_main\",\"name\":string (a walk-in role such as \\\"New Face in Town\\\"),\"role\":string (one sentence),\"startLocationId\":string (one of the ids listed above),\"description\":string (1-2 sentences),\"statOverrides\":{stat id:integer},\"obligations\":[1-3 short commitments that become open tasks],\"outfit\":string (what they wear)}], ' +
+                    '\"startingQuests\":[1-3 short open tasks this world really starts with], ' +
+                    '\"goalPrograms\":[0-2 of {\"id\":\"scheme_snake\",\"name\":string,\"actor\":one entity or faction id,\"steps\":[3 short steps, in order]}], ' +
+                    '\"gameRules\":{\"modules\":{\"quests\":true,\"relationships\":true,\"livingWorld\":true}}, ' +
+                    '\"hudConfig\":{\"showClock\":true,\"startWeekday\":\"Monday\",\"startTimeHours\":8,\"startTimeMinutes\":integer 0-59,\"timeStep\":10,\"stats\":[3-5 of {\"id\":\"stat_snake\",\"name\":string,\"value\":integer,\"min\":0,\"max\":integer}]}, ' +
+                    '\"kernel\":{\"sceneLocationLimit\":integer 10-30}}',
+                    800, prog).then(function (rules) {
                       if (!rules || !rules.dmPrompt) {
                         throw new Error('the model sent no referee prompt — press Create to try again');
                       }

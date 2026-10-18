@@ -605,6 +605,20 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.35.0
+
+**Worn words, open books.** Worlds with equipment slots now know the
+difference between what you carry and what you wear: a pair of tags
+moves things in and out of named slots, the referee sees the kit in the
+state line, and the sheet shows it slot by slot. The AI world author
+got ambition: the worlds it drafts come with a stat registry, task
+seeds, goal programs, non-flat clocks, and people who already have
+homes and days to keep. And every world is readable before you commit -
+tap the eye to look inside the places, the people, their wants and
+their days, exactly as the referee will see them, installing nothing.
+(Small web update - no reinstall needed unless you're also picking up
+the new APK.)
+
 ## What's new in v1.34.0
 
 **The dice roll at the world's own table now.** A world that declares

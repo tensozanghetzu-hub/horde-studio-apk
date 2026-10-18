@@ -55,9 +55,13 @@
     parts = parts || {};
     var a = parts.places || {}, b = parts.people || {}, c = parts.rules || {};
     var w = { _format: 'horde-world' };
+    /* v1.35.0: a richer tape through the same three-part machine - whatever
+       the drafts carry (goal programs, task seeds, the calendar, the scene
+       cap) becomes the world the player meets. */
     ['name', 'description', 'startLocationId', 'locations',
      'entities', 'factions', 'relationships',
-     'dmPrompt', 'intro', 'authorNote', 'startingLives', 'gameRules', 'hudConfig'
+     'dmPrompt', 'intro', 'authorNote', 'startingLives', 'gameRules', 'hudConfig',
+     'goalPrograms', 'startingQuests', 'sandboxConfig', 'kernel'
     ].forEach(function (k) {
       var v = a[k] !== undefined ? a[k] : (b[k] !== undefined ? b[k] : c[k]);
       if (v !== undefined) w[k] = v;
@@ -693,6 +697,31 @@
     }
   }
 
+  /* ---------------- equipment: carried vs worn (v1.35.0) ---------------- */
+
+  /** The world's equipment slots, in declared order, or [] when the
+   *  equipment module is off. `equipment` may be an array of slot names
+   *  or {slots:[...]}; half-written shapes quiet down to nothing. */
+  function equipmentSlots(world) {
+    var gr = (world && world.gameRules) || {};
+    if (!((gr.modules || {}).equipment)) return [];
+    var eq = gr.equipment;
+    var raw = Array.isArray(eq) ? eq : (eq && Array.isArray(eq.slots) ? eq.slots : []);
+    var out = [], seen = {};
+    raw.forEach(function (s) {
+      var name = String(s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+      if (name && !seen[name]) { seen[name] = true; out.push(name); }
+    });
+    return out;
+  }
+
+  /** Carry an equipped item back to the pockets (deduped, case-insensitive). */
+  function stow(run, item) {
+    if (!run.inventory.some(function (x) { return String(x).toLowerCase() === item.toLowerCase(); })) {
+      run.inventory.push(item);
+    }
+  }
+
   /** Parse a world-authored branch into the typed vocabulary the engine
    *  applies: stats {id:delta}, cash, items [names], quests [texts],
    *  clock minutes. Anything else is ignored - this is author data, not
@@ -1205,6 +1234,54 @@
         run.conditions.splice(cidx, 1);
         return '';
       }
+      /* v1.35.0: equipment - [[equip:SLOT:ITEM]] moves a carried thing into
+         the world's named slot; [[unequip:SLOT]] stows it. With exactly one
+         slot the slot may be omitted. Governing item is the thing in the
+         pockets, so equipping something you do not carry is refused. */
+      if (kind === 'equip' || kind === 'unequip') {
+        var slots = equipmentSlots(world);
+        if (!slots.length) {
+          if (v2) reject(whole, 'equipment is off in this world');
+          return '';
+        }
+        if (!run.equip || typeof run.equip !== 'object') run.equip = {};
+        if (kind === 'unequip') {
+          var uslot = arg.replace(/\s+/g, ' ').trim().toLowerCase();
+          if (slots.length === 1 && !uslot) uslot = slots[0];
+          if (slots.indexOf(uslot) === -1) {
+            if (v2) reject(whole, 'no such slot as \u201C' + arg + '\u201D');
+            return '';
+          }
+          var old = run.equip[uslot];
+          if (!old) { if (v2) reject(whole, 'nothing in the \u201C' + uslot + '\u201D slot'); return ''; }
+          delete run.equip[uslot];
+          stow(run, old);
+          changes.push('stowed ' + old);
+          return '';
+        }
+        var ebits = arg.indexOf(':') !== -1 ? [arg.slice(0, arg.indexOf(':')), arg.slice(arg.indexOf(':') + 1)] :
+          (slots.length === 1 ? [slots[0], arg] : [null, arg]);
+        var eslot = String(ebits[0] || '').replace(/\s+/g, ' ').trim().toLowerCase();
+        var eitem = String(ebits[1] || '').replace(/\s+/g, ' ').trim();
+        if (slots.indexOf(eslot) === -1) {
+          if (v2) reject(whole, 'name the slot - this world wears things: ' + slots.join(', '));
+          return '';
+        }
+        if (!eitem) { if (v2) reject(whole, 'equip WHAT into the \u201C' + eslot + '\u201D slot?'); return ''; }
+        var ei = -1;
+        run.inventory.forEach(function (x, i) {
+          if (ei === -1 && String(x).toLowerCase() === eitem.toLowerCase()) ei = i;
+        });
+        if (ei === -1) { if (v2) reject(whole, 'not carrying \u201C' + eitem + '\u201D'); return ''; }
+        var canon = run.inventory[ei];
+        run.inventory.splice(ei, 1);
+        var prev = run.equip[eslot];
+        if (prev) stow(run, prev);
+        run.equip[eslot] = canon;
+        changes.push(prev ? ('swapped ' + prev + ' for ' + canon + ' (' + eslot + ')')
+                          : ('equipped ' + canon + ' (' + eslot + ')'));
+        return '';
+      }
       if (kind === 'with') {
         /* v1.24.0: an NPC joins the player. Names are matched against the
            world's cast (case-insensitive, canonical spelling stored); one
@@ -1333,6 +1410,8 @@
     /* v1.34.0: runs written before conditions and health floors existed */
     if (!Array.isArray(run.conditions)) run.conditions = [];
     if (run.downed === undefined) run.downed = false;
+    /* v1.35.0: ...or before anything was ever worn */
+    if (!run.equip || typeof run.equip !== 'object' || Array.isArray(run.equip)) run.equip = {};
     return run;
   }
 
@@ -1845,6 +1924,15 @@
       var open = run.quests.filter(function (q) { return !q.done; });
       if (open.length) out.push('Tasks: ' + open.map(function (q) { return q.text; }).join('; '));
     }
+    /* v1.35.0: worn apart from carried - the slots the world named, in
+       the order it named them. */
+    if (((gr.modules || {}).equipment) && run.equip && Object.keys(run.equip).length) {
+      var eqOut = [];
+      equipmentSlots(world).forEach(function (s) {
+        if (run.equip[s]) eqOut.push(run.equip[s] + ' (' + s + ')');
+      });
+      if (eqOut.length) out.push('Equipped: ' + eqOut.join('; '));
+    }
     /* v1.34.0: what ails the player, and the floor that outranks every
        other number on the sheet. */
     if (((gr.modules || {}).conditions) && (run.conditions || []).length) {
@@ -1928,7 +2016,9 @@
       '  [[item:THING]] [[drop:THING]] [[quest:TASK]] [[quest-done:TASK]] [[roll:2d6+1]]\n' +
         '  [[with:NAME]] [[part:NAME]] [[rep:FACTION:+N]]' +
       (((world.gameRules || {}).modules || {}).conditions
-        ? ' [[condition:NAME]] [[clear:NAME]]' : '') + '\n' +
+        ? ' [[condition:NAME]] [[clear:NAME]]' : '') +
+      (((world.gameRules || {}).modules || {}).equipment
+        ? ' [[equip:SLOT:ITEM]] [[unequip:SLOT]]' : '') + '\n' +
       '- Only include a tag when something actually changed.\n' +
       /* v1.30.2: some models echo the state block back into the story - the
          observed dump was the Time/Stats/Money/Carrying block, verbatim,
@@ -2162,6 +2252,24 @@
     });
   }
 
+  /** v1.35.0: a look inside a catalogue world without installing it -
+   *  the same fetch and parse installBundled walks, minus the save. */
+  function peekBundled(id) {
+    return bundled().then(function (list) {
+      var entry = null;
+      (list || []).forEach(function (e) { if (e.id === id) entry = e; });
+      if (!entry) throw new Error('That world is not in this build');
+      return fetch('worlds/' + entry.file).then(function (r) {
+        if (!r.ok) throw new Error('That world did not come with this install');
+        return r.json();
+      }).then(function (raw) {
+        var w = parse(raw);
+        if (!w) throw new Error('That world file is damaged');
+        return w;
+      });
+    });
+  }
+
   var HW = {
     parse: parse,
     assemble: assemble,
@@ -2193,6 +2301,8 @@
        instead of through the prompt */
     defaultDifficulty: defaultDifficulty, statRollMod: statRollMod,
     criticalOutcome: criticalOutcome, vitalStat: vitalStat, syncDowned: syncDowned,
+    /* v1.35.0: worn things, and a peephole into the catalogue */
+    equipmentSlots: equipmentSlots, peekBundled: peekBundled,
     /* tests inject a store; the app uses IDB directly */
     _useStore: function (s) { store = s; }
   };

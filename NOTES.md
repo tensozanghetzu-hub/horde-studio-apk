@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.34.0.apk` (versionCode 71) — 347,491 B,
-sha256 `b3018156dd0c0ca93dc68f7b130e20fe223b54f7997f685a8353cd98ebcf34eb`.
-Built 2026-10-17: `docs/` serves v1.34.0 (webRev `3ca4051a8888`) and
-release `v1.34.0` is the latest on the repo.
+Current build: `HordeStudio-v1.35.0.apk` (versionCode 72) — 351,587 B,
+sha256 `851925e1789c144574f19e3f4224c585e03b0d0872b65bb0255d615836db43f5`.
+Built 2026-10-18: `docs/` serves v1.35.0 (webRev `091a220ca9df`) and
+release `v1.35.0` is the latest on the repo.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -13,7 +13,7 @@ Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
 Tests: 43 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.34.0: 1477 checks in total).
+`node /home/user/tests/<suite>-test.js` (v1.35.0: 1516 checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -609,6 +609,70 @@ The *idea* was built natively as **v1.13.0** — see that entry: per-
 character internal state (mood/intent/flags), a hidden `<state>` block
 the model updates every reply, a collapsible strip at the top of the
 chat, off by default, VHs excluded. No third-party content.
+
+---
+
+## v1.35.0 — Worn words, open books (living-world pack, 4 of 4 — series complete) (2026-10-18)
+
+Final plank of the gap series. Three changes that give breadth: the
+equipment module becomes real, the AI world author stops drafting thin
+worlds, and every world — installed or merely offered — can be read
+before anyone lives in it.
+
+### What changed
+
+- **Equipment: carried vs worn.** Worlds that switch the module on and
+  declare slots (array or {slots:[...]}) get [[equip:SLOT:ITEM]] and
+  [[unequip:SLOT]] under the ledger's discipline: equips move the thing
+  from pockets to slot (what you do not carry, you do not wear), a full
+  slot swaps rather than clobbers, one-slot tables forgive the shorthand,
+  empty unequips and unnamed slots are told off in prose that names the
+  slots. An "Equipped:" line rides the state block in declared slot
+  order, the grammar teaches the tags only at equipped tables, HUD chips
+  and a proper Equipment corner of the status sheet show the kit, and old
+  runs grow the pockets for worn things quietly.
+- **The AI author drafts lived-in worlds.** The second draft now knows
+  the place ids and gives every person a home and a 2–4-stop day with
+  real rooms; factions come with goals. The third draft can name task
+  seeds (startingQuests), goal programs (schemes with ordered steps), a
+  stat registry (3–5 tracked numbers), stat overrides + obligations +
+  outfit on the lives, a non-flat start time, and the scene cap. The
+  three-part budget grew with the shape (700/800 tokens) and assemble()
+  passes the new pieces through. What the model returns is what the v1.32
+  truth pack now knows how to honor - the plumbing was built first, on
+  purpose.
+- **Every world is an open book.** A ✧-no, an eye chip on every installed
+  world and every catalogue offering opens a read-only summary: the clock,
+  the systems, every place, every person with their want and their day,
+  the factions, the lives, and an honest under-the-hood count. Peeking at
+  a catalogue world parses it without saving; peeking is the same truth
+  the referee runs on. The catalogue (worlds/authored.json) continues as
+  the single index of what ships - one fetch, shared by the offer, the
+  install, and now the peephole.
+
+### Verification
+
+hordeworld-test: slots order/gating, equip pocket→slot ledger lines,
+swap semantics, state line, grammar gating, all five refusal shapes,
+one-slot shorthand, normalizeRun backfill; peek-bundled happy path plus
+unknown-id rejection, inside the install flow. aicreate-test: the whole
+rich schema (schedules + home, goal programs, stat registry, scene cap,
+lives that start lived) driven through assemble→parse→start, and the
+ask itself asserted against app.js (schema keys, placeIds, budgets).
+worldstatus-test: Equipment corner with both empty and module-off
+states; the summary viewer against the real fixture (clock line, days,
+counts: 23 places · 8 people · 6 factions · 14 ties). Full battery:
+**44 suites, 1516 checks, 0 failed**.
+
+APK `HordeStudio-v1.35.0.apk` — 351,587 B, sha256
+`851925e1789c144574f19e3f4224c585e03b0d0872b65bb0255d615836db43f5`;
+in-APK verified (VERSION/CACHE v59/aapt code 72 + 1.35.0, all feature
+markers, incl. the new eye icon). The v1.34.0 APK was dropped; release
+keeps its copy. **Published 2026-10-18** under the standing series
+go-ahead - the four-version plan from authored-worlds-gap-analysis.md
+is now complete, all additive.
+
+Bumps: 1.35.0 (minor), apk code 72, sw cache v59.
 
 ---
 
