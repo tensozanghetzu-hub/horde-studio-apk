@@ -20,7 +20,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.38.1';
+  var VERSION = '1.39.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -274,6 +274,16 @@
         personaId: (this.settings && this.settings.activePersona) || '',
         summary: '', facts: [], messageCount: 0,
         timeline: 'main', pending: null,
+        /* v1.39.0 chatwork: pin & archive live on the session, the layer the
+           list sorts and hides by. Old sessions arrive without them and
+           read as false. */
+        pinned: false, archived: false,
+        /* per-chat generation overrides (temperature/maxTokens) and a style
+           note, set from Chat settings; null means "like the character". */
+        overrides: null,
+        /* auto-title bookkeeping: once we named it for you, a manual rename
+           is never overwritten; unset means the chat may learn its name. */
+        titleAuto: false,
         createdAt: Date.now(), updatedAt: Date.now()
       };
     },

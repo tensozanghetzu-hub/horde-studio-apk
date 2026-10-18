@@ -324,7 +324,11 @@
        greeting, a model reply that imitated the card's mojibake) so the
        model stops reading — and imitating — it. */
     var hist = history.map(function (m) {
-      return { role: m.role === 'user' ? 'user' : 'assistant', content: repairMojibake(m.text || '') };
+      var content = repairMojibake(m.text || '');
+      /* v1.39.0: a player's photo degrades to the caption they wrote for
+         it - text models never see pixels, so the caption IS the photo. */
+      if (m.imageCaption && m.role === 'user') content += '\n[photo: ' + m.imageCaption + ']';
+      return { role: m.role === 'user' ? 'user' : 'assistant', content: content };
     }).filter(function (m) { return m.content.trim(); });
 
     hist = trimHistory(hist, s.contextMessages || 40, s.maxContextChars || 26000);
@@ -348,7 +352,9 @@
       return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
     }).join('\n');
     var hist = history.map(function (m) {
-      return (m.role === 'user' ? s.userName : character.name) + ': ' + repairMojibake(m.text || '');
+      var content = repairMojibake(m.text || '');
+      if (m.imageCaption && m.role === 'user') content += '\n[photo: ' + m.imageCaption + ']';
+      return (m.role === 'user' ? s.userName : character.name) + ': ' + content;
     });
     var join = function (h) {
       return [head.trim(), ex ? 'Example dialogue:\n' + ex : '', 'Chat history:\n' + h.join('\n'),

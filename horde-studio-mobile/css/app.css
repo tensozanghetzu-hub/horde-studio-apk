@@ -596,3 +596,20 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .errlog-line+.errlog-line{border-top:1px solid var(--line-soft)}
 .errlog-when{display:block;font-size:10px;opacity:.6;letter-spacing:.02em}
 .errlog-msg{display:block;color:var(--text)}
+
+/* ============ v1.39.0 chatwork ============ */
+/* chats screen toolbar: the search grows beside the import button */
+.chat-tools{display:flex;gap:8px;align-items:center;padding:8px 12px 0}
+.chat-tools input[type="search"]{flex:1;padding:9px 12px;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);outline:none}
+.chat-tools .icon-btn{flex:none}
+/* staged attachment above the composer */
+.attach-stage{display:flex;align-items:center;gap:10px;padding:6px 12px;background:var(--surface-alt, var(--surface));border-top:1px solid var(--line-soft)}
+.attach-stage img{width:44px;height:44px;object-fit:cover;border-radius:10px;border:1px solid var(--line)}
+.attach-stage .attach-cap{flex:1;font-size:13px;color:var(--text-dim, var(--dim));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chat-tools[hidden], .attach-stage[hidden]{display:none}
+/* swipe word counts sit subdued under the alt pager */
+.swipe .swipe-words{color:var(--dim);font-size:11px;margin-left:8px}
+/* archived session rows dim a touch */
+.item .item-badge{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:1px 7px;margin-left:6px}
+
+.imgcap { font-size: 12px; color: var(--dim, rgba(230,235,255,.55)); margin-top: 6px; font-style: italic; }
