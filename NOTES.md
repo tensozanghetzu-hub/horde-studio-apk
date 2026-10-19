@@ -1,9 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.1.apk` (versionCode 80) — 367,971 B,
-sha256 `ab8dcc3bb4e2116765e4df1a6cd65c9839a4aa7f7715e28e6e51d787f2e62c7d`.
-Built 2026-10-19: `docs/` serves v1.39.1 (webRev `1792422932`) and
-release `v1.39.1` gives spoken dialogue its own ink.
+Current build: `HordeStudio-v1.39.2.apk` (versionCode 81) — 367,971 B,
+sha256 (see release). Built 2026-10-19: `docs/` serves v1.39.2 and
+release `v1.39.2` pins speech to one warm amber (`--say: #FFB454`, every theme).
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -615,6 +614,14 @@ chat, off by default, VHs excluded. No third-party content.
 ---
 
 ---
+
+## v1.39.2 - speech picks its color (2026-10-19)
+
+The v1.39.1 speech span now carries ONE dedicated color - warm amber gold
+(`--say: #FFB454`) - fixed across every theme (theme palettes may not recolor
+the voice). Picked live from a four-way rendered A/B/C/D
+(`say-colors.html`); the two other spacing tweaks from v1.39.1 (upright,
+heavier) stay. Suite grew to 15 checks.
 
 ## v1.39.1 - spoken words step out of the narration (2026-10-19)
 
