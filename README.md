@@ -605,6 +605,14 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.1
+
+**Spoken words step out of the narration.** Dialogue in quotes - straight or
+curly - is now set upright, a touch heavier and brighter inside every bubble,
+so what a character *says* reads apart from the description around it.
+Nothing is hidden or relabelled; the quote marks stay exactly where the model
+put them. (Check for updates on your phone.)
+
 ## What's new in v1.39.0
 
 **Eight chat powers in one sweep.** The chats list learns **search** (every

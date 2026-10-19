@@ -21,6 +21,12 @@
       return '\u0000' + (fences.length - 1) + '\u0000';
     });
     out = out.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    /* v1.39.1: spoken words step out of the narration. After esc() a speech
+       quote is &quot; (or a curly pair the model typed); the wrapped span keeps
+       the quote marks, so nothing is hidden - just set apart. Apostrophes
+       inside (& #39;) ride along fine because they are not &quot;. */
+    out = out.replace(/&quot;([^<\n]+?)&quot;/g, '<span class="say">&quot;$1&quot;</span>');
+    out = out.replace(/\u201c([^<\n]+?)\u201d/g, '<span class="say">\u201c$1\u201d</span>');
     out = out.replace(/^\s*&gt;\s?(.+)$/gm, '<em>$1</em>');
     out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
     out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');

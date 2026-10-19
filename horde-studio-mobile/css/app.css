@@ -613,3 +613,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .item .item-badge{font-size:10px;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:1px 7px;margin-left:6px}
 
 .imgcap { font-size: 12px; color: var(--dim, rgba(230,235,255,.55)); margin-top: 6px; font-style: italic; }
+
+/* v1.39.1: spoken words step out of the italic narration they sit inside -
+   upright, warmer, slightly heavier. Themed through the accent's light tint. */
+.bubble .mtext .say { font-style: normal; font-weight: 600; color: var(--accent-tint); }
