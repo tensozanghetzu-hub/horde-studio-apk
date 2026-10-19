@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.0.apk` (versionCode 79) — 367,971 B,
-sha256 `93298de87b64caa567a6d282db1daca95768cfaed75f82dd57eee5a8da551e7f`.
-Built 2026-10-18: `docs/` serves v1.39.0 (webRev `551f84a16409`) and
-release `v1.39.0` ships the chat overhaul (eight features, one release).
+Current build: `HordeStudio-v1.39.1.apk` (versionCode 80) — 367,971 B,
+sha256 `ab8dcc3bb4e2116765e4df1a6cd65c9839a4aa7f7715e28e6e51d787f2e62c7d`.
+Built 2026-10-19: `docs/` serves v1.39.1 (webRev `1792422932`) and
+release `v1.39.1` gives spoken dialogue its own ink.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -12,8 +12,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 47 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.39.0: 1650+ checks in total).
+Tests: 48 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.39.1: 1660+ checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -613,6 +613,18 @@ chat, off by default, VHs excluded. No third-party content.
 ---
 
 ---
+
+---
+
+## v1.39.1 - spoken words step out of the narration (2026-10-19)
+
+The renderer now wraps dialogue (straight `"..."` and curly smart quotes) in
+a `<span class="say">` inside every bubble, and one CSS rule lifts spoken text
+out of the italic narration: upright, heavier, and warmer through the theme's
+accent tint. Apostrophes inside speech ride along (they are `&#39;`, not
+`&quot;`), unmatched quotes mark nothing, code fences are untouched, and
+emphasis still works inside speech. Tests: `tests/saybubble-test.js` (13
+checks). Preview that judged the contrast: `speech-preview.html`.
 
 ## v1.39.0 - eight small chat powers, one release (2026-10-18)
 
