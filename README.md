@@ -608,10 +608,10 @@ already handled. Every screen was measured at 320, 360 and 412 px wide.
 ## What's new in v1.39.1
 
 **Spoken words step out of the narration.** Dialogue in quotes - straight or
-curly - is now set upright, a touch heavier and brighter inside every bubble,
-so what a character *says* reads apart from the description around it.
-Nothing is hidden or relabelled; the quote marks stay exactly where the model
-put them. (Check for updates on your phone.)
+curly - is now set upright and a touch heavier in its own warm amber
+(`#FFB454`, fixed on every theme), so what a character *says* reads apart from
+the description around it. Nothing is hidden or relabelled; the quote marks
+stay exactly where the model put them. (Check for updates on your phone.)
 
 ## What's new in v1.39.0
 

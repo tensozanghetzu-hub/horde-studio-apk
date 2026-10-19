@@ -97,6 +97,8 @@ function loadUI() {
     ok('a .say rule exists on the bubble text', /\.mtext \.say|\.bubble[^\n]*\.say/.test(css));
     ok('speech is upright (fights the narration italics)', /\.mtext \.say\s*{[^}]*font-style:\s*normal/.test(css));
     ok('speech is heavier than narration', /\.mtext \.say\s*{[^}]*font-weight:\s*(500|600|700)/.test(css));
+    ok('speech has ONE dedicated color (v1.39.2 pick: warm amber)', /--say:\s*#FFB454/i.test(css));
+    ok('...and the rule uses that variable (no theme recoloring)', /\.mtext \.say\s*{[^}]*color:\s*var\(--say\)/.test(css));
 
     for (const [n, fn] of tests) ok(n, !!fn());
   } catch (e) {
