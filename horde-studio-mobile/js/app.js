@@ -729,6 +729,29 @@
     });
   };
 
+  /** v1.39.3: one confirmed tap back to factory for the Generation screen.
+      Only that screen's nine keys move - credentials, model, personas and
+      theme belong to other rooms. */
+  App.resetGenerationSettings = function () {
+    return UI.confirm('Reset generation settings?',
+      'Temperature, reply length, context window and the reply-behaviour toggles ' +
+      'return to their factory values. Provider, API key, model and personas stay untouched.',
+      { okLabel: 'Reset', danger: true }).then(function (yes) {
+      if (!yes) return false;
+      var patch = Store.generationDefaults();
+      Object.assign(Store.settings, patch);
+      return Store.saveSettings().then(function () {
+        /* re-render only if the tinkerer is still standing on that screen */
+        if (App.state.screen === 'settings-x') {
+          var body = $ && $('.screen');
+          if (body) Views.settingsGeneration(body);
+        }
+        UI.toast('Generation settings restored to defaults');
+        return true;
+      });
+    });
+  };
+
   App.sessionMenu = function (id) {
     IDB.get('sessions', id).then(function (s) {
       if (!s) return;

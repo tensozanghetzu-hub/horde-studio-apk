@@ -20,7 +20,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.39.2';
+  var VERSION = '1.39.3';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -81,6 +81,12 @@
     theme: 'midnight'
   };
 
+  /* v1.39.3: the keys the Generation settings screen owns, and nothing else.
+     The reset button builds its patch from exactly this list - provider, key,
+     model, personas, theme are somebody else's screen and must not move. */
+  var GEN_KEYS = ['temperature', 'maxTokens', 'topP', 'contextMessages',
+                  'streaming', 'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter'];
+
   var Store = {
     settings: null,
     characters: [],
@@ -88,6 +94,15 @@
     PRESETS: PRESETS,
     VERSION: VERSION,
     defaultSystem: DEFAULT_SYSTEM,
+    GEN_KEYS: GEN_KEYS,
+
+    /* Factory values for the nine generation keys, copied fresh so the
+       caller can assign the object without aliasing DEFAULTS. */
+    generationDefaults: function () {
+      var p = {};
+      GEN_KEYS.forEach(function (k) { p[k] = DEFAULTS[k]; });
+      return p;
+    },
 
     init: function () {
       var self = this;

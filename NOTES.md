@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.2.apk` (versionCode 81) — 367,971 B,
-sha256 (see release). Built 2026-10-19: `docs/` serves v1.39.2 and
-release `v1.39.2` pins speech to one warm amber (`--say: #FFB454`, every theme).
+Current build: `HordeStudio-v1.39.3.apk` (versionCode 82) — 367,971 B.
+Built 2026-10-20: `docs/` serves v1.39.3 and
+release `v1.39.3` adds Reset-to-defaults to the Generation screen.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -11,8 +11,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 48 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.39.1: 1660+ checks in total).
+Tests: 49 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.39.3: 1660+ checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -614,6 +614,18 @@ chat, off by default, VHs excluded. No third-party content.
 ---
 
 ---
+
+## v1.39.3 - a way home from tinkering (2026-10-20)
+
+The Generation settings screen gains a "Reset to defaults" button at the
+foot of the page. It restores exactly the nine keys that screen owns -
+temperature .85, max reply length 400, top P .95, context 40, plus the five
+behaviour toggles - behind one confirmation. Provider, API key, model,
+personas, theme and everything else stay precisely put: the source of truth
+is `Store.generationDefaults()` (nine keys from the DEFAULTS table,
+re-composable, never aliased). Suite: `tests/genreset-test.js` (19 checks -
+scope, confirm guard, and a live tinker-reset-and-survive round in the vm
+harness).
 
 ## v1.39.2 - speech picks its color (2026-10-19)
 
