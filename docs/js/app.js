@@ -1367,7 +1367,13 @@
   App.beginWorld = function (worldId, lifeId, classId) {
     HW.get(worldId).then(function (world) {
       if (!world) return;
-      var run = HW.start(world, lifeId, classId);
+      /* v1.39.4: freeze the effective persona into the run - persona
+         switching already swaps settings.userName/userPersona in place, so
+         this is always the identity the player currently picked. */
+      var idname = (Store.settings && Store.settings.userName) || '';
+      var idper = (Store.settings && Store.settings.userPersona) || '';
+      var run = HW.start(world, lifeId, classId,
+        (idname || idper) ? { name: idname, persona: idper } : null);
       return HW.saveRun(run).then(function () { App.openWorldRun(run.id); });
     });
   };

@@ -1008,7 +1008,11 @@
     return cls;
   }
 
-  function start(world, lifeId, classId) {
+  /* v1.39.4: the player carries their own identity into a run. `who` is the
+     effective settings identity ({ name, persona }) at start - frozen here,
+     like the life and class picks, so a later persona swap never rewrites a
+     run already in progress. */
+  function start(world, lifeId, classId, who) {
     var hud = world.hudConfig || {};
     var life = null;
     if (lifeId) {
@@ -1054,6 +1058,8 @@
       worldName: world.name,
       lifeId: life ? life.id : null,
       lifeName: life ? (life.role || life.name) : null,
+      playerName: (who && who.name) ? String(who.name) : undefined,
+      playerPersona: (who && who.persona) ? String(who.persona) : undefined,
       locationId: startAt,
       turn: 0,
       extraMinutes: 0,
@@ -2144,6 +2150,13 @@
     if (world.description) parts.push('The world: ' + world.description);
     if (world.authorNote) parts.push(world.authorNote);
     if (run.lifeName) parts.push('The player begins as: ' + run.lifeName + '.');
+    /* v1.39.4: who is actually holding the sticks. The persona layers on TOP
+       of the life: the life is where the run starts, the persona is who
+       stands there. Frozen at start; old runs have neither key and the
+       referee simply addresses the role, as before. */
+    if (run.playerName) parts.push('The player is ' + run.playerName +
+      '. Narration stays second person, but named characters know and use the name.');
+    if (run.playerPersona) parts.push('Who the player is: ' + run.playerPersona);
     if (sb.principles && sb.enabled !== false) parts.push('How the world moves: ' + sb.principles);
 
     parts.push(describeLocation(world, run));
