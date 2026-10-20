@@ -619,3 +619,14 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
    gold) that stays the same on every theme. Themes may not recolor the voice. */
 :root { --say: #FFB454; }
 .bubble .mtext .say { font-style: normal; font-weight: 600; color: var(--say); }
+
+/* v1.39.5: the world HUD's task ledger folds behind a pill */
+.wr-hud-fold { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg-2);
+  color: var(--muted); cursor: pointer; line-height: 1.3; }
+.wr-hud-fold:active { background: var(--accent-soft, var(--surface-2)); }
+.wr-hud-tasks { font-size: 12.5px; line-height: 1.5; color: var(--muted);
+  margin: 4px 0 2px; padding: 7px 10px; background: var(--bg-2);
+  border-left: 2px solid var(--line); border-radius: 8px; overflow-wrap: anywhere; }
+.wr-hud-tasks b { color: var(--dim); }
+.wr-hud-tasks[hidden] { display: none; }
