@@ -630,3 +630,33 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
   border-left: 2px solid var(--line); border-radius: 8px; overflow-wrap: anywhere; }
 .wr-hud-tasks b { color: var(--dim); }
 .wr-hud-tasks[hidden] { display: none; }
+
+/* v1.39.6: the world's turn talks while it works (de-dot new spans) */
+.typing { flex-wrap: wrap; align-items: center; }
+.typing .typing-label { width: auto; height: auto; border-radius: 0; background: none; animation: none;
+  font-size: 12px; line-height: 1.4; color: var(--muted); margin-left: 6px; }
+.typing .typing-label[hidden] { display: none; }
+.typing .typing-preview { width: auto; height: auto; border-radius: 0; background: none; animation: none;
+  flex-basis: 100%; font-size: 12px; line-height: 1.45; font-style: italic; color: var(--dim);
+  margin: 6px 0 2px; overflow-wrap: anywhere; }
+.typing .typing-preview[hidden] { display: none; }
+
+/* v1.39.6: the world's turn talks while it works (de-dot the new spans) */
+.typing { flex-wrap: wrap; align-items: center; }
+.typing .typing-label { width: auto; height: auto; border-radius: 0; background: none; animation: none;
+  font-size: 12px; line-height: 1.4; color: var(--muted); margin-left: 6px; }
+.typing .typing-label[hidden] { display: none; }
+.typing .typing-preview { width: auto; height: auto; border-radius: 0; background: none; animation: none;
+  flex-basis: 100%; font-size: 12px; line-height: 1.45; font-style: italic; color: var(--dim);
+  margin: 6px 0 2px; overflow-wrap: anywhere; }
+.typing .typing-preview[hidden] { display: none; }
+
+/* v1.39.6: the world's turn talks while it works (de-dot the new spans) */
+.typing { flex-wrap: wrap; align-items: center; }
+.typing .typing-label { width: auto; height: auto; border-radius: 0; background: none; animation: none;
+  font-size: 12px; line-height: 1.4; color: var(--muted); margin-left: 6px; }
+.typing .typing-label[hidden] { display: none; }
+.typing .typing-preview { width: auto; height: auto; border-radius: 0; background: none; animation: none;
+  flex-basis: 100%; font-size: 12px; line-height: 1.45; font-style: italic; color: var(--dim);
+  margin: 6px 0 2px; overflow-wrap: anywhere; }
+.typing .typing-preview[hidden] { display: none; }

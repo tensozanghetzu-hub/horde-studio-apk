@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.6
+
+**World turns stop sitting in silence.** A long Horde wait on an authored
+world used to show three dead dots - it now says exactly what is happening:
+the queue position, when a volunteer GPU picks the job up, when a worker
+answers with nothing and another is asked, when a reply got cut off and is
+being finished, and the repair pass is honestly labelled instead of looking
+like the first silence twice. The reply streams in live under the dots as it
+arrives. (Check for updates on your phone.)
+
 ## What's new in v1.39.5
 
 **The task ledger folds.** On phones, open quests could take half the world
