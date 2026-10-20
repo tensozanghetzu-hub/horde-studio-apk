@@ -2363,11 +2363,19 @@
       head += '<span><b>' + esc(String(run.stats[run.cashId])) + '</b> ' +
              esc(gr.currencyName || 'cash') + '</span>';
     }
+    /* v1.39.5: the open-task ledger is folded by hand on small screens -
+       a pill in the head folds it away, and the fold is remembered ON the
+       run (run.hudTasksOpen), so a phone stays readable across sessions.
+       Old runs carry no marker and read open, exactly as before. */
+    var openQuests = [];
     if ((gr.modules || {}).quests !== false) {
-      var open = (run.quests || []).filter(function (q) { return !q.done; });
-      if (open.length) {
-        head += '<span>tasks: ' + esc(open.map(function (q) { return q.text; }).join('; ')) + '</span>';
-      }
+      openQuests = (run.quests || []).filter(function (q) { return !q.done; });
+    }
+    var tasksOpen = run.hudTasksOpen !== false;
+    if (openQuests.length) {
+      head += '<button type="button" class="wr-hud-fold" data-act="wr-hud-fold" ' +
+        'title="Show or hide the open tasks">' + esc(String(openQuests.length)) +
+        ' tasks ' + (tasksOpen ? '\u25be' : '\u25b8') + '</button>';
     }
 
     var collapsible = stats.length > 6;
@@ -2379,6 +2387,10 @@
       'title="Set the clock, purse, stats, pockets or tasks by hand">correct state</button>';
 
     var out = '<div class="wr-hud-row">' + head + '</div>';
+    if (openQuests.length) {
+      out += '<div class="wr-hud-tasks"' + (tasksOpen ? '' : ' hidden') + '>' +
+        'tasks: ' + esc(openQuests.map(function (q) { return q.text; }).join('; ')) + '</div>';
+    }
     if (sheet) {
       out += '<div class="wr-hud-more"' + (collapsible && !wrHudOpen ? ' hidden' : '') + '>' + sheet + '</div>';
     }
@@ -2412,7 +2424,7 @@
 
   /* Flip the folded sheet in place - no re-render, so the change chips
      from the last turn stay visible. */
-  Views.bindWorldHud = function (hud, world) {
+  Views.bindWorldHud = function (hud, world, run) {
     on(hud, '[data-act=wr-hud-toggle]', 'click', function () {
       wrHudOpen = !wrHudOpen;
       var more = hud.querySelector('.wr-hud-more');
@@ -2420,6 +2432,18 @@
       var btn = hud.querySelector('[data-act=wr-hud-toggle]');
       if (btn) btn.textContent = wrHudOpen ? 'hide sheet' :
         'sheet (' + ((world.hudConfig || {}).stats || []).length + ')';
+    });
+    /* v1.39.5: fold the task ledger - the choice travels with the run. */
+    on(hud, '[data-act=wr-hud-fold]', 'click', function () {
+      if (!run) return;
+      var openNow = run.hudTasksOpen !== false;
+      run.hudTasksOpen = !openNow;
+      var tbox = hud.querySelector('.wr-hud-tasks');
+      if (tbox) tbox.hidden = !run.hudTasksOpen;
+      var fbtn = hud.querySelector('[data-act=wr-hud-fold]');
+      if (fbtn) fbtn.textContent = fbtn.textContent
+        .replace(/[\u25b8\u25be]/, run.hudTasksOpen ? '\u25be' : '\u25b8');
+      if (HW.saveRun) HW.saveRun(run);
     });
     on(hud, '[data-act=wr-correct]', 'click', function () {
       /* v1.21.0 (upstream 18.3.5): opening the correct-state screen is fine,
@@ -2708,7 +2732,7 @@
     if (hud) {
       hud.hidden = false;
       hud.innerHTML = Views.worldHud(world, run, changes);
-      Views.bindWorldHud(hud, world);
+      Views.bindWorldHud(hud, world, run);
     }
     if (!thread) return;
     thread.innerHTML = (run.log || []).map(function (m) { return worldBubble(m, world); }).join('');

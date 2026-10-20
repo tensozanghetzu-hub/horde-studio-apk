@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.4.apk` (versionCode 83).
-Built 2026-10-20: `docs/` serves v1.39.4 and
-release `v1.39.4` lets world runs carry the player's persona.
+Current build: `HordeStudio-v1.39.5.apk` (versionCode 84).
+Built 2026-10-20: `docs/` serves v1.39.5 and
+release `v1.39.5` lets the world HUD's task ledger fold away.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -614,6 +614,18 @@ chat, off by default, VHs excluded. No third-party content.
 ---
 
 ---
+
+## v1.39.5 - the task ledger folds (2026-10-20)
+
+On a phone, two or three open quests made the world HUD's inline task list
+swallow half the screen. The ledger now lives in its own block BELOW the
+head row (location, clock, coins stay put), with an "N tasks" pill that
+folds and reveals it. The choice persists WITH the run (run.hudTasksOpen -
+this run's pocket, not a global), so his phone stays readable across
+sessions. Old runs default open; done quests never weigh in; correct-state
+stay in the head. The old task prefix string is unchanged (`tasks: ...`),
+so v1.22-era HUD suites still pass word-for-word. Suite:
+`tests/worldfold-test.js` (20 checks).
 
 ## v1.39.4 - worlds learn the player's name (2026-10-20)
 

@@ -605,6 +605,13 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.5
+
+**The task ledger folds.** On phones, open quests could take half the world
+screen - the list now tucks behind an *N tasks* pill next to the clock,
+remembered per run, so the play field breathes until you peek. Place, time
+and coins never hide. (Check for updates on your phone.)
+
 ## What's new in v1.39.4
 
 **Worlds know who you are now.** Before v1.39.4 a world run only knew your
