@@ -746,6 +746,18 @@
     return 'Working…';
   };
 
+  /** v1.39.7: the live preview of a world turn strips its [[bookkeeping]]
+      before it shows - the stream is the turn taking shape, not the wire
+      protocol. The finished reply is de-tagged on commit, so the tail being
+      typed right now must be too. */
+  App.worldStreamTail = function (full) {
+    var t = String(full || '');
+    t = t.replace(/\[\[[^\]]*\]\]/g, '');   /* complete tags out */
+    t = t.replace(/\[\[[\s\S]*$/, '');        /* a half-written tag at the cut point out */
+    t = t.replace(/\s+/g, ' ').trim();
+    return t.slice(-160);
+  };
+
   App.resetGenerationSettings = function () {
     return UI.confirm('Reset generation settings?',
       'Temperature, reply length, context window and the reply-behaviour toggles ' +
@@ -1503,7 +1515,7 @@
     };
     var wrDelta = function (chunk, full) {
       if (!tprev) return;
-      var tail = String(full || '').slice(-160).trim();
+      var tail = App.worldStreamTail(full);
       tprev.hidden = !tail;
       tprev.textContent = tail;
     };

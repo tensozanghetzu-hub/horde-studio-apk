@@ -1,9 +1,9 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.6.apk` (versionCode 85).
-Built 2026-10-20: `docs/` serves v1.39.6 and
-release `v1.39.6` makes authored-world turns talk while they work
-(queue, empties, repair, live text) instead of sitting silent for minutes.
+Current build: `HordeStudio-v1.39.7.apk` (versionCode 86).
+Built 2026-10-20: `docs/` serves v1.39.7 and
+release `v1.39.7` strips [[bookkeeping]] from the world turn's
+live stream preview, so it reads like the reply taking shape.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.

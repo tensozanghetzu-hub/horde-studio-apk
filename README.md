@@ -605,6 +605,14 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.7
+
+**The live preview speaks prose, not bookkeeping.** While a world turn types
+itself out you will now see only the story taking shape - the [[tags]] that
+move your coins, clock and factions no longer flash through raw, and a
+half-written tag at the edge of the stream never leaks. (Check for updates
+on your phone.)
+
 ## What's new in v1.39.6
 
 **World turns stop sitting in silence.** A long Horde wait on an authored
