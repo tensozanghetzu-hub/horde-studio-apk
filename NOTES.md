@@ -1,8 +1,8 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.3.apk` (versionCode 82) — 367,971 B.
-Built 2026-10-20: `docs/` serves v1.39.3 and
-release `v1.39.3` adds Reset-to-defaults to the Generation screen.
+Current build: `HordeStudio-v1.39.4.apk` (versionCode 83).
+Built 2026-10-20: `docs/` serves v1.39.4 and
+release `v1.39.4` lets world runs carry the player's persona.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
@@ -11,8 +11,8 @@ Permissions: INTERNET, ACCESS_NETWORK_STATE, REQUEST_INSTALL_PACKAGES (kept on p
 Rebuild: `cd apk-build && bash ./setup-sdk.sh && bash ./build.sh` — the SDK
 does not survive a turn boundary (see the HAZARD below), so setup + build must
 run as one command.
-Tests: 49 suites in `/home/user/tests/`, one file per fix —
-`node /home/user/tests/<suite>-test.js` (v1.39.3: 1660+ checks in total).
+Tests: 50 suites in `/home/user/tests/`, one file per fix —
+`node /home/user/tests/<suite>-test.js` (v1.39.4: 1660+ checks in total).
 Self-update test: `update-test.js` (29 checks, simulates the native bridge, real HTTP)
 and `typing-test.js` — the two Playwright suites, the only ones that need a browser.
 Test scripts live in `/home/user/tests/` (durable). After a sandbox restart: `cd tests && npm i playwright-core`, `pip install playwright && python3 -m playwright install --with-deps chromium`.
@@ -614,6 +614,22 @@ chat, off by default, VHs excluded. No third-party content.
 ---
 
 ---
+
+## v1.39.4 - worlds learn the player's name (2026-10-20)
+
+World runs previously knew only the picked LIFE ("The player begins as:
+Guild hopeful") - the referee never saw who you actually are. `HW.start`
+now accepts the effective identity ({name, persona} from settings - the
+switch handle the personas screen already swaps in place) and FREEZES it
+into the run at start, like the life and the class: later persona swaps
+abroad never rewrite a run mid-flight. The referee prompt layers it above
+the life ("The player is Ramiros... Narration stays second person, but
+named characters know and use the name" + the persona blurb itself), and
+old-shape runs prompt exactly as before. Also shipped same-day on the
+workspace: `tools/verify-world.js` - the 19-check authored-world validator
+(real HW.parse gate + reference integrity), and the worked example it
+grew from: `Azarinth-Healer-inspired.horde_world.json`. Suite:
+`tests/worldpersona-test.js` (10 checks, incl. regression guard).
 
 ## v1.39.3 - a way home from tinkering (2026-10-20)
 
