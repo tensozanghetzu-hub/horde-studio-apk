@@ -732,6 +732,20 @@
   /** v1.39.3: one confirmed tap back to factory for the Generation screen.
       Only that screen's nine keys move - credentials, model, personas and
       theme belong to other rooms. */
+  /** v1.39.6: the vocabulary the world turn reports with, kept identical to
+      the chat's - one mapper both call sites share. Pure for tests. */
+  App.worldProgressText = function (info) {
+    info = info || {};
+    if (info.state === 'processing') return 'Generating on a volunteer GPU…';
+    if (info.state === 'queued') return 'Queued on the Horde · position ' + (info.queuePosition || 0);
+    if (info.state === 'rate-limited') return 'Horde rate limit — pausing ' + (info.waitTime || 10) + 's';
+    if (info.state === 'retrying') return 'Connection blip — retrying…';
+    if (info.state === 'continuing') return 'Reply got cut off — finishing it…';
+    if (info.state === 'empty') return 'Worker sent nothing — asking another… (' +
+      ((info.attempt || 0) + 1) + ' of ' + (info.of || 3) + ')';
+    return 'Working…';
+  };
+
   App.resetGenerationSettings = function () {
     return UI.confirm('Reset generation settings?',
       'Temperature, reply length, context window and the reply-behaviour toggles ' +
@@ -1470,6 +1484,29 @@
     if (global.KeepAwake) KeepAwake.hold();
     var typing = $('#wr-typing');
     if (typing) typing.hidden = false;
+    /* v1.39.6: no more silent turns. Queue, workers, empties, continuations
+       and the revealed text all breathe live into the typing widget - the
+       same vocabulary the chats already talk in. */
+    var tlabel = $('#wr-typing-label');
+    var tprev = $('#wr-typing-preview');
+    function worldTypingClear() {
+      if (tlabel) { tlabel.hidden = true; tlabel.textContent = ''; }
+      if (tprev) { tprev.hidden = true; tprev.textContent = ''; }
+    }
+    function worldStatus(txt, waitTime) {
+      if (!tlabel) return;
+      tlabel.hidden = !txt;
+      tlabel.textContent = txt ? (waitTime ? txt + ' (about ' + waitTime + 's)' : txt) : '';
+    }
+    var wrProgress = function (info) {
+      worldStatus(App.worldProgressText(info), info.waitTime);
+    };
+    var wrDelta = function (chunk, full) {
+      if (!tprev) return;
+      var tail = String(full || '').slice(-160).trim();
+      tprev.hidden = !tail;
+      tprev.textContent = tail;
+    };
 
     /* v1.29.1: the run object keeps its identity for the whole session -
        the bar, the sheet and the views all hold references to it. A
@@ -1629,7 +1666,13 @@
         history: msgs.map(function (m) {
           return { id: 'w' + Math.random().toString(36).slice(2),
                    role: m.role, text: m.text, createdAt: Date.now() };
-        })
+        }),
+        onDelta: wrDelta,
+        /* the repair is a second full generation - say so, or the player
+           thinks the first silence repeated itself */
+        onProgress: function (info) {
+          worldStatus('Repairing the turn — ' + String(App.worldProgressText(info)).toLowerCase(), info.waitTime);
+        }
       }).then(function (reply2) {
         var second = assess(reply2);
         if (!second.ok) {
@@ -1659,7 +1702,9 @@
       session: { id: run.id },
       history: built.messages.map(function (m) {
         return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
-      })
+      }),
+      onDelta: wrDelta,
+      onProgress: wrProgress
     }).then(function (reply) {
       /* v1 (opted-out) worlds: assess only refuses here for a broken
          answer (empty, code, planning, echo) - ledger rejections stay
@@ -1679,6 +1724,7 @@
       failTurn('The referee could not answer: ' + (e && e.message));
     }).then(function () {
       App.state.worldBusy = false;
+      worldTypingClear();
       if (typing) typing.hidden = true;
       if (global.KeepAwake) KeepAwake.release();
     });
