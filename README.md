@@ -605,6 +605,14 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.3
+
+**A way home from tinkering.** The Generation screen now carries a *Reset to
+defaults* button: one confirmed tap restores temperature, reply length,
+context and the reply toggles to factory values - provider, API key, model
+and personas stay exactly as you left them. (Check for updates on your
+phone.)
+
 ## What's new in v1.39.1
 
 **Spoken words step out of the narration.** Dialogue in quotes - straight or

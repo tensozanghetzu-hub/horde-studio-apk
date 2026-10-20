@@ -907,6 +907,9 @@
         '<div class="field"><div class="hint" style="margin:0">For virtual humans: when a reply reads like several short ' +
           'messages rather than one paragraph, it arrives as separate bubbles a few seconds apart.</div></div>' +
         '<div class="field compact"><label>Enter sends message</label><div class="toggle' + (s.sendOnEnter ? ' on' : '') + '" id="t-enter"></div></div>' +
+        '<div class="field"><button class="btn danger" id="gen-reset" style="width:100%">Reset to defaults</button>' +
+          '<div class="hint" style="margin:6px 0 0">Puts every slider and toggle above back to its factory value. ' +
+          'Provider, API key, model and personas are NOT touched.</div></div>' +
       '</div>';
     var sc = settingsScope(body);
     sc.range('#set-temp', '#v-temp', 'temperature', function (v) { return v.toFixed(2); });
@@ -918,6 +921,8 @@
     sc.toggle('#t-bursts', 'bursts');
     sc.toggle('#t-think', 'stripThinking');
     sc.toggle('#t-enter', 'sendOnEnter');
+    var gr = $('#gen-reset');
+    if (gr) gr.onclick = function () { App.resetGenerationSettings(); };
   };
 
   /* ---- You ---- */
