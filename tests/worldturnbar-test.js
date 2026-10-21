@@ -74,6 +74,7 @@ var API = {
 };
 
 var sandbox = {
+  AbortController: AbortController,
   console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise,
   Object: Object, Array: Array, String: String, Number: Number, RegExp: RegExp,
   Error: Error, isNaN: isNaN, parseFloat: parseFloat, parseInt: parseInt,
