@@ -1,9 +1,11 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.7.apk` (versionCode 86).
-Built 2026-10-20: `docs/` serves v1.39.7 and
-release `v1.39.7` strips [[bookkeeping]] from the world turn's
-live stream preview, so it reads like the reply taking shape.
+Current build: `HordeStudio-v1.39.8.apk` (versionCode 87).
+Built 2026-10-21: `docs/` serves v1.39.8 and
+release `v1.39.8` slims the world HUD to one row ending at correct state,
+retires the live stream preview (status line stays), and strips the
+referee's briefing echo out of replies - at commit, in the model's own
+replay of the log, and at render for saves that already carry it.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.

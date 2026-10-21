@@ -1,9 +1,10 @@
 /* worldprogress-test — v1.39.6: the world's turn must never sit silent.
-   Chats live-report queue position, worker-empties, cut-off continuations
-   and stream text; world's send passed NEITHER callback, so a 1-4 minute
-   Horde turn looked dead. Now the typing widget carries the same live
-   status plus a tail of the reply as it arrives, on both the first answer
-   and the repair pass. */
+   v1.39.8 (same suite, tightened by the user): the STATUS line - queue,
+   empty retries, continuations, honest repair label - stays; the streamed
+   text PREVIEW is gone by edict ("hide the preview, show just the queue").
+   So this suite pins both directions: the status vocabulary wired on both
+   generate calls, and no preview element, no stream callback anywhere in
+   the world send. */
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -41,7 +42,7 @@ function carve(name) {
     ok('the world turn code lives in app.js', sendAt !== -1);
     const block = sendAt === -1 ? '' : appSrc.slice(sendAt, sendAt + 12000);
     ok('the main turn passes an onProgress callback', /onProgress:\s*(function|wrProgress)/.test(block));
-    ok('the main turn passes an onDelta callback', /onDelta:\s*(function|wrDelta)/.test(block));
+    ok('the preview-era onDelta callback is GONE from the main turn', !/onDelta/.test(block));
 
     console.log('B — the repair pass reports too (second-call silence was real)');
     const repAt = appSrc.indexOf('function repairOnce');
@@ -68,14 +69,16 @@ function carve(name) {
       ok('unknown states degrade to Working', /work/i.test(sb.App.worldProgressText({ state: 'mystery' })));
     }
 
-    console.log('E — the widget grew a mouth');
+    console.log('E — the widget has exactly one mouth: the status line');
     const idx = readIdx();
-    ok('a label element exists under #wr-typing', /id="wr-typing-label"/.test(idx));
-    ok('a stream preview element exists', /id="wr-typing-preview"/.test(idx));
+    ok('the label element exists under #wr-typing', /id="wr-typing-label"/.test(idx));
+    ok('the stream preview element is gone from the shell', !/wr-typing-preview/.test(idx));
     ok('world write-back exists in the app (label setter)', /wr-typing-label/.test(appSrc));
-    ok('the stream tail lands in the preview', /wr-typing-preview/.test(appSrc));
+    ok('no preview write-back remains in the app', !/wr-typing-preview/.test(appSrc)
+       && !/worldStreamTail|wrDelta/.test(appSrc));
+    ok('the repair pass passes no stream callback either', !/onDelta/.test(repBlock));
     ok('the repair progress is visibly polite', /Repairing|repairing/.test(block + repBlock));
-    ok('label and preview get cleared when the scene ends',
+    ok('the label gets cleared when the scene ends',
        /wr-typing-label[\s\S]{0,300}(hidden|textContent\s*=\s*'')/.test(block));
   } catch (e) {
     failed++;

@@ -2306,17 +2306,20 @@
       '<div style="min-width:0;max-width:calc(100% - 44px)">' +
         '<div class="bubble">' +
           (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +
-          '<div class="mtext">' + md(m.content || '') + '</div>' +
+          '<div class="mtext">' + md(
+            /* v1.39.8: turns stored BEFORE the briefing-echo strip read clean
+               too - the sheet the model once quoted back is hidden, not
+               deleted; the stored log itself is never rewritten. */
+            isMe ? (m.content || '') : (HW.stripBriefingEcho ? HW.stripBriefingEcho(m.content || '') : (m.content || ''))
+          ) + '</div>' +
         '</div>' +
       '</div></div>';
   }
 
-  /* The sheet folds. A world with many stats (a job grid, say) would otherwise
-     render a HUD taller than several phone screens and bury the input under it
-     - one line always shows (place, time, purse, tasks, what just changed) and
-     the rest sits behind a tap. */
-  var wrHudOpen = false;
-  Views.wrHudOpen = function (v) { if (v === undefined) return wrHudOpen; wrHudOpen = !!v; };
+  /* v1.39.8: no sheet at all any more. The HUD is one head row (place, time,
+     purse, tasks, correct-state) plus the foldable task ledger - the stats,
+     pockets and conditions still exist, in the Life tab and the correct-state
+     dialog, where they were never in the way. */
 
   /* Time, stats, purse, pockets and tasks - whatever the world switches on.
      The third argument is the applied turn ({changes, rejections}) or a plain
@@ -2328,33 +2331,6 @@
     var checks = applied && !Array.isArray(applied) ? applied.checks : null;
     var gr = world.gameRules || {}, hud = world.hudConfig || {};
     var loc = HW.location(world, run.locationId);
-    var stats = hud.stats || [];
-
-    var sheet = '';
-    var vitalId = (HW.vitalStat && HW.vitalStat(world)) || null;
-    stats.forEach(function (st) {
-      var v = run.stats[st.id];
-      if (v === undefined) return;
-      /* v1.34.0: the vital stat wears its mark on the sheet too */
-      sheet += '<span>' + esc(st.name) + (vitalId === st.id ? ' ✧' : '') + ' <b>' +
-             esc(String(v)) + '</b>' +
-             (st.max ? '/' + esc(String(st.max)) : '') + '</span>';
-    });
-    if ((gr.modules || {}).inventory !== false && run.inventory && run.inventory.length) {
-      sheet += '<span>' + esc(run.inventory.join(', ')) + '</span>';
-    }
-    /* v1.34.0: conditions as sheet chips, and the floor shows itself */
-    if ((gr.modules || {}).conditions && run.conditions && run.conditions.length) {
-      run.conditions.forEach(function (c) { sheet += '<span class="ws-cond">' + esc(c) + '</span>'; });
-    }
-    if (run.downed) sheet += '<span class="ws-cond"><b>downed</b></span>';
-    /* v1.35.0: worn things, named with their pockets */
-    if ((gr.modules || {}).equipment && run.equip && HW.equipmentSlots) {
-      HW.equipmentSlots(world).forEach(function (s) {
-        if (run.equip[s]) sheet += '<span>' + esc(run.equip[s]) + ' <i>(' + esc(s) + ')</i></span>';
-      });
-    }
-
     var head = '<span class="wr-at">' + esc(loc ? loc.name : 'Somewhere') + '</span>';
     if (hud.showClock !== false) {
       head += '<span><b>' + esc(HW.clockOf(run, hud).text) + '</b> · turn ' + (run.turn || 0) + '</span>';
@@ -2378,11 +2354,6 @@
         ' tasks ' + (tasksOpen ? '\u25be' : '\u25b8') + '</button>';
     }
 
-    var collapsible = stats.length > 6;
-    if (collapsible) {
-      head += '<button type="button" class="wr-hud-toggle" data-act="wr-hud-toggle">' +
-             (wrHudOpen ? 'hide sheet' : 'sheet (' + stats.length + ')') + '</button>';
-    }
     head += '<button type="button" class="wr-correct-btn" data-act="wr-correct" ' +
       'title="Set the clock, purse, stats, pockets or tasks by hand">correct state</button>';
 
@@ -2390,9 +2361,6 @@
     if (openQuests.length) {
       out += '<div class="wr-hud-tasks"' + (tasksOpen ? '' : ' hidden') + '>' +
         'tasks: ' + esc(openQuests.map(function (q) { return q.text; }).join('; ')) + '</div>';
-    }
-    if (sheet) {
-      out += '<div class="wr-hud-more"' + (collapsible && !wrHudOpen ? ' hidden' : '') + '>' + sheet + '</div>';
     }
     if (changes && changes.length) {
       out += '<div class="wr-changes">' + changes.map(function (c) {
@@ -2422,17 +2390,7 @@
     return out;
   };
 
-  /* Flip the folded sheet in place - no re-render, so the change chips
-     from the last turn stay visible. */
   Views.bindWorldHud = function (hud, world, run) {
-    on(hud, '[data-act=wr-hud-toggle]', 'click', function () {
-      wrHudOpen = !wrHudOpen;
-      var more = hud.querySelector('.wr-hud-more');
-      if (more) more.hidden = !wrHudOpen;
-      var btn = hud.querySelector('[data-act=wr-hud-toggle]');
-      if (btn) btn.textContent = wrHudOpen ? 'hide sheet' :
-        'sheet (' + ((world.hudConfig || {}).stats || []).length + ')';
-    });
     /* v1.39.5: fold the task ledger - the choice travels with the run. */
     on(hud, '[data-act=wr-hud-fold]', 'click', function () {
       if (!run) return;

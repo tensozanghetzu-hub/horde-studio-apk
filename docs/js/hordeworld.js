@@ -1129,6 +1129,51 @@
     }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
+  /* v1.39.8: the referee reads its own state briefing and sometimes writes it
+     straight back as the story - "(Referee texture: danger 8, prosperity 0 of
+     100.)", "Time: Monday 06:35", "Stats: Mana 2, Guile -1", "Money: 0
+     coins", "Carrying: ...", "Tasks: ...", "The world is working toward:
+     ...". None of that is a scene; it is the sheet quoted aloud. Drop every
+     line that IS one of the briefing's own machines, wherever it stands. The
+     patterns are the briefing's exact shapes, so prose that merely starts a
+     line with the same word ("Her tasks weighed more than the bell") keeps
+     its head. */
+  var BRIEF_LINES = [
+    /^\(\s*Referee texture:.*\)\s*$/i,
+    /^Time:\s*\S+\s+\d{1,2}:\d{2}.*$/i,
+    /^Season:\s*\S.*$/i,
+    /^You are:\s*\S.*\.\s*$/i,
+    /^Stats:\s*.*\d.*$/i,
+    /^Money:\s*-?\d.*$/i,
+    /^Carrying:\s*\S.*$/i,
+    /^Wearing:\s*\S.*$/i,
+    /^Tasks:\s*\S.*$/i,
+    /^Equipped:\s*\S.*$/i,
+    /^Conditions:\s*\S.*$/i,
+    /^Standing:\s*\S.*$/i,
+    /^Off-screen, the world has moved:.*$/i,
+    /^The player begins as:.*$/i,
+    /^Who the player is:.*$/i,
+    /^The world is working toward:.*$/i
+  ];
+  function isBriefingLine(line) {
+    var s = line.trim();
+    if (!s) return false;
+    for (var i = 0; i < BRIEF_LINES.length; i++) {
+      if (BRIEF_LINES[i].test(s)) return true;
+    }
+    /* the identity line's own second half, quoted alone */
+    if (/^Narration stays second person/i.test(s)) return true;
+    return false;
+  }
+  function stripBriefingEcho(text) {
+    /* no fast path: a cheap wrong "nothing to do" once hid 'The world is
+       working toward' behind its own long prefix. Line-by-line always. */
+    return String(text || '').split('\n').filter(function (line) {
+      return !isBriefingLine(line);
+    }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
   /* ---------------- ledger v2 (validation) ---------------- */
 
   /** v1.17.0: a world validates its referee's tags instead of trusting them.
@@ -1539,7 +1584,7 @@
     syncDowned(world, run, changes);
 
     return {
-      text: stripTagArtifacts(out).replace(/\n{3,}/g, '\n\n').trim(),
+      text: stripBriefingEcho(stripTagArtifacts(out).replace(/\n{3,}/g, '\n\n')).trim(),
       changes: changes, moved: moved, rolled: rolled, rejections: rejections,
       checkRequests: checkRequests
     };
@@ -2161,6 +2206,12 @@
 
     parts.push(describeLocation(world, run));
     parts.push(describeState(world, run));
+    /* v1.39.8: the briefing above is READING, not material - small models
+       love to copy it verbatim into the scene; say no in plain words. */
+    parts.push('Never restate this briefing - the times, stats, money, ' +
+      'carrying, tasks, standings or goals above are for you to act on, ' +
+      'never to quote as narration. The scene moves forward; it does not ' +
+      'read the sheet aloud.');
 
     /* v1.33.0: on a pulse turn the world breathes - one line of off-screen
        momentum the referee weaves in as texture, not a ticker-tape. */
@@ -2341,7 +2392,9 @@
     log.forEach(function (m) {
       messages.push({
         role: m.role,
-        content: m.role === 'assistant' ? stripTagArtifacts(m.content) : m.content
+        /* v1.39.8: old echo turns were stored before the strip; the model
+           must never read them as a pattern to repeat */
+        content: m.role === 'assistant' ? stripBriefingEcho(stripTagArtifacts(m.content)) : m.content
       });
     });
     messages.push({ role: 'user', content: input });
@@ -2428,10 +2481,15 @@
     if (TRAILER_LINE.test(t)) {
       out.ok = false; out.reasons.push('the reply ends in planning notes, not the scene'); return out;
     }
-    /* the scene with the bookkeeping out */
-    var prose = t.replace(TAG, '').replace(/\s+/g, ' ').trim();
+    /* the scene with the briefing echo and the bookkeeping out */
+    var deechoed = stripBriefingEcho(t);
+    var prose = deechoed.replace(TAG, '').replace(/\s+/g, ' ').trim();
     if (prose.length < 8) {
-      out.ok = false; out.reasons.push('the reply has no actual scene in it'); return out;
+      out.ok = false;
+      out.reasons.push(deechoed.trim()
+        ? 'the reply has no actual scene in it'
+        : 'the reply repeats the state briefing instead of the scene');
+      return out;
     }
     var lastAssistant = null;
     (run.log || []).slice().reverse().forEach(function (m) {
@@ -2526,7 +2584,7 @@
     roll: roll, clockOf: clockOf, start: start,
     bundled: bundled, installBundled: installBundled,
     applyTags: applyTags, buildPrompt: buildPrompt, commit: commit,
-    stripTagArtifacts: stripTagArtifacts,
+    stripTagArtifacts: stripTagArtifacts, stripBriefingEcho: stripBriefingEcho,
     /* v1.32.0: testable seams for the world-the-player-is-looking-at */
     scheduleActiveAt: scheduleActiveAt, npcPlaceAt: npcPlaceAt,
     entityById: entityById, seasonText: seasonText,
