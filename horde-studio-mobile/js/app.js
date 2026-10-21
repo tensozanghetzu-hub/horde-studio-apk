@@ -746,17 +746,6 @@
     return 'Working…';
   };
 
-  /** v1.39.7: the live preview of a world turn strips its [[bookkeeping]]
-      before it shows - the stream is the turn taking shape, not the wire
-      protocol. The finished reply is de-tagged on commit, so the tail being
-      typed right now must be too. */
-  App.worldStreamTail = function (full) {
-    var t = String(full || '');
-    t = t.replace(/\[\[[^\]]*\]\]/g, '');   /* complete tags out */
-    t = t.replace(/\[\[[\s\S]*$/, '');        /* a half-written tag at the cut point out */
-    t = t.replace(/\s+/g, ' ').trim();
-    return t.slice(-160);
-  };
 
   App.resetGenerationSettings = function () {
     return UI.confirm('Reset generation settings?',
@@ -1500,10 +1489,8 @@
        and the revealed text all breathe live into the typing widget - the
        same vocabulary the chats already talk in. */
     var tlabel = $('#wr-typing-label');
-    var tprev = $('#wr-typing-preview');
     function worldTypingClear() {
       if (tlabel) { tlabel.hidden = true; tlabel.textContent = ''; }
-      if (tprev) { tprev.hidden = true; tprev.textContent = ''; }
     }
     function worldStatus(txt, waitTime) {
       if (!tlabel) return;
@@ -1512,12 +1499,6 @@
     }
     var wrProgress = function (info) {
       worldStatus(App.worldProgressText(info), info.waitTime);
-    };
-    var wrDelta = function (chunk, full) {
-      if (!tprev) return;
-      var tail = App.worldStreamTail(full);
-      tprev.hidden = !tail;
-      tprev.textContent = tail;
     };
 
     /* v1.29.1: the run object keeps its identity for the whole session -
@@ -1679,7 +1660,6 @@
           return { id: 'w' + Math.random().toString(36).slice(2),
                    role: m.role, text: m.text, createdAt: Date.now() };
         }),
-        onDelta: wrDelta,
         /* the repair is a second full generation - say so, or the player
            thinks the first silence repeated itself */
         onProgress: function (info) {
@@ -1715,7 +1695,6 @@
       history: built.messages.map(function (m) {
         return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
       }),
-      onDelta: wrDelta,
       onProgress: wrProgress
     }).then(function (reply) {
       /* v1 (opted-out) worlds: assess only refuses here for a broken

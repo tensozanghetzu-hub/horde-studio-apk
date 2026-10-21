@@ -605,6 +605,21 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.8
+
+**A quieter screen, and no more sheet-quoting referee.** The world HUD ends
+at the *correct state* button now - stats, pockets and conditions live in
+Life and the correction dialog instead of crowding the play field. While a
+turn cooks you see only the status line (queue position, worker, ETA), not
+the raw text streaming past. And the referee no longer reads its own
+briefing back as the story - lines like "Time: Monday 06:35", "Stats: Mana
+2", "Tasks: ..." or "The world is working toward: ..." that small models
+love to copy are stripped before a turn is committed, never fed back to the
+model as a pattern to repeat, and hidden in runs that already have them, so
+old saves read clean too. A reply that is nothing BUT the briefing is
+rejected outright and the repair lane writes a real scene instead.
+(Check for updates on your phone.)
+
 ## What's new in v1.39.7
 
 **The live preview speaks prose, not bookkeeping.** While a world turn types
