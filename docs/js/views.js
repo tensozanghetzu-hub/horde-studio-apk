@@ -2283,7 +2283,9 @@
      factions, lore and a set of rules. Artwork is stripped on import, so a
      2.5 MB world arrives at about 50 KB. */
 
-  function worldBubble(m, world) {
+  /* v1.39.9: opts.editable marks the last own turn (and only when the run
+     carries its pre-turn snapshot) - that bubble wears the pencil. */
+  function worldBubble(m, world, opts) {
     /* a player correction is a ledger note, not a line of dialogue */
     if (m.role === 'correction') {
       return '<div class="wr-note">' + esc(m.content || '') + '</div>';
@@ -2313,6 +2315,10 @@
             isMe ? (m.content || '') : (HW.stripBriefingEcho ? HW.stripBriefingEcho(m.content || '') : (m.content || ''))
           ) + '</div>' +
         '</div>' +
+        ((opts && opts.editable)
+          ? '<div class="msg-actions"><button class="chip" data-act="wr-edit-turn">' +
+            icon('edit') + ' Edit &amp; resend</button></div>'
+          : '') +
       '</div></div>';
   }
 
@@ -2693,7 +2699,16 @@
       Views.bindWorldHud(hud, world, run);
     }
     if (!thread) return;
-    thread.innerHTML = (run.log || []).map(function (m) { return worldBubble(m, world); }).join('');
+    /* v1.39.9: the tail of the conversation is the only place a turn can be
+       taken back (one snapshot, one level). Find the player's last line. */
+    var wlog = run.log || [], lastUser = -1;
+    for (var wi = wlog.length - 1; wi >= 0; wi--) {
+      if (wlog[wi].role === 'user') { lastUser = wi; break; }
+    }
+    var canEdit = !!(run.lastTurnPre) && !(App.state && App.state.worldBusy);
+    thread.innerHTML = wlog.map(function (m, i) {
+      return worldBubble(m, world, { editable: canEdit && i === lastUser });
+    }).join('');
     if (changes) {
       /* v1.24.2: a finished turn is a whole scene that appears at once, and
          the old scroll-to-bottom stranded the reader at the END of it -

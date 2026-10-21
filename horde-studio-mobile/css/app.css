@@ -637,3 +637,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .typing .typing-label { width: auto; height: auto; border-radius: 0; background: none; animation: none;
   font-size: 12px; line-height: 1.4; color: var(--muted); margin-left: 6px; }
 .typing .typing-label[hidden] { display: none; }
+.typing .wr-stop { width: auto; height: auto; border-radius: 999px; animation: none; background: none;
+  border: 1px solid var(--line, #2c3550); color: var(--muted); font-size: 12px; line-height: 1.2;
+  padding: 4px 10px; margin-left: auto; cursor: pointer; }
+.typing .wr-stop:active { border-color: var(--accent); color: var(--text, currentColor); }

@@ -605,6 +605,21 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.9
+
+**Mis-taps are no longer sentences.** A world turn in flight can now be
+*stopped* - a stop control rides with the queue status, and a stopped turn
+never happened (your words come straight back to the box). And once a turn
+has landed, the **last** one can be taken back: tap Edit & resend on your
+last bubble and the run rewinds to exactly before that turn - coins,
+minutes, location and all - while your words return to the box to fix. One
+level deep, saved like everything else. The referee also got less
+forgetful: the guard that refuses a repeated answer now watches the last
+FOUR scenes instead of only the most recent one, so the story can no
+longer rewind from the middle of a challenge to before it started; and the
+referee is told, in so many words, that the story only moves forward.
+(Check for updates on your phone.)
+
 ## What's new in v1.39.8
 
 **A quieter screen, and no more sheet-quoting referee.** The world HUD ends

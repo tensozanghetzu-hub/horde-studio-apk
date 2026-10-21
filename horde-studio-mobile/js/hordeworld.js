@@ -2212,6 +2212,10 @@
       'carrying, tasks, standings or goals above are for you to act on, ' +
       'never to quote as narration. The scene moves forward; it does not ' +
       'read the sheet aloud.');
+    parts.push('The story only moves forward. Never rewind it: do not ' +
+      'restart a scene, do not re-describe an already-played moment as if ' +
+      'it were new, and do not take back what the player has done. Answer ' +
+      'what happens NEXT.');
 
     /* v1.33.0: on a pulse turn the world breathes - one line of off-screen
        momentum the referee weaves in as texture, not a ticker-tape. */
@@ -2440,6 +2444,21 @@
    *  answer is validated. */
   function cloneRun(run) { return JSON.parse(JSON.stringify(run)); }
 
+  /** v1.39.9: copy the source's fields onto the target IN PLACE - keys the
+      source lacks are swept, the object reference survives (the bar, the
+      views and the binder all hold it). This is the restore half of both
+      publishing a turn and taking one back. */
+  function adoptInto(target, source) {
+    for (var k in target) {
+      if (Object.prototype.hasOwnProperty.call(target, k) &&
+          !Object.prototype.hasOwnProperty.call(source, k)) delete target[k];
+    }
+    for (var k2 in source) {
+      if (Object.prototype.hasOwnProperty.call(source, k2)) target[k2] = source[k2];
+    }
+    return target;
+  }
+
   /* ---------------- v1.29.1: validating a reply before it is a turn ---- */
 
   /** A planning trailer the thinking filter can miss: a scene, then the
@@ -2491,18 +2510,29 @@
         : 'the reply repeats the state briefing instead of the scene');
       return out;
     }
-    var lastAssistant = null;
+    /* v1.39.9: the guard used to watch only the referee's LAST answer, and
+       a small model re-wrote the yard scene from three turns back - the
+       player ended up before the challenge they had already stood in. Now
+       the newest FOUR answers are all off-limits to a copy. */
+    var refs = [];
     (run.log || []).slice().reverse().forEach(function (m) {
-      if (!lastAssistant && m.role === 'assistant') lastAssistant = m;
+      if (m.role === 'assistant' && refs.length < 4) refs.push(m.content);
     });
     var ref = (run.turn === 0 && world.intro) ? world.intro
-      : (lastAssistant ? lastAssistant.content : '');
+      : (refs.length ? refs[0] : '');
     if (ref && echoOf(prose, ref)) {
       out.ok = false;
       out.reasons.push(run.turn === 0
         ? 'the reply repeats the opening instead of answering'
         : 'the reply repeats the last answer instead of going on');
       return out;
+    }
+    for (var ri = 1; ri < refs.length; ri++) {
+      if (refs[ri] && echoOf(prose, refs[ri])) {
+        out.ok = false;
+        out.reasons.push('the reply repeats an earlier scene instead of moving on');
+        return out;
+      }
     }
     return out;
   }
@@ -2593,7 +2623,7 @@
     pulseInterval: pulseInterval, pulseDue: pulseDue,
     worldBeat: worldBeat, goalAhead: goalAhead,
     ledgerV2: ledgerV2, reachable: reachable, correctState: correctState,
-    normalizeRun: normalizeRun, cloneRun: cloneRun,
+    normalizeRun: normalizeRun, cloneRun: cloneRun, adoptInto: adoptInto,
     validateReply: validateReply, preflightChecks: preflightChecks,
     resolveChecks: resolveChecks, checkDef: checkDef,
     parseCheckRequest: parseCheckRequest, nextRand: nextRand,

@@ -1500,6 +1500,12 @@
     var wrProgress = function (info) {
       worldStatus(App.worldProgressText(info), info.waitTime);
     };
+    /* v1.39.9: the turn in flight can be stopped - same idea as the chat's
+       abort, hosted here. A stopped turn is no turn at all (the AbortError
+       branch brings the pre-turn state back and returns the words). */
+    var wrAbort = new AbortController();
+    var wrStop = $('#wr-stop');
+    if (wrStop) wrStop.onclick = wrAbort.abort.bind(wrAbort);
 
     /* v1.29.1: the run object keeps its identity for the whole session -
        the bar, the sheet and the views all hold references to it. A
@@ -1601,6 +1607,11 @@
         advisories: a.applied.advisories,
         checks: res.list
       };
+      /* v1.39.9: one turn of grace. The pre-turn snapshot travels WITH the
+         run so the player can take this turn back (edit & resend). One
+         level deep - a snapshot never nests a snapshot of its own. */
+      delete pre.lastTurnPre;
+      a.stage.lastTurnPre = pre;
       return HW.saveRun(a.stage).then(function () {
         publish(a.stage, hud);
       }, function (err) {
@@ -1660,6 +1671,7 @@
           return { id: 'w' + Math.random().toString(36).slice(2),
                    role: m.role, text: m.text, createdAt: Date.now() };
         }),
+        signal: wrAbort.signal,
         /* the repair is a second full generation - say so, or the player
            thinks the first silence repeated itself */
         onProgress: function (info) {
@@ -1695,6 +1707,7 @@
       history: built.messages.map(function (m) {
         return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
       }),
+      signal: wrAbort.signal,
       onProgress: wrProgress
     }).then(function (reply) {
       /* v1 (opted-out) worlds: assess only refuses here for a broken
@@ -1718,6 +1731,63 @@
       worldTypingClear();
       if (typing) typing.hidden = true;
       if (global.KeepAwake) KeepAwake.release();
+    });
+  };
+
+  /** v1.39.9: take the last world turn back (a slip of the thumb is not a
+      sentence). Two ways: Edit & resend (the run rewinds and your words
+      land back in the box to change) or a plain take-back (same rewind,
+      empty field). One level deep, persisted, transactional like the turn
+      itself. */
+  App.worldUndoMenu = function () {
+    var world = App.state.world, run = App.state.worldRun;
+    if (!world || !run) return;
+    if (App.state.worldBusy) return UI.toast('Wait for the current turn');
+    if (!run.lastTurnPre) return UI.toast('Nothing to take back - only the last turn can be rewound');
+    var lastUser = null;
+    for (var i = run.log.length - 1; i >= 0; i--) {
+      if (run.log[i].role === 'user') { lastUser = run.log[i].content; break; }
+    }
+    UI.sheet({
+      title: 'Take back this turn?',
+      body: '<div class="opt" data-c="edit">Edit &amp; resend - the world returns to before your turn and your words come back to change</div>' +
+            '<div class="opt" data-c="drop">Take this turn back - the world rewinds; type something else</div>',
+      onMount: function (b, close) {
+        b.querySelectorAll('[data-c]').forEach(function (el) {
+          el.onclick = function () {
+            var mode = el.getAttribute('data-c');
+            close();
+            if (mode === 'drop') return App.worldUndoTurn('');
+            App.worldUndoTurn(lastUser || '');
+          };
+        });
+      }
+    });
+  };
+
+  App.worldUndoTurn = function (textForBox) {
+    var world = App.state.world, run = App.state.worldRun;
+    if (!world || !run) return;
+    if (App.state.worldBusy) return UI.toast('Wait for the current turn');
+    if (!run.lastTurnPre) return UI.toast('Nothing to take back');
+    var snap = run.lastTurnPre;
+    delete run.lastTurnPre;
+    HW.adoptInto(run, snap);
+    run.updatedAt = Date.now();
+    var input = $('#wr-input');
+    return HW.saveRun(run).then(function () {
+      Views.worldRun(world, run);
+      if (App.state.screen === 'worldrun') {
+        var sub = $('#bar-sub');
+        if (sub) sub.textContent = 'turn ' + (run.turn || 0);
+      }
+      if (input) {
+        input.value = textForBox || '';
+        if (textForBox) input.focus();
+      }
+      UI.toast(textForBox ? 'Turn taken back - change your words and send again' : 'Turn taken back');
+    }, function (e) {
+      UI.toast('The rewind could not be saved: ' + ((e && e.message) || ''), 5000);
     });
   };
 
@@ -2836,6 +2906,11 @@
 
     var wrSend = $('#wr-send'), wrInput = $('#wr-input');
     if (wrSend) wrSend.onclick = function () { App.worldTurn(); };
+    /* v1.39.9: the pencil on the last own world bubble */
+    var wrThread = $('#wr-thread');
+    if (wrThread) wrThread.addEventListener('click', function (e) {
+      if (e.target.closest('[data-act=wr-edit-turn]') && App.worldUndoMenu) App.worldUndoMenu();
+    });
     if (wrInput) wrInput.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); App.worldTurn(); }
     });

@@ -1,11 +1,10 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.8.apk` (versionCode 87).
-Built 2026-10-21: `docs/` serves v1.39.8 and
-release `v1.39.8` slims the world HUD to one row ending at correct state,
-retires the live stream preview (status line stays), and strips the
-referee's briefing echo out of replies - at commit, in the model's own
-replay of the log, and at render for saves that already carry it.
+Current build: `HordeStudio-v1.39.9.apk` (versionCode 88).
+Built 2026-10-21: `docs/` serves v1.39.9 and
+release `v1.39.9` lets a world turn be STOPPED mid-flight and taken BACK
+(one level, Edit & resend on the last bubble), and keeps the referee from
+repeating scenes from deeper than the last answer.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
