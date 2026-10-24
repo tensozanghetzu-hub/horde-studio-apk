@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.12
+
+**Reroll no longer leaves its twin behind.** Re-spinning a reply used to give
+the message a second bubble: the original stayed up top while a clone below
+carried first the old text, then the new one. Press stop mid-generation and
+the clone stayed — two identical replies until you revisited the chat. Now a
+reroll edits its own bubble in place: the old take sits there while the new
+one cooks, it is swapped whole the moment the new one lands, and stopping or
+a provider error puts the original back exactly as it was. Continue rides the
+same in-place path.
+
 ## What's new in v1.39.11
 
 **A card's lorebook now actually travels with the card.** Cards that embed a
