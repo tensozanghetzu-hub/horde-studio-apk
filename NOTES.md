@@ -1,10 +1,15 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.9.apk` (versionCode 88).
-Built 2026-10-21: `docs/` serves v1.39.9 and
-release `v1.39.9` lets a world turn be STOPPED mid-flight and taken BACK
-(one level, Edit & resend on the last bubble), and keeps the referee from
-repeating scenes from deeper than the last answer.
+Current build: `HordeStudio-v1.39.10.apk` (versionCode 89).
+Built 2026-10-24: `docs/` serves v1.39.10 and
+release `v1.39.10` ports the upstream 18.3.7 "worlds recovery" refresh of the
+bundled Policy Panic world: 10 repaired exits (Maplebridge -> NPC flats,
+parking lot & reception -> office), the rewritten opening-intro, and per-life
+opening scenes. Kept OURS on purpose: the world id (installs bind to it), the
+dice `gameRules.checks` table (upstream 18.x dropped it; our turn engine needs
+it), and the art-stripped shape (no media payload in the APK). NOTE: worlds are
+static data shipped in the APK, NOT in web.zip — so this fix only reaches a
+phone through the wrapper update (versionCode 88 -> 89), never via a web update.
 
 Published as a GitHub Release (see `.github/workflows/release.yml`); the app's updater
 reads the channel in `docs/`, not the release.
