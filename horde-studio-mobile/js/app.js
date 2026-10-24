@@ -929,7 +929,17 @@
       st.messages.push(msg);
     }
 
-    var el = Views.appendMessage(char, msg);
+    /* v1.39.12: a re-spin edits the SAME bubble in place. appendMessage was
+       handed the target message too, so the thread briefly held one message
+       twice — cancel left two identical bubbles on screen until a reload
+       quietly erased the clone; a provider error even dropped the stored
+       message while its stale bubble stayed. Never again: the target's own
+       element is the stage, and the old text sits in it until the new take
+       lands whole. */
+    var el = target
+      ? document.querySelector('#thread [data-mid="' + msg.id + '"]')
+      : null;
+    if (!el) el = Views.appendMessage(char, msg);
     el.classList.add('streaming');
     st.busy = true;
     App.setStop(true);
@@ -1026,6 +1036,10 @@
       if (opts.continueFor) {
         msg.text = (msg.text || '') + (msg.text ? '\n\n' : '') + text;
         if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = msg.text;
+        /* the stream painted only the new tail — the bubble stands for the
+           whole message now */
+        var mtC = el.querySelector && el.querySelector('.mtext');
+        if (mtC) mtC.innerHTML = UI.md(msg.text);
       } else if (opts.rerollFor) {
         msg.text = text;
         msg.alts = msg.alts || [];
@@ -1072,11 +1086,23 @@
             el.remove();
           } else {
             el.classList.remove('streaming');
+            /* the take the user stopped never happened — put the bubble back
+               to the text it had before the re-spin began */
+            if (opts.rerollFor || opts.continueFor) {
+              var mtA = el.querySelector && el.querySelector('.mtext');
+              if (mtA) mtA.innerHTML = UI.md(msg.text);
+            }
             Store.updateMessage(msg).catch(function (e) {
               UI.toast('Partial reply kept on screen, but it could not be saved: ' + (e && e.message), 6000);
             });
           }
           UI.toast('Stopped');
+        } else if (opts.rerollFor || opts.continueFor) {
+          /* the model failed the re-spin, not the story: the bubble and its
+             stored text stay exactly as they were */
+          el.classList.remove('streaming');
+          var mtE = el.querySelector && el.querySelector('.mtext');
+          if (mtE) mtE.innerHTML = UI.md(msg.text);
         } else {
           el.remove();
           App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });

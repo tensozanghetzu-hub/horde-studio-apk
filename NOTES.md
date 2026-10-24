@@ -1,6 +1,13 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.11.apk` (versionCode 90).
+Current build: `HordeStudio-v1.39.12.apk` (versionCode 91).
+Same day, second fix: reroll/Continue now edit the bubble IN PLACE
+(`document.querySelector('[data-mid=...]')` on the target instead of
+appendMessage) — cancel puts the original text back, a provider error keeps
+the message. Suite: tests/rerollswap-test.js (21 checks). Reported by the
+user with screenshots of the twin bubbles after a cancel.
+
+Previous build, same day: `HordeStudio-v1.39.11.apk` (versionCode 90).
 Built 2026-10-24: release `v1.39.11` imports a card's EMBEDDED lorebook on the
 V2/legacy paths too (was V3-only), exports it back out in
 `data.character_book`, and the import sheet states plainly whether a book is
