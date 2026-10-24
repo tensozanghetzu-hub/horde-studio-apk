@@ -1,6 +1,13 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.12.apk` (versionCode 91).
+Current build: `HordeStudio-v1.39.13.apk` (versionCode 92).
+Same day, third drop: cards with multiple intros (V2 `alternate_greetings`)
+import them all now; a new chat seeds them as swipeable alts on the opening
+message; the import sheet counts them ("It also brings N intros").
+Suite: tests/altintros-test.js (13 checks). Asked by the user about a
+JannyAI "+10 intros" card importing with only one.
+
+Previous build, same day: `HordeStudio-v1.39.12.apk` (versionCode 91).
 Same day, second fix: reroll/Continue now edit the bubble IN PLACE
 (`document.querySelector('[data-mid=...]')` on the target instead of
 appendMessage) — cancel puts the original text back, a provider error keeps

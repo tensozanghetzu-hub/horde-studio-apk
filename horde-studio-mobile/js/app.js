@@ -339,7 +339,12 @@
                  indistinguishable from a book that failed to import */
               (c.lorebook && c.lorebook.length
                 ? '<div class="hint">This card carries <b>' + c.lorebook.length + ' lorebook entr' + (c.lorebook.length === 1 ? 'y' : 'ies') + '</b> — they import with the card.</div>'
-                : '<div class="hint">No lorebook embedded in this card.</div>'),
+                : '<div class="hint">No lorebook embedded in this card.</div>') +
+              /* ...and the same plain speech for multi-intro cards: the
+                 alternates become swipes on the opening message */
+              (c.alternateGreetings && c.alternateGreetings.length
+                ? '<div class="hint">It also brings <b>' + (c.alternateGreetings.length + 1) + ' intros</b> — swipe the first message to step into another one.</div>'
+                : ''),
             actions: [
               { label: 'Cancel', cls: 'ghost', value: null },
               { label: 'Import', cls: 'primary', onClick: function () { return c; } }
@@ -398,8 +403,17 @@
       return Promise.resolve(Store.getCharacter(charId));
     }).then(function (c) {
       var greeting = API.macros(c.greeting || '', c, Store.settings);
+      /* v1.39.13 - multi-intro cards: every first message the card brought
+         becomes a swipe on the opening bubble (1/10 arrows), so picking an
+         intro is a flick instead of a re-import */
+      var alts = [];
+      if (greeting) alts.push(greeting);
+      (c.alternateGreetings || []).forEach(function (g) {
+        var alt = API.macros(String(g || ''), c, Store.settings).trim();
+        if (alt && alts.indexOf(alt) === -1) alts.push(alt);
+      });
       var first = greeting
-        ? Store.addMessage({ sessionId: s.id, role: 'assistant', text: greeting, alts: [greeting], altIdx: 0 })
+        ? Store.addMessage({ sessionId: s.id, role: 'assistant', text: greeting, alts: alts, altIdx: 0 })
         : Promise.resolve(null);
       return first.then(function () { App.openSession(s.id); });
     });
