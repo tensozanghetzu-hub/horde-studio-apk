@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.13
+
+**"+10 intros" cards finally bring their ten intros.** Many cards carry
+several opening scenes (the V2 card field `alternate_greetings`) so you can
+pick how a story starts — and the importer ignored all of them, so only the
+first arrival ever appeared. Now every intro imports, a **new chat seeds them
+as swipes on the opening message** (tap the little ‹ › arrows on the first
+bubble to step intro to intro before you ever reply), and the import sheet
+tells you they're aboard: *"It also brings 10 intros."* Exporting keeps them,
+too.
+
 ## What's new in v1.39.12
 
 **Reroll no longer leaves its twin behind.** Re-spinning a reply used to give

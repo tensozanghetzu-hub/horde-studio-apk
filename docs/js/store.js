@@ -484,6 +484,23 @@
       }) : [];
     },
 
+    /* "+10 intros" cards: the extra first messages ride in
+       alternate_greetings (V2/V3 data, legacy top level). Trimmed, deduped,
+       and any entry that just restates first_mes is not carried twice. */
+    altGreetingsFromCard: function (card, data) {
+      var first = (((data && data.first_mes) || (card.data && card.data.first_mes) || card.first_mes) || '').trim();
+      var raw = (data && data.alternate_greetings)
+        || (card.data && card.data.alternate_greetings)
+        || card.alternate_greetings;
+      var out = [];
+      if (!Array.isArray(raw)) return out;
+      raw.forEach(function (g) {
+        g = (g == null ? '' : String(g)).trim();
+        if (g && g !== first && out.indexOf(g) === -1) out.push(g);
+      });
+      return out;
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       if (card.spec === 'chara_card_v3' && card.data) {
@@ -503,6 +520,7 @@
           examples: data.mes_example || '', postHistory: '',
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
           lorebook: Store.bookFromCard(card, data),
+          alternateGreetings: Store.altGreetingsFromCard(card, data),
           createdAt: Date.now(), updatedAt: Date.now()
         };
       }
@@ -518,7 +536,9 @@
         examples: data.mes_example || '', postHistory: '',
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         /* V2 cards with an embedded book were losing it entirely here */
-        lorebook: Store.bookFromCard(card, data), createdAt: Date.now(), updatedAt: Date.now()
+        lorebook: Store.bookFromCard(card, data),
+        alternateGreetings: Store.altGreetingsFromCard(card, data),
+        createdAt: Date.now(), updatedAt: Date.now()
       };
     },
 
@@ -540,6 +560,11 @@
             return { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false };
           })
         };
+      }
+      /* the intros ride back out too - a card that boasted ten arrivals
+         keeps them through an import-export round trip */
+      if (c.alternateGreetings && c.alternateGreetings.length) {
+        card.data.alternate_greetings = c.alternateGreetings;
       }
       if (c.avatar) card.char_x = c.avatar;
       /* v1.29.0: the card's other pictures ride back out in data, so a
