@@ -471,6 +471,19 @@
       return out;
     },
 
+    /* the lorebook a card embeds. V2 puts it in data.character_book,
+       V3 in data.character_book too, and legacy V1 cards hang it off the
+       top level — accept all three, drop nothing. */
+    bookFromCard: function (card, data) {
+      var book = (data && data.character_book)
+        || (card.data && card.data.character_book)
+        || card.character_book || null;
+      var entries = book && book.entries;
+      return Array.isArray(entries) ? entries.map(function (e) {
+        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false };
+      }) : [];
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       if (card.spec === 'chara_card_v3' && card.data) {
@@ -489,11 +502,7 @@
           greeting: data.first_mes || '',
           examples: data.mes_example || '', postHistory: '',
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
-          lorebook: Array.isArray(data.character_book && data.character_book.entries)
-            ? data.character_book.entries.map(function (e) {
-                return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false };
-              })
-            : [],
+          lorebook: Store.bookFromCard(card, data),
           createdAt: Date.now(), updatedAt: Date.now()
         };
       }
@@ -508,7 +517,8 @@
         greeting: data.first_mes || '',
         examples: data.mes_example || '', postHistory: '',
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
-        lorebook: [], createdAt: Date.now(), updatedAt: Date.now()
+        /* V2 cards with an embedded book were losing it entirely here */
+        lorebook: Store.bookFromCard(card, data), createdAt: Date.now(), updatedAt: Date.now()
       };
     },
 
@@ -521,6 +531,16 @@
         spec: 'chara_card_v2', spec_version: '2.0', data: { name: c.name }
       };
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
+      /* the embedded lorebook rides along: exporting used to drop it, so a
+         round trip through us silently un-carried the card's world */
+      if (c.lorebook && c.lorebook.length) {
+        card.data.character_book = {
+          name: (c.name || 'character') + ' lorebook',
+          entries: c.lorebook.map(function (e) {
+            return { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false };
+          })
+        };
+      }
       if (c.avatar) card.char_x = c.avatar;
       /* v1.29.0: the card's other pictures ride back out in data, so a
          round trip (export → import) keeps them */

@@ -1,6 +1,12 @@
 # Horde Studio — Mobile
 
-Current build: `HordeStudio-v1.39.10.apk` (versionCode 89).
+Current build: `HordeStudio-v1.39.11.apk` (versionCode 90).
+Built 2026-10-24: release `v1.39.11` imports a card's EMBEDDED lorebook on the
+V2/legacy paths too (was V3-only), exports it back out in
+`data.character_book`, and the import sheet states plainly whether a book is
+aboard. Suite: tests/cardlore-test.js (12 checks).
+
+Previous build, same day: `HordeStudio-v1.39.10.apk` (versionCode 89).
 Built 2026-10-24: `docs/` serves v1.39.10 and
 release `v1.39.10` ports the upstream 18.3.7 "worlds recovery" refresh of the
 bundled Policy Panic world: 10 repaired exits (Maplebridge -> NPC flats,

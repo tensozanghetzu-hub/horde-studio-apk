@@ -335,7 +335,11 @@
             title: 'Import “' + (c.name || 'character') + '”',
             body: '<p style="margin:0 0 8px;color:var(--muted);font-size:13.5px">' +
               esc((c.persona || '').slice(0, 260)) + (c.persona && c.persona.length > 260 ? '…' : '') + '</p>' +
-              (c.lorebook && c.lorebook.length ? '<span class="pill">' + c.lorebook.length + ' lorebook entries</span>' : ''),
+              /* v1.39.11: say it plainly either way — a missing pill was
+                 indistinguishable from a book that failed to import */
+              (c.lorebook && c.lorebook.length
+                ? '<div class="hint">This card carries <b>' + c.lorebook.length + ' lorebook entr' + (c.lorebook.length === 1 ? 'y' : 'ies') + '</b> — they import with the card.</div>'
+                : '<div class="hint">No lorebook embedded in this card.</div>'),
             actions: [
               { label: 'Cancel', cls: 'ghost', value: null },
               { label: 'Import', cls: 'primary', onClick: function () { return c; } }
