@@ -605,6 +605,18 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.11
+
+**A card's lorebook now actually travels with the card.** Cards that embed a
+lorebook — background notes, locations, house rules written into the card
+itself — carry it in the modern V2 format, which our importer had been
+quietly leaving on the table (only the newest V3 import path kept it). Now
+V2 and even old top-level books import with the card, land in the character's
+Lorebook tab, and feed the story whenever their keywords come up. Exporting
+the character back to a card keeps the book too, so a round trip no longer
+amputates it. And the import sheet says it plainly either way: *"This card
+carries N lorebook entries"* — or *"No lorebook embedded in this card."*
+
 ## What's new in v1.39.10
 
 **The insurance office got its missing doors back.** Upstream Horde Studio
