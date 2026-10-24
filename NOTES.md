@@ -504,7 +504,7 @@ bundle.
 
 ### Verification
 
-New suite `tests/worldhud-test.js` (24 checks, zero dependencies, real
+New suite `tests/worldhud-test.js` (24 checks — retired by the v1.39.8 HUD slim-down; its coverage moved to `tests/hudslim-test.js` — zero dependencies, real
 `hordeworld.js` + real `views.js` in a VM with a stubbed UI/Store/document,
 fake HUD element for the toggle binding):
 
@@ -647,7 +647,7 @@ named characters know and use the name" + the persona blurb itself), and
 old-shape runs prompt exactly as before. Also shipped same-day on the
 workspace: `tools/verify-world.js` - the 19-check authored-world validator
 (real HW.parse gate + reference integrity), and the worked example it
-grew from: `Azarinth-Healer-inspired.horde_world.json`. Suite:
+grew from — an Azarinth-Healer-inspired draft world, pruned 2026-10-24. Suite:
 `tests/worldpersona-test.js` (10 checks, incl. regression guard).
 
 ## v1.39.3 - a way home from tinkering (2026-10-20)
@@ -667,7 +667,7 @@ harness).
 The v1.39.1 speech span now carries ONE dedicated color - warm amber gold
 (`--say: #FFB454`) - fixed across every theme (theme palettes may not recolor
 the voice). Picked live from a four-way rendered A/B/C/D
-(`say-colors.html`); the two other spacing tweaks from v1.39.1 (upright,
+preview (`say-colors.html`, pruned 2026-10-24); the two other spacing tweaks from v1.39.1 (upright,
 heavier) stay. Suite grew to 15 checks.
 
 ## v1.39.1 - spoken words step out of the narration (2026-10-19)
@@ -678,7 +678,7 @@ out of the italic narration: upright, heavier, and warmer through the theme's
 accent tint. Apostrophes inside speech ride along (they are `&#39;`, not
 `&quot;`), unmatched quotes mark nothing, code fences are untouched, and
 emphasis still works inside speech. Tests: `tests/saybubble-test.js` (13
-checks). Preview that judged the contrast: `speech-preview.html`.
+checks). The rendered preview that judged the contrast (`speech-preview.html`) has been pruned.
 
 ## v1.39.0 - eight small chat powers, one release (2026-10-18)
 
@@ -831,7 +831,7 @@ today's request).
 ## v1.37.0 — The open book (2026-10-18)
 
 The lore series closes with the reader's chair (gaps #5, #6 and #7 of
-`lore-aspect-analysis.md`). The world viewer — the eye button on any
+the lore analysis). The world viewer — the eye button on any
 installed or catalogue world — now shows **the known book**: every lore
 entry with its keywords and what it says, *except* secret-gated entries,
 which stay sealed forever: no content, but the hinge named (a task
@@ -867,8 +867,8 @@ complete.
 
 ## v1.36.1 — Words with edges, books with spines (2026-10-18)
 
-Second fold of the lore series (`lore-aspect-analysis.md`, gaps #3 and
-#4). **Keywords know their own edges now.** The world matcher no longer
+Second fold of the lore series (gaps #3 and
+#4 of the lore analysis). **Keywords know their own edges now.** The world matcher no longer
 treats a substring as a sighting — "bell" stays quiet for "labelling",
 "mark" for "market" — while a bare plural keeps working ("gossip" still
 finds "gossips"): the good half of the old rule kept deliberately
@@ -905,7 +905,7 @@ character-side byte budget, and the import-time dead-key lint.
 
 ## v1.36.0 — Recall: the story remembers itself (2026-10-18)
 
-First cut of the lore series (the map lives in `lore-aspect-analysis.md`):
+First cut of the lore series (the map lives in the lore analysis (`lore-aspect-analysis.md`, pruned 2026-10-24)):
 a saved world run knew only its ledger and its last twelve messages -
 two hours in, every earlier beat was gone. Two quiet mechanisms now keep
 the past alive. **World memory:** on the persona-chat cadence (autoMemory,
@@ -1027,7 +1027,7 @@ APK `HordeStudio-v1.35.0.apk` — 351,587 B, sha256
 in-APK verified (VERSION/CACHE v59/aapt code 72 + 1.35.0, all feature
 markers, incl. the new eye icon). The v1.34.0 APK was dropped; release
 keeps its copy. **Published 2026-10-18** under the standing series
-go-ahead - the four-version plan from authored-worlds-gap-analysis.md
+go-ahead - the four-version plan from that gap analysis
 is now complete, all additive.
 
 Bumps: 1.35.0 (minor), apk code 72, sw cache v59.
@@ -1148,8 +1148,8 @@ Bumps: 1.33.0 (minor), apk code 70, sw cache v57.
 ### From research to roadmap
 
 "Research the concept for authored worlds... what does it need to be
-better... closer to the initial concept" produced
-`authored-worlds-gap-analysis.md`: the .horde_world format is a
+better... closer to the initial concept" produced the authored-worlds gap analysis
+(`authored-worlds-gap-analysis.md`, pruned 2026-10-24): the .horde_world format is a
 living-world spec (schedules, goal programs, faction state, an off-screen
 agent tick, weather/seasons, full starting lives), and the APK parsed
 most of it away or left it unread (grep-verified zeros for schedule,
@@ -2677,7 +2677,7 @@ origin-freeze and draft retention.
 
 ### The ask
 
-"Stage 4" — the final, optional stage of `WORLDSCOPE.md`: catch DM
+"Stage 4" — the final, optional stage of the Worlds v2 scope: catch DM
 prose that over-claims, without upstream's JSON transport.
 
 ### The change
@@ -2769,7 +2769,7 @@ checks, v1.19 knowledge gating, v1.20 scene discipline.
 
 ### The ask
 
-"Stage 3" — third stage of `WORLDSCOPE.md`: knowledge gating. Lore
+"Stage 3" — third stage of the Worlds v2 scope: knowledge gating. Lore
 entries gain `knownBy`, NPC `secrets` stop being dead text, lore
 matching gets scoring + a byte budget. Backward compatible: no
 `knownBy` → `anyone`, exactly as before.
@@ -2845,7 +2845,7 @@ locally. Publish only on explicit ask.
 
 ### The ask
 
-"Stage 2" — the second stage of `WORLDSCOPE.md`: checks with real
+"Stage 2" — the second stage of the Worlds v2 scope: checks with real
 consequences. Design per the scope: `[[roll:SPEC:check:NAME]]`, DC and
 typed branches defined **on the world** (the model never writes
 outcomes — upstream's core principle, "the engine derives the outcome
@@ -2944,7 +2944,7 @@ removed. Committed locally. Publish only on explicit ask.
 
 ### The ask
 
-"Scope the worlds idea" → scope written in `WORLDSCOPE.md` (4 stages) →
+"Scope the worlds idea" → scope written (4 stages; the scope doc, `WORLDSCOPE.md`, was pruned in the 2026-10-24 cleanup) →
 "Start building stage 1 first". Stage 1 from the scope: validate every
 referee tag against the world, show refusals, one bounded repair
 round, a Correct-world-state screen. (Decision points in the scope doc
@@ -4338,7 +4338,6 @@ Not ported (desktop-only, documented in README): mind/cognition/embodiment
 subsystems, embodiment-aware routing, sleep-pressure dynamics,
 money/debt model, page-builder creation form, Python live backend,
 worker-encoding/packaging fixes.
-ssed, 0 failed** (previous 257 + 16 new).
 
 Not ported (desktop-only, documented in README): mind/cognition/embodiment
 subsystems, embodiment-aware routing, sleep-pressure dynamics,

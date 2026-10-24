@@ -19,7 +19,7 @@ Public, branch `main`, three pushes landed. `docs/` holds the channel:
 | `web.zip` | 133 KB | the bundle for an in-place update |
 | `HordeStudio-latest.apk` | 223 KB | the APK, for when the wrapper changes |
 
-Current channel state: **app 1.4.8, code 13, webRev `f8c44de4c6ef`, 18 files**.
+Channel state that day: **app 1.4.8, code 13, webRev `f8c44de4c6ef`, 18 files**.
 
 ## ✅ Step 3 — Pages is on
 

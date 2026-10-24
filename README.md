@@ -1181,7 +1181,7 @@ a blocked turn, never a rejection — it tells you the ledger is
 missing something; the "correct state" screen was always there to set
 it straight by hand.
 
-This is the last stage of the Worlds v2 program (`WORLDSCOPE.md`):
+This is the last stage of the Worlds v2 program:
 the ledger stopped lying (v1.17), checks started having consequences
 (v1.18), the world learned what NPCs know (v1.19), and now the scene
 itself keeps its own receipts.
