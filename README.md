@@ -605,6 +605,20 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.10
+
+**The insurance office got its missing doors back.** Upstream Horde Studio
+18.3.7 repaired the four bundled campaigns — missing routes, opening locations
+and cast — and *Policy Panic at Bramble & Pike* is one of them, so the fixes
+are in this build too. Ten exits return to the map: from Maplebridge you can
+now actually walk to Gloria's apartment or Wade's workshop, and the parking
+lot and the reception lobby finally connect straight to the office. Every
+life now opens with its own written scene instead of dropping you in cold,
+and the world introduction has been rewritten so it starts where you start —
+in the lobby, in the rain. Because a bundled world ships inside the app
+rather than in a web update, your phone will ask to install this one again.
+Your saved runs, the dice table and the rest of the world are untouched.
+
 ## What's new in v1.39.9
 
 **Mis-taps are no longer sentences.** A world turn in flight can now be
