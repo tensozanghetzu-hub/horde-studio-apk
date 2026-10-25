@@ -503,6 +503,12 @@
 
     cardToCharacter: function (card) {
       var data = card;
+      /* v1.39.16: a V2 card MAY keep its fields only under data (the spec
+         asks for both top level and data; plenty of tools write just data).
+         Merge with data winning so either packing imports whole. */
+      if ((card.spec === 'chara_card_v2' || card.spec === 'chara_card_v3') && card.data) {
+        data = Object.assign({}, card, card.data);
+      }
       if (card.spec === 'chara_card_v3' && card.data) {
         data = card.data;
         var slist = Store.scenarioList(data);
@@ -517,7 +523,9 @@
           persona: desc, scenario: main ? main : (slist[0] || ''),
           scenarioList: slist,
           greeting: data.first_mes || '',
-          examples: data.mes_example || '', postHistory: '',
+          /* v1.39.16: the author's always-remember line used to die at the
+             border — every card that carried one imported silent */
+          examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
           lorebook: Store.bookFromCard(card, data),
           alternateGreetings: Store.altGreetingsFromCard(card, data),
@@ -533,7 +541,7 @@
         scenario: (data.scenario || '').trim() || (list2[0] || ''),
         scenarioList: list2,
         greeting: data.first_mes || '',
-        examples: data.mes_example || '', postHistory: '',
+        examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         /* V2 cards with an embedded book were losing it entirely here */
         lorebook: Store.bookFromCard(card, data),
@@ -551,6 +559,7 @@
         spec: 'chara_card_v2', spec_version: '2.0', data: { name: c.name }
       };
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
+      if (c.postHistory) card.data.post_history_instructions = c.postHistory;
       /* the embedded lorebook rides along: exporting used to drop it, so a
          round trip through us silently un-carried the card's world */
       if (c.lorebook && c.lorebook.length) {

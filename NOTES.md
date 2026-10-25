@@ -1,5 +1,16 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.16 — cardsu0027 always-remember lines survive import
+- cardToCharacter dropped data.post_history_instructions entirely (the
+  field was hardcoded to "" — any author tone-lock arrived silent).
+  Mapped in both V2/V3 branches; it rides the existing plainText wash,
+  and export writes it back.
+- V2 import now merges top-level fields with data.* (data wins): cards
+  that keep everything under data only — against the old both-copies
+  convention — import whole instead of half-empty.
+- Test: tests/posthistory-test.js (5 checks: V2/V3 mapping, empty-field
+  degrade, export round trip, no phantom field).
+
 ## v1.39.15 — intro swipes in the editor
 - Views.introNavModel: greeting + alternateGreetings as swipeable slots
   (copy-in, collect-out — browsing never mutates the sheet by aliasing).

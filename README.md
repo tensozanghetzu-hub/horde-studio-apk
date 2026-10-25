@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.16
+
+**Cards' always-remember lines stop dying at import.** The standard V2
+field `post_history_instructions` — where careful card authors put their
+tone and style locks — was read and thrown away; every card carrying one
+arrived silent. Imported now, washed like everything else, and written
+back on export. Cards that keep all their fields under `data` only also
+import whole instead of half-empty.
+
 ## What's new in v1.39.15
 
 **Swipe the intros while editing.** The Greeting field on the character
