@@ -200,10 +200,11 @@ thread = anchoredThread(
   [kid('m1', 0, 1500), kid('m2', 1500, 3000), kid('m3', 3000, 4500)],
   []
 );
-thread.scrollTop = 1600; // reading 100px into m2
+thread.scrollTop = 1600; // reading 100px into m2 (top 1500, dy 100)
 sandbox.document.querySelector = function (sel) { return sel === '#thread' ? thread : null; };
 Views.thread(char, null, msgs.concat([{ sessionId: 's1', id: 'm3', role: 'user', text: 'more', createdAt: 3 }]));
-ok('mid-thread re-render restores the anchored position', thread.scrollTop === 1400, 'scrollTop=' + thread.scrollTop);
+/* v1.39.18: SAME pixel, not "anchor snapped into view" (offsetTop + dy) */
+ok('mid-thread re-render restores the anchored position', thread.scrollTop === 1600, 'scrollTop=' + thread.scrollTop);
 
 /* 2) the reported bug: accept an edit and the view jumps up. The rebuilt
       thread measures zero-height until its avatars load, so the anchor
@@ -219,13 +220,14 @@ var t2 = anchoredThread(
 t2.scrollTop = 1600;
 sandbox.document.querySelector = function (sel) { return sel === '#thread' ? t2 : null; };
 Views.thread(char, null, msgs.concat([{ sessionId: 's1', id: 'm3', role: 'user', text: 'more', createdAt: 3 }]));
-ok('collapsed first layout: the anchor is at least applied once', t2.scrollTop === 0, 'scrollTop=' + t2.scrollTop);
+ok('collapsed first layout: the anchor is at least applied once',
+  t2.scrollTop === 200, 'scrollTop=' + t2.scrollTop);   /* collapsed m2: top 100 + dy 100 */
 /* the avatars land and the content grows back to full height */
 collapsed[0].offsetTop = 0; collapsed[0].offsetHeight = 1500;
 collapsed[1].offsetTop = 1500; collapsed[1].offsetHeight = 1500;
 collapsed[2].offsetTop = 3000; collapsed[2].offsetHeight = 1500;
 imgs.forEach(function (im) { im.fire('load'); });
-ok('after the images settle, the reader is back at the anchored position', t2.scrollTop === 1400, 'scrollTop=' + t2.scrollTop);
+ok('after the images settle, the reader is back at the anchored position', t2.scrollTop === 1600, 'scrollTop=' + t2.scrollTop);
 
 /* 3) but if the reader has deliberately scrolled away in the meantime,
       the re-apply must not yank them back */

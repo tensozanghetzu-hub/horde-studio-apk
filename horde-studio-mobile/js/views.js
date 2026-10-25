@@ -2200,8 +2200,11 @@
     var usedPrev = false;
     if (!el && anchor.prev) { el = thread.querySelector('[data-mid="' + anchor.prev + '"]'); usedPrev = true; }
     if (!el) return false;
-    /* When the fallback predecessor stands in, land at its top, not mid-line. */
-    thread.scrollTop = Math.max(0, el.offsetTop - (usedPrev ? 0 : (anchor.dy || 0)));
+    /* When the fallback predecessor stands in, land at its top, not mid-line.
+       v1.39.18: dy is how far INTO the message the viewport top was —
+       restoring must ADD it back (subtracting used to fling the reader
+       up by 2×dy on every mid-message anchor). */
+    thread.scrollTop = Math.max(0, el.offsetTop + (usedPrev ? 0 : (anchor.dy || 0)));
     return true;
   };
 
@@ -2240,11 +2243,14 @@
     el.querySelector('[data-act="cs-edit"]').onclick = function () { App.editCharState(char); };
   }
 
-  Views.thread = function (char, session, messages, streamingId, forceBottom) {
+  Views.thread = function (char, session, messages, streamingId, forceBottom, preAnchor) {
     var s = Store.settings;
     var thread = $('#thread');
+    /* v1.39.18: a caller that knows a viewport shift is coming (the edit
+       sheet + keyboard dance) captures the anchor BEFOREhand and hands it
+       in — the position read right now may already be corrupted. */
     var anchor = (!forceBottom && thread.children && thread.children.length)
-      ? Views.threadAnchor(thread.children, thread.scrollTop)
+      ? (preAnchor || Views.threadAnchor(thread.children, thread.scrollTop))
       : null;
     thread.innerHTML = messages.map(function (m) {
       if (m.id === streamingId) m._stream = m._stream || '';

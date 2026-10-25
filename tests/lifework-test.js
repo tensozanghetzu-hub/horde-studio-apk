@@ -306,9 +306,12 @@ function freshWorld(overrides) {
   var pre = layout(null);
 
   var th = anchoredThread(pre, layout(null));
-  th.scrollTop = 1050;                      /* mid-line of m4 (top 900) */
+  th.scrollTop = 1050;                      /* mid-line of m4 (top 900, dy 150) */
   V.Views.thread(V.char, null, V.msgs, null, false);
-  ok('anchor re-render restores the exact position (mid-line kept)', th.scrollTop === 750, 'scrollTop=' + th.scrollTop);
+  /* v1.39.18: pixel-exact now — the rule used to be offsetTop − dy, which
+     snapped the anchor fully into view by yanking up 2×dy: on long replies
+     that was literally "confirm an edit, land a few messages up" */
+  ok('anchor re-render restores the exact position (mid-line kept)', th.scrollTop === 1050, 'scrollTop=' + th.scrollTop);
 
   th = anchoredThread(pre, layout(4));      /* m4 was the deleted message */
   th.scrollTop = 950;                        /* inside m4 (top 900) */
@@ -318,7 +321,7 @@ function freshWorld(overrides) {
   th = anchoredThread(pre, layout(4));
   th.scrollTop = 400;                        /* inside m2 (top 300, depth 100) */
   V.Views.thread(V.char, null, V.msgs, null, false);
-  ok('an untouched anchor message still pins the view (depth kept)', th.scrollTop === 200, 'scrollTop=' + th.scrollTop);
+  ok('an untouched anchor message still pins the view (depth kept)', th.scrollTop === 400, 'scrollTop=' + th.scrollTop);
 
   th = anchoredThread(pre, layout(null));
   th.scrollTop = 1050;

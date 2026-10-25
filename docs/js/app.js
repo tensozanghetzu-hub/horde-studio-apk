@@ -2992,6 +2992,13 @@
       var act = btn.getAttribute('data-act');
 
       if (act === 'edit') {
+        /* v1.39.18: capture the scroll anchor BEFORE the edit sheet steals
+           the viewport. By confirm-time the keyboard reflow has already
+           drifted scrollTop — anchoring on the drifted spot flung the
+           reader a few messages up on every accepted edit. */
+        var threadEl = $('#thread');
+        var editAnchor = (threadEl && threadEl.children && threadEl.children.length)
+          ? Views.threadAnchor(threadEl.children, threadEl.scrollTop) : null;
         UI.input('Edit message', { value: msg.text || '', multiline: true }).then(function (v) {
           if (v === null) return;
           if (!v || !v.trim()) return UI.toast('The message can’t be empty');
@@ -3007,7 +3014,9 @@
           }
           msg.text = v;
           if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = v;
-          Store.updateMessage(msg).then(function () { Views.thread(App.state.char, App.state.session, App.state.messages); });
+          Store.updateMessage(msg).then(function () {
+            Views.thread(App.state.char, App.state.session, App.state.messages, null, false, editAnchor);
+          });
         });
       } else if (act === 'del') {
         UI.confirm('Delete this message?', '', { danger: true, okLabel: 'Delete' }).then(function (ok) {

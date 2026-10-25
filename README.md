@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.18
+
+**Confirming an edit no longer jumps the thread.** Two stacked causes: the
+thread re-render measured your scroll position *after* the edit sheet's
+keyboard had already shifted things, and the restore rule pinned the wrong
+side of the message you were reading (offset minus depth instead of offset
+plus depth), which flung the view up by twice the depth — on a long reply
+that's a few messages. The scroll anchor is now captured when the edit box
+opens, and restored pixel-exactly on confirm. Player-message edits keep
+their pin-to-bottom behavior on resend.
+
 ## What's new in v1.39.17
 
 **Replies that get cut mid-word get finished, not patched over.** A reply

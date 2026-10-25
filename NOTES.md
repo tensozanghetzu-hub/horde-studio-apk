@@ -1,5 +1,17 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.18 — edit-confirm scroll jump, for real this time
+- restoreThreadScroll added anchor.dy where it must have been ALL ALONG
+  (offsetTop − dy snapped the anchor fully into view = a 2×dy yank upward;
+  on a long reply, "a few messages up" exactly. Encoded in two suites as a
+  feature — re-pinned to pixel-exact).
+- Edit sheet captures Views.threadAnchor at OPEN, before the IME reflows
+  the viewport; the confirm re-render (incl. alts array sync) restores via
+  Views.thread's new preAnchor param.
+- Tests: editanchor-test.js (6: drift documented, pre-anchor restore,
+  shifted-layout restore, forceBottom/streaming callers untouched);
+  threadscroll 21 + lifework 43 re-pinned.
+
 ## v1.39.17 — Continue actually continues
 - looksTruncated: a trailing apostrophe glued to a letter ("don'") is a
   mid-word cut, not punctuation — the whitelist made it look complete and
