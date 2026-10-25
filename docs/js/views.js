@@ -1402,6 +1402,17 @@
           '<textarea id="e-scenario" placeholder="Where the story starts.">' + esc(char.scenario) + '</textarea></div>' +
         '<div class="field"><div class="field-head"><label>Greeting (first message)</label>' +
           '<span class="spacer"></span><button class="chip" data-act="ai-greeting">' + icon('sparkle') + ' AI draft</button></div>' +
+          /* v1.39.15: the field is ALL of the intros, not just the first —
+             the same ‹ n / N › the chat puts on the opening bubble. */
+          '<div class="row" style="align-items:center;gap:6px;margin-bottom:6px">' +
+            '<button class="chip" data-act="intro-prev" aria-label="Previous intro">‹</button>' +
+            '<span class="hint" style="margin:0">Intro</span>' +
+            '<span class="val" id="e-intro-pos" style="min-width:38px;text-align:center">1 / ' + (1 + ((char.alternateGreetings && char.alternateGreetings.length) || 0)) + '</span>' +
+            '<button class="chip" data-act="intro-next" aria-label="Next intro">›</button>' +
+            '<span class="spacer"></span>' +
+            '<button class="chip" data-act="intro-add">' + icon('plus') + ' Add intro</button>' +
+            '<button class="chip" data-act="intro-del" id="e-intro-del" aria-label="Remove this intro" style="display:none">' + icon('trash') + '</button>' +
+          '</div>' +
           '<textarea id="e-greeting" placeholder="The opening line {{char}} sends.">' + esc(char.greeting) + '</textarea></div>' +
         '<div class="field"><div class="field-head"><label>Example dialogue</label></div>' +
           '<textarea class="tall" id="e-examples" placeholder="{{user}}: …&#10;{{char}}: …">' + esc(char.examples) + '</textarea>' +
@@ -1502,6 +1513,15 @@
 
     var body = $('#editor-body');
     var draft = Object.assign({}, char);
+    /* The swipeable intro stack for the Greeting field — slots copy the
+       texts, so browsing around never touches the sheet until collect(). */
+    var introNav = Views.introNavModel(draft);
+    function introPaint() {
+      var g = $('#e-greeting', body), pos = $('#e-intro-pos', body), del = $('#e-intro-del', body);
+      if (g) g.value = introNav.text();
+      if (pos) pos.textContent = introNav.label();
+      if (del) del.style.display = introNav.index() > 0 ? '' : 'none';
+    }
 
     function collect() {
       draft.name = $('#e-name', body).value.trim();
@@ -1509,7 +1529,10 @@
       draft.tags = $('#e-tags', body).value.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
       draft.persona = $('#e-persona', body).value;
       draft.scenario = $('#e-scenario', body).value;
-      draft.greeting = $('#e-greeting', body).value;
+      /* fold the box back into the intro slot on show FIRST — saving while
+         looking at intro k must not clobber the main greeting */
+      introNav.set($('#e-greeting', body).value);
+      introNav.collect();
       draft.examples = $('#e-examples', body).value;
       draft.postHistory = $('#e-post', body).value;
       draft.systemPrompt = $('#e-sys', body).value;
@@ -1732,6 +1755,36 @@
           $('#e-greeting', body).value = String(d.greeting).trim();
           UI.toast('Draft inserted — edit as you like');
         }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
+    });
+
+    /* v1.39.15: intro swipes in the editor — the textarea always shows the
+       slot the counter names; whatever was typed follows the swipe. Bin is
+       only offered on alternates — the main greeting itself cannot go. */
+    on(body, '[data-act=intro-prev]', 'click', function () {
+      introNav.set($('#e-greeting', body).value);
+      introNav.move(-1);
+      introPaint();
+    });
+    on(body, '[data-act=intro-next]', 'click', function () {
+      introNav.set($('#e-greeting', body).value);
+      introNav.move(1);
+      introPaint();
+    });
+    on(body, '[data-act=intro-add]', 'click', function () {
+      introNav.set($('#e-greeting', body).value);
+      introNav.add();
+      introPaint();
+      UI.toast('Intro ' + (introNav.index() + 1) + ' — empty and ready. Paste or write another first message here.');
+      var g = $('#e-greeting', body);
+      if (g) g.focus();
+    });
+    on(body, '[data-act=intro-del]', 'click', function () {
+      if (introNav.index() === 0) return;
+      UI.confirm('Remove intro ' + (introNav.index() + 1) + ' of ' + introNav.count() + '?',
+        'Only this swipe is dropped — the main first message stays.',
+        { danger: true, okLabel: 'Remove' }).then(function (yes) {
+          if (yes) { introNav.remove(); introPaint(); }
+        });
     });
 
     $('#e-temp', body).addEventListener('input', function () {
@@ -2263,6 +2316,41 @@
   Views.scenarioChip = function (list) {
     if (!list || list.length < 2) return '';
     return '<button class="chip" data-act="scenarios">Card scenarios (' + list.length + ')</button>';
+  };
+
+  /* v1.39.15: the intros a character owns — the main greeting plus every
+     alternate — as a swipeable stack for the editor. The chat already
+     swipes them (‹ n / N › on the opening bubble); the edit sheet now does
+     the same to the Greeting field, with buttons to add or drop one. The
+     model copies the texts into its own slots, so swiping around never
+     mutates the character until collect() folds the slots back. */
+  Views.introNavModel = function (char) {
+    var alts = (char && Array.isArray(char.alternateGreetings)) ? char.alternateGreetings : [];
+    var slots = [String((char && char.greeting) || '')].concat(alts.map(function (g) { return String(g || ''); }));
+    var idx = 0;
+    return {
+      count: function () { return slots.length; },
+      index: function () { return idx; },
+      text: function () { return slots[idx]; },
+      label: function () { return (idx + 1) + ' / ' + slots.length; },
+      set: function (v) { slots[idx] = String(v == null ? '' : v); },
+      move: function (dir) {
+        idx = ((idx + dir) % slots.length + slots.length) % slots.length;
+        return slots[idx];
+      },
+      add: function () { slots.push(''); idx = slots.length - 1; return slots[idx]; },
+      remove: function () {
+        if (idx === 0 || slots.length < 2) return false;
+        slots.splice(idx, 1);
+        idx = Math.max(0, idx - 1);
+        return true;
+      },
+      collect: function () {
+        if (!char) return;
+        char.greeting = slots[0];
+        char.alternateGreetings = slots.slice(1).filter(function (s) { return s.trim() !== ''; });
+      }
+    };
   };
   Views.stateStrip = stateStrip;
   Views.normalizeImage = normalizeImage;

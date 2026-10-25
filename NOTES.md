@@ -1,5 +1,16 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.15 — intro swipes in the editor
+- Views.introNavModel: greeting + alternateGreetings as swipeable slots
+  (copy-in, collect-out — browsing never mutates the sheet by aliasing).
+- Editor greeting field gains ‹ n / N › arrows like the chat opening
+  bubble, an Add intro chip (fresh empty slot, paste or write), and a bin
+  chip on alternates only; the main greeting cannot be removed.
+- collect() folds the textarea into the slot on show first — saving while
+  looking at intro k no longer risks clobbering the main greeting.
+- Test: tests/editintros-test.js — 27 checks over build/move/set/add/
+  remove/collect incl. wrap-around, blank-slot drop and array aliasing.
+
 Will loop steady until the llama sleeps.
 
 ## v1.39.14 — PNG cards stop maiming non-ASCII

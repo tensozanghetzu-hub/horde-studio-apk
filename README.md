@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.15
+
+**Swipe the intros while editing.** The Greeting field on the character
+sheet now carries the same ‹ 1 / 10 › arrows the chat puts on the opening
+message — step through every first message a card brought and edit each one
+in place. An **Add intro** button pins a fresh empty swipe at the end, ready
+for a first message you paste in or write yourself, and a small bin appears
+on any swipe past the first when one of them has to go. Saving always keeps
+the edit in the intro you were looking at — never quietly overwrites the
+main greeting.
+
 ## What's new in v1.39.14
 
 **Emoji, dashes and accents stop getting mangled by PNG cards.** Importing a
