@@ -1,3 +1,21 @@
+# Horde Studio Mobile — release notes
+
+Will loop steady until the llama sleeps.
+
+## v1.39.14 — PNG cards stop maiming non-ASCII
+- store.js readCardFile PNG branch decoded the `chara` base64 with
+  `JSON.parse(atob(...))` — atob hands back bytes-as-chars, so any
+  multibyte UTF-8 (emoji, em/en dashes, smart quotes, accents) arrived as
+  mojibake (🐍→ðŸ, —→â€""). ccv3 branch was right all along: same
+  decode-then-UTF-8 dance ported.
+- Hidden for months because the repair pass covered name/description/etc.
+  on plain-text paths but PNG-import surfaces (esp. name and the
+  alternateGreetings added in 1.39.11) had no bath — now they do.
+- Test: tests/pngutf8-test.js builds a synthetic PNG card whose name,
+  alt-intro and lorebook entry carry every glyph class that was seen
+  mangled in screenshots and asserts byte-equality through import-
+  character and the newChat alt-seed path.
+
 # Horde Studio — Mobile
 
 Current build: `HordeStudio-v1.39.13.apk` (versionCode 92).

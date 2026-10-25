@@ -320,6 +320,10 @@
           e.content = API.plainText(e.content);
           return e;
         });
+        /* …and the intros, for the same reason (v1.39.14) */
+        c.alternateGreetings = (c.alternateGreetings || []).map(function (g) {
+          return API.plainText(g);
+        });
         /* v1.12.0: the imported avatar joins the card, normalized like every
            other imported image (512px long edge, PNG only with real
            transparency) so a 12 MP card art never becomes several MB of

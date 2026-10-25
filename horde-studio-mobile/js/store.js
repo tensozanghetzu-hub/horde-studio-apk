@@ -625,7 +625,17 @@
                 try { card = JSON.parse(text); } catch (e) {}
               } else if (key === 'chara') {
                 var b64 = new TextDecoder().decode(rest);
-                try { card = JSON.parse(atob(b64)); } catch (e) {}
+                /* v1.39.14: atob gives a BINARY string - bytes as chars.
+                   Parsing that directly mangled every multibyte sequence
+                   (emoji, dashes, curly quotes, accents - everything that is
+                   not ASCII). Decode the bytes as UTF-8, like the ccv3 branch
+                   above already does. */
+                try {
+                  var bin = atob(b64);
+                  var utf = new Uint8Array(bin.length);
+                  for (var bi = 0; bi < bin.length; bi++) utf[bi] = bin.charCodeAt(bi) & 0xff;
+                  card = JSON.parse(new TextDecoder().decode(utf));
+                } catch (e) {}
               }
             });
             if (!card) throw new Error('No character data embedded in this PNG');

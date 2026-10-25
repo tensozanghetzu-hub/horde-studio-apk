@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.14
+
+**Emoji, dashes and accents stop getting mangled by PNG cards.** Importing a
+card from a picture file decoded its text as raw bytes instead of UTF-8, so
+anything that wasn't plain ASCII arrived damaged: 🐍 became ðŸ, the em-dash
+became â€"", every curly quote and accent was quietly maimed — in the name,
+the intro swipes, anywhere. ASCII-only cards had hidden it for months. Cards
+import byte-for-byte intact now, and the intro swipes get the same prose-bath
+as the rest of the sheet on the way in. Cards imported in the past few days
+may already be carrying the damage — re-importing them cleans it up.
+
 ## What's new in v1.39.13
 
 **"+10 intros" cards finally bring their ten intros.** Many cards carry
