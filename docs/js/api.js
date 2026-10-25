@@ -760,6 +760,12 @@
   function looksTruncated(text) {
     var t = String(text || '').trim();
     if (!t) return false;
+    /* v1.39.17: cut mid-contraction ("…each other, don'") — the tail is an
+       apostrophe GLUED to a letter, which only happens inside a word; a
+       genuinely finished line ends on punctuation AFTER the quote mark.
+       This shape used to slip the punctuation whitelist below and the
+       auto-finish rounds never fired. */
+    if (/[A-Za-z]['\u2019]\s*$/.test(t)) return true;
     if (/[.!?\u2026"\u201d'\u2019)\]]\s*$/.test(t)) return false;   // ended on real punctuation
     if (/\*\s*$/.test(t)) return false;                             // ended on an action beat
     return true;                                                  // dangling word, comma, dash…
@@ -852,7 +858,11 @@
   function generate(o) {
     var s = o.settings, char = o.character, session = o.session;
     var maxRounds = (o.autoFinish === false || s.autoFinish === false) ? 1 : 3;
-    var full = '';
+    /* v1.39.17: opts.continueFrom seeds the assembly with a partial reply
+       (the manual Continue button). The seed rides the wire as the
+       assistant's own turn-in-progress, so the model FINISHES the cut
+       sentence instead of inventing a new beat that echoes the last one. */
+    var full = o.continueFrom ? String(o.continueFrom) : '';
 
     function round(idx) {
       if (o.signal && o.signal.aborted) return Promise.reject(new DOMException('Aborted', 'AbortError'));
@@ -861,9 +871,10 @@
            so the model carries on from that exact point. */
         /* A continuation round re-sends what we already have on top of the
            prompt, so it has to leave room for two replies, not one. */
-        var budget = HORDE_CTX_TOKENS - (s.maxTokens || 200) * (idx > 0 ? 2 : 1) - 64;
+        var inContinuation = (idx > 0 || !!o.continueFrom);
+        var budget = HORDE_CTX_TOKENS - (s.maxTokens || 200) * (inContinuation ? 2 : 1) - 64;
         var base = buildPrompt(char, session, o.history, s, o.note, budget);
-        var prompt = idx === 0 ? base : base + ' ' + full;
+        var prompt = inContinuation ? base + ' ' + full : base;
         return guardModel('text', s.hordeTextModel).then(function () {
           return Horde.generateText({
             prompt: prompt,
@@ -894,14 +905,16 @@
         });
       }
       var msgs = buildChat(char, session, o.history, s, o.note);
-      if (idx > 0) msgs.push({ role: 'assistant', content: full });
+      if (idx > 0 || o.continueFrom) msgs.push({ role: 'assistant', content: full });
       /* Preview this pass in its own buffer. loop() cleans the returned text and
          commits it to `full` exactly once — accumulating here as well left two
          copies of every tag, so a single [[cash:+10]] settled as +20. */
       var streamed = '';
       return streamChat(s, msgs, function (chunk) {
         streamed += chunk;
-        if (o.onDelta) o.onDelta(chunk, full + (full ? ' ' : '') + streamed);
+        /* a seeded continuation previews seed + stream WITHOUT the glue
+           guess — the real seam rule settles it in the assembled text */
+        if (o.onDelta) o.onDelta(chunk, full ? full + (o.continueFrom && idx === 0 ? '' : ' ') + streamed : streamed);
       }, o.signal, o.override);
     }
 
@@ -921,9 +934,15 @@
           var lastWord = full.match(/[A-Za-z']+$/);
           var splitWord = /[A-Za-z0-9]$/.test(prevEnd) && /^[A-Za-z0-9]/.test(nextStart) &&
             !(lastWord && COMMON_WORDS.test(lastWord[0]));
+          /* the seam is a contraction ('' + 't you…'): join tight only for
+             stems that actually take an apostrophe-suffix — a plural
+             possessive like "the Malfoys'" must NOT swallow the next word */
+          var stem = full.match(/([A-Za-z]+)['\u2019]$/);
+          var cutContraction = !!(stem && /^[A-Za-z]/.test(nextStart) &&
+            /^(i|you|he|she|it|we|they|that|there|here|what|who|how|when|where|why|let|don|can|isn|aren|wasn|weren|won|wouldn|couldn|shouldn|didn|doesn|hasn|haven|hadn|mustn|ain)$/i.test(stem[1]));
           var hasSpace = /\s$/.test(full) || /^\s/.test(piece);
-          var noSpace = /^[.,!?;:')"\u201d\u2019]/.test(nextStart) || /[(—–-]$/.test(prevEnd);
-          glue = (hasSpace || splitWord || noSpace) ? '' : ' ';
+          var noSpace = /^[.,!?;:')"\u201d\u2019]/.test(nextStart) || /[(]$/.test(prevEnd);
+          glue = (hasSpace || splitWord || noSpace || cutContraction) ? '' : ' ';
         }
         var before = full;
         full = before ? before + glue + piece : piece;

@@ -61,7 +61,7 @@ function fresh(opts) {
   existing['m-old'].mtext.innerHTML = OLD;   /* the rendered original bubble */
   var appended = [];
 
-  var calls = { update: [], add: 0, append: 0, thread: 0, toasts: [] };
+  var calls = { update: [], add: 0, append: 0, thread: 0, toasts: [], generate: null };
 
   var sandbox = {
     console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise,
@@ -96,6 +96,10 @@ function fresh(opts) {
         }
         if (opts.mode === 'fail') return Promise.reject(new Error('provider down'));
         var text = opts.reply || 'The second take. She smiles.';
+        /* v1.39.17: the real generate() returns a continue assembled around
+           the seed — emulate that, and let the test see what it was fed */
+        calls.generate = { continueFrom: g.continueFrom || null, history: g.history };
+        if (g.continueFrom) text = g.continueFrom + ' ' + text;
         g.onDelta(text, text);
         return Promise.resolve(text);
       },
@@ -179,14 +183,19 @@ function fresh2(opts) { return new Promise(function (res) { res(fresh(opts)); })
   ok('the bubble loses the partial too', elC.mtext.innerHTML === OLD,
     JSON.stringify(elC.mtext.innerHTML));
 
-  console.log('D — Continue rides the same in-place path');
+  console.log('D — Continue rides the same in-place path, as a real continuation');
   w = fresh({ reply: 'An encore.' });
   await w.App.generateReply({ continueFor: w.orig });
   await new Promise(r => setTimeout(r, 25));
   ok('continue appends no bubble', w.calls.append === 0);
-  ok('the text grew on the same message',
-    w.orig.text === OLD + '\n\nAn encore.', JSON.stringify(w.orig.text));
-  ok('the existing bubble wears it', w.existing['m-old'].mtext.innerHTML === OLD + '\n\nAn encore.');
+  ok('the app hands generate the seed text to continue from',
+    w.calls.generate && w.calls.generate.continueFrom === OLD,
+    JSON.stringify(w.calls.generate && w.calls.generate.continueFrom));
+  ok('…and takes the cut message OUT of the context so it cannot echo itself',
+    w.calls.generate && !w.calls.generate.history.some(function (m) { return m.id === 'm-old'; }));
+  ok('the text grew on the same message (seed + continuation, one seam)',
+    w.orig.text === OLD + ' An encore.', JSON.stringify(w.orig.text));
+  ok('the existing bubble wears it', w.existing['m-old'].mtext.innerHTML === OLD + ' An encore.');
 
   console.log('E — provider failure mid-reroll keeps the message whole');
   w = fresh({ mode: 'fail' });

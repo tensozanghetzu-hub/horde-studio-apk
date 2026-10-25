@@ -605,6 +605,18 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.17
+
+**Replies that get cut mid-word get finished, not patched over.** A reply
+stopped by the token limit inside a contraction ("…each other, don'") used
+to pass as complete — the apostrophe looked like a closing quote — so the
+auto-finish rounds never fired. And pressing **Continue** generated a brand
+new beat that echoed the previous one instead of finishing the sentence.
+Now: a cut mid-contraction is detected immediately, Continue hands the cut
+text back to the model as its own turn-in-progress, and the seam joins
+tight across the split word. "…don'" + "t you think?" comes out as one
+sentence, not a paragraph break with a deja-vu echo after it.
+
 ## What's new in v1.39.16
 
 **Cards' always-remember lines stop dying at import.** The standard V2

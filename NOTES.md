@@ -1,5 +1,22 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.17 — Continue actually continues
+- looksTruncated: a trailing apostrophe glued to a letter ("don'") is a
+  mid-word cut, not punctuation — the whitelist made it look complete and
+  auto-finish never engaged (the user's live report).
+- API.generate gains continueFrom: the partial text seeds the assembly and
+  rides the wire as the assistant turn-in-progress (chat) / appended to the
+  prompt (horde); history no longer duplicates the cut message (app side
+  filters it out).
+- Seam rule: "{contraction stem}'" + letter joins tight for real stems
+  (don', can', it'…) but never for plural possessives; dash/open-paren
+  endings stopped force-joining ("x —" + "and…" keeps its space).
+- continueFor completion is now text = generated (assembled), replacing the
+  msg.text + "\n\n" + tail glue.
+- Tests: continuefix-test.js (16: truncation shapes, seam tight/loose,
+  prefix wire shape, multi-round continuation); rerollswap D updated to
+  the seed-contract (23).
+
 ## v1.39.16 — cardsu0027 always-remember lines survive import
 - cardToCharacter dropped data.post_history_instructions entirely (the
   field was hardcoded to "" — any author tone-lock arrived silent).

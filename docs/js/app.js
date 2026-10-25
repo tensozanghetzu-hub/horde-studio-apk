@@ -936,6 +936,11 @@
       history = history.filter(function (m) { return m.id !== target.id; });
     } else if (opts.continueFor) {
       target = opts.continueFor;
+      /* v1.39.17: the cut message leaves the context and rides back as the
+         assistant prefix (continueFrom below). Generating with the cut text
+         still sitting in history used to make the model open a NEW beat
+         that echoed the previous one — a rewrite, not a continuation. */
+      history = history.filter(function (m) { return m.id !== target.id; });
     }
 
     var msg;
@@ -1005,6 +1010,7 @@
 
     API.generate({
       settings: charSettings, character: char, session: session, history: history,
+      continueFrom: opts.continueFor ? (msg.text || '') : undefined,
       signal: App.abort ? App.abort.signal : undefined,
       note: vhNote,
       onDelta: function (chunk, full) {
@@ -1052,10 +1058,11 @@
       for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
       if (!text) { text = '…'; }
       if (opts.continueFor) {
-        msg.text = (msg.text || '') + (msg.text ? '\n\n' : '') + text;
+        /* generate() assembled seed + continuation with the seam rule —
+           text already IS the whole message; a \n\n paste-on used to
+           decree a paragraph break right in the middle of a cut word */
+        msg.text = text;
         if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = msg.text;
-        /* the stream painted only the new tail — the bubble stands for the
-           whole message now */
         var mtC = el.querySelector && el.querySelector('.mtext');
         if (mtC) mtC.innerHTML = UI.md(msg.text);
       } else if (opts.rerollFor) {
