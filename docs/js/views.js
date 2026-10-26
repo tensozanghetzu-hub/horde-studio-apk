@@ -2177,12 +2177,16 @@
      top-down, so land on its first line instead of marooning the reader at
      the last one (every wall of text previously ended with a forced
      scroll-back-up to start reading). */
-  function followReply(thread, el) {
+  function followReply(thread, el, fromPx) {
     if (!thread) return;
     var nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 260;
     if (!nearBottom) return;   /* someone reading up-thread is never moved */
     if (el && el.offsetHeight > thread.clientHeight - 60) {
-      thread.scrollTop = Math.max(0, el.offsetTop - 8);
+      /* fromPx = seam height of a CONTINUED message (v1.39.23): land where
+         the new prose begins, keeping ~3 lines of the old tail for context —
+         never drag the reader back through text they already read. */
+      var top = fromPx ? el.offsetTop + Math.max(0, fromPx - 90) : el.offsetTop;
+      thread.scrollTop = Math.max(0, top - 8);
     } else {
       thread.scrollTop = thread.scrollHeight;
     }

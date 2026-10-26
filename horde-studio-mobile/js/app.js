@@ -964,6 +964,10 @@
       : null;
     if (!el) el = Views.appendMessage(char, msg);
     el.classList.add('streaming');
+    /* v1.39.23: a Continue merges INTO this bubble. Record where the old
+       text ends — the seam — so finishing lands the reader on the new prose,
+       not back at the top of a message they already read. */
+    var seamPx = opts.continueFor ? (el.offsetHeight || 0) : 0;
     st.busy = true;
     App.setStop(true);
     /* keep the CPU awake for the whole reply: switching apps or the screen
@@ -1099,7 +1103,7 @@
          bottom. v1.39.22: and when the reply itself is taller than the
          screen, "follow" means landing on its FIRST line, not its last. */
       var thrF = $('#thread');
-      if (Views.followReply) Views.followReply(thrF, el); else Views.stickToBottom(thrF, false);
+      if (Views.followReply) Views.followReply(thrF, el, seamPx); else Views.stickToBottom(thrF, false);
       App.afterReply();
       App.maybeAutoTitle();
     }).catch(function (e) {

@@ -92,6 +92,15 @@ var t5 = fakeThread(1000);
 Views.followReply(t5, null);
 ok('…and still respects a reader up-thread', t5.scrollTop === 1000, 'scrollTop=' + t5.scrollTop);
 
+console.log('\nG — a CONTINUED message anchors at the seam, not the start');
+var t6 = fakeThread(4400); /* reader sat at the cut, near bottom (100px from the end) */
+/* merged bubble: starts at 3000, old text was 700px tall (the seam), total 1200 */
+var merged = { offsetTop: 3000, offsetHeight: 1200 };
+Views.followReply(t6, merged, 700);
+ok('lands at the seam (start of the NEW prose)', t6.scrollTop === 3000 + 700 - 90 - 8, 'scrollTop=' + t6.scrollTop);
+ok('…not dragged back to the start of the merged message', t6.scrollTop !== 3000 - 8, 'scrollTop=' + t6.scrollTop);
+ok('…and not marooned at the tail either', t6.scrollTop !== 5000, 'scrollTop=' + t6.scrollTop);
+
 /* ---------------- app.js finish path ---------------- */
 
 function freshWorld(followFn) {
@@ -100,6 +109,7 @@ function freshWorld(followFn) {
   var threadStub = { id: 'thread' };
   var el = {
     mtext: { innerHTML: '' },
+    offsetHeight: 640,   /* the cut message's height when Continue was pressed */
     classList: { add: function () {}, remove: function () {} },
     querySelector: function (s) { return s === '.mtext' ? el.mtext : null; },
     remove: function () {}
@@ -110,7 +120,7 @@ function freshWorld(followFn) {
     stickToBottom: function () { calls.stick++; },
     chats: function () {}
   };
-  if (followFn) views.followReply = function (thread, e) { calls.follow.push({ thread: thread, el: e }); };
+  if (followFn) views.followReply = function (thread, e, fromPx) { calls.follow.push({ thread: thread, el: e, fromPx: fromPx }); };
   var sb = {
     console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise,
     Object: Object, Array: Array, String: String, Number: Number, RegExp: RegExp,
@@ -186,6 +196,13 @@ tick(60)
     ok('…with the actual thread element', w1.calls.follow[0] && w1.calls.follow[0].thread === w1.threadStub);
     ok('…and the finished reply bubble', w1.calls.follow[0] && w1.calls.follow[0].el === w1.el);
 
+    console.log('\nH — a Continue hands followReply the seam height');
+    var w3 = freshWorld(true);
+    w3.App.state.messages = [{ id: 'm1', sessionId: 's1', role: 'assistant', text: 'cut off mid', alts: ['cut off mid'], altIdx: 0, createdAt: 5 }];
+    w3.App.generateReply({ continueFor: w3.App.state.messages[0] });
+    return tick(60).then(function () {
+      ok('followReply got the seam offset for a continuation', w3.calls.follow[0] && w3.calls.follow[0].fromPx === 640, JSON.stringify(w3.calls.follow));
+    }).then(function () {
     console.log('\nF — old Views stubs without followReply still work (additive)');
     var w2 = freshWorld(false);
     w2.App.generateReply();
@@ -195,5 +212,6 @@ tick(60)
         console.log('\n' + pass + ' passed, ' + fail + ' failed');
         process.exit(fail ? 1 : 0);
       });
+  })
   })
   .catch(function (e) { console.error(e); process.exit(1); });

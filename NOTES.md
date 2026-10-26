@@ -1,5 +1,11 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.23 — continuation scrolling lands at the seam
+- generateReply records el.offsetHeight when a Continue begins (seamPx) and
+  hands it to followReply; Views.followReply(thread, el, fromPx) anchors at
+  offsetTop + seam − 90px instead of the bubble head.
+- msgtail-test.js +4 (14 total): seam landing vs head vs tail; app wiring.
+
 ## v1.39.22 — walls of text open at their first line
 - App.generateReply finish: Views.followReply(thread, el) replaces the raw
   stickToBottom pin; guarded call keeps every old Views stub valid.
