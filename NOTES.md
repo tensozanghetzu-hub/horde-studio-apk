@@ -1,5 +1,15 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.19 — 429s retry themselves, errors explain themselves
+- streamChat wraps its connect in attemptFetch(): on 429 wait Retry-After
+  (capped 30s) or backoff [5s, 15s], up to 2 retries, all inside the
+  existing stream deadline; retries stay silent after settle/abort.
+- providerError() classifies: 429 → rate-limit explanation incl. the real
+  free-tier caps; 402 → credits/quota; 401/403 → key rejected. Anything
+  else keeps the historic "API <code>: <body>" string (stream-test pin).
+- Test: ratelimit-test.js (14): lone-429 invisibility, Retry-After timing,
+  bounded retries on a daily cap, 402/401 no-retry, 5xx shape guard.
+
 ## v1.39.18 — edit-confirm scroll jump, for real this time
 - restoreThreadScroll added anchor.dy where it must have been ALL ALONG
   (offsetTop − dy snapped the anchor fully into view = a 2×dy yank upward;

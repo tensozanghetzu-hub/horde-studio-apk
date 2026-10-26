@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.19
+
+**A throttled provider no longer costs you the reply — and errors speak
+plainly.** A 429 (rate limit) from an OpenAI-compatible provider is now
+retried on the spot — honoring the server's Retry-After header, then two
+short back-offs — so a per-minute burst cap simply never surfaces. If the
+cap persists (a spent daily allowance, for instance), the toast finally
+says so, with the tier's actual caps, instead of the provider's hollow
+"Provider returned error". 402s name the credit/quota problem and 401/403s
+point at the API key.
+
 ## What's new in v1.39.18
 
 **Confirming an edit no longer jumps the thread.** Two stacked causes: the

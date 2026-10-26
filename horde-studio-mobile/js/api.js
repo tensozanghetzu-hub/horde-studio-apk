@@ -420,6 +420,42 @@
     }).catch(function (e) { return { ok: false, message: e.message }; });
   }
 
+  /* v1.39.19: rate-limit discipline for the OpenAI-compatible socket.
+     A 429 gets bounded backoff retries (a Retry-After header wins, capped);
+     402/401/403 are explained in plain language and never retried — the
+     toast used to carry only the provider's hollow "Provider returned
+     error". */
+  var RATE_BACKOFF = [5000, 15000];
+  var RATE_RETRY_AFTER_CAP = 30000;
+  function rateRetryAfterMs(hdrs) {
+    try {
+      var h = hdrs && hdrs.get && hdrs.get('retry-after');
+      var sec = h ? parseFloat(h) : NaN;
+      if (!isNaN(sec)) return Math.min(Math.max(0, sec * 1000), RATE_RETRY_AFTER_CAP);
+    } catch (e) {}
+    return 0;
+  }
+  function providerError(status, msg) {
+    msg = String(msg == null ? '' : msg).trim();
+    var base = msg ? 'API ' + status + ': ' + msg : 'API ' + status;
+    var e;
+    if (status === 429) {
+      e = new Error(base + ' — rate limit reached. Free tiers cap requests per minute and per day ' +
+        '(OpenRouter free: 20/min, 50/day until a one-time $10 top-up). The app already retried it — ' +
+        'give it a minute; if every try today fails, the daily cap is spent.');
+      e.rateLimited = true;
+    } else if (status === 402) {
+      e = new Error(base + ' — the provider says the account is out of credits/quota. ' +
+        'On OpenRouter even free models reject when the balance goes negative.');
+    } else if (status === 401 || status === 403) {
+      e = new Error(base + ' — the API key was rejected; check Settings and the connection.');
+    } else {
+      e = new Error(base);
+    }
+    e.status = status;
+    return e;
+  }
+
   /** Stream a chat completion. onDelta(textChunk). Returns full text. */
   function streamChat(s, messages, onDelta, signal, override) {
     /* The parser must follow the mode we actually asked for, not the global
@@ -467,6 +503,11 @@
         fail(err);
       }, STREAM_TIMEOUT_MS);
 
+      var connectAttempt = 0;
+      function attemptFetch() {
+      /* a backoff firing after timeout/abort must not raise the dead */
+      if (settled) return;
+      if (signal && signal.aborted) return;
       fetch(endpoint(s) + '/chat/completions', {
         method: 'POST', headers: headers(s), body: JSON.stringify(body), signal: signal
       }).then(function (r) {
@@ -474,7 +515,13 @@
           return r.text().then(function (t) {
             var msg = t;
             try { var j = JSON.parse(t); msg = (j.error && (j.error.message || JSON.stringify(j.error))) || j.message; } catch (e) {}
-            fail(new Error('API ' + r.status + ': ' + msg));
+            if (r.status === 429 && connectAttempt < RATE_BACKOFF.length && !settled) {
+              var wait = rateRetryAfterMs(r.headers) || RATE_BACKOFF[connectAttempt];
+              connectAttempt++;
+              setTimeout(attemptFetch, wait);
+              return;
+            }
+            fail(providerError(r.status, msg));
           }).catch(fail);
         }
         if (!wantStream) {
@@ -536,7 +583,9 @@
           }, fail);
         }
         return pump();
-      }, fail);
+        }, fail);
+      }
+      attemptFetch();
     });
   }
 
@@ -1201,7 +1250,8 @@
        kudos, tries, what was requested). Set by generate(); the world's
        status sheet reads it. null until the first text generation. */
     lastHorde: null,
-    /* tests shorten the stream deadline; the app never calls this */
-    _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; }
+    /* tests shorten the stream deadline and the 429 backoff; the app never calls these */
+    _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; },
+    _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); }
   };
 })(window);
