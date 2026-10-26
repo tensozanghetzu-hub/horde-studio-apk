@@ -435,14 +435,18 @@
     } catch (e) {}
     return 0;
   }
-  function providerError(status, msg) {
+  function providerError(status, msg, modelName) {
     msg = String(msg == null ? '' : msg).trim();
     var base = msg ? 'API ' + status + ': ' + msg : 'API ' + status;
     var e;
     if (status === 429) {
-      e = new Error(base + ' — rate limit reached. Free tiers cap requests per minute and per day ' +
-        '(OpenRouter free: 20/min, 50/day until a one-time $10 top-up). The app already retried it — ' +
-        'give it a minute; if every try today fails, the daily cap is spent.');
+      /* v1.39.20: a :free ID means the failure is almost always the SHARED
+         upstream pool being throttled by its provider — the user's own
+         balance and daily count are innocent. Say so, and give an exit. */
+      var sharedFree = /:free\s*$/i.test(modelName || '');
+      e = new Error(base + (sharedFree
+        ? ' — the shared free endpoint for this model is saturated upstream; its provider throttles the pool regardless of YOUR balance or today\u2019s count (both are fine). Retried already — try again in a few minutes, pick another :free model, or drop the :free suffix to spend your balance on it instead.'
+        : ' — rate limit reached. Free tiers cap requests per minute and per day (OpenRouter free: 20/min, 50/day until a one-time $10 top-up). The app already retried it — give it a minute; if every try today fails, the daily cap is spent.'));
       e.rateLimited = true;
     } else if (status === 402) {
       e = new Error(base + ' — the provider says the account is out of credits/quota. ' +
@@ -521,7 +525,7 @@
               setTimeout(attemptFetch, wait);
               return;
             }
-            fail(providerError(r.status, msg));
+            fail(providerError(r.status, msg, body.model));
           }).catch(fail);
         }
         if (!wantStream) {

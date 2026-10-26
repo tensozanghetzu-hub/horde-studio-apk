@@ -1,5 +1,12 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.20 — free-pool 429s stop blaming the user
+- providerError() takes the model name; for IDs ending :free the 429 text
+  explains the shared upstream pool (verified live: google/gemma-4-31b-it:free
+  has 429ed every daily probe for a week straight, 0/7) and offers the
+  exits; account wording kept for everything else.
+- ratelimit-test.js +4 (18 total).
+
 ## v1.39.19 — 429s retry themselves, errors explain themselves
 - streamChat wraps its connect in attemptFetch(): on 429 wait Retry-After
   (capped 30s) or backoff [5s, 15s], up to 2 retries, all inside the

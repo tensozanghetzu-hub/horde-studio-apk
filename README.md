@@ -605,6 +605,14 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.20
+
+**Rate-limit errors now know whose fault it is.** A 429 on a `:free` model
+says the shared upstream pool is saturated — not your account, not your
+daily count — and offers the actual exits: try shortly, pick another free
+model, or drop the `:free` suffix and spend cents against your balance.
+Paid/personal models keep the account-cap wording.
+
 ## What's new in v1.39.19
 
 **A throttled provider no longer costs you the reply — and errors speak

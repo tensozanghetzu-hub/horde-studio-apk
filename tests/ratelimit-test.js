@@ -115,6 +115,24 @@ var OR429 = JSON.stringify({ error: { message: 'Provider returned error', code: 
       );
     })
     .then(function () {
+      console.log('\nC2 — a :free model gets the shared-pool wording, not account blame');
+      script = [errRes(429, OR429), errRes(429, OR429), errRes(429, OR429)];
+      var s2 = loadApi();
+      var API2 = s2.window.API;
+      API2._setRateRetryDelays([1, 2]);
+      s2.window.fetch = function () { return Promise.resolve(script.shift()); };
+      var freeSettings = Object.assign({}, SETTINGS, { model: 'google/gemma-4-31b-it:free' });
+      return API2.streamChat(freeSettings, MSGS, null).then(
+        function () { ok(':free 429 must still reject after retries', false, 'resolved'); },
+        function (e) {
+          ok('names the shared upstream pool', /shared free endpoint/.test(e.message) && /saturated|throttles/i.test(e.message), e.message);
+          ok('explicitly does NOT blame the account', /not your account|both are fine/i.test(e.message), e.message);
+          ok('drops the account-cap lecture', !/50.day until a one-time/.test(e.message), e.message);
+          ok('offers the paid-suffix exit', /drop the :free suffix/.test(e.message), e.message);
+        }
+      );
+    })
+    .then(function () {
       console.log('\nD — other statuses classify crisply');
       script = [errRes(402, '{"error":{"message":"Insufficient credits"}}')];
       fetchCalls = 0;
