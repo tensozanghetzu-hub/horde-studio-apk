@@ -605,6 +605,14 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.22
+
+**Long replies now start at the top.** When a finished reply is taller than
+the screen, the thread lands on its first line instead of its last — no
+more finishing a wall of text only to scroll back up to begin reading it.
+Short replies keep the classic bottom pin, readers mid-scroll up-thread are
+still never moved, and streaming behavior is untouched.
+
 ## What's new in v1.39.21
 
 **OpenRouter streams no longer die as "invalid chat stream".** OpenRouter

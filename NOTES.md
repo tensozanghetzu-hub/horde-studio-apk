@@ -1,5 +1,14 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.22 — walls of text open at their first line
+- App.generateReply finish: Views.followReply(thread, el) replaces the raw
+  stickToBottom pin; guarded call keeps every old Views stub valid.
+- views.js followReply(): near-bottom readers follow; bubble taller than
+  (viewport − 60px) → anchor at el.offsetTop − 8; otherwise bottom pin;
+  up-thread readers never moved; no element → classic semantics.
+- Test: msgtail-test.js (10): head-anchor vs tail, short-pin, no-yank,
+  element-less fallback, app-level finish wiring + stub fallback.
+
 ## v1.39.21 — SSE comments don't kill the stream
 - streamChat line(): lines starting with ':' are SSE comments (spec) —
   ignored; OpenRouter sends ': OPENROUTER PROCESSING' heartbeats, so every

@@ -1095,8 +1095,11 @@
     }).then(function () {
       if (msg.saveFailed) return;   /* the ledger is down — do not write to it again */
       /* A finished reply must not yank the view to the last word if the
-         user scrolled up to read it — follow only when they're at the bottom. */
-      Views.stickToBottom($('#thread'));
+         user scrolled up to read it — follow only when they're at the
+         bottom. v1.39.22: and when the reply itself is taller than the
+         screen, "follow" means landing on its FIRST line, not its last. */
+      var thrF = $('#thread');
+      if (Views.followReply) Views.followReply(thrF, el); else Views.stickToBottom(thrF, false);
       App.afterReply();
       App.maybeAutoTitle();
     }).catch(function (e) {

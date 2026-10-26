@@ -2172,6 +2172,23 @@
   }
   Views.stickToBottom = stickToBottom;
 
+  /* v1.39.22: the finish-of-generation follow. Near-bottom readers keep
+     following new replies — but a reply taller than the viewport is read
+     top-down, so land on its first line instead of marooning the reader at
+     the last one (every wall of text previously ended with a forced
+     scroll-back-up to start reading). */
+  function followReply(thread, el) {
+    if (!thread) return;
+    var nearBottom = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 260;
+    if (!nearBottom) return;   /* someone reading up-thread is never moved */
+    if (el && el.offsetHeight > thread.clientHeight - 60) {
+      thread.scrollTop = Math.max(0, el.offsetTop - 8);
+    } else {
+      thread.scrollTop = thread.scrollHeight;
+    }
+  }
+  Views.followReply = followReply;
+
   /* 18.2.0: a re-render must not fling the reader. Anchor on the first
      message in view (and how far down into it) and restore after the
      rebuild; if that message was just deleted, its predecessor stands in.
