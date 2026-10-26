@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.21
+
+**OpenRouter streams no longer die as "invalid chat stream".** OpenRouter
+fires spec-legal SSE comment lines (`: OPENROUTER PROCESSING`) before and
+during generation as keep-alives; the strict stream parser treated them as
+corruption and killed the request. They're ignored now — and a mid-stream
+error frame speaks its own message ("upstream request timed out", say)
+instead of settling as a blank "…" bubble.
+
 ## What's new in v1.39.20
 
 **Rate-limit errors now know whose fault it is.** A 429 on a `:free` model

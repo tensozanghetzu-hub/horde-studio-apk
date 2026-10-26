@@ -1,5 +1,16 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.21 — SSE comments don't kill the stream
+- streamChat line(): lines starting with ':' are SSE comments (spec) —
+  ignored; OpenRouter sends ': OPENROUTER PROCESSING' heartbeats, so every
+  streaming request on a working :free model failed as "invalid chat
+  stream" (the user hit it the moment they switched to nemotron).
+- mid-stream data frames carrying {"error": ...} now reject with the real
+  provider message rather than resolving ''.
+- strictness kept: non-comment junk (HTML error page) still fails loud.
+- Test: ssecomment-test.js (4): comments between/before deltas, comment
+  split across chunks, junk still fails, error frame speaks.
+
 ## v1.39.20 — free-pool 429s stop blaming the user
 - providerError() takes the model name; for IDs ending :free the 429 text
   explains the shared upstream pool (verified live: google/gemma-4-31b-it:free

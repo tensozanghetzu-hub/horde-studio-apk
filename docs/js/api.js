@@ -546,6 +546,13 @@
             if (payload === '[DONE]') return;
             try {
               var j = JSON.parse(payload);
+              /* v1.39.21: a data frame carrying an error (idle upstream,
+                 provider hiccup mid-stream) must fail with ITS message —
+                 before, it silently settled as an empty "…" bubble */
+              if (j && j.error) {
+                fail(new Error('API stream error: ' + (j.error.message || JSON.stringify(j.error))));
+                return;
+              }
               sawValidFrame = true;
               var ch = j.choices && j.choices[0];
               var delta = ch && (ch.delta ? ch.delta.content : ch.text);
@@ -554,6 +561,7 @@
             return;
           }
           if (/^(?:event|id|retry):/.test(value)) return;   /* SSE metadata, harmless */
+          if (value.charAt(0) === ':') return;              /* v1.39.21: SSE comment — the spec's keep-alive; OpenRouter fires ': OPENROUTER PROCESSING' before and mid-stream */
           /* anything else is not a chat stream at all - fail loud instead of
              letting it dissolve into an empty reply */
           fail(new Error('The provider returned an invalid chat stream. Retry or choose another model.'));
