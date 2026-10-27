@@ -905,6 +905,28 @@
     return ok ? lines : [t];
   }
 
+  /* v1.39.27 — continuation passes that REPLAY instead of continuing. When
+     a chat-template model is handed the cut reply back as its own
+     turn-in-progress, it may complete that turn and rerun a whole paragraph
+     ("Her emerald eyes close…" twice in one bubble), and the pass's token
+     budget dies on the rerun. Measure the shared run that reaches the very
+     END of the text we already had — that is, and only that is, a replayed
+     cut-tail; shorter or floating overlaps are coincidence. */
+  function replayedTail(before, piece) {
+    if (!before || !piece) return 0;
+    var first = piece.charAt(0), best = 0;
+    for (var p = 0; p < before.length; p++) {
+      if (before.charAt(p) !== first) continue;
+      var n = 0;
+      while (n < piece.length && p + n < before.length && before.charAt(p + n) === piece.charAt(n)) n++;
+      /* the run counts only when it reaches the end of `before` — a replay
+         of the cut tail continues INTO the piece; an internal echo is not
+         the stitcher's business */
+      if (p + n === before.length && n > best) best = n;
+    }
+    return best >= 40 ? best : 0;
+  }
+
   /** Where a reply should end, as Horde stop sequences. */
   function stopSeqs(char, s) {
     var u = String((s && s.userName) || 'You').trim();
@@ -994,6 +1016,14 @@
            letter and the next starts with one, it is either a word split by the token
            limit ("wes" + "t.") or a real word boundary ("and" + "how"). Only join tight
            when the last word does not read as a finished English word. */
+        /* v1.39.27: strip a replayed cut-tail BEFORE the seam rules see the
+           piece — otherwise the glue logic pastes the rerun whole (the
+           doubled paragraph the user screenshot) and the pass's budget is
+           spent on text we already had. */
+        var reran = replayedTail(full, piece);
+        if (reran) piece = piece.slice(reran);
+        if (!piece) return full;   /* a pure rerun added nothing — stop here */
+
         var glue = '';
         if (full) {
           var prevEnd = full.slice(-1), nextStart = piece.charAt(0);

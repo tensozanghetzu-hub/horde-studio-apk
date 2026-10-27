@@ -605,6 +605,17 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.27
+
+**Replaying continuations no longer double your prose.** When the
+auto-finish round re-asks for the rest of a cut reply, some models rerun a
+whole paragraph instead of continuing it — the stitcher used to paste that
+rerun whole (doubled blocks) and burn the pass's token budget, so the reply
+still ended mid-sentence. Now the seam measures the replayed cut-tail and
+keeps only the text that's actually new; word-level cut healing
+("rh" + "ythms") is intact, and a pure rerun loses the single extra gamble
+instead of doubling anything.
+
 ## What's new in v1.39.26
 
 **The auto-titler no longer believes an echo.** A chat was seen named

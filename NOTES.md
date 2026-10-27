@@ -1,5 +1,13 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.27 — replay-proof auto-finish stitching
+- api.js replayedTail(before, piece): verbatim run starting in `before` AND
+  reaching its end, ≥ 40 chars = a rerun of the cut tail; loop() strips it
+  before glue, stops the pass on a pure rerun.
+- Test: stitchreplay-test.js (8): replay+continue heals to one copy,
+  mid-word seam intact, ordinary continuation byte-identical, pure rerun
+  single copy + stops, short echo < threshold unpinned behavior.
+
 ## v1.39.26 — auto-title refuses echoes
 - App.validAutoTitle(raw): strip quotes/Title:/meta prefaces; null on
   instruction echoes ("the user wants", "name this conversation", "at most
