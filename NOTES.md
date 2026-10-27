@@ -1,5 +1,11 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.25 — repetition guard (frequency_penalty)
+- api.js: body.frequency_penalty = settings.frequencyPenalty when set (>0);
+  omitted otherwise on both stream and non-stream chat-completions paths.
+- views.js generation settings: "Repetition guard" slider 0–1 step 0.05.
+- Test: repeatguard-test.js (5).
+
 ## v1.39.24 — plain-prose rendering toggle
 - UI.md(): when Store.settings.plainEmphasis is on, asterisk emphasis
   renders as plain text and unmatched/triplet asterisks are stripped;

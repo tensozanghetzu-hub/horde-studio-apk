@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.25
+
+**Repetition guard.** Settings → Generation gains a slider that maps to the
+standard `frequency_penalty` — until now the app never sent one, so a
+model's signature words freely re-entered every reply and re-seeded the
+context they were read back from: a loop no amount of editing messages
+could finish. 0 stays off (requests byte-identical to before); 0.3–0.5
+cures most verbal tics.
+
 ## What's new in v1.39.24
 
 **Plain-prose rendering, one toggle away.** Some models wrap every line of

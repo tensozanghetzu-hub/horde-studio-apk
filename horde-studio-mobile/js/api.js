@@ -478,6 +478,11 @@
       max_tokens: s.maxTokens,
       stream: wantStream
     }, override || {});
+    /* v1.39.25 — repetition guard: never sent before, so a model's favorite
+       words kept regenerating into the history they were read back from — a
+       loop no amount of message-editing could ever finish. 0/unset omits the
+       key entirely (byte-identical body; some providers dislike the nuance). */
+    if (s.frequencyPenalty) body.frequency_penalty = s.frequencyPenalty;
 
     /* v1.21.0 (ported from upstream 18.3.5): a stream that hangs mid-read
        used to wedge the app in "Generating…" forever, and a stream that

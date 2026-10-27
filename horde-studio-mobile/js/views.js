@@ -896,6 +896,10 @@
         '<div class="field"><div class="field-head"><label>Messages in context</label><span class="spacer"></span><span class="val" id="v-ctx">' + s.contextMessages + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-ctx" min="6" max="120" step="2" value="' + s.contextMessages + '"></div>' +
           '<div class="hint">Higher = longer memory per request, but slower and more expensive.</div></div>' +
+        '<div class="field"><div class="field-head"><label>Repetition guard</label><span class="spacer"></span><span class="val" id="v-freqp">' + ((s.frequencyPenalty || 0).toFixed(2)) + '</span></div>' +
+          '<div class="range-row"><input type="range" id="set-freqp" min="0" max="1" step="0.05" value="' + (s.frequencyPenalty || 0) + '"></div>' +
+          '<div class="hint">Makes the model shy away from words it already used — the fix for signature phrases repeating ' +
+          'in every reply. 0 = model default (off); 0.3–0.5 cures most habits; high values thin the prose.</div></div>' +
         '<div class="field compact"><label>Stream replies</label><div class="toggle' + (s.streaming ? ' on' : '') + '" id="t-stream"></div></div>' +
         '<div class="field compact"><label>Finish cut-off replies</label><div class="toggle' + (s.autoFinish ? ' on' : '') + '" id="t-finish"></div></div>' +
         '<div class="field"><div class="hint" style="margin:0">If a reply stops mid-sentence (common on the Horde, which ' +
@@ -920,7 +924,8 @@
     sc.range('#set-temp', '#v-temp', 'temperature', function (v) { return v.toFixed(2); });
     sc.range('#set-max', '#v-max', 'maxTokens');
     sc.range('#set-topp', '#v-topp', 'topP', function (v) { return v.toFixed(2); });
-    sc.range('#set-ctx', '#v-ctx', 'contextMessages');
+        sc.range('#set-ctx', '#v-ctx', 'contextMessages');
+        sc.range('#set-freqp', '#v-freqp', 'frequencyPenalty', function (v) { return v.toFixed(2); });
     sc.toggle('#t-stream', 'streaming');
     sc.toggle('#t-finish', 'autoFinish');
     sc.toggle('#t-bursts', 'bursts');
