@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.24
+
+**Plain-prose rendering, one toggle away.** Some models wrap every line of
+narration in `*asterisks*` no matter how the prompt asks — and against a
+chat history full of exemplars, a "never use asterisks" style note loses.
+Settings → Generation → *Plain-prose rendering* now shows such text as
+ordinary straight prose: emphasis markers strip, stray `*`/`***` leftovers
+vanish with them, speech keeps its gold, and the stored story is never
+rewritten. Applies to past messages too.
+
 ## What's new in v1.39.23
 
 **Continue lands at the seam.** Finishing a cut-off reply with Continue

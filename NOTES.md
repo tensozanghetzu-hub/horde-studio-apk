@@ -1,5 +1,14 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.24 — plain-prose rendering toggle
+- UI.md(): when Store.settings.plainEmphasis is on, asterisk emphasis
+  renders as plain text and unmatched/triplet asterisks are stripped;
+  speech spans, blockquotes and code fences unchanged. Default off.
+- views.js settingsGeneration: "Plain-prose rendering" toggle row (t-plain)
+  after Strip-thinking, with explainer hint.
+- Test: uiplain-test.js (11): default-mode pins, marker stripping, stray
+  removal, speech survival.
+
 ## v1.39.23 — continuation scrolling lands at the seam
 - generateReply records el.offsetHeight when a Continue begins (seamPx) and
   hands it to followReply; Views.followReply(thread, el, fromPx) anchors at

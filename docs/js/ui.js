@@ -28,8 +28,21 @@
     out = out.replace(/&quot;([^<\n]+?)&quot;/g, '<span class="say">&quot;$1&quot;</span>');
     out = out.replace(/\u201c([^<\n]+?)\u201d/g, '<span class="say">\u201c$1\u201d</span>');
     out = out.replace(/^\s*&gt;\s?(.+)$/gm, '<em>$1</em>');
-    out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    /* v1.39.24 — Plain-prose rendering (Settings → Generation): when the
+       model insists on wrapping narration in *asterisks* and prompt nudges
+       cannot stop it (against a chat history of exemplars, one "never use
+       asterisks" line loses), show it as ordinary text instead. Markers
+       strip, strays and triplets vanish; quoted speech keeps its gold;
+       stored text is never rewritten. */
+    var plain = typeof Store !== 'undefined' && Store.settings && Store.settings.plainEmphasis;
+    if (plain) {
+      out = out.replace(/\*\*([^*]+)\*\*/g, '$1');
+      out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1$2');
+      out = out.replace(/\*/g, '');
+    } else {
+      out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    }
     out = out.replace(/\n/g, '<br>');
     out = out.replace(/\u0000(\d+)\u0000/g, function (_, i) { return fences[+i]; });
     return out;

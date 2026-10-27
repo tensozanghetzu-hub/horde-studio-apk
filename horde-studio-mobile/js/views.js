@@ -903,6 +903,11 @@
         '<div class="field compact"><label>Strip the model\'s thinking</label><div class="toggle' + (s.stripThinking !== false ? ' on' : '') + '" id="t-think"></div></div>' +
         '<div class="field"><div class="hint" style="margin:0">Some models plan out loud before they answer. ' +
           'When that planning is recognisable it is removed, so you only see what the character says.</div></div>' +
+        /* v1.39.24 */
+        '<div class="field compact"><label>Plain-prose rendering</label><div class="toggle' + (s.plainEmphasis ? ' on' : '') + '" id="t-plain"></div></div>' +
+        '<div class="field"><div class="hint" style="margin:0">Some models wrap narration in *asterisks* no matter how often ' +
+          'they are told not to. This shows such text as ordinary prose — markers and stray asterisks hidden, ' +
+          'speech still gold, and the stored story text is never rewritten.</div></div>' +
         '<div class="field compact"><label>Split replies into separate texts</label><div class="toggle' + (s.bursts !== false ? ' on' : '') + '" id="t-bursts"></div></div>' +
         '<div class="field"><div class="hint" style="margin:0">For virtual humans: when a reply reads like several short ' +
           'messages rather than one paragraph, it arrives as separate bubbles a few seconds apart.</div></div>' +
@@ -920,6 +925,7 @@
     sc.toggle('#t-finish', 'autoFinish');
     sc.toggle('#t-bursts', 'bursts');
     sc.toggle('#t-think', 'stripThinking');
+    sc.toggle('#t-plain', 'plainEmphasis');
     sc.toggle('#t-enter', 'sendOnEnter');
     var gr = $('#gen-reset');
     if (gr) gr.onclick = function () { App.resetGenerationSettings(); };
