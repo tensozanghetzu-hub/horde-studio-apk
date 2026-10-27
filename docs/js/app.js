@@ -533,6 +533,26 @@
   /** v1.39.0 H: after the third real exchange, an untitled chat learns its
       name from one tiny one-shot call. Silent on failure (a title is a
       nicety, not an availability problem). */
+  /* v1.39.26: the auto-titler's candidate may be an instruction echo ("The
+     user wants me to name this conversation in at most five…" — Nemotron
+     answered the task by repeating it, and 60 characters of it became the
+     chat's name). Clean a candidate; refuse anything that repeats the task
+     instead of performing it. null = not a title. */
+  App.validAutoTitle = function (raw) {
+    var text = String(raw || '').trim().split('\n')[0].trim();
+    if (!text) return null;
+    /* meta prefaces — "Sure, here is a title: X" → keep X (but never eat a
+       real colon title like "Draconica: The Reckoning") */
+    text = text.replace(/^title\s*:\s*/i, '');
+    var m = text.match(/^(?:sure[,.!]?|certainly[,.!]?|of course[,.!]?|okay[,.!]?|here(?:'|’)s|here is)[^:]{0,40}:\s*(.+)$/i);
+    if (m) text = m[1].trim();
+    text = text.replace(/^[\"'《]+|[\"'》]+$/g, '').replace(/[.。…]+$/g, '').trim();
+    if (!text) return null;
+    if (/(the user wants|name this conversation|this conversation in|at most (?:five|\d+) words?|no quotes|no commentary)/i.test(text)) return null;
+    if (text.split(/\s+/).length > 10 || text.length > 60) return null;   /* a title, not a retold sentence */
+    return text;
+  };
+
   App.maybeAutoTitle = function () {
     var st = App.state;
     if (!st.session || !st.char) return;
@@ -553,9 +573,15 @@
       maxTokens: 24, signal: null
     }).then(function (text) {
       s._titling = false;
-      text = String(text || '').trim().replace(/^[\"'《]+|[\"'》]+$/g, '').split('\n')[0].slice(0, 60);
-      if (!text) return;
-      s.title = text;
+      var title = App.validAutoTitle(text);
+      if (!title) {
+        /* an echo/miss: try again after a later reply; after 3 misses give
+           up quietly (mark done so it stops costing a call per reply) */
+        s._titleFails = (s._titleFails || 0) + 1;
+        if (s._titleFails >= 3) { s.titleAuto = true; return Store.putSession(s); }
+        return;
+      }
+      s.title = title;
       s.titleAuto = true;
       return Store.putSession(s).then(function () {
         if (App.state.screen === 'chats') Views.chats($('.screen'));

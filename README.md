@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.26
+
+**The auto-titler no longer believes an echo.** A chat was seen named
+*"The user wants me to name this conversation in at most five"* — the model
+answered the one-shot titling prompt by repeating the task, and the app
+saved it. Candidates are now cleaned (quotes, "Title:" prefixes, trailing
+periods) and refused when they repeat the instruction, preface with meta
+chatter, or run past ten words; a miss just retries on a later turn instead
+of sticking forever. Your own renames were, and remain, untouchable.
+
 ## What's new in v1.39.25
 
 **Repetition guard.** Settings → Generation gains a slider that maps to the

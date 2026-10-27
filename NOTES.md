@@ -1,5 +1,14 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.26 — auto-title refuses echoes
+- App.validAutoTitle(raw): strip quotes/Title:/meta prefaces; null on
+  instruction echoes ("the user wants", "name this conversation", "at most
+  N words"), >10-word sentences, >60 chars, empties.
+- maybeAutoTitle: invalid candidate → _titleFails++ and nothing saved;
+  3 misses → give up quietly (titleAuto = true).
+- chatwork-test carve list gains App.validAutoTitle (harness slicing).
+- Test: autotitle-test.js (11) incl. the exact reported echo string.
+
 ## v1.39.25 — repetition guard (frequency_penalty)
 - api.js: body.frequency_penalty = settings.frequencyPenalty when set (>0);
   omitted otherwise on both stream and non-stream chat-completions paths.

@@ -241,7 +241,7 @@ function loadApiOnly(overrides) {
     /* App core: load app.js only enough to expose its pure helpers. The
        whole file wants a DOM; carve the exported functions out instead. */
     const src = read('app.js');
-    ['App.chatHealth', 'App.maybeAutoTitle'].forEach(name => {
+    ['App.chatHealth', 'App.maybeAutoTitle', 'App.validAutoTitle'].forEach(name => {
       if (!src.includes(name + ' = function ')) return;
       const start = src.indexOf(name + ' = function ');
       const fnBody = src.slice(start, src.indexOf('\n  };', start) + 5);
