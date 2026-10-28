@@ -498,7 +498,7 @@
   App.chatSettingsSheet = function (sessionId) {
     IDB.get('sessions', sessionId).then(function (s) {
       if (!s) return;
-      var ov = s.overrides || {}, sheetBody = document;
+      var ov = s.overrides || {};
       UI.sheet({
         title: 'Chat settings — ' + (s.title || 'New chat'),
         body:
@@ -509,17 +509,27 @@
           '<div class="field"><div class="field-head"><label>Style note for this chat only</label></div>' +
             '<textarea id="cs-note" class="tall" placeholder="e.g. answer in short, clipped lines">' + esc(ov.note || '') + '</textarea></div>',
         actions: [
-          { label: 'Save', value: 'save' },
+          /* UI.sheet clears its body before resolving the returned promise.
+             Capture every field inside onClick, while the form still exists;
+             reading them in the .then below loses the values (and throws). */
+          { label: 'Save', onClick: function (b) {
+            return {
+              action: 'save',
+              temperature: b.querySelector('#cs-temp').value,
+              maxTokens: b.querySelector('#cs-maxtok').value,
+              note: b.querySelector('#cs-note').value
+            };
+          } },
           { label: 'Reset to defaults', cls: 'ghost', value: 'reset' },
           { label: 'Cancel', cls: 'ghost', value: null }
-        ],
-        onMount: function (b) { sheetBody = b; }
+        ]
       }).then(function (res) {
         if (!res) return;
         if (res === 'reset') { s.overrides = null; return Store.putSession(s).then(function () { UI.toast('Chat follows the character again'); }); }
-        var temp = $('#cs-temp', sheetBody).value.trim();
-        var maxt = parseInt($('#cs-maxtok', sheetBody).value, 10);
-        var note = $('#cs-note', sheetBody).value.trim();
+        if (!res || res.action !== 'save') return;
+        var temp = String(res.temperature || '').trim();
+        var maxt = parseInt(res.maxTokens, 10);
+        var note = String(res.note || '').trim();
         s.overrides = {};
         if (temp !== '') s.overrides.temperature = parseFloat(temp);
         if (maxt > 0) s.overrides.maxTokens = maxt;

@@ -605,6 +605,16 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.34
+
+**Style notes save properly now.** Chat Settings closed when you tapped
+Save, but the sheet cleared its form before the save handler read it. So
+the note looked accepted but never reached the chat record; reopening showed
+blank fields. The app now captures the values before the sheet closes, saves
+them to that chat, and reloads them when you open it again. The other chat
+overrides (temperature and max reply tokens) use the same save path and are
+captured safely too.
+
 ## What's new in v1.39.33
 
 **Type an exact Max reply length.** On the Generation screen, tap the

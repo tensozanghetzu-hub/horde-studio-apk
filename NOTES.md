@@ -1,5 +1,15 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.34 — persist chat style notes
+- Root cause: UI.sheet invokes the action callback and clears its form before
+  resolving its promise. chatSettingsSheet read fields in `.then`, after the
+  controls had been removed; Save closed normally but then crashed without
+  writing overrides. Capture all form values in Save's onClick payload before
+  close; promise handler now consumes that snapshot and persists it.
+- Regression suite simulates the real close-before-resolve contract and
+  verifies save + reopen prefill. chat-settings-save-test 3/3; full battery
+  clean.
+
 ## v1.39.33 — exact max-reply entry; restore bounded auto-finish
 - Generation screen: tap the displayed Max reply length number to open a
   numeric editor (64–2048, integer). Enter/change/blur commits; Escape
