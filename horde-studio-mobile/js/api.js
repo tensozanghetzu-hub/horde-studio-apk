@@ -945,7 +945,13 @@
    */
   function generate(o) {
     var s = o.settings, char = o.character, session = o.session;
-    var maxRounds = (o.autoFinish === false || s.autoFinish === false) ? 1 : 3;
+    /* v1.39.32: 3 → 6 attempts. A cut reply needs one finishing pass in the
+       best case, but rerun-wasted rounds (v1.39.29) and wordy models eat
+       the budget silently — the user ended up pressing Continue six times
+       by hand. Six rounds is what a page of prose costs on a free endpoint;
+       one burned call is ~1–2s and the stitcher guarantees a rerun can
+       never double text, so the only cost of a larger ceiling is latency. */
+    var maxRounds = (o.autoFinish === false || s.autoFinish === false) ? 1 : 6;
     /* v1.39.17: opts.continueFrom seeds the assembly with a partial reply
        (the manual Continue button). The seed rides the wire as the
        assistant's own turn-in-progress, so the model FINISHES the cut

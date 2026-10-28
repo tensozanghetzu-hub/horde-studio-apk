@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.32
+
+**One tap of Continue now does the work of six.** The finisher used to get
+three attempts to close a cut sentence — and when a verbose model spent
+two of them clearing its throat (replaying text it had written and getting
+it silently removed), the sentence simply stayed open. The attempt budget
+is now six: as long as the mill keeps making actual progress, you
+shouldn't have to press Continue at all; a reply builds quietly in the
+background until the sentence lands. Each attempt is one lightweight
+free-tier call, and the stitcher's no-double-writing guarantees hold
+whether the budget is one round or a hundred. (Pair it with a Max tokens
+of 350–450 for the calmest hands-off reading.)
+
 ## What's new in v1.39.31
 
 **No more seam stutters.** A reply cut mid-word ("…Fingers interl") could
