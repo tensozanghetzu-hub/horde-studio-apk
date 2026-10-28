@@ -109,18 +109,15 @@ API.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id
 
         console.log('\nC — a pure rerun never doubles the text');
         var stubRerun = REPLAY.slice(0, REPLAY.indexOf('ythms'));
-        var sb3 = loadApi([CUT, stubRerun, stubRerun, stubRerun, stubRerun, stubRerun]);
-        /* rounds 2..6 rerun the tail and add nothing new (still cut) */
+        var sb3 = loadApi([CUT, stubRerun, stubRerun]);
+        /* rounds 2 and 3 rerun the tail and add nothing new (still cut) */
         var API3 = sb3.window.API;
         return API3.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null })
           .then(function (out3) {
             ok('the reply stays the single first pass', out3 === CUT, JSON.stringify(out3.slice(-70)));
-            /* v1.39.29 re-pin: rerun rounds now spend the remaining budget
-               instead of stopping short — nothing can double (the rerun is
-               still stripped to nothing), but the model gets its chances to
-               close the sentence. v1.39.32: the ceiling itself went 3 → 6
-               attempts so a page of prose actually finishes. */
-            ok('…and a rerun streak stops at the round ceiling, still single-copy', sb3.window.fetch.calls === 6, 'calls=' + sb3.window.fetch.calls);
+            /* v1.39.29: rerun rounds spend the remaining 3-round budget;
+               nothing can double because the repeated tail is stripped. */
+            ok('…and a rerun streak stops at the 3-round ceiling, still single-copy', sb3.window.fetch.calls === 3, 'calls=' + sb3.window.fetch.calls);
 
         console.log('\nE — v1.39.29: a rerun round spends a round, it does not END the story');
         /* round 2 is a pure rerun of the cut tail (nothing new); round 3 is

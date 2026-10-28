@@ -889,8 +889,9 @@
         '<div class="group-title">Generation</div>' +
         '<div class="field"><div class="field-head"><label>Temperature</label><span class="spacer"></span><span class="val" id="v-temp">' + s.temperature + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-temp" min="0" max="2" step="0.05" value="' + s.temperature + '"></div></div>' +
-        '<div class="field"><div class="field-head"><label>Max reply length</label><span class="spacer"></span><span class="val" id="v-max">' + s.maxTokens + '</span></div>' +
-          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens</span></div></div>' +
+        '<div class="field"><div class="field-head"><label>Max reply length</label><span class="spacer"></span><button type="button" class="val val-edit" id="v-max" title="Tap to type an exact token limit" aria-label="Max reply length: ' + s.maxTokens + ' tokens. Tap to enter a number">' + s.maxTokens + '</button></div>' +
+          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens</span></div>' +
+          '<div class="hint">Tap the number to type an exact value (64–2048 tokens).</div></div>' +
         '<div class="field"><div class="field-head"><label>Top P</label><span class="spacer"></span><span class="val" id="v-topp">' + s.topP + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-topp" min="0.1" max="1" step="0.05" value="' + s.topP + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Messages in context</label><span class="spacer"></span><span class="val" id="v-ctx">' + s.contextMessages + '</span></div>' +
@@ -923,6 +924,45 @@
     var sc = settingsScope(body);
     sc.range('#set-temp', '#v-temp', 'temperature', function (v) { return v.toFixed(2); });
     sc.range('#set-max', '#v-max', 'maxTokens');
+    /* The slider is fiddly for an exact token count on a phone. Tap the
+       displayed value to edit it directly; commit on Enter/change/blur,
+       Escape cancels. Keep the slider and saved setting in sync. */
+    var maxValue = $('#v-max', body), maxSlider = $('#set-max', body);
+    if (maxValue && maxSlider) {
+      function openMaxEditor() {
+        var input = document.createElement('input');
+        input.type = 'number'; input.min = '64'; input.max = '2048'; input.step = '1';
+        input.inputMode = 'numeric'; input.className = 'max-token-entry';
+        input.setAttribute('aria-label', 'Max reply length in tokens');
+        input.value = String(Store.settings.maxTokens || 400);
+        maxValue.replaceWith(input);
+        input.focus(); input.select();
+        var done = false;
+        function finish(save) {
+          if (done) return; done = true;
+          var n = Math.round(Number(input.value));
+          if (save && input.value.trim() !== '' && isFinite(n)) {
+            n = Math.max(64, Math.min(2048, n));
+            var patch = { maxTokens: n }; sc.set(patch); maxSlider.value = String(n);
+          }
+          var current = Store.settings.maxTokens || 400;
+          var display = document.createElement('button');
+          display.type = 'button'; display.className = 'val val-edit'; display.id = 'v-max';
+          display.title = 'Tap to type an exact token limit';
+          display.setAttribute('aria-label', 'Max reply length: ' + current + ' tokens. Tap to enter a number');
+          display.textContent = String(current);
+          input.replaceWith(display);
+          display.addEventListener('click', openMaxEditor);
+        }
+        input.addEventListener('change', function () { finish(true); });
+        input.addEventListener('blur', function () { finish(true); });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+          else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        });
+      }
+      maxValue.addEventListener('click', openMaxEditor);
+    }
     sc.range('#set-topp', '#v-topp', 'topP', function (v) { return v.toFixed(2); });
         sc.range('#set-ctx', '#v-ctx', 'contextMessages');
         sc.range('#set-freqp', '#v-freqp', 'frequencyPenalty', function (v) { return v.toFixed(2); });

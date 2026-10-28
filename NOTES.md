@@ -1,14 +1,18 @@
 # Horde Studio Mobile — release notes
 
-## v1.39.32 — auto-finish budget 3 → 6 attempts
-- api.js generate(): maxRounds 3 → 6. User report: near-constant manual
-  Continue pressing (about six taps to reach an end-of-reply beat) because
-  verbose-model cuts ate the whole 3-round budget, rerun rounds included.
-  Wasted rounds are free-tier calls at ~1–2s apiece and the stitcher
-  prevents any doubling, so the ceiling is the only real cost knob.
-- stitchreplay-test C re-pinned: 6 reruns → 6 calls, still single-copy.
-  Documented pairing advice: Max tokens 350–450 + a "keep replies to 2–3
-  paragraphs, end on a complete sentence" style line for wordy models.
+## v1.39.33 — exact max-reply entry; restore bounded auto-finish
+- Generation screen: tap the displayed Max reply length number to open a
+  numeric editor (64–2048, integer). Enter/change/blur commits; Escape
+  cancels. Slider remains, saved value and controls stay synchronized.
+- Corrective follow-up to v1.39.32: user's "six continues" was figurative,
+  so raising maxRounds 3→6 was a misread and risked longer narration. Restore
+  3 attempts. Retract blanket 350–450 token advice: smaller caps can cause
+  earlier cutoffs; 608 is not a wrong setting, just a larger allowed reply.
+- manual-max-tokens suite: 11/11; stitchreplay: 20/20; full battery clean.
+
+## v1.39.32 — auto-finish budget 3 → 6 attempts (superseded in v1.39.33)
+- Shipped, then reverted after clarification: the quoted "six" was a figure
+  of speech, not a measured count. See v1.39.33 correction above.
 
 ## v1.39.31 — seam stutter repair below the replay line
 - User screenshot: "Fingers interl Fingers interlaced" — a 14-char

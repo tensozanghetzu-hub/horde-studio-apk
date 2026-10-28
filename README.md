@@ -605,18 +605,26 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
-## What's new in v1.39.32
+## What's new in v1.39.33
 
-**One tap of Continue now does the work of six.** The finisher used to get
-three attempts to close a cut sentence — and when a verbose model spent
-two of them clearing its throat (replaying text it had written and getting
-it silently removed), the sentence simply stayed open. The attempt budget
-is now six: as long as the mill keeps making actual progress, you
-shouldn't have to press Continue at all; a reply builds quietly in the
-background until the sentence lands. Each attempt is one lightweight
-free-tier call, and the stitcher's no-double-writing guarantees hold
-whether the budget is one round or a hundred. (Pair it with a Max tokens
-of 350–450 for the calmest hands-off reading.)
+**Type an exact Max reply length.** On the Generation screen, tap the
+number next to Max reply length to open a numeric editor (64–2048 tokens).
+Enter commits, Escape cancels; the range slider remains available, and
+both controls stay synchronized.
+
+**Correction to v1.39.32 advice:** I misread “six continues” literally and
+raised the auto-finisher ceiling from three attempts to six. That was the
+wrong response to your report: more finishing calls can keep extending a
+reply, and your 608-token setting was not itself a mistake. This release
+restores the three-attempt ceiling. I also retract the blanket 350–450
+recommendation: a lower cap may make replies shorter, but it can also cut
+them off sooner; it is not a general fix for unfinished sentences.
+
+## What's new in v1.39.32 (superseded in v1.39.33)
+
+The auto-finish ceiling was temporarily raised from three attempts to six.
+After your clarification that “six” was an expression, not a counted
+number, v1.39.33 restores the original three-attempt limit.
 
 ## What's new in v1.39.31
 
