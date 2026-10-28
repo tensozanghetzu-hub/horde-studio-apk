@@ -70,6 +70,18 @@ fi
 chmod 700 "$HOME/.ssh" 2>/dev/null || true
 chmod 600 "$KEY" 2>/dev/null || true
 export GIT_SSH_COMMAND="ssh -i $KEY -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes"
+# A sandbox restore rewinds .git refs to snapshot time while the remote has
+# since moved on — every push would be rejected. Rebase over the remote and,
+# when a file conflicts, the workspace tree is the newest complete state:
+# resolve with the local side wholesale.
+git fetch origin -q
+if ! git pull -q --rebase origin main >/dev/null 2>&1; then
+  git diff --name-only --diff-filter=U | while read -r f; do
+    git checkout --theirs -- "$f" && git add -- "$f"
+  done
+  git -c core.editor=true rebase --continue
+fi
+
 git push -u origin main
 echo
 echo "pushed. Pages republishes docs/ from the commit above."
