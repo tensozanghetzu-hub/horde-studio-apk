@@ -1022,7 +1022,13 @@
            spent on text we already had. */
         var reran = replayedTail(full, piece);
         if (reran) piece = piece.slice(reran);
-        if (!piece) return full;   /* a pure rerun added nothing — stop here */
+        /* v1.39.29: a pure rerun spends THIS round but must not end the
+           story — v1.39.27's hard stop here silently returned while the
+           reply was still cut mid-sentence. Fall through to after(): when
+           the text still looks truncated, the remaining rounds of the
+           ordinary 3-round budget still get their chance to close it;
+           maxRounds itself is the only ceiling, as for any other round. */
+        if (!piece) return after();
 
         var glue = '';
         if (full) {

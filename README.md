@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.29
+
+**A waver no longer ends the sentence mid-word.** When a reply overruns its
+token budget, the app quietly asks for the rest — and some models answer
+that by replaying the tail they already wrote. The app has long stripped
+such reruns (no doubled paragraphs), but as of the last fix it also gave
+up at that same instant — so a story that needed one more breath was left
+dangling with an open sentence exactly where you noticed it. Now a rerun
+only spends that one attempt: the app keeps going through the attempts it
+was already allowed, and the stitcher still guarantees the rerun can never
+double your text. Worst case it ends where it always would; usually the
+sentence simply closes.
+
 ## What's new in v1.39.28
 
 **Continue gets its own bubble.** Finishing a cut-off reply used to pour the

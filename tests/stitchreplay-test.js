@@ -16,7 +16,10 @@
  *   A — full generate(): cut pass + replay-and-continue pass → clean single
  *       copy with the mid-word seam healed ('rh' + 'ythms' → 'rhythms')
  *   B — ordinary continuation (no replay) → byte-identical to before the fix
- *   C — pure rerun (nothing new) → the reply keeps ONE copy and ends
+ *   C — pure rerun (nothing new) → the reply keeps ONE copy; v1.39.29: the
+ *       rerun streak spends the whole 3-round budget instead of stopping at
+ *       two with a dangling sentence (a rerun spends a round, it doesn't
+ *       end the story)
  *   D — floating short echo (< 40) → NOT stripped (old behavior pinned)
  *
  *   node /home/user/tests/stitchreplay-test.js
@@ -110,7 +113,29 @@ API.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id
         return API3.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null })
           .then(function (out3) {
             ok('the reply stays the single first pass', out3 === CUT, JSON.stringify(out3.slice(-70)));
-            ok('…and a pure-rerun pass stops there (reruns will rerun again; no third gamble)', sb3.window.fetch.calls === 2, 'calls=' + sb3.window.fetch.calls);
+            /* v1.39.29 re-pin: rerun rounds now spend the remaining budget
+               instead of stopping short — nothing can double (the rerun is
+               still stripped to nothing), but the model gets its full three
+               chances to close the sentence. Even a worst-case rerun is one
+               free-tier call of the same budget a misfit continuation uses. */
+            ok('…and a rerun streak stops at the round ceiling, still single-copy', sb3.window.fetch.calls === 3, 'calls=' + sb3.window.fetch.calls);
+
+        console.log('\nE — v1.39.29: a rerun round spends a round, it does not END the story');
+        /* round 2 is a pure rerun of the cut tail (nothing new); round 3 is
+           the model finally continuing to a real sentence end. Under the
+           v1.39.27 hard-stop this returned CUT with its open ending and the
+           user was left reading a bubble that trails off — the budget the
+           app already allows (3 rounds) was never spent finishing it. */
+        var CLOSER = 'ythms that don\u2019t matter anymore. Her hand rests.';
+        var WANT_E = CUT + CLOSER;
+        var sb5 = loadApi([CUT, REPLAY.slice(0, REPLAY.indexOf('ythms')), CLOSER]);
+        var API5 = sb5.window.API;
+        return API5.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null })
+          .then(function (out5) {
+            ok('the sentence actually closes', out5 === WANT_E, JSON.stringify(out5.slice(-70)));
+            ok('the rerun round stayed single-copy', out5.indexOf('Her emerald eyes close') === out5.lastIndexOf('Her emerald eyes close'));
+            ok('the mid-word seam still heals after the wasted round', /unconnected rhythms/.test(out5));
+            ok('all three rounds of the budget were spent', sb5.window.fetch.calls === 3, 'calls=' + sb5.window.fetch.calls);
 
             console.log('\nD — short floating echoes are not replays');
             var before4 = 'She pours. The water is';
@@ -125,6 +150,7 @@ API.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id
                 console.log('\n' + pass + ' passed, ' + fail + ' failed');
                 process.exit(fail ? 1 : 0);
               });
+          });
           });
       });
   })

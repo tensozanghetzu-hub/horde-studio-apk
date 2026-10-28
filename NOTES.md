@@ -1,5 +1,20 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.29 — a rerun spends a round, it doesn't end the story
+- api.js generate() loop: `if (!piece) return full;` → `return after();`.
+  v1.39.27's replayedTail stripped a pure rerun and HARD-STOPPED the pass
+  right there — while `full` still ended mid-sentence. Observed as Continue
+  bubbles that trail off open: the model rerun an attempt, the app stopped
+  with budget to spare. Now a rerun only consumes the round; after()
+  still applies looksTruncated + maxRounds, so the model gets its full
+  three chances to close, and the stitcher still strips reruns to nothing
+  (they cannot double, ceiling or not).
+- stitchreplay-test: new E (rerun round then a real finish → sentence
+  closes, single copy, seam heals, 3 calls); C re-pinned: rerun streak now
+  spends the round ceiling (3 calls) still single-copy. Suite 12 assertions.
+
+## v1.39.28 — Continue writes a new bubble
+
 ## v1.39.28 — Continue writes a new bubble
 - DELIBERATE UX reversal of the v1.39.17 merge-in-place behavior.
 - app.js generateReply: opts.continueFor appends a NEW record
