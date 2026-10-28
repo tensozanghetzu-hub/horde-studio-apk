@@ -116,8 +116,13 @@ function B(continueFromMissing) {
       lastM.role === 'assistant' && lastM.content === SEED, JSON.stringify(lastM));
     var seedCount = msgs.filter(function (m) { return String(m.content).indexOf('don\'') !== -1; }).length;
     ok('the cut text appears exactly once in context (no duplication)', seedCount === 1, seedCount);
-    ok('the history turn before the prefix stays the user\'s',
-      msgs[msgs.length - 2].role === 'user', JSON.stringify(msgs[msgs.length - 2].role));
+    /* v1.39.30 re-pin: prefill-blind endpoints used to treat the trailing
+       assistant seed as a finished turn and answered Continue with a fresh
+       beat; a system nudge now sits between the user's turn and the seed to
+       pin the instruction in words. */
+    ok('the seam is framed nudge-then-seed, user turn before both',
+      msgs[msgs.length - 2].role === 'system' && /[Cc]ontinue/.test(msgs[msgs.length - 2].content) &&
+        msgs[msgs.length - 3].role === 'user', JSON.stringify(msgs[msgs.length - 2].role));
   });
 }
 

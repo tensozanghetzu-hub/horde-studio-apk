@@ -1,5 +1,29 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.30 — the continue nudge: instruction in words, not prefill alone
+- Reproduced from a user screenshot: Continue after a cut at "…Crabbe"
+  answered with a fresh beat ("Draconica's expression doesn't change…").
+  Cause: the trailing assistant PREFILL is honored by classic completion
+  stacks but treated as a finished turn by some chat endpoints (this
+  OpenRouter route among them). Yesterday's whole-paragraph replays were
+  the same leak seen from the other side.
+- api.js generate/round: every seeded pass (manual Continue or round>0)
+  preceding the seed gets a system message pinning it in words: the
+  following assistant text is CUT OFF mid-stream; continue from exactly
+  where it stops, finish a cut word first, no repetition, no new beat.
+- loop(): the raw stream's leading whitespace is the token boundary
+  evidence — cleanReply trims it, which used to tight-glue a
+  word-boundary seam after a non-common word ("Crabbe" + "and" →
+  "Crabbeand"); leadSpace is now preserved and handed back before glue.
+- loop(): a parroted continue-note bracket (^\[[…]…ontinue…\]$ prefix) is
+  stripped before the seam rules see it.
+- stitchreplay-test +F/G/H (wire shape: user, system nudge, assistant
+  seed; echo strip; no nudge on plain replies): 16 assertions.
+  continuefix-test re-pinned: nudge-then-seed framing replaces the old
+  "user directly before prefix" pin.
+
+## v1.39.29 — a rerun spends a round, it doesn't end the story
+
 ## v1.39.29 — a rerun spends a round, it doesn't end the story
 - api.js generate() loop: `if (!piece) return full;` → `return after();`.
   v1.39.27's replayedTail stripped a pure rerun and HARD-STOPPED the pass

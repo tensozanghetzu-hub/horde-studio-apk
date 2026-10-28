@@ -993,7 +993,22 @@
         });
       }
       var msgs = buildChat(char, session, o.history, s, o.note);
-      if (idx > 0 || o.continueFrom) msgs.push({ role: 'assistant', content: full });
+      if (idx > 0 || o.continueFrom) {
+        /* v1.39.30: the trailing assistant PREFILL alone is not portable.
+           Some chat endpoints read it as a FINISHED turn and answer with a
+           fresh beat — a seeded Continue then "continues" with a brand-new
+           reply (observed live: the cut after "…Crabbe" answered with
+           "Draconica's expression doesn't change…"). Pin the instruction in
+           words right at the seam, immediately before the seed, so even a
+           prefill-blind endpoint knows the following text is in-progress. */
+        msgs.push({ role: 'system', content:
+          '[System note: the assistant message that follows this note is a reply CUT OFF ' +
+          'mid-stream by a length limit, not a finished answer. Continue that same reply ' +
+          'from exactly where its text stops — if a word is cut, finish the word first — ' +
+          'without repeating or rephrasing any already-written text, and without starting ' +
+          'a new reply, action or paragraph beat.]' });
+        msgs.push({ role: 'assistant', content: full });
+      }
       /* Preview this pass in its own buffer. loop() cleans the returned text and
          commits it to `full` exactly once — accumulating here as well left two
          copies of every tag, so a single [[cash:+10]] settled as +20. */
@@ -1009,6 +1024,13 @@
     function loop(idx) {
       return round(idx).then(function (txt) {
         var raw = stripThinking(txt || '', s.stripThinking !== false);
+        /* v1.39.30: the raw stream's own leading whitespace IS the seam
+           evidence — tokenized continuations of a complete word begin with a
+           " " token ("…Crabbe" + " and Goyle"), while a word cut mid-token
+           continues straight on ("rh" + "ythms"). cleanReply trims that
+           space away, which once tight-glued "Crabbe" + "and"; hold it in a
+           flag and hand it back after cleaning, before the glue rules run. */
+        var leadSpace = /^\s/.test(raw);
         var piece = cleanReply(raw, char && char.name, s.userName);
         if (!piece) return full;
 
@@ -1022,6 +1044,11 @@
            spent on text we already had. */
         var reran = replayedTail(full, piece);
         if (reran) piece = piece.slice(reran);
+        /* v1.39.30: a model that parrots the continue-note sheds its bracket
+           echo before the seam rules see it (the space that followed the
+           bracket stays, so word-boundary seams still read as boundaries) */
+        piece = piece.replace(/^\s*\[[^\]\n]*[Cc]ontinue[^\]\n]*\]/, '');
+        if (leadSpace && full && piece && !/^\s/.test(piece)) piece = ' ' + piece;
         /* v1.39.29: a pure rerun spends THIS round but must not end the
            story — v1.39.27's hard stop here silently returned while the
            reply was still cut mid-sentence. Fall through to after(): when

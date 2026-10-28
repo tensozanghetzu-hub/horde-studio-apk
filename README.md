@@ -605,6 +605,21 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.30
+
+**Continue now means continue.** The cut text was being re-sent to the
+model as a silent partial reply — and some endpoints read such a partial
+as a finished turn, so your tap on Continue came back as a brand-new beat
+("…Crabbe" answered with "Draconica's expression doesn't change…"),
+neatly pretending the unfinished sentence never happened. The finishing
+instruction is now also pinned in plain words right at the seam, next to
+the cut text: even a prefill-blind endpoint knows it is mid-reply and
+closes the interrupted sentence before anything else. As a free extra, the
+seam now keeps the streaming tokens' own word-boundary signal, so a
+continuation after a name no longer risks welding two words together —
+and if a model ever parrots the instruction, the bracket line is removed
+before it can reach the prose.
+
 ## What's new in v1.39.29
 
 **A waver no longer ends the sentence mid-word.** When a reply overruns its

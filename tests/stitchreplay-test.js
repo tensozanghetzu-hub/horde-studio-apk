@@ -48,8 +48,9 @@ function loadApi(queue) {
   sb.window = sb;
   vm.createContext(sb);
   vm.runInContext(fs.readFileSync(SRC, 'utf8'), sb, { filename: 'api.js' });
-  sb.window.fetch = function () {
+  sb.window.fetch = function (url, init) {
     sb.window.fetch.calls++;
+    sb.window.fetch.lastBody = init && init.body ? JSON.parse(init.body) : null;
     if (!queue.length) return Promise.reject(new Error('unexpected extra fetch call'));
     return Promise.resolve(okStream(queue.shift()));
   };
@@ -137,18 +138,45 @@ API.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id
             ok('the mid-word seam still heals after the wasted round', /unconnected rhythms/.test(out5));
             ok('all three rounds of the budget were spent', sb5.window.fetch.calls === 3, 'calls=' + sb5.window.fetch.calls);
 
-            console.log('\nD — short floating echoes are not replays');
-            var before4 = 'She pours. The water is';
-        var piece4 = 'water is cold by now. Nobody speaks.';
-            var sb4 = loadApi([before4, piece4]);
-            var API4 = sb4.window.API;
-            return API4.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null })
-              .then(function (out4) {
-                /* 'water is' (9 chars) is below the 40-char replay threshold:
-                   the legacy space-glue join must apply, nothing stripped */
-                ok('short echo seam follows legacy glue', out4 === 'She pours. The water is water is cold by now. Nobody speaks.', JSON.stringify(out4));
-                console.log('\n' + pass + ' passed, ' + fail + ' failed');
-                process.exit(fail ? 1 : 0);
+            console.log('\nF — v1.39.30: a seeded continue tells the endpoint IN WORDS to finish the cut text');
+            /* Reproduced from the user's screenshot: a Continue seeded at
+               "…Crabbe" came back "Draconica's expression doesn't change…"
+               — a FRESH reply beat. The trailing assistant PREFILL is not
+               portable: this OpenRouter endpoint treats it as a finished
+               turn and writes the next beat from scratch. The fix pins the
+               instruction as a system nudge immediately before the seed. */
+            var sb6 = loadApi([' and Goyle exchange looks. The moment breaks, and she turns to you.']);
+            var API6 = sb6.window.API;
+            var SEED = 'The classroom holds its breath. Pansy whispering stops. Crabbe';
+            return API6.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null, continueFrom: SEED })
+              .then(function (out6) {
+                var body = sb6.window.fetch.lastBody;
+                var last = body && body.messages[body.messages.length - 1];
+                var prev = body && body.messages[body.messages.length - 2];
+                ok('the seed still rides as a trailing assistant turn', !!last && last.role === 'assistant' && last.content === SEED, JSON.stringify(last && last.role));
+                ok('a system nudge is pinned right before the seed', !!prev && prev.role === 'system' && /[Cc]ontinue/.test(prev.content) && /cut/i.test(prev.content));
+                ok('the text picks up from where it left', out6 === SEED + ' and Goyle exchange looks. The moment breaks, and she turns to you.', JSON.stringify(out6.slice(-70)));
+
+                console.log('\nG — a parroted bracket nudge is stripped before it can mangle the seam');
+                var sb7 = loadApi(['[Continue the reply from where it is cut off] and that is all she says.']);
+                var API7 = sb7.window.API;
+                return API7.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null, continueFrom: SEED })
+                  .then(function (out7) {
+                    ok('no bracket instruction survives into the prose', out7 === SEED + ' and that is all she says.', JSON.stringify(out7.slice(-60)));
+
+                    console.log('\nH — a plain first reply carries NO continue nudge');
+                    var sb8 = loadApi(['A quiet first reply.']);
+                    var API8 = sb8.window.API;
+                    return API8.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null })
+                      .then(function () {
+                        var b8 = sb8.window.fetch.lastBody;
+                        var l8 = b8 && b8.messages[b8.messages.length - 1];
+                        ok('no trailing prefill and no cut-off nudge anywhere', !!l8 && l8.role !== 'assistant' &&
+                          b8.messages.every(function (m) { return !/cut off/i.test(m.content || ''); }), JSON.stringify(l8 && l8.role));
+                        console.log('\n' + pass + ' passed, ' + fail + ' failed');
+                        process.exit(fail ? 1 : 0);
+                      });
+                  });
               });
           });
           });
