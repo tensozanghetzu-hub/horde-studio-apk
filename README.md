@@ -605,6 +605,19 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.28
+
+**Continue gets its own bubble.** Finishing a cut-off reply used to pour the
+rest of the text into the interrupted bubble, with a custom height-seam
+scroll to keep your place. Now the continuation lands as a bubble of its
+own — the cut message stays exactly as it was, and only the text that was
+missing appears below it. If the cut landed mid-word
+("…unconnected rh"), the dangling fragment moves forward and opens the new
+bubble whole ("rhythms that don't…"), so neither bubble ends up showing half
+a word. Rerolling a continuation takes the same sensible shape: it
+re-continues from the original cut and replaces just that take — swipe left
+to see the previous one.
+
 ## What's new in v1.39.27
 
 **Replaying continuations no longer double your prose.** When the

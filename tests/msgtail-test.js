@@ -92,14 +92,12 @@ var t5 = fakeThread(1000);
 Views.followReply(t5, null);
 ok('…and still respects a reader up-thread', t5.scrollTop === 1000, 'scrollTop=' + t5.scrollTop);
 
-console.log('\nG — a CONTINUED message anchors at the seam, not the start');
-var t6 = fakeThread(4400); /* reader sat at the cut, near bottom (100px from the end) */
-/* merged bubble: starts at 3000, old text was 700px tall (the seam), total 1200 */
-var merged = { offsetTop: 3000, offsetHeight: 1200 };
-Views.followReply(t6, merged, 700);
-ok('lands at the seam (start of the NEW prose)', t6.scrollTop === 3000 + 700 - 90 - 8, 'scrollTop=' + t6.scrollTop);
-ok('…not dragged back to the start of the merged message', t6.scrollTop !== 3000 - 8, 'scrollTop=' + t6.scrollTop);
-ok('…and not marooned at the tail either', t6.scrollTop !== 5000, 'scrollTop=' + t6.scrollTop);
+console.log('\nG — the retired seam path: a third argument is ignored safely');
+var t6 = fakeThread(4400);
+var onceMerged = { offsetTop: 3000, offsetHeight: 1200 };
+Views.followReply(t6, onceMerged, 700);   /* v1.39.28: Continue bubbles anchor themselves; no seam parameter exists */
+ok('third argument tolerated', t6.scrollTop === 3000 - 8, 'scrollTop=' + t6.scrollTop);
+ok('…anchored on the bubble head like any tall reply', t6.scrollTop !== 5000);
 
 /* ---------------- app.js finish path ---------------- */
 
@@ -196,12 +194,15 @@ tick(60)
     ok('…with the actual thread element', w1.calls.follow[0] && w1.calls.follow[0].thread === w1.threadStub);
     ok('…and the finished reply bubble', w1.calls.follow[0] && w1.calls.follow[0].el === w1.el);
 
-    console.log('\nH — a Continue hands followReply the seam height');
+    console.log('\nH — v1.39.28: a Continue finishes in its own bubble');
     var w3 = freshWorld(true);
     w3.App.state.messages = [{ id: 'm1', sessionId: 's1', role: 'assistant', text: 'cut off mid', alts: ['cut off mid'], altIdx: 0, createdAt: 5 }];
     w3.App.generateReply({ continueFor: w3.App.state.messages[0] });
     return tick(60).then(function () {
-      ok('followReply got the seam offset for a continuation', w3.calls.follow[0] && w3.calls.follow[0].fromPx === 640, JSON.stringify(w3.calls.follow));
+      ok('a new record joined the ledger', w3.App.state.messages.length === 2, JSON.stringify(w3.App.state.messages.length));
+      ok('…carrying only the continuation', w3.App.state.messages[1].text === 'a reply', JSON.stringify(w3.App.state.messages[1].text));
+      ok('the cut original is untouched', w3.App.state.messages[0].text === 'cut off mid');
+      ok('followReply anchors the new bubble — no seam argument', w3.calls.follow[0] && w3.calls.follow[0].el === w3.el && w3.calls.follow[0].fromPx === undefined, JSON.stringify(w3.calls.follow));
     }).then(function () {
     console.log('\nF — old Views stubs without followReply still work (additive)');
     var w2 = freshWorld(false);

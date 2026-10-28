@@ -956,6 +956,17 @@
     var history = st.messages.slice();
     var target = null;
 
+    /* v1.39.28: rerolling a continuation bubble re-CONTINUES from its severed
+       source, replacing that bubble's take in place — a plain reroll would
+       greet the cut text in history and replay it (the v1.39.17 disease). */
+    if (opts.rerollFor && opts.rerollFor.continuationOf) {
+      var srcId = opts.rerollFor.continuationOf, src = null;
+      for (var ci = 0; ci < st.messages.length; ci++) if (st.messages[ci].id === srcId) src = st.messages[ci];
+      if (src) {
+        opts = { continueFor: src, replaceBubble: opts.rerollFor };
+      }
+    }
+
     if (opts.rerollFor) {
       target = opts.rerollFor;
       history = history.filter(function (m) { return m.createdAt < target.createdAt || m.id === target.id; });
@@ -966,13 +977,24 @@
          assistant prefix (continueFrom below). Generating with the cut text
          still sitting in history used to make the model open a NEW beat
          that echoed the previous one — a rewrite, not a continuation. */
-      history = history.filter(function (m) { return m.id !== target.id; });
+      history = history.filter(function (m) {
+        /* replaceBubble (a continuation being re-spun) leaves the context too */
+        if (opts.replaceBubble && m.id === opts.replaceBubble.id) return false;
+        return m.id !== target.id;
+      });
     }
 
     var msg;
-    if (target) {
-      msg = target;
+    if (opts.rerollFor || opts.replaceBubble) {
+      msg = opts.rerollFor || opts.replaceBubble;
       msg._stream = msg.text || '';
+    } else if (opts.continueFor) {
+      /* v1.39.28: Continue no longer rewrites the cut bubble in place — the
+         continuation lands in its OWN bubble, seeded from the cut text. The
+         original stays exactly as it ended (alt strip and all). */
+      msg = { id: UI.uid('m'), sessionId: session.id, role: 'assistant', text: '',
+        alts: [], altIdx: 0, createdAt: Date.now(), _stream: '', continuationOf: target.id };
+      st.messages.push(msg);
     } else {
       msg = { id: UI.uid('m'), sessionId: session.id, role: 'assistant', text: '', alts: [], altIdx: 0, createdAt: Date.now(), _stream: '' };
       st.messages.push(msg);
@@ -985,15 +1007,13 @@
        message while its stale bubble stayed. Never again: the target's own
        element is the stage, and the old text sits in it until the new take
        lands whole. */
-    var el = target
+    var el = (opts.rerollFor || opts.replaceBubble)
       ? document.querySelector('#thread [data-mid="' + msg.id + '"]')
       : null;
     if (!el) el = Views.appendMessage(char, msg);
     el.classList.add('streaming');
-    /* v1.39.23: a Continue merges INTO this bubble. Record where the old
-       text ends — the seam — so finishing lands the reader on the new prose,
-       not back at the top of a message they already read. */
-    var seamPx = opts.continueFor ? (el.offsetHeight || 0) : 0;
+    /* (v1.39.23's seam scroll died with the merge: a Continue now finishes
+       in a fresh bubble, which followReply anchors on its own.) */
     st.busy = true;
     App.setStop(true);
     /* keep the CPU awake for the whole reply: switching apps or the screen
@@ -1023,7 +1043,7 @@
        and the storage error is surfaced on its own, instead of the generic
        failure path deleting the reply and offering a re-spent retry. */
     function persist() {
-      var save = (opts.rerollFor || opts.continueFor ? Store.updateMessage(msg) : Store.addMessage(msg));
+      var save = (opts.rerollFor || opts.replaceBubble ? Store.updateMessage(msg) : Store.addMessage(msg));
       return save.then(function (r) { return { saved: true }; }, function (e) {
         if (msg.text && msg.text !== '…') {
           msg.saveFailed = true;
@@ -1040,11 +1060,15 @@
 
     API.generate({
       settings: charSettings, character: char, session: session, history: history,
-      continueFrom: opts.continueFor ? (msg.text || '') : undefined,
+      continueFrom: opts.continueFor ? (target.text || '') : undefined,
       signal: App.abort ? App.abort.signal : undefined,
       note: vhNote,
       onDelta: function (chunk, full) {
-        msg._stream = full || ((msg._stream || '') + chunk);
+        var soFar = full || ((msg._stream || '') + chunk);
+        /* v1.39.28: while continuing, `full` is seed + new prose — the new
+           bubble shows only its own share as it grows. */
+        msg._stream = opts.continueFor && target.text && soFar.indexOf(target.text) === 0
+          ? soFar.slice(target.text.length) : soFar;
         var mt = el.querySelector('.mtext');
         if (mt) mt.innerHTML = UI.md(msg._stream);
         Views.stickToBottom($('#thread'));
@@ -1088,11 +1112,29 @@
       for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
       if (!text) { text = '…'; }
       if (opts.continueFor) {
-        /* generate() assembled seed + continuation with the seam rule —
-           text already IS the whole message; a \n\n paste-on used to
-           decree a paragraph break right in the middle of a cut word */
-        msg.text = text;
-        if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = msg.text;
+        /* v1.39.28: generate() assembled seed + continuation; only the NEW
+           prose belongs to the new bubble. A mid-word seam ("rh" + "ythms")
+           heals across the divide — the dangling fragment moves to the front
+           of the continuation, so neither bubble shows half a word. */
+        var seed = String(target.text || '');
+        var seeded = !!seed && text.indexOf(seed) === 0;
+        var afterSeed = seeded ? text.slice(seed.length) : text;
+        /* a tight join (no glue space) with letters on both sides marks a
+           genuinely split word; a space-glued seam is a boundary, not a
+           fragment, and an UNseeded reply (no continuation happened) keeps
+           the original untouched entirely */
+        var newPart = afterSeed.replace(/^\s+/, '').replace(/^[.,!?;:'"”’\)\]\}…]+\s*/, '');
+        var fragM = seeded && !/^\s/.test(afterSeed) &&
+          /[A-Za-z'\u2019]$/.test(seed) && /^[A-Za-z]/.test(newPart) && seed.match(/[A-Za-z'\u2019]+$/);
+        if (fragM && fragM[0].length < seed.length) {
+          target.text = seed.slice(0, seed.length - fragM[0].length).replace(/\s+$/, '');
+          if (target.alts && target.alts.length) target.alts[target.altIdx || 0] = target.text;
+          newPart = fragM[0] + newPart;
+          Store.updateMessage(target).catch(function () {});
+        }
+        msg.text = newPart || '…';
+        if (opts.replaceBubble) { msg.alts = msg.alts || []; msg.alts.push(msg.text); msg.altIdx = msg.alts.length - 1; }
+        else { msg.alts = [msg.text]; msg.altIdx = 0; }
         var mtC = el.querySelector && el.querySelector('.mtext');
         if (mtC) mtC.innerHTML = UI.md(msg.text);
       } else if (opts.rerollFor) {
@@ -1129,7 +1171,7 @@
          bottom. v1.39.22: and when the reply itself is taller than the
          screen, "follow" means landing on its FIRST line, not its last. */
       var thrF = $('#thread');
-      if (Views.followReply) Views.followReply(thrF, el, seamPx); else Views.stickToBottom(thrF, false);
+      if (Views.followReply) Views.followReply(thrF, el); else Views.stickToBottom(thrF, false);
       App.afterReply();
       App.maybeAutoTitle();
     }).catch(function (e) {
@@ -1145,8 +1187,10 @@
           } else {
             el.classList.remove('streaming');
             /* the take the user stopped never happened — put the bubble back
-               to the text it had before the re-spin began */
-            if (opts.rerollFor || opts.continueFor) {
+               to the text it had before the re-spin began (v1.39.28: a plain
+               Continue has no old text in its new bubble — removal below
+               handles it; only a re-spun continuation restores) */
+            if (opts.rerollFor || opts.replaceBubble) {
               var mtA = el.querySelector && el.querySelector('.mtext');
               if (mtA) mtA.innerHTML = UI.md(msg.text);
             }

@@ -1,19 +1,28 @@
-/* rerollswap-test — v1.39.12: a reroll (or Continue) is an EDITION of one
- * bubble, not the birth of a twin.
+/* rerollswap-test — reroll is an EDITION of one bubble, not a twin;
+ * and since v1.39.28, Continue is a fresh bubble of its own.
  *
- * The bug: generateReply gave the target message a fresh DOM node via
- * appendMessage, so the thread held the same message twice — the original
- * bubble plus a clone that started as the old text and became the new one.
- * Cancel mid-generation and you were left with two identical messages
- * until a reload quietly erased the clone; on a provider error the *stored*
- * message was dropped while the stale bubble stayed on screen.
+ * The original v1.39.12 bug: generateReply gave the target message a fresh
+ * DOM node via appendMessage, so the thread held the same message twice —
+ * the original bubble plus a clone that started as the old text and became
+ * the new one. Cancel mid-generation and you were left with two identical
+ * messages until a reload quietly erased the clone; on a provider error the
+ * *stored* message was dropped while the stale bubble stayed on screen.
  *
  *   - reroll streams into the SAME bubble element; nothing is appended
  *   - the old text stays visible while the new one cooks; it swops on arrival
  *   - cancel restores the element to the original text (even mid-partial)
  *   - a provider failure keeps the message, keeps the bubble, keeps the text
- *   - Continue rides the same in-place path
  *   - a plain send still appends a fresh bubble
+ *
+ * v1.39.28 DELIBERATELY reverses "Continue rides the same in-place path":
+ *   - Continue appends a NEW bubble {continuationOf: cutMsg} holding only
+ *     the text that was missing; the cut original stays untouched
+ *   - a genuinely split word ("rh" + "ythms") heals ACROSS the divide: the
+ *     dangling fragment moves forward and opens the new bubble whole
+ *   - reroll OF a continuation re-continues from the original cut seed and
+ *     replaces the take in place (its alt strip grows by one)
+ *   - the height seam follow (fromPx, v1.39.20) is retired: the threads of
+ *     "continue = same bubble" no longer exist, followReply anchors simply
  *
  *   node /home/user/tests/rerollswap-test.js
  */
@@ -99,7 +108,8 @@ function fresh(opts) {
         /* v1.39.17: the real generate() returns a continue assembled around
            the seed — emulate that, and let the test see what it was fed */
         calls.generate = { continueFrom: g.continueFrom || null, history: g.history };
-        if (g.continueFrom) text = g.continueFrom + ' ' + text;
+        if (g.continueFrom) text = g.continueFrom +
+          (/[A-Za-z']$/.test(g.continueFrom) && /^[A-Za-z]/.test(text) ? '' : ' ') + text;
         g.onDelta(text, text);
         return Promise.resolve(text);
       },
@@ -183,19 +193,52 @@ function fresh2(opts) { return new Promise(function (res) { res(fresh(opts)); })
   ok('the bubble loses the partial too', elC.mtext.innerHTML === OLD,
     JSON.stringify(elC.mtext.innerHTML));
 
-  console.log('D — Continue rides the same in-place path, as a real continuation');
+  console.log('D — v1.39.28: Continue continues the cut text in a NEW bubble');
   w = fresh({ reply: 'An encore.' });
   await w.App.generateReply({ continueFor: w.orig });
   await new Promise(r => setTimeout(r, 25));
-  ok('continue appends no bubble', w.calls.append === 0);
+  ok('a new bubble is appended for the continuation', w.calls.append === 1, 'append x' + w.calls.append);
   ok('the app hands generate the seed text to continue from',
     w.calls.generate && w.calls.generate.continueFrom === OLD,
     JSON.stringify(w.calls.generate && w.calls.generate.continueFrom));
   ok('…and takes the cut message OUT of the context so it cannot echo itself',
     w.calls.generate && !w.calls.generate.history.some(function (m) { return m.id === 'm-old'; }));
-  ok('the text grew on the same message (seed + continuation, one seam)',
-    w.orig.text === OLD + ' An encore.', JSON.stringify(w.orig.text));
-  ok('the existing bubble wears it', w.existing['m-old'].mtext.innerHTML === OLD + ' An encore.');
+  ok('the cut record is untouched — text and alts preserved', w.orig.text === OLD && w.orig.alts.length === 1 && w.orig.alts[0] === OLD);
+  ok('the rendered cut bubble still wears its original text', w.existing['m-old'].mtext.innerHTML === OLD);
+  var cont = w.messages[w.messages.length - 1];
+  ok('a new record carries ONLY the continuation prose',
+    w.messages.length === 3 && cont.text === 'An encore.',
+    JSON.stringify(w.messages.map(function (m) { return m.text; })));
+  ok('…remembering which cut message it grew from', cont.continuationOf === 'm-old');
+  ok('the new bubble shows only the new prose', w.appended[0].mtext.innerHTML === 'An encore.',
+    JSON.stringify(w.appended[0].mtext.innerHTML));
+  ok('its alt strip starts at the continuation', cont.alts.length === 1 && cont.alts[0] === 'An encore.' && cont.altIdx === 0);
+
+  console.log('D2 — rerolling that continuation re-continues, replacing the take in place');
+  w.existing[cont.id] = w.appended[0];   /* register the continuation's bubble in the fake DOM */
+  await w.App.generateReply({ rerollFor: cont });
+  await new Promise(r => setTimeout(r, 25));
+  ok('no extra bubble appears', w.calls.append === 1, 'append x' + w.calls.append);
+  ok('it re-continues from the ORIGINAL cut seed',
+    w.calls.generate.continueFrom === OLD, JSON.stringify(w.calls.generate.continueFrom));
+  ok('…and history drops BOTH the source and the old take',
+    !w.calls.generate.history.some(function (m) { return m.id === 'm-old' || m.id === cont.id; }));
+  ok('the take swaps in place, swipe-back kept',
+    cont.text === 'An encore.' && cont.alts.length === 2 && cont.altIdx === 1,
+    JSON.stringify({ text: cont.text, alts: cont.alts }));
+
+  console.log('D3 — a mid-word seam heals ACROSS the bubble divide');
+  /* v1.39.28: the model continued "…unconnected rh" with "ythms…" (tight join) —
+     the dangling fragment moves forward so neither bubble shows half a word */
+  w = fresh({ reply: 'ythms that don\u2019t matter anymore.' });
+  w.orig.text = 'Dormitory breathes around her in unconnected rh';
+  w.orig.alts = [w.orig.text];
+  await w.App.generateReply({ continueFor: w.orig });
+  await new Promise(r => setTimeout(r, 25));
+  var cont3 = w.messages[w.messages.length - 1];
+  ok('the fragment left the cut bubble', w.orig.text === 'Dormitory breathes around her in unconnected', JSON.stringify(w.orig.text));
+  ok('…and opens the new bubble whole', cont3.text === 'rhythms that don\u2019t matter anymore.', JSON.stringify(cont3.text));
+
 
   console.log('E — provider failure mid-reroll keeps the message whole');
   w = fresh({ mode: 'fail' });

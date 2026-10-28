@@ -1,5 +1,26 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.28 — Continue writes a new bubble
+- DELIBERATE UX reversal of the v1.39.17 merge-in-place behavior.
+- app.js generateReply: opts.continueFor appends a NEW record
+  {…, continuationOf: target.id} via Store.addMessage; onDelta slices the
+  seed prefix off the live stream when the text starts with it; at finish,
+  text.slice(seed.length) minus leading whitespace/punctuation-run is the
+  continuation. Tight-join detection (seed ends letter & newPart starts
+  letter, no glue space, actually seeded) moves the trailing word fragment
+  forward: Store.updateMessage(target) with it trimmed, new bubble opens
+  with the whole word. Space-glued seams and unseeded replies never fire it.
+- rerollFor on a continuationOf record: history drops BOTH source and the
+  old take, continueFrom re-seeds from the ORIGINAL cut text, finish
+  replaces the take in place (alts.push, altIdx = last).
+- abort of a Continue: the fresh bubble is simply removed; the source was
+  never touched.
+- views.js followReply: fromPx/seam branch retired (it existed only for
+  merge-in-place), back to a plain head/bottom anchor.
+- rerollswap-test D re-pinned for the new semantics + D2 (reroll of a
+  continuation) + new D3 (mid-word heals across the divide): 33 assertions.
+  msgtail-test G/H re-pinned: new record, suffix-only, source untouched.
+
 ## v1.39.27 — replay-proof auto-finish stitching
 - api.js replayedTail(before, piece): verbatim run starting in `before` AND
   reaching its end, ≥ 40 chars = a rerun of the cut tail; loop() strips it
