@@ -499,6 +499,16 @@
     IDB.get('sessions', sessionId).then(function (s) {
       if (!s) return;
       var ov = s.overrides || {};
+      function persistSettings(message) {
+        return Store.putSession(s).then(function () {
+          /* This chat may stay open after the sheet closes. Generation reads
+             App.state.session in memory, not the database; refresh that live
+             object or the freshly saved style note won't reach the next
+             prompt until the user leaves and reopens the chat. */
+          if (App.state && App.state.session && App.state.session.id === s.id) App.state.session = s;
+          if (message) UI.toast(message);
+        });
+      }
       UI.sheet({
         title: 'Chat settings — ' + (s.title || 'New chat'),
         body:
@@ -525,7 +535,7 @@
         ]
       }).then(function (res) {
         if (!res) return;
-        if (res === 'reset') { s.overrides = null; return Store.putSession(s).then(function () { UI.toast('Chat follows the character again'); }); }
+        if (res === 'reset') { s.overrides = null; return persistSettings('Chat follows the character again'); }
         if (!res || res.action !== 'save') return;
         var temp = String(res.temperature || '').trim();
         var maxt = parseInt(res.maxTokens, 10);
@@ -535,7 +545,7 @@
         if (maxt > 0) s.overrides.maxTokens = maxt;
         if (note) s.overrides.note = note;
         if (!Object.keys(s.overrides).length) s.overrides = null;
-        return Store.putSession(s).then(function () { UI.toast('Chat settings saved'); });
+        return persistSettings('Chat settings saved');
       });
     });
   };

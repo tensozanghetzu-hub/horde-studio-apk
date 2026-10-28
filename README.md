@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.35
+
+**A saved style note now reaches the next reply in the chat you already have open.**
+The note was being written to the session database, but the open chat kept an
+older in-memory copy without the new override. Since generation reads that
+live copy, the note appeared saved in Chat Settings but was absent from the
+prompt. Saving or resetting chat overrides now refreshes the active session
+as well as the database. No need to retype a note that is already saved.
+
 ## What's new in v1.39.34
 
 **Style notes save properly now.** Chat Settings closed when you tapped

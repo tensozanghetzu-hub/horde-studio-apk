@@ -1,5 +1,13 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.35 — apply chat overrides to the already-open session
+- Chat Settings correctly persisted v1.39.34, but App.state.session still
+  held the pre-save object. Generation reads that in-memory object, so a
+  newly saved note was visible on reopen but absent from the next prompt.
+- After save/reset succeeds, refresh App.state.session when the edited chat
+  is the active one. Regression suite now pins stale-session update and reset.
+- chat-settings-save-test 5/5; full test battery clean.
+
 ## v1.39.34 — persist chat style notes
 - Root cause: UI.sheet invokes the action callback and clears its form before
   resolving its promise. chatSettingsSheet read fields in `.then`, after the

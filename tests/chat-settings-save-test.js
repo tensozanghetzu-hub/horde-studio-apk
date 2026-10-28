@@ -16,6 +16,7 @@ function ok(label, condition, extra) {
 }
 
 const session = { id: 's1', title: 'Test chat', overrides: null };
+const activeSession = { id: 's1', title: 'Test chat', overrides: null };
 let saved = null, openedHtml = '';
 let nextAction = 'save';
 const inputs = {
@@ -24,7 +25,7 @@ const inputs = {
   '#cs-note': { value: 'Keep each reply brief and end on a complete sentence.' }
 };
 const sandbox = {
-  App: {}, console, Promise, Object, String, parseInt, parseFloat,
+  App: { state: { session: activeSession } }, console, Promise, Object, String, parseInt, parseFloat,
   IDB: { get: () => Promise.resolve(session) },
   Store: { putSession: s => { saved = JSON.parse(JSON.stringify(s)); session.overrides = s.overrides; return Promise.resolve(s); } },
   UI: {
@@ -55,12 +56,20 @@ vm.runInContext(bodySrc, sandbox);
      saved.overrides && saved.overrides.note === inputs['#cs-note'].value,
      JSON.stringify(saved));
   ok('empty global overrides remain unset', !!saved && !('temperature' in saved.overrides));
+  ok('the still-open chat receives the fresh in-memory override',
+     sandbox.App.state.session.overrides.note === inputs['#cs-note'].value);
 
   console.log('B — reopening pre-fills the saved style note');
   nextAction = 'cancel';
   sandbox.App.chatSettingsSheet('s1');
   await new Promise(resolve => setTimeout(resolve, 0));
   ok('saved note appears in the textarea markup', openedHtml.includes('>' + inputs['#cs-note'].value + '</textarea>'));
+
+  console.log('C — reset refreshes the active chat too');
+  nextAction = 'reset';
+  sandbox.App.chatSettingsSheet('s1');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  ok('reset removes the active in-memory note immediately', sandbox.App.state.session.overrides === null);
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
