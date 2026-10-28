@@ -1,5 +1,21 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.31 — seam stutter repair below the replay line
+- User screenshot: "Fingers interl Fingers interlaced" — a 14-char
+  fragment replay under replayedTail's 40-char floor, welded by the seam.
+- api.js loop(): two stutter shapes, only at mid-sentence cuts (full must
+  not end in terminal punctuation and must end letter-ish):
+  1) fragment straddle — piece re-emits a 6–24-char suffix of `full` and
+     continues INTO the word (next char letter) → strip the run, the
+     splitWord glue closes the word tight;
+  2) whole-word repeat — piece opens by restating full's trailing word
+     (≥3 letters) followed by a space → strip the restated word, force a
+     space seam (kills the old "CrabbeCrabbe" tight-weld on names).
+  Coincidence echoes ("water is cold…") continue after a space in neither
+  shape — legacy glue untouched (suite K pins it, equal to D).
+- stitchreplay-test 20 assertions (I fragment + J whole-word + K echo
+  negative). Full battery clean.
+
 ## v1.39.30 — the continue nudge: instruction in words, not prefill alone
 - Reproduced from a user screenshot: Continue after a cut at "…Crabbe"
   answered with a fresh beat ("Draconica's expression doesn't change…").

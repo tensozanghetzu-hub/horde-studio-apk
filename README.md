@@ -605,6 +605,20 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.31
+
+**No more seam stutters.** A reply cut mid-word ("…Fingers interl") could
+come back from the finishing pass as "Fingers interl Fingers interlaced
+beneath the desk" — the mill replayed a 14-character sliver, below the
+40-character rerun line the stitcher guards, and both copies landed in
+your prose. Two stutter shapes are now recognized and healed at the seam:
+a replayed *fragment* that keeps writing into its own word ("interl" +
+"aced" → "interlaced"), and a replayed *whole cut word* ("…Crabbe" +
+"Crabbe and Goyle…" → "Crabbe and Goyle…"). Coincidental echoes of whole
+words stay untouched — only echoes that straddle a word, or restate the
+cut word itself at an unfinished sentence, are collapsible. Your text now
+reads as the mill meant it, even when the mill needs two tries to say it.
+
 ## What's new in v1.39.30
 
 **Continue now means continue.** The cut text was being re-sent to the

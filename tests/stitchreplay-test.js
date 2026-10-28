@@ -173,13 +173,52 @@ API.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id
                         var l8 = b8 && b8.messages[b8.messages.length - 1];
                         ok('no trailing prefill and no cut-off nudge anywhere', !!l8 && l8.role !== 'assistant' &&
                           b8.messages.every(function (m) { return !/cut off/i.test(m.content || ''); }), JSON.stringify(l8 && l8.role));
-                        console.log('\n' + pass + ' passed, ' + fail + ' failed');
-                        process.exit(fail ? 1 : 0);
+                console.log('\nI — v1.39.31: a sub-40 fragment replay that STRADDLES a word is a stutter, not a coincidence');
+                /* user screenshot: cut at "…Fingers interl", the next pass
+                   replayed "Fingers interl" then continued "…aced…" — 14
+                   chars, below the replay line, pasted whole: "Fingers
+                   interl Fingers interlaced". A coincidence echo continues
+                   AFTER a space ("water is cold"); a stutter echo continues
+                   INTO the fragment. Only the stutter gets stripped. */
+                var BEFORE_ST = 'Draconica\u2019s hand finding Bluscript\u2019s under the desk. Fingers interl';
+                var STUTTER = 'Fingers interlaced beneath the desk. Platinum snake bracelets pulse.';
+                var WANT_I = BEFORE_ST + 'aced beneath the desk. Platinum snake bracelets pulse.';
+                var sb9 = loadApi([BEFORE_ST, STUTTER]);                var API9 = sb9.window.API;
+                return API9.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null, continueFrom: BEFORE_ST })
+                  .then(function (out9) {
+                    ok('the fragment heals into one whole word', out9 === WANT_I, JSON.stringify(out9.slice(-80)));
+                    ok('no stutter anywhere in the prose', out9.indexOf('Fingers interl Fingers') === -1, JSON.stringify(out9.slice(-90)));
+
+                    console.log('\nJ — v1.39.31: a WHOLE cut word restated by the next pass is also a stutter');
+                    /* same seam, word-boundary cut: "…Crabbe" answered with
+                       "Crabbe and Goyle exchange looks." — the old glue
+                       tight-joined it into "CrabbeCrabbe". */
+                    var BEFORE_J = 'The classroom holds its breath. Pansy whispering stops. Crabbe';
+                    var RESTATE = 'Crabbe and Goyle exchange looks. The moment breaks.';
+                    var WANT_J = BEFORE_J + ' and Goyle exchange looks. The moment breaks.';
+                    var sb10 = loadApi([BEFORE_J, RESTATE]);
+                    var API10 = sb10.window.API;
+                    return API10.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null, continueFrom: BEFORE_J })
+                      .then(function (out10) {
+                        ok('the restated word collapses to one', out10 === WANT_J, JSON.stringify(out10.slice(-70)));
+
+                        console.log('\nK — the coincidence echo stays D-proof: "water is" untouched');
+                        var BEFORE_K = 'She pours. The water is';
+                        var KB = loadApi(['water is cold by now. Nobody speaks.']);
+                        var API11 = KB.window.API;
+                        return API11.generate({ settings: SETTINGS, character: CHAR, history: HIST, session: { id: 's1' }, signal: null, note: null, continueFrom: BEFORE_K })
+                          .then(function (out11) {
+                            ok('short echo seam follows legacy glue', out11 === 'She pours. The water is water is cold by now. Nobody speaks.', JSON.stringify(out11));
+                            console.log('\n' + pass + ' passed, ' + fail + ' failed');
+                            process.exit(fail ? 1 : 0);
+                          });
                       });
+                  });
                   });
               });
           });
           });
+      });
       });
   })
   .catch(function (e) { console.error(e); process.exit(1); });

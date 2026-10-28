@@ -1048,7 +1048,34 @@
            echo before the seam rules see it (the space that followed the
            bracket stays, so word-boundary seams still read as boundaries) */
         piece = piece.replace(/^\s*\[[^\]\n]*[Cc]ontinue[^\]\n]*\]/, '');
-        if (leadSpace && full && piece && !/^\s/.test(piece)) piece = ' ' + piece;
+        /* v1.39.31: seam STUTTER below the 40-char replay line. Observed
+           live: cut at "…Fingers interl", the next pass replayed "Fingers
+           interl" then continued "…aced…" — 14 chars, under the replay
+           threshold, pasted whole. Two shapes, both only meaningful at a
+           mid-sentence cut; pure coincidental echoes ("water is cold")
+           continue AFTER a space and stay untouched:
+             1) fragment straddle — the piece re-emits the cut fragment and
+                keeps writing INTO the word (remainder starts with a letter)
+             2) whole-word repeat — the piece re-opens with the cut word
+                itself then moves on ("Crabbe and Goyle…") */
+        var stutRun = 0, seamSpace = false;
+        if (!reran && full && piece && !/[.!?\u2026"'\u201d\u2019)\]]\s*$/.test(full) &&
+            /[A-Za-z'\u2019]$/.test(full)) {
+          for (var L = Math.min(full.length, piece.length, 24); L >= 6; L--) {
+            if (piece.slice(0, L) === full.slice(-L) &&
+                /[A-Za-z'\u2019]/.test(piece.charAt(L))) { stutRun = L; break; }
+          }
+          if (stutRun) {
+            piece = piece.slice(stutRun);
+          } else {
+            var tw = full.match(/[A-Za-z'\u2019]{3,}$/);
+            if (tw && piece.indexOf(tw[0]) === 0 && piece.charAt(tw[0].length) === ' ') {
+              piece = piece.slice(tw[0].length + 1);
+              seamSpace = true;
+            }
+          }
+        }
+        if (!stutRun && !seamSpace && leadSpace && full && piece && !/^\s/.test(piece)) piece = ' ' + piece;
         /* v1.39.29: a pure rerun spends THIS round but must not end the
            story — v1.39.27's hard stop here silently returned while the
            reply was still cut mid-sentence. Fall through to after(): when
@@ -1072,6 +1099,7 @@
           var hasSpace = /\s$/.test(full) || /^\s/.test(piece);
           var noSpace = /^[.,!?;:')"\u201d\u2019]/.test(nextStart) || /[(]$/.test(prevEnd);
           glue = (hasSpace || splitWord || noSpace || cutContraction) ? '' : ' ';
+          if (seamSpace) glue = ' ';   /* a restated cut word keeps its boundary space */
         }
         var before = full;
         full = before ? before + glue + piece : piece;
