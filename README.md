@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.36
+
+**Edit chat-memory facts directly.** In a chat’s Memory sheet, each fact
+now has a visible Edit button and a trash button; edit opens a prefilled
+multiline box, while delete still asks for confirmation. Tap Save to persist
+the changes to the chat and refresh its live memory immediately for the next
+prompt. AI memory regeneration also refreshes the open chat instead of
+leaving it with stale facts.
+
 ## What's new in v1.39.35
 
 **A saved style note now reaches the next reply in the chat you already have open.**

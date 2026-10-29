@@ -506,7 +506,7 @@
              object or the freshly saved style note won't reach the next
              prompt until the user leaves and reopens the chat. */
           if (App.state && App.state.session && App.state.session.id === s.id) App.state.session = s;
-          if (message) UI.toast(message);
+            if (message) UI.toast(message);
         });
       }
       UI.sheet({
@@ -1285,6 +1285,7 @@
           session.facts = mem.facts;
           session.memAt = session.messageCount || 0;
           return Store.putSession(session).then(function () {
+            if (App.state && App.state.session && App.state.session.id === session.id) App.state.session = session;
             if (!silent) UI.toast('Memory updated');
             else UI.toast('Memory updated (' + mem.facts.length + ' facts)');
           });
@@ -2886,13 +2887,27 @@
       function render(body) {
         body.querySelector('#facts').innerHTML = facts.length
           ? facts.map(function (f, i) {
-              return '<div class="opt" data-i="' + i + '" style="align-items:flex-start">' + icon('sparkle') +
-                '<span style="flex:1">' + esc(f) + '</span></div>';
+              return '<div class="opt" style="align-items:flex-start;gap:6px">' +
+                '<span style="flex:1;min-width:0;white-space:normal">' + esc(f) + '</span>' +
+                '<button type="button" class="chip" data-edit-fact="' + i + '" aria-label="Edit fact">' + icon('edit') + ' Edit</button>' +
+                '<button type="button" class="chip" data-del-fact="' + i + '" aria-label="Delete fact">' + icon('trash') + '</button></div>';
             }).join('')
           : '<div class="hint" style="padding:6px 2px">No facts stored yet.</div>';
-        body.querySelectorAll('#facts [data-i]').forEach(function (el) {
+        body.querySelectorAll('#facts [data-edit-fact]').forEach(function (el) {
           el.onclick = function () {
-            var i = parseInt(el.getAttribute('data-i'), 10);
+            var i = parseInt(el.getAttribute('data-edit-fact'), 10);
+            UI.input('Edit fact', { value: facts[i], multiline: true }).then(function (v) {
+              if (v == null) return;
+              var edited = String(v).trim();
+              if (!edited) { UI.toast('A fact cannot be empty'); return; }
+              facts[i] = edited;
+              render(body);
+            });
+          };
+        });
+        body.querySelectorAll('#facts [data-del-fact]').forEach(function (el) {
+          el.onclick = function () {
+            var i = parseInt(el.getAttribute('data-del-fact'), 10);
             UI.confirm('Remove fact?', facts[i]).then(function (ok) {
               if (!ok) return;
               facts.splice(i, 1);
@@ -2907,7 +2922,7 @@
           '<textarea id="sum" class="tall">' + esc(s.summary || '') + '</textarea></div>' +
           '<div class="field"><div class="field-head"><label>Facts</label>' +
           '<span class="spacer"></span><button class="chip" id="addfact">' + icon('plus') + ' Add</button></div>' +
-          '<div id="facts"></div></div>' +
+          '<div id="facts"></div><div class="hint">Edit or remove facts here, then tap Save to use the changes in this chat.</div></div>' +
           '<div class="field"><div class="row">' +
           '<button class="btn ghost sm" style="flex:1" id="regen">' + icon('refresh') + ' Regenerate with AI</button>' +
           '<button class="btn ghost sm" id="inject">Send to chat</button></div>' +
@@ -2916,9 +2931,12 @@
           { label: 'Close', cls: 'ghost', value: null },
           { label: 'Save', cls: 'primary', onClick: function (b) {
               s.summary = b.querySelector('#sum').value.trim();
-              s.facts = facts;
-              Store.putSession(s);
-              UI.toast('Memory saved');
+              s.facts = facts.slice();
+              return Store.putSession(s).then(function () {
+                if (App.state && App.state.session && App.state.session.id === s.id) App.state.session = s;
+                UI.toast('Memory saved');
+                return true;
+              });
             } }
         ],
         onMount: function (body, close) {

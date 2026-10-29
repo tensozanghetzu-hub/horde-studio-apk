@@ -1,5 +1,13 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.36 — explicit edit/delete for chat memory facts
+- Memory sheet facts now render visible Edit and Delete controls; Edit uses
+  a prefilled multiline UI.input, Delete keeps confirmation. Save persists
+  a copied fact array and refreshes App.state.session so the next generation
+  sees changes immediately; AI memory regeneration also refreshes active
+  session state.
+- Added hint explaining Save applies edits. memory-facts-edit-test 7/7.
+
 ## v1.39.35 — apply chat overrides to the already-open session
 - Chat Settings correctly persisted v1.39.34, but App.state.session still
   held the pre-save object. Generation reads that in-memory object, so a
