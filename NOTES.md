@@ -1,5 +1,12 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.37 — repair inline memory fact editing and deletion
+- Root cause: UI.input/UI.confirm opened a nested singleton sheet, replacing
+  the Memory sheet; its in-memory edits were then lost. Replace fact edit,
+  add, and delete confirmation with inline controls in the same sheet.
+- Regression now exercises the real App.memorySheet handlers: edit, confirm
+  delete, add, save to DB, and active-session refresh. 17/17 green.
+
 ## v1.39.36 — explicit edit/delete for chat memory facts
 - Memory sheet facts now render visible Edit and Delete controls; Edit uses
   a prefilled multiline UI.input, Delete keeps confirmation. Save persists

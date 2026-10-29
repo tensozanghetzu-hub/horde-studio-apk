@@ -605,6 +605,15 @@ Now `<pre>` and `<code>` wrap like any other text, and they are given a proper p
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
 
+## What's new in v1.39.37
+
+**Memory facts now actually edit and delete.** The prior controls opened a
+second dialog over the Memory sheet. Because the app uses a single shared
+sheet, that replaced the parent dialog and discarded the pending change.
+Editing and adding are now inline. Removing a fact shows an inline
+confirmation. Keep the Memory sheet open, make the changes, then tap its
+main **Save** button to persist them and refresh the live chat.
+
 ## What's new in v1.39.36
 
 **Edit chat-memory facts directly.** In a chat’s Memory sheet, each fact

@@ -2883,37 +2883,77 @@
   App.memorySheet = function (sessionId) {
     IDB.get('sessions', sessionId).then(function (s) {
       if (!s) return;
-      var facts = (s.facts || []).slice();
+      var facts = (s.facts || []).slice(), editingFact = -1, deletingFact = -1, addingFact = false;
       function render(body) {
-        body.querySelector('#facts').innerHTML = facts.length
-          ? facts.map(function (f, i) {
-              return '<div class="opt" style="align-items:flex-start;gap:6px">' +
-                '<span style="flex:1;min-width:0;white-space:normal">' + esc(f) + '</span>' +
-                '<button type="button" class="chip" data-edit-fact="' + i + '" aria-label="Edit fact">' + icon('edit') + ' Edit</button>' +
-                '<button type="button" class="chip" data-del-fact="' + i + '" aria-label="Delete fact">' + icon('trash') + '</button></div>';
-            }).join('')
+        var rows = facts.map(function (f, i) {
+          if (editingFact === i) {
+            return '<div class="field compact" style="align-items:stretch;flex-direction:column">' +
+              '<textarea data-fact-edit="' + i + '" rows="3">' + esc(f) + '</textarea>' +
+              '<div class="row"><button type="button" class="btn primary sm" data-save-fact="' + i + '">Apply edit</button>' +
+              '<button type="button" class="btn ghost sm" data-cancel-edit="' + i + '">Cancel</button></div></div>';
+          }
+          if (deletingFact === i) {
+            return '<div class="opt" style="justify-content:space-between;gap:8px"><span>Remove this fact?</span>' +
+              '<button type="button" class="btn danger sm" data-confirm-delete="' + i + '">Delete</button>' +
+              '<button type="button" class="btn ghost sm" data-cancel-delete="' + i + '">Cancel</button></div>';
+          }
+          return '<div class="opt" style="align-items:flex-start;gap:6px">' +
+            '<span style="flex:1;min-width:0;white-space:normal">' + esc(f) + '</span>' +
+            '<button type="button" class="chip" data-edit-fact="' + i + '" aria-label="Edit fact">' + icon('edit') + ' Edit</button>' +
+            '<button type="button" class="chip" data-remove-fact="' + i + '" aria-label="Delete fact">' + icon('trash') + '</button></div>';
+        });
+        if (addingFact) rows.push('<div class="field" style="padding:8px 0"><textarea data-new-fact rows="3" placeholder="Enter a fact"></textarea>' +
+          '<div class="row"><button type="button" class="btn primary sm" data-save-new-fact>Add fact</button>' +
+          '<button type="button" class="btn ghost sm" data-cancel-new-fact>Cancel</button></div></div>');
+        body.querySelector('#facts').innerHTML = rows.length
+          ? rows.join('')
           : '<div class="hint" style="padding:6px 2px">No facts stored yet.</div>';
+
         body.querySelectorAll('#facts [data-edit-fact]').forEach(function (el) {
           el.onclick = function () {
-            var i = parseInt(el.getAttribute('data-edit-fact'), 10);
-            UI.input('Edit fact', { value: facts[i], multiline: true }).then(function (v) {
-              if (v == null) return;
-              var edited = String(v).trim();
-              if (!edited) { UI.toast('A fact cannot be empty'); return; }
-              facts[i] = edited;
-              render(body);
-            });
+            editingFact = parseInt(el.getAttribute('data-edit-fact'), 10);
+            deletingFact = -1; addingFact = false; render(body);
+            var input = body.querySelector('[data-fact-edit="' + editingFact + '"]');
+            if (input) input.focus();
           };
         });
-        body.querySelectorAll('#facts [data-del-fact]').forEach(function (el) {
+        body.querySelectorAll('#facts [data-save-fact]').forEach(function (el) {
           el.onclick = function () {
-            var i = parseInt(el.getAttribute('data-del-fact'), 10);
-            UI.confirm('Remove fact?', facts[i]).then(function (ok) {
-              if (!ok) return;
-              facts.splice(i, 1);
-              render(body);
-            });
+            var i = parseInt(el.getAttribute('data-save-fact'), 10);
+            var input = body.querySelector('[data-fact-edit="' + i + '"]');
+            var edited = String(input ? input.value : '').trim();
+            if (!edited) { UI.toast('A fact cannot be empty'); return; }
+            facts[i] = edited; editingFact = -1; render(body);
           };
+        });
+        body.querySelectorAll('#facts [data-cancel-edit]').forEach(function (el) {
+          el.onclick = function () { editingFact = -1; render(body); };
+        });
+        body.querySelectorAll('#facts [data-remove-fact]').forEach(function (el) {
+          el.onclick = function () {
+            deletingFact = parseInt(el.getAttribute('data-remove-fact'), 10);
+            editingFact = -1; addingFact = false; render(body);
+          };
+        });
+        body.querySelectorAll('#facts [data-confirm-delete]').forEach(function (el) {
+          el.onclick = function () {
+            var i = parseInt(el.getAttribute('data-confirm-delete'), 10);
+            facts.splice(i, 1); deletingFact = -1; render(body);
+          };
+        });
+        body.querySelectorAll('#facts [data-cancel-delete]').forEach(function (el) {
+          el.onclick = function () { deletingFact = -1; render(body); };
+        });
+        body.querySelectorAll('#facts [data-save-new-fact]').forEach(function (el) {
+          el.onclick = function () {
+            var input = body.querySelector('[data-new-fact]');
+            var value = String(input ? input.value : '').trim();
+            if (!value) { UI.toast('A fact cannot be empty'); return; }
+            facts.push(value); addingFact = false; render(body);
+          };
+        });
+        body.querySelectorAll('#facts [data-cancel-new-fact]').forEach(function (el) {
+          el.onclick = function () { addingFact = false; render(body); };
         });
       }
       UI.sheet({
@@ -2942,11 +2982,9 @@
         onMount: function (body, close) {
           render(body);
           body.querySelector('#addfact').onclick = function () {
-            UI.input('New fact').then(function (v) {
-              if (!v) return;
-              facts.push(v.trim());
-              render(body);
-            });
+            addingFact = true; editingFact = -1; deletingFact = -1; render(body);
+            var input = body.querySelector('[data-new-fact]');
+            if (input) input.focus();
           };
           body.querySelector('#regen').onclick = function () {
             close();

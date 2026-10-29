@@ -1,12 +1,12 @@
 {
-  "apk": "1.39.36",
-  "apkCode": 115,
+  "apk": "1.39.37",
+  "apkCode": 116,
   "apkUrl": "HordeStudio-latest.apk",
-  "web": "1.39.36",
-  "webRev": "9239107359eb",
-  "apkSize": 384355,
-  "webSize": 262455,
+  "web": "1.39.37",
+  "webRev": "df663c154d15",
+  "apkSize": 388451,
+  "webSize": 262882,
   "files": 23,
-  "updated": "2026-10-29T20:05:59Z",
+  "updated": "2026-10-29T20:25:43Z",
   "note": "Fixes to the interface arrive as a small download, no reinstall. Only a change to the app wrapper itself needs Android to install it."
 }
