@@ -144,6 +144,16 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
               var refused = loadApi('I cannot help with that request.');
               return refused.api.aiJson(otherSettings, 'whole person', 450, null, 'character').then(function (rj) {
                 ok('a clear model refusal is not misfiled as a character persona', rj === null, JSON.stringify(rj));
+                var plainScene = loadApi('At midnight, the Slytherin common room door opens onto a rain-soaked courtyard.');
+                return plainScene.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (scene) {
+                  ok('plain-text scenario replies become an editable scenario',
+                    scene && /midnight, the Slytherin common room/.test(scene.scenario || ''), JSON.stringify(scene));
+                  var sceneAlias = loadApi('{"situation":"At dawn, she discovers a sealed invitation on her desk."}');
+                  return sceneAlias.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (aliasScene) {
+                    ok('situation-shaped scenario JSON is normalized',
+                      aliasScene && /sealed invitation/.test(aliasScene.scenario || ''), JSON.stringify(aliasScene));
+                  });
+                });
               });
             });
           });
@@ -346,6 +356,8 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     ok('life-generation failure still returns the person to an editable sheet',
       /Life details were not returned; the default routine and places are ready to edit/.test(viewsSrc) &&
       /Views\.editor\(\$\('#editor-body'\), Object\.assign\(\{\}, char, draft, \{ vh: vh \}\)\)/.test(viewsSrc));
+    ok('scenario draft accepts prose and salvages a short structured response',
+      /320,\s*null,\s*'scenario'\)\.then\(function \(d\)/.test(viewsSrc));
     ok('the people draft asks for homes and days',
       appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('schedule: [{') !== -1);
     ok('...and is told the place ids', appSrc.indexOf('var placeIds') !== -1 &&

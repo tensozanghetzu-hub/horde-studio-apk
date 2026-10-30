@@ -1377,6 +1377,29 @@
     return value;
   }
 
+  /** Scenario drafts also accept a plain-text answer or common field aliases;
+   *  one malformed wrapper should not discard an otherwise usable scene. */
+  function parseScenarioDraft(text) {
+    var value = parseAiJson(text) || parseAiJsonPartial(text);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (typeof value.scenario === 'string' && value.scenario.trim()) return value;
+      var candidates = [value.situation, value.scene, value.opening, value.setting,
+        value.text, value.content, value.answer];
+      for (var i = 0; i < candidates.length; i++) {
+        if (typeof candidates[i] === 'string' && candidates[i].trim()) {
+          value.scenario = candidates[i].trim();
+          return value;
+        }
+      }
+    }
+    var raw = String(text || '').trim();
+    var refusal = /^(?:i(?:'m| am)? (?:sorry|unable|not able|cannot|can't)|i cannot help|i can't help|as an ai|sorry[,!]?\s+(?:but|i\b))/i;
+    if (raw.length >= 20 && raw.length <= 4000 && raw.indexOf('{') === -1 && raw.indexOf('}') === -1 && !refusal.test(raw)) {
+      return { scenario: raw, _plainTextFallback: true };
+    }
+    return value;
+  }
+
   /** One bounded JSON request — the way the AI-creation helpers talk to the
    *  model: a plain-text instruction in, one JSON object out. Lower
    *  temperature than a chat draft, because structure matters more than
@@ -1385,6 +1408,7 @@
   function aiJson(s, prompt, maxTokens, onProgress, recoverPartial) {
     function parse(text) {
       if (recoverPartial === 'character') return parseCharacterDraft(text);
+      if (recoverPartial === 'scenario') return parseScenarioDraft(text);
       var value = parseAiJson(text);
       return value || (recoverPartial ? parseAiJsonPartial(text) : null);
     }

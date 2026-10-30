@@ -1761,8 +1761,8 @@
         (persona ? ', whose persona is: "' + persona + '"' : '') +
         '. Return ONLY a JSON object, no markdown, no commentary: ' +
         '{"scenario": string} — 2-4 sentences, a concrete opening situation with a small hook or tension, written so the player can answer it.',
-        160).then(function (d) {
-          if (!d || !d.scenario) return UI.toast('No usable draft — try again', 4500);
+        320, null, 'scenario').then(function (d) {
+          if (!d || !d.scenario) return UI.toast('The model returned no usable scenario. Try again or write it manually.', 5000);
           $('#e-scenario', body).value = String(d.scenario).trim();
           UI.toast('Draft inserted — edit as you like');
         }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
