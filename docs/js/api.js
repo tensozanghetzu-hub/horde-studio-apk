@@ -1371,7 +1371,8 @@
     }
     var raw = String(text || '').trim();
     var refusal = /^(?:i(?:'m| am)? (?:sorry|unable|not able|cannot|can't)|i cannot help|i can't help|as an ai|sorry[,!]?\s+(?:but|i\b))/i;
-    if (raw.length >= 20 && raw.length <= 6000 && raw.indexOf('{') === -1 && raw.indexOf('}') === -1 && !refusal.test(raw)) {
+    var looksLikeJson = /^\s*(?:```(?:json)?\s*)?[\[{]/i.test(raw);
+    if (raw.length >= 20 && raw.length <= 6000 && !looksLikeJson && !refusal.test(raw)) {
       return { persona: raw, _plainTextFallback: true };
     }
     return value;
@@ -1394,7 +1395,8 @@
     }
     var raw = String(text || '').trim();
     var refusal = /^(?:i(?:'m| am)? (?:sorry|unable|not able|cannot|can't)|i cannot help|i can't help|as an ai|sorry[,!]?\s+(?:but|i\b))/i;
-    if (raw.length >= 20 && raw.length <= 4000 && raw.indexOf('{') === -1 && raw.indexOf('}') === -1 && !refusal.test(raw)) {
+    var looksLikeJson = /^\s*(?:```(?:json)?\s*)?[\[{]/i.test(raw);
+    if (raw.length >= 20 && raw.length <= 4000 && !looksLikeJson && !refusal.test(raw)) {
       return { scenario: raw, _plainTextFallback: true };
     }
     return value;

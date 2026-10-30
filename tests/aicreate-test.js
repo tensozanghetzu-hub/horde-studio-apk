@@ -133,7 +133,7 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
           ok('OpenAI-compatible whole-person JSON recovers the same prefix',
             otherPartial && otherPartial.persona === clippedPersona && !otherPartial.examples,
             JSON.stringify(otherPartial));
-          var prose = loadApi('Draconica is a brilliant, guarded witch who hides her fears behind impeccable manners.');
+          var prose = loadApi('Draconica is a brilliant, guarded witch who hides her fears around {{user}}.');
           return prose.api.aiJson(otherSettings, 'whole person', 450, null, 'character').then(function (draft) {
             ok('plain-text model replies become an editable persona instead of a dead-end toast',
               draft && /brilliant, guarded witch/.test(draft.persona || ''), JSON.stringify(draft));
@@ -144,10 +144,10 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
               var refused = loadApi('I cannot help with that request.');
               return refused.api.aiJson(otherSettings, 'whole person', 450, null, 'character').then(function (rj) {
                 ok('a clear model refusal is not misfiled as a character persona', rj === null, JSON.stringify(rj));
-                var plainScene = loadApi('At midnight, the Slytherin common room door opens onto a rain-soaked courtyard.');
+                var plainScene = loadApi('At midnight, {{user}} enters the Slytherin common room as a door opens onto the rain-soaked courtyard.');
                 return plainScene.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (scene) {
                   ok('plain-text scenario replies become an editable scenario',
-                    scene && /midnight, the Slytherin common room/.test(scene.scenario || ''), JSON.stringify(scene));
+                    scene && /midnight, \{\{user\}\} enters/.test(scene.scenario || ''), JSON.stringify(scene));
                   var sceneAlias = loadApi('{"situation":"At dawn, she discovers a sealed invitation on her desk."}');
                   return sceneAlias.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (aliasScene) {
                     ok('situation-shaped scenario JSON is normalized',
