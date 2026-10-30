@@ -1347,6 +1347,36 @@
     return null;
   }
 
+  /** Character creation is more forgiving than schema-oriented world drafts:
+   *  a model may put its persona in a common alias or answer in prose instead
+   *  of JSON. Preserve that useful text as the editable persona instead of
+   *  throwing away the whole creation attempt. */
+  function parseCharacterDraft(text) {
+    var value = parseAiJson(text) || parseAiJsonPartial(text);
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (typeof value.persona === 'string' && value.persona.trim()) return value;
+      var c = value.character && typeof value.character === 'object' ? value.character : {};
+      var candidates = [value.description, value.bio, value.personality, value.profile,
+        value.text, value.content, value.answer, c.persona, c.description, c.bio, c.personality];
+      for (var i = 0; i < candidates.length; i++) {
+        if (typeof candidates[i] === 'string' && candidates[i].trim()) {
+          value.persona = candidates[i].trim();
+          return value;
+        }
+      }
+      var fragments = Object.keys(value).filter(function (k) {
+        return !/^(name|tagline|persona|character)$/i.test(k) && typeof value[k] === 'string' && value[k].trim();
+      }).map(function (k) { return value[k].trim(); });
+      if (fragments.length) { value.persona = fragments.join('\n\n'); return value; }
+    }
+    var raw = String(text || '').trim();
+    var refusal = /^(?:i(?:'m| am)? (?:sorry|unable|not able|cannot|can't)|i cannot help|i can't help|as an ai|sorry[,!]?\s+(?:but|i\b))/i;
+    if (raw.length >= 20 && raw.length <= 6000 && raw.indexOf('{') === -1 && raw.indexOf('}') === -1 && !refusal.test(raw)) {
+      return { persona: raw, _plainTextFallback: true };
+    }
+    return value;
+  }
+
   /** One bounded JSON request — the way the AI-creation helpers talk to the
    *  model: a plain-text instruction in, one JSON object out. Lower
    *  temperature than a chat draft, because structure matters more than
@@ -1354,6 +1384,7 @@
    *  banner shows, so a long world draft doesn't look frozen. */
   function aiJson(s, prompt, maxTokens, onProgress, recoverPartial) {
     function parse(text) {
+      if (recoverPartial === 'character') return parseCharacterDraft(text);
       var value = parseAiJson(text);
       return value || (recoverPartial ? parseAiJsonPartial(text) : null);
     }

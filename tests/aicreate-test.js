@@ -120,6 +120,20 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
           ok('OpenAI-compatible whole-person JSON recovers the same prefix',
             otherPartial && otherPartial.persona === clippedPersona && !otherPartial.examples,
             JSON.stringify(otherPartial));
+          var prose = loadApi('Draconica is a brilliant, guarded witch who hides her fears behind impeccable manners.');
+          return prose.api.aiJson(otherSettings, 'whole person', 450, null, 'character').then(function (draft) {
+            ok('plain-text model replies become an editable persona instead of a dead-end toast',
+              draft && /brilliant, guarded witch/.test(draft.persona || ''), JSON.stringify(draft));
+            var alias = loadApi('{"name":"Draconica","description":"A proud witch with a guarded, incisive voice."}');
+            return alias.api.aiJson(otherSettings, 'whole person', 450, null, 'character').then(function (a) {
+              ok('description-shaped JSON is normalized into persona',
+                a && /proud witch/.test(a.persona || ''), JSON.stringify(a));
+              var refused = loadApi('I cannot help with that request.');
+              return refused.api.aiJson(otherSettings, 'whole person', 450, null, 'character').then(function (rj) {
+                ok('a clear model refusal is not misfiled as a character persona', rj === null, JSON.stringify(rj));
+              });
+            });
+          });
         });
       });
     });
@@ -306,11 +320,13 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     /* the ask itself, asserted against app.js - the schema is the product */
     var appSrc = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
     var viewsSrc = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
-    ok('the whole-person draft opts into truncated-JSON recovery',
-      /450,\s*null,\s*true\)\.then\(function \(a\)/.test(viewsSrc));
+    ok('the whole-person draft opts into character-response recovery',
+      /450,\s*null,\s*'character'\)\.then\(function \(a\)/.test(viewsSrc));
     ok('the first draft keeps fields compact enough for its output budget',
       /under 100 words/.test(viewsSrc) && /"scenario":string \(1-2 sentences/.test(viewsSrc) &&
       /one short \{\{user\}\}: and \{\{char\}\}: exchange/.test(viewsSrc));
+    ok('empty model output gets a useful diagnostic, not the generic toast',
+      /The model returned no character description/.test(viewsSrc));
     ok('the people draft asks for homes and days',
       appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('schedule: [{') !== -1);
     ok('...and is told the place ids', appSrc.indexOf('var placeIds') !== -1 &&

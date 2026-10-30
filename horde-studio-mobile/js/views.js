@@ -1678,10 +1678,10 @@
         '"scenario":string (1-2 sentences: where the story starts, with a small hook or tension), ' +
         '"greeting":string (the character\'s first message to the player, 1-2 sentences, in their voice), ' +
         '"examples":string (one short {{user}}: and {{char}}: exchange that pins the voice)}',
-        450, null, true).then(function (a) {
+        450, null, 'character').then(function (a) {
           if (!a || !a.persona) {
             btn.disabled = false;
-            return UI.toast('No usable draft — try again', 4500);
+            return UI.toast('The model returned no character description. Try again or check provider settings.', 5500);
           }
           /* name/tagline only if the player left them empty — set the inputs,
              collect() below picks them up like any other field */
