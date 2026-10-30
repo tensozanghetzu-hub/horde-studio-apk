@@ -1550,8 +1550,10 @@
         '<div id="char-lorebook-rows"></div>' +
         '<div class="field"><div class="row">' +
           '<button class="btn ghost sm" style="flex:1" data-act="lore-add-entry">' + icon('plus') + ' Add entry</button>' +
-          '<button class="btn ghost sm" style="flex:1" data-act="lore-ai-draft">' + icon('sparkle') + ' Draft with AI</button>' +
-        '</div></div>' +
+          '<button class="btn ghost sm" style="flex:1" data-act="lore-import-file">' + icon('upload') + ' Import file</button>' +
+        '</div><div class="row" style="margin-top:8px">' +
+          '<button class="btn ghost sm block" data-act="lore-ai-draft">' + icon('sparkle') + ' Draft with AI</button>' +
+        '</div><div class="hint" style="margin:6px 0 0">Import a lorebook JSON file; existing entries stay. SillyTavern exports are supported.</div></div>' +
       '</div>' +
 
       '<div class="group">' +
@@ -1662,6 +1664,40 @@
       renderCharLorebook();
       var last = body.querySelector('[data-cl-keys="' + (draft.lorebook.length - 1) + '"]');
       if (last) last.focus();
+    });
+    on(body, '[data-act=lore-import-file]', 'click', function () {
+      pickFile('.json,application/json').then(function (file) {
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) return UI.toast('That lorebook file is over 5 MB.', 4500);
+        var read = typeof file.text === 'function' ? file.text() : new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () { resolve(reader.result); };
+          reader.onerror = reject;
+          reader.readAsText(file);
+        });
+        return read.then(function (text) {
+          var entries = API.parseLorebookFile(text);
+          if (!entries.length) return UI.toast('No supported lorebook entries found in that JSON file.', 5000);
+          function signature(entry) {
+            return (entry.keys || []).map(function (k) { return String(k).toLowerCase(); }).sort().join('\\u0001') +
+              '|' + String(entry.content || '').trim().toLowerCase();
+          }
+          var known = {};
+          draft.lorebook.forEach(function (entry) { known[signature(entry)] = true; });
+          var added = 0;
+          entries.forEach(function (entry) {
+            var sig = signature(entry);
+            if (known[sig]) return;
+            known[sig] = true;
+            entry.id = UI.uid('l');
+            draft.lorebook.push(entry);
+            added++;
+          });
+          if (!added) return UI.toast('Those lorebook entries are already here.', 4000);
+          renderCharLorebook();
+          UI.toast('Imported ' + added + ' lore entr' + (added === 1 ? 'y' : 'ies') + ' — edit, then Save');
+        });
+      }).catch(function (e) { UI.toast('Lorebook import failed: ' + (e && e.message || 'could not read file'), 5000); });
     });
     on(body, '[data-act=lore-ai-draft]', 'click', function () {
       var name = $('#e-name', body).value.trim() || 'the character';

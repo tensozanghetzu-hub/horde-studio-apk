@@ -1539,6 +1539,61 @@
     }).filter(Boolean).slice(0, 8);
   }
 
+  /** Read standalone lorebooks and embedded card books from JSON. Supports
+   *  this app's `keys` entries, SillyTavern's `key`/`disable` entries (arrays
+   *  or object maps), and character_book wrappers. */
+  function parseLorebookFile(text) {
+    var root;
+    try { root = JSON.parse(String(text || '').replace(/^\uFEFF/, '')); }
+    catch (e) { return []; }
+    function isEntry(node) {
+      return !!(node && typeof node === 'object' &&
+        (node.keys || node.key || node.keywords || node.keyword || node.triggers) &&
+        (node.content || node.text || node.description));
+    }
+    var queue = [root], walked = [], source = null;
+    while (queue.length && walked.length < 100 && !source) {
+      var node = queue.shift();
+      if (!node || typeof node !== 'object' || walked.indexOf(node) >= 0) continue;
+      walked.push(node);
+      if (Array.isArray(node)) {
+        if (!node.length || node.some(isEntry)) { source = node; break; }
+        node.forEach(function (child) { if (child && typeof child === 'object') queue.push(child); });
+        continue;
+      }
+      var entries = node.entries;
+      if (Array.isArray(entries)) { source = entries; break; }
+      if (entries && typeof entries === 'object') { source = Object.keys(entries).map(function (k) { return entries[k]; }); break; }
+      if (Array.isArray(node.lorebook)) { source = node.lorebook; break; }
+      var lore = node.lorebook;
+      var book = node.character_book || node.characterBook;
+      if (lore && typeof lore === 'object') queue.unshift(lore);
+      if (book && typeof book === 'object') queue.unshift(book);
+      if (isEntry(node)) { source = [node]; break; }
+      var values = Object.keys(node).map(function (k) { return node[k]; });
+      if (values.some(isEntry)) { source = values; break; }
+      Object.keys(node).forEach(function (k) {
+        if (node[k] && typeof node[k] === 'object' && node[k] !== book && node[k] !== lore) queue.push(node[k]);
+      });
+    }
+    if (!Array.isArray(source)) return [];
+    return source.map(function (entry) {
+      if (!entry || typeof entry !== 'object') return null;
+      var rawKeys = entry.keys;
+      if (!rawKeys || (Array.isArray(rawKeys) && !rawKeys.length) ||
+          (typeof rawKeys === 'string' && !rawKeys.trim())) {
+        rawKeys = entry.key || entry.keywords || entry.keyword || entry.triggers || [];
+      }
+      var keys = Array.isArray(rawKeys) ? rawKeys : String(rawKeys).split(/[,;\r\n]/);
+      keys = keys.map(function (k) { return String(k || '').trim(); }).filter(Boolean).slice(0, 32);
+      var rawContent = entry.content || entry.text || entry.description || '';
+      var content = plainText(String(rawContent)).trim().slice(0, 12000);
+      if (!keys.length || !content) return null;
+      return { keys: keys, content: content,
+        enabled: entry.enabled !== false && entry.disable !== true && entry.disabled !== true };
+    }).filter(Boolean).slice(0, 200);
+  }
+
   /** One bounded JSON request — the way the AI-creation helpers talk to the
    *  model: a plain-text instruction in, one JSON object out. Lower
    *  temperature than a chat draft, because structure matters more than
@@ -1595,7 +1650,8 @@
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
-    parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft, aiJson: aiJson,
+    parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,
+    parseLorebookFile: parseLorebookFile, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     plainText: plainText, repairMojibake: repairMojibake,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); },
