@@ -82,6 +82,12 @@ ok('partial character parser salvages complete fields before a clipped tail',
   typeof r.api.parseAiJsonPartial === 'function' &&
   (r.api.parseAiJsonPartial(clippedCharacter) || {}).persona === clippedPersona &&
   !(r.api.parseAiJsonPartial(clippedCharacter) || {}).examples);
+var clippedLife = '{"places":[{"id":"home","name":"Home","kind":"home"},{"id":"school","name":"Hogwarts","kind":"work"}],' +
+  '"routine":[{"t":"08:00","a":"Breakfast before class"}],"sleep":{"start":"23:00","end":"07:00"},' +
+  '"people":[{"name":"Pansy","relation":"friend","closeness":0.4}],"diary":["A tense first day';
+var savedLife = r.api.parseAiJsonPartial(clippedLife) || {};
+ok('partial life parser keeps completed top-level arrays', savedLife.places && savedLife.places.length === 2 &&
+  savedLife.routine && savedLife.routine.length === 1 && !savedLife.diary);
 
 /* nested objects survive */
 var nested = { a: { b: { c: 'deep' } }, list: [1, 2] };
@@ -111,6 +117,13 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
       return truncated.api.aiJson(settings(), 'whole person', 450, null, true).then(function (partial) {
         ok('Horde whole-person JSON recovers a complete persona prefix',
           partial && partial.persona === clippedPersona && !partial.examples, JSON.stringify(partial));
+        var lifeCall = loadApi(clippedLife);
+        return lifeCall.api.aiJson(settings(), 'life around the character', 480, null, true).then(function (life) {
+          ok('the bounded life request recovers completed places and routine',
+            life && life.places && life.places.length === 2 && life.routine && life.routine.length === 1,
+            JSON.stringify(life));
+          ok('life request stays below the Horde anonymous ceiling', lifeCall.sent().maxLength === 480);
+        }).then(function () {
         var other = loadApi(clippedCharacter);
         var otherSettings = settings();
         otherSettings.provider = 'openai';
@@ -137,6 +150,7 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
         });
       });
     });
+  })
   })
   .then(function () {
     /* ---- the world draft shape actually feeds HW.parse ---------------- */
@@ -327,6 +341,11 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
       /one short \{\{user\}\}: and \{\{char\}\}: exchange/.test(viewsSrc));
     ok('empty model output gets a useful diagnostic, not the generic toast',
       /The model returned no character description/.test(viewsSrc));
+    ok('the life request recovers a completed prefix under a safe token bound',
+      /480,\s*null,\s*true\)\.then\(function \(b\)/.test(viewsSrc));
+    ok('life-generation failure still returns the person to an editable sheet',
+      /Life details were not returned; the default routine and places are ready to edit/.test(viewsSrc) &&
+      /Views\.editor\(\$\('#editor-body'\), Object\.assign\(\{\}, char, draft, \{ vh: vh \}\)\)/.test(viewsSrc));
     ok('the people draft asks for homes and days',
       appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('schedule: [{') !== -1);
     ok('...and is told the place ids', appSrc.indexOf('var placeIds') !== -1 &&

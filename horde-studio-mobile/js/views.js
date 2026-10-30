@@ -1656,7 +1656,8 @@
     /* 18.1.0: the whole-person draft is TWO bounded JSON requests, each
      * under the Horde's 512-token anonymous limit, so heavy demand cannot
      * reject the job over pre-held kudos. Part one (the person) lands in the
-     * sheet fields as it comes; part two (the life) fails without losing it.
+     * sheet fields as it comes; a partial life response is salvaged and the
+     * editor falls back to its defaults rather than discarding the person.
      * It only offers itself on an empty sheet, keeps the player's direction,
      * and never overwrites a field the player already wrote by hand.
      * Opening the editor spends nothing. */
@@ -1698,16 +1699,19 @@
           return API.aiJson(Store.settings,
             'Draft the life around the story for ' + who +
             (personaClip ? ', whose persona is: "' + personaClip + '"' : '') + '. ' +
-            'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
-            '{"places":[{"id":"snake_id","name":string,"kind":"home|work|outdoor|other","note":short string}, 3 places], ' +
-            '"routine":[{"t":"HH:MM","a":short string}, 5 entries across the waking day], ' +
+            'Return ONLY compact JSON, no markdown or commentary. Keep it brief: 2 places, 3 routine entries, ' +
+            'sleep, 1-2 people, and 1 short diary beat. Use short values and no extra keys: ' +
+            '{"places":[{"id":"snake_id","name":string,"kind":"home|work|outdoor|other"}, 2 places], ' +
+            '"routine":[{"t":"HH:MM","a":short string}, 3 entries], ' +
             '"sleep":{"start":"HH:MM","end":"HH:MM"}, ' +
-            '"people":[{"name":string,"relation":string,"closeness":number from -1 to 1,"note":short string}, 2-3 people in their life], ' +
-            '"diary":[1-3 short past-tense life beats]}',
-            350).then(function (b) {
+            '"people":[{"name":string,"relation":string,"closeness":number from -1 to 1}], ' +
+            '"diary":[one short past-tense life beat]}',
+            480, null, true).then(function (b) {
               if (!b) {
                 btn.disabled = false;
-                return UI.toast('The person is drafted; the life part failed — press again to finish it', 5000);
+                UI.toast('Life details were not returned; the default routine and places are ready to edit', 5500);
+                collect();
+                return Views.editor($('#editor-body'), Object.assign({}, char, draft, { vh: vh }));
               }
               /* the life around the inbox: fill only what came back clean */
               if (Array.isArray(b.places) && b.places.length) {
