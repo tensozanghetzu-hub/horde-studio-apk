@@ -1304,20 +1304,67 @@
     return null;
   }
 
+  /** Recover complete top-level fields from a response clipped by its output
+   *  limit. This is opt-in: ordinary JSON consumers keep the strict parser's
+   *  all-or-nothing contract. A complete prefix ending before a later field is
+   *  useful for the character sheet (persona is requested before examples),
+   *  while an incomplete final value is discarded rather than guessed. */
+  function parseAiJsonPartial(text) {
+    var complete = parseAiJson(text);
+    if (complete) return complete;
+    var s = String(text || '');
+    var start = s.indexOf('{');
+    if (start < 0) return null;
+    var depth = 0, inString = false, escaped = false, commas = [];
+    for (var i = start; i < s.length; i++) {
+      var ch = s[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === '{' || ch === '[') depth++;
+      else if (ch === '}' || ch === ']') {
+        depth--;
+        if (depth <= 0) break;
+      } else if (ch === ',' && depth === 1) commas.push(i);
+    }
+    function parsePrefix(end) {
+      var prefix = s.slice(start, end).trim();
+      try {
+        var value = JSON.parse(prefix + '}');
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+      } catch (e) { return null; }
+    }
+    var recovered = parsePrefix(s.length);
+    if (recovered) return recovered;
+    for (var c = commas.length - 1; c >= 0; c--) {
+      recovered = parsePrefix(commas[c]);
+      if (recovered) return recovered;
+    }
+    return null;
+  }
+
   /** One bounded JSON request — the way the AI-creation helpers talk to the
    *  model: a plain-text instruction in, one JSON object out. Lower
    *  temperature than a chat draft, because structure matters more than
    *  sparkle here. `onProgress` gets the same queue/processing states the
    *  banner shows, so a long world draft doesn't look frozen. */
-  function aiJson(s, prompt, maxTokens, onProgress) {
+  function aiJson(s, prompt, maxTokens, onProgress, recoverPartial) {
+    function parse(text) {
+      var value = parseAiJson(text);
+      return value || (recoverPartial ? parseAiJsonPartial(text) : null);
+    }
     if (s.provider === 'horde') {
       return Horde.generateText({ prompt: prompt, model: s.hordeTextModel || '',
         maxLength: maxTokens || 300, temperature: 0.3, apikey: s.hordeKey,
-        maxWait: 600, onProgress: onProgress }).then(function (r) { return parseAiJson(r.text); });
+        maxWait: 600, onProgress: onProgress }).then(function (r) { return parse(r.text); });
     }
     var msgs = [{ role: 'user', content: prompt }];
     return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3,
-      max_tokens: maxTokens || 300 }).then(parseAiJson);
+      max_tokens: maxTokens || 300 }).then(parse);
   }
 
   /** One-shot generation from an arbitrary system + instruction (virtual humans). */
@@ -1352,7 +1399,7 @@
     summarize: summarize, listModels: listModels, testConnection: testConnection,
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
-    parseAiJson: parseAiJson, aiJson: aiJson,
+    parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     plainText: plainText, repairMojibake: repairMojibake,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); },

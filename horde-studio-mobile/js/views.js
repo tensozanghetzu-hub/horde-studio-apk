@@ -1674,11 +1674,11 @@
         'Return ONLY a JSON object, no markdown, no commentary, with exactly these keys: ' +
         '{"name":string (use the direction\'s name if it gives one, else invent a fitting one), ' +
         '"tagline":string (8-12 words, the hook shown on the card), ' +
-        '"persona":string (third person, under 150 words: appearance, personality with real flaws, a short history, what they want, how they speak), ' +
-        '"scenario":string (2-3 sentences: where the story starts, with a small hook or tension), ' +
-        '"greeting":string (the character\'s first message to the player, 1-3 sentences, in their voice), ' +
-        '"examples":string (two short {{user}}: and {{char}}: exchanges that pin the voice)}',
-        450).then(function (a) {
+        '"persona":string (third person, under 100 words: appearance, personality with real flaws, a short history, what they want, how they speak), ' +
+        '"scenario":string (1-2 sentences: where the story starts, with a small hook or tension), ' +
+        '"greeting":string (the character\'s first message to the player, 1-2 sentences, in their voice), ' +
+        '"examples":string (one short {{user}}: and {{char}}: exchange that pins the voice)}',
+        450, null, true).then(function (a) {
           if (!a || !a.persona) {
             btn.disabled = false;
             return UI.toast('No usable draft — try again', 4500);

@@ -23,6 +23,7 @@ function loadApi(stubText, stubModels) {
   var prog = null;
   var sandbox = {
     console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise,
+    setTimeout: setTimeout, clearTimeout: clearTimeout,
     Object: Object, Array: Array, String: String, Number: Number, RegExp: RegExp,
     Error: Error, TextEncoder: TextEncoder, TextDecoder: TextDecoder,
     DOMException: function (m) { this.message = m; this.name = 'AbortError'; },
@@ -69,6 +70,19 @@ ok('empty string returns null', r.api.parseAiJson('') === null);
 ok('top-level array is not an object', r.api.parseAiJson('[1,2,3]') === null);
 ok('unbalanced braces return null', r.api.parseAiJson('{"name":"Mara"') === null);
 
+/* A whole-person draft has several ordered fields. A model can hit its output
+   cap after completing persona but halfway through examples; that useful
+   prefix should be recoverable only for the draft flow, not by the strict
+   generic parser above. */
+var clippedPersona = 'A precise, guarded witch with "silver" eyes and a cutting voice.';
+var clippedCharacter = '{"name":"Draconica","tagline":"Proud, polished, and difficult to read","persona":' +
+  JSON.stringify(clippedPersona) + ',"scenario":"At university-style Hogwarts, a letter appears in her bag.",' +
+  '"greeting":"She looks up. \\"That is not yours.\\"","examples":"{{user}}: What is it?';
+ok('partial character parser salvages complete fields before a clipped tail',
+  typeof r.api.parseAiJsonPartial === 'function' &&
+  (r.api.parseAiJsonPartial(clippedCharacter) || {}).persona === clippedPersona &&
+  !(r.api.parseAiJsonPartial(clippedCharacter) || {}).examples);
+
 /* nested objects survive */
 var nested = { a: { b: { c: 'deep' } }, list: [1, 2] };
 ok('nested objects survive', (r.api.parseAiJson(JSON.stringify(nested)) || {}).a.b.c === 'deep');
@@ -93,6 +107,21 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     var bad = loadApi('I cannot produce JSON right now.');
     return bad.api.aiJson(settings(), 'prompt', 100).then(function (o) {
       ok('malformed draft resolves to null', o === null, JSON.stringify(o));
+      var truncated = loadApi(clippedCharacter);
+      return truncated.api.aiJson(settings(), 'whole person', 450, null, true).then(function (partial) {
+        ok('Horde whole-person JSON recovers a complete persona prefix',
+          partial && partial.persona === clippedPersona && !partial.examples, JSON.stringify(partial));
+        var other = loadApi(clippedCharacter);
+        var otherSettings = settings();
+        otherSettings.provider = 'openai';
+        otherSettings.baseUrl = 'https://api.example.test/v1';
+        otherSettings.model = 'test-model';
+        return other.api.aiJson(otherSettings, 'whole person', 450, null, true).then(function (otherPartial) {
+          ok('OpenAI-compatible whole-person JSON recovers the same prefix',
+            otherPartial && otherPartial.persona === clippedPersona && !otherPartial.examples,
+            JSON.stringify(otherPartial));
+        });
+      });
     });
   })
   .then(function () {
@@ -276,6 +305,12 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
 
     /* the ask itself, asserted against app.js - the schema is the product */
     var appSrc = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
+    var viewsSrc = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
+    ok('the whole-person draft opts into truncated-JSON recovery',
+      /450,\s*null,\s*true\)\.then\(function \(a\)/.test(viewsSrc));
+    ok('the first draft keeps fields compact enough for its output budget',
+      /under 100 words/.test(viewsSrc) && /"scenario":string \(1-2 sentences/.test(viewsSrc) &&
+      /one short \{\{user\}\}: and \{\{char\}\}: exchange/.test(viewsSrc));
     ok('the people draft asks for homes and days',
       appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('schedule: [{') !== -1);
     ok('...and is told the place ids', appSrc.indexOf('var placeIds') !== -1 &&
