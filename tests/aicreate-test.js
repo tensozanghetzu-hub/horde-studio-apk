@@ -88,6 +88,26 @@ var clippedLife = '{"places":[{"id":"home","name":"Home","kind":"home"},{"id":"s
 var savedLife = r.api.parseAiJsonPartial(clippedLife) || {};
 ok('partial life parser keeps completed top-level arrays', savedLife.places && savedLife.places.length === 2 &&
   savedLife.routine && savedLife.routine.length === 1 && !savedLife.diary);
+var lifeNotes = typeof r.api.parseLifeNotes === 'function'
+  ? r.api.parseLifeNotes('Home: Malfoy Manor | ancestral estate\nStudy/work: Hogwarts | Slytherin common room\nRoutine: 07:00 Breakfast; 09:00 Classes; 17:00 Study\nSleep: 23:00-07:00\nPeople: Pansy — friend; Blaise — confidant\nDiary: She arrives at Hogwarts.')
+  : null;
+ok('plain-text life notes normalize into places, routine, sleep, people and diary',
+  lifeNotes && lifeNotes.places.length === 2 && lifeNotes.routine.length === 3 &&
+  lifeNotes.sleep.start === '23:00' && lifeNotes.people.length === 2 && lifeNotes.diary.length === 1);
+var structuredLifeNotes = typeof r.api.parseLifeNotes === 'function' ? r.api.parseLifeNotes(clippedLife) : null;
+ok('structured or clipped life responses remain usable as a fallback',
+  structuredLifeNotes && structuredLifeNotes.places && structuredLifeNotes.places.length === 2 &&
+  structuredLifeNotes.routine && structuredLifeNotes.routine.length === 1);
+var loreLines = typeof r.api.parseLoreDraft === 'function'
+  ? r.api.parseLoreDraft('Slytherin, common room | An emerald-lit chamber beneath the lake.\nMalfoy Manor | An old estate protected by family wards.')
+  : [];
+ok('lore draft lines become trigger-keyed entries', loreLines.length === 2 &&
+  loreLines[0].keys[0] === 'Slytherin' && /emerald-lit/.test(loreLines[0].content));
+var loreJson = typeof r.api.parseLoreDraft === 'function'
+  ? r.api.parseLoreDraft('{"entries":[{"keywords":["Malfoy Manor"],"content":"A warded ancestral estate."}]}')
+  : [];
+ok('AI-drafted JSON lore entries normalize into the same editable shape',
+  loreJson.length === 1 && loreJson[0].keys[0] === 'Malfoy Manor' && /warded/.test(loreJson[0].content));
 
 /* nested objects survive */
 var nested = { a: { b: { c: 'deep' } }, list: [1, 2] };
@@ -152,6 +172,37 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
                   return sceneAlias.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (aliasScene) {
                     ok('situation-shaped scenario JSON is normalized',
                       aliasScene && /sealed invitation/.test(aliasScene.scenario || ''), JSON.stringify(aliasScene));
+                    var greeting = loadApi('She smiles at {{user}} and says, “You are late.”');
+                    return greeting.api.aiJson(otherSettings, 'write a greeting', 240, null, 'greeting').then(function (g) {
+                      ok('plain-text greeting replies become an editable first message',
+                        g && /You are late/.test(g.greeting || ''), JSON.stringify(g));
+                      var wrappedScene = loadApi('{"data":{"scenario":"At noon, she finds the invitation beneath her locked door."}}');
+                      return wrappedScene.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (wrapped) {
+                        ok('nested provider-style scenario payloads are unwrapped',
+                          wrapped && /locked door/.test(wrapped.scenario || ''), JSON.stringify(wrapped));
+                        var arrayScene = loadApi('[{"scenario":"At dusk, she finds a note beneath the door."}]');
+                        return arrayScene.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (arrayDraft) {
+                          ok('array-shaped scenario payloads are unwrapped',
+                            arrayDraft && /beneath the door/.test(arrayDraft.scenario || ''), JSON.stringify(arrayDraft));
+                          var macroScene = loadApi('{{char}}: I see {{user}} at the doorway, holding the sealed letter.');
+                          return macroScene.api.aiJson(otherSettings, 'write a scenario', 320, null, 'scenario').then(function (macroDraft) {
+                            ok('templated prose starting with {{char}} is not mistaken for malformed JSON',
+                              macroDraft && /sealed letter/.test(macroDraft.scenario || ''), JSON.stringify(macroDraft));
+                            var quotedGreeting = loadApi('"Come in, Draconica. I was expecting you."');
+                            return quotedGreeting.api.aiJson(otherSettings, 'write a greeting', 240, null, 'greeting').then(function (shortG) {
+                              ok('quoted short greeting output is recovered without requiring a long prose minimum',
+                                shortG && /Come in/.test(shortG.greeting || ''), JSON.stringify(shortG));
+                              var quick = loadApi('Home: Character-specific home.');
+                              return quick.api.quickText(settings(), 'life notes', 480, 0.3).then(function (draftText) {
+                                ok('quickText applies the requested concise-draft temperature',
+                                  /home/i.test(draftText) && quick.sent().temperature === 0.3,
+                                  JSON.stringify(quick.sent()));
+                              });
+                            });
+                          });
+                        });
+                      });
+                    });
                   });
                 });
               });
@@ -351,13 +402,24 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
       /one short \{\{user\}\}: and \{\{char\}\}: exchange/.test(viewsSrc));
     ok('empty model output gets a useful diagnostic, not the generic toast',
       /The model returned no character description/.test(viewsSrc));
-    ok('the life request recovers a completed prefix under a safe token bound',
-      /480,\s*null,\s*true\)\.then\(function \(b\)/.test(viewsSrc));
-    ok('life-generation failure still returns the person to an editable sheet',
-      /Life details were not returned; the default routine and places are ready to edit/.test(viewsSrc) &&
-      /Views\.editor\(\$\('#editor-body'\), Object\.assign\(\{\}, char, draft, \{ vh: vh \}\)\)/.test(viewsSrc));
+    ok('life generation uses a concise plain-text request under the safe token bound',
+      /API\.quickText\(Store\.settings,[\s\S]{0,1600}480,\s*0\.3\)\.then\(function \(lifeText\)/.test(viewsSrc) &&
+      /API\.parseLifeNotes\(lifeText\)/.test(viewsSrc));
+    ok('unstructured life prose is retained while the editor remains usable',
+      /lifeRemainder[\s\S]{0,220}vh\.chronicle/.test(viewsSrc) &&
+      /default routine and places are ready to edit/.test(viewsSrc));
     ok('scenario draft accepts prose and salvages a short structured response',
       /320,\s*null,\s*'scenario'\)\.then\(function \(d\)/.test(viewsSrc));
+    ok('greeting draft accepts plain text and gives it enough response room',
+      /240,\s*null,\s*'greeting'\)\.then\(function \(d\)/.test(viewsSrc));
+    ok('character editor has an inline lorebook add/edit area',
+      /Character lorebook/.test(viewsSrc) && /data-act=lore-add-entry/.test(viewsSrc) &&
+      /data-cl-content/.test(viewsSrc));
+    ok('character editor offers AI lorebook drafting',
+      /data-act=lore-ai-draft/.test(viewsSrc) && /API\.quickText\(Store\.settings/.test(viewsSrc));
+    ok('life generation requests concise labeled text and parses it without JSON',
+      /API\.quickText\(Store\.settings,[\s\S]{0,1600}480,\s*0\.3\)/.test(viewsSrc) &&
+      /API\.parseLifeNotes/.test(viewsSrc));
     ok('the people draft asks for homes and days',
       appSrc.indexOf('homeLocation') !== -1 && appSrc.indexOf('schedule: [{') !== -1);
     ok('...and is told the place ids', appSrc.indexOf('var placeIds') !== -1 &&

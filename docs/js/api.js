@@ -1220,13 +1220,14 @@
   }
 
   /** Two-line pitch for a character (used by "generate persona"). */
-  function quickText(s, prompt, maxTokens) {
+  function quickText(s, prompt, maxTokens, temperature) {
     var msgs = [{ role: 'user', content: prompt }];
+    var temp = temperature === undefined || temperature === null ? 0.9 : temperature;
     if (s.provider === 'horde') {
       return Horde.generateText({ prompt: prompt, model: s.hordeTextModel || '', maxLength: maxTokens || 220,
-        temperature: 0.9, apikey: s.hordeKey, maxWait: 300 }).then(function (r) { return r.text; });
+        temperature: temp, apikey: s.hordeKey, maxWait: 300 }).then(function (r) { return r.text; });
     }
-    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.9, max_tokens: maxTokens || 220 });
+    return streamChat(s, msgs, null, null, { stream: false, temperature: temp, max_tokens: maxTokens || 220 });
   }
 
   /** Pull one JSON object out of a model reply. Models wrap JSON in markdown
@@ -1371,35 +1372,171 @@
     }
     var raw = String(text || '').trim();
     var refusal = /^(?:i(?:'m| am)? (?:sorry|unable|not able|cannot|can't)|i cannot help|i can't help|as an ai|sorry[,!]?\s+(?:but|i\b))/i;
-    var looksLikeJson = /^\s*(?:```(?:json)?\s*)?[\[{]/i.test(raw);
+    var startsWithTemplateMacro = /^\s*\{\{(?:char|user)\}\}/i.test(raw);
+    var looksLikeJson = !startsWithTemplateMacro && /^\s*(?:```(?:json)?\s*)?[\[{]/i.test(raw);
     if (raw.length >= 20 && raw.length <= 6000 && !looksLikeJson && !refusal.test(raw)) {
       return { persona: raw, _plainTextFallback: true };
     }
     return value;
   }
 
-  /** Scenario drafts also accept a plain-text answer or common field aliases;
-   *  one malformed wrapper should not discard an otherwise usable scene. */
-  function parseScenarioDraft(text) {
+  /** A one-field draft can be valid as JSON, use a common alias, or arrive as
+   *  plain prose. Do not discard useful text just because a model ignored the
+   *  wrapper requested by the editor. */
+  function parseTextFieldDraft(text, field, aliases, maxLength) {
     var value = parseAiJson(text) || parseAiJsonPartial(text);
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      if (typeof value.scenario === 'string' && value.scenario.trim()) return value;
-      var candidates = [value.situation, value.scene, value.opening, value.setting,
-        value.text, value.content, value.answer];
-      for (var i = 0; i < candidates.length; i++) {
-        if (typeof candidates[i] === 'string' && candidates[i].trim()) {
-          value.scenario = candidates[i].trim();
-          return value;
+    if (!value) {
+      var candidate = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      if (candidate.charAt(0) === '[') {
+        try { var arrayReply = JSON.parse(candidate); if (Array.isArray(arrayReply)) value = arrayReply; } catch (e) {}
+      }
+    }
+    if (value && typeof value === 'object') {
+      var wanted = [field].concat(aliases || []).map(function (k) {
+        return String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
+      });
+      /* Compatible endpoints may wrap the model object in data/result/output
+         or message/choices. Walk a bounded tree instead of accepting an empty
+         outer wrapper as a successful draft. */
+      var queue = [value], seen = [];
+      while (queue.length && seen.length < 80) {
+        var node = queue.shift();
+        if (!node || typeof node !== 'object' || seen.indexOf(node) >= 0) continue;
+        seen.push(node);
+        if (!Array.isArray(node)) {
+          var keys = Object.keys(node);
+          for (var i = 0; i < keys.length; i++) {
+            var normalized = keys[i].toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (wanted.indexOf(normalized) >= 0 && typeof node[keys[i]] === 'string' && node[keys[i]].trim()) {
+              var result = {};
+              result[field] = node[keys[i]].trim();
+              return result;
+            }
+          }
+          keys.forEach(function (k) { if (node[k] && typeof node[k] === 'object') queue.push(node[k]); });
+        } else {
+          node.forEach(function (child) { if (child && typeof child === 'object') queue.push(child); });
         }
       }
     }
-    var raw = String(text || '').trim();
+    var raw = String(text || '').trim()
+      .replace(/^```(?:json|text|markdown)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    if (raw.length >= 2 && (raw.charAt(0) === '"' || raw.charAt(0) === "'") &&
+        raw.charAt(raw.length - 1) === raw.charAt(0)) {
+      if (raw.charAt(0) === '"') {
+        try { var quoted = JSON.parse(raw); if (typeof quoted === 'string') raw = quoted.trim(); } catch (e) {}
+      } else raw = raw.slice(1, -1).trim();
+    }
+    var labels = [field].concat(aliases || []).join('|');
+    raw = raw.replace(new RegExp('^(?:' + labels + ')\\s*[:—–-]\\s*', 'i'), '').trim();
     var refusal = /^(?:i(?:'m| am)? (?:sorry|unable|not able|cannot|can't)|i cannot help|i can't help|as an ai|sorry[,!]?\s+(?:but|i\b))/i;
-    var looksLikeJson = /^\s*(?:```(?:json)?\s*)?[\[{]/i.test(raw);
-    if (raw.length >= 20 && raw.length <= 4000 && !looksLikeJson && !refusal.test(raw)) {
-      return { scenario: raw, _plainTextFallback: true };
+    var startsWithTemplateMacro = /^\s*\{\{(?:char|user)\}\}/i.test(raw);
+    var looksLikeJson = !startsWithTemplateMacro && /^\s*(?:```(?:json)?\s*)?[\[{]/i.test(raw);
+    if (raw.length > 0 && raw.length <= maxLength && !looksLikeJson && !refusal.test(raw)) {
+      var out = { _plainTextFallback: true };
+      out[field] = raw;
+      return out;
     }
     return value;
+  }
+
+  function parseScenarioDraft(text) {
+    return parseTextFieldDraft(text, 'scenario', ['situation', 'scene', 'opening', 'opening_scene', 'setting', 'premise', 'scenario_text', 'scenario_draft', 'roleplay_scenario', 'description', 'text', 'content', 'answer', 'response', 'result', 'output', 'data'], 4000);
+  }
+
+  function parseGreetingDraft(text) {
+    return parseTextFieldDraft(text, 'greeting', ['first_message', 'opening', 'message', 'text', 'content', 'answer', 'response', 'result', 'output', 'data'], 2400);
+  }
+
+  /** Turn a small labeled prose response into the virtual-human fields. This
+   *  deliberately avoids requiring another JSON-shaped response from the model. */
+  function parseLifeNotes(text) {
+    var structured = parseAiJson(text) || parseAiJsonPartial(text);
+    if (structured && typeof structured === 'object') {
+      var pending = [structured], walked = [];
+      while (pending.length && walked.length < 80) {
+        var node = pending.shift();
+        if (!node || typeof node !== 'object' || walked.indexOf(node) >= 0) continue;
+        walked.push(node);
+        if (!Array.isArray(node) && ['places', 'routine', 'sleep', 'people', 'diary'].some(function (k) { return node[k] != null; })) {
+          return node;
+        }
+        if (Array.isArray(node)) node.forEach(function (v) { if (v && typeof v === 'object') pending.push(v); });
+        else Object.keys(node).forEach(function (k) { if (node[k] && typeof node[k] === 'object') pending.push(node[k]); });
+      }
+    }
+    var fields = {};
+    String(text || '').split(/\r?\n/).forEach(function (line) {
+      var m = /^\s*(?:[-*•]\s*)?([^:]{2,32}):\s*(.*?)\s*$/.exec(line);
+      if (m && m[2]) fields[m[1].toLowerCase().replace(/[^a-z0-9/]/g, '')] = m[2];
+    });
+    function splitPlace(value, id, kind, fallback) {
+      if (!value) return null;
+      var parts = value.split(/\s*[|—–]\s*/, 2);
+      return { id: id, name: String(parts[0] || fallback).trim().slice(0, 60), kind: kind,
+        note: String(parts[1] || '').trim().slice(0, 160) };
+    }
+    var places = [];
+    var home = splitPlace(fields.home, 'home', 'home', 'Home');
+    var other = splitPlace(fields['study/work'] || fields['school/work'] || fields.otherplace || fields.school || fields.work,
+      'place_other', 'work', 'School');
+    if (home) places.push(home);
+    if (other) places.push(other);
+    var routine = (fields.routine || '').split(/\s*;\s*/).map(function (item) {
+      var m = /^(\d{1,2}:\d{2})\s*(?:[-—–:]\s*)?(.+)$/.exec(item.trim());
+      return m ? { t: m[1], a: m[2].trim().slice(0, 120) } : null;
+    }).filter(Boolean).slice(0, 12);
+    var sleepMatch = /([0-2]?\d:\d{2})\s*(?:-|—|–|to|until)\s*([0-2]?\d:\d{2})/i.exec(fields.sleep || '');
+    var people = (fields.people || '').split(/\s*;\s*/).map(function (item, i) {
+      var m = /^(.+?)\s*(?:\||—|–)\s*(.+)$/.exec(item.trim());
+      var name = m ? m[1].trim() : item.trim();
+      return name ? { id: 'life_person_' + i, name: name.slice(0, 60),
+        relation: m ? m[2].trim().slice(0, 60) : '', closeness: 0, note: '' } : null;
+    }).filter(Boolean).slice(0, 8);
+    var diary = fields.diary ? [fields.diary.slice(0, 300)] : [];
+    if (!places.length && !routine.length && !sleepMatch && !people.length && !diary.length) return null;
+    return { places: places, routine: routine,
+      sleep: sleepMatch ? { start: sleepMatch[1], end: sleepMatch[2] } : null,
+      people: people, diary: diary };
+  }
+
+  /** Parse compact `keywords | content` lines for character lorebook entries. */
+  function parseLoreDraft(text) {
+    var value = parseAiJson(text) || parseAiJsonPartial(text);
+    if (!value) {
+      var raw = String(text || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+      if (raw.charAt(0) === '[') { try { value = JSON.parse(raw); } catch (e) {} }
+    }
+    var source = null, queue = value ? [value] : [], walked = [];
+    while (queue.length && walked.length < 80 && !source) {
+      var node = queue.shift();
+      if (!node || typeof node !== 'object' || walked.indexOf(node) >= 0) continue;
+      walked.push(node);
+      if (Array.isArray(node)) { source = node; break; }
+      if (Array.isArray(node.entries)) { source = node.entries; break; }
+      if (Array.isArray(node.lorebook)) { source = node.lorebook; break; }
+      Object.keys(node).forEach(function (k) { if (node[k] && typeof node[k] === 'object') queue.push(node[k]); });
+    }
+    if (Array.isArray(source)) {
+      var parsed = source.map(function (e) {
+        if (!e) return null;
+        var keys = Array.isArray(e.keys) ? e.keys : String(e.keys || e.keywords || '').split(/[,;]/);
+        var content = String(e.content || e.text || '').trim();
+        keys = keys.map(function (k) { return String(k).trim(); }).filter(Boolean);
+        return keys.length && content ? { keys: keys, content: content, enabled: true } : null;
+      }).filter(Boolean).slice(0, 8);
+      if (parsed.length) return parsed;
+    }
+    return String(text || '').split(/\r?\n/).map(function (line) {
+      var clean = line.trim().replace(/^(?:[-*•]|\d+[.)])\s*/, '').replace(/^`+|`+$/g, '');
+      var at = clean.indexOf('|');
+      if (at < 0) at = clean.search(/\s+[—–]\s+/);
+      if (at < 0) at = clean.indexOf(':');
+      if (at < 1) return null;
+      var keys = clean.slice(0, at).replace(/[,;]+\s*$/, '').split(/[,;]/).map(function (k) { return k.trim(); }).filter(Boolean);
+      var content = clean.slice(at + (clean.charAt(at) === '|' || clean.charAt(at) === ':' ? 1 : 3)).trim();
+      return keys.length && content.length > 5 ? { keys: keys, content: content, enabled: true } : null;
+    }).filter(Boolean).slice(0, 8);
   }
 
   /** One bounded JSON request — the way the AI-creation helpers talk to the
@@ -1411,6 +1548,7 @@
     function parse(text) {
       if (recoverPartial === 'character') return parseCharacterDraft(text);
       if (recoverPartial === 'scenario') return parseScenarioDraft(text);
+      if (recoverPartial === 'greeting') return parseGreetingDraft(text);
       var value = parseAiJson(text);
       return value || (recoverPartial ? parseAiJsonPartial(text) : null);
     }
@@ -1456,7 +1594,8 @@
     summarize: summarize, listModels: listModels, testConnection: testConnection,
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
-    parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial, aiJson: aiJson,
+    parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
+    parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     plainText: plainText, repairMojibake: repairMojibake,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); },

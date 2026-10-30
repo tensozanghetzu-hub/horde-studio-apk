@@ -1545,6 +1545,16 @@
         '</div>') +
 
       '<div class="group">' +
+        '<div class="group-title">Character lorebook</div>' +
+        '<div class="field"><div class="hint" style="margin:0">Optional facts for this character. Trigger keywords determine when each entry joins the prompt.</div></div>' +
+        '<div id="char-lorebook-rows"></div>' +
+        '<div class="field"><div class="row">' +
+          '<button class="btn ghost sm" style="flex:1" data-act="lore-add-entry">' + icon('plus') + ' Add entry</button>' +
+          '<button class="btn ghost sm" style="flex:1" data-act="lore-ai-draft">' + icon('sparkle') + ' Draft with AI</button>' +
+        '</div></div>' +
+      '</div>' +
+
+      '<div class="group">' +
         '<div class="group-title">Overrides (optional)</div>' +
         '<div class="field"><div class="field-head"><label>System prompt override</label></div>' +
           '<textarea id="e-sys" placeholder="Blank = use the global system prompt.">' + esc(char.systemPrompt) + '</textarea></div>' +
@@ -1564,6 +1574,47 @@
 
     var body = $('#editor-body');
     var draft = Object.assign({}, char);
+    draft.lorebook = (Array.isArray(draft.lorebook) ? draft.lorebook : []).map(function (e) {
+      var item = Object.assign({}, e || {});
+      item.keys = Array.isArray(item.keys) ? item.keys.slice() : String(item.keys || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean);
+      if (item.enabled === undefined) item.enabled = true;
+      return item;
+    });
+    function renderCharLorebook() {
+      var box = $('#char-lorebook-rows', body);
+      if (!box) return;
+      if (!draft.lorebook.length) {
+        box.innerHTML = '<div class="field"><span class="hint">No character lore entries yet.</span></div>';
+        return;
+      }
+      box.innerHTML = draft.lorebook.map(function (entry, i) {
+        return '<div class="field" data-char-lore="' + i + '">' +
+          '<div class="row" style="margin-bottom:6px"><input type="text" data-cl-keys="' + i + '" value="' +
+            esc((entry.keys || []).join(', ')) + '" placeholder="Trigger keywords" style="flex:1">' +
+            '<button class="chip" data-cl-delete="' + i + '" aria-label="Remove lore entry">' + icon('trash') + '</button></div>' +
+          '<textarea data-cl-content="' + i + '" placeholder="Lore content">' + esc(entry.content || '') + '</textarea>' +
+          '<div class="field compact" style="padding:6px 0 0"><label>Enabled</label><div class="toggle' +
+            (entry.enabled !== false ? ' on' : '') + '" data-cl-enabled="' + i + '"></div></div>' +
+        '</div>';
+      }).join('');
+      box.querySelectorAll('[data-cl-keys]').forEach(function (el) {
+        el.oninput = function () { draft.lorebook[+el.getAttribute('data-cl-keys')].keys = el.value.split(',').map(function (k) { return k.trim(); }).filter(Boolean); };
+      });
+      box.querySelectorAll('[data-cl-content]').forEach(function (el) {
+        el.oninput = function () { draft.lorebook[+el.getAttribute('data-cl-content')].content = el.value; };
+      });
+      box.querySelectorAll('[data-cl-enabled]').forEach(function (el) {
+        el.onclick = function () {
+          var entry = draft.lorebook[+el.getAttribute('data-cl-enabled')];
+          entry.enabled = entry.enabled === false;
+          el.classList.toggle('on', entry.enabled !== false);
+        };
+      });
+      box.querySelectorAll('[data-cl-delete]').forEach(function (el) {
+        el.onclick = function () { draft.lorebook.splice(+el.getAttribute('data-cl-delete'), 1); renderCharLorebook(); };
+      });
+    }
+    renderCharLorebook();
     /* The swipeable intro stack for the Greeting field — slots copy the
        texts, so browsing around never touches the sheet until collect(). */
     var introNav = Views.introNavModel(draft);
@@ -1605,6 +1656,31 @@
     /* v1.29.0: the card's own pictures open full-screen on tap */
     on(body, '[data-lightbox]', 'click', function (e) {
       UI.lightbox(e.currentTarget.getAttribute('data-lightbox'));
+    });
+    on(body, '[data-act=lore-add-entry]', 'click', function () {
+      draft.lorebook.push({ id: UI.uid('l'), keys: [], content: '', enabled: true });
+      renderCharLorebook();
+      var last = body.querySelector('[data-cl-keys="' + (draft.lorebook.length - 1) + '"]');
+      if (last) last.focus();
+    });
+    on(body, '[data-act=lore-ai-draft]', 'click', function () {
+      var name = $('#e-name', body).value.trim() || 'the character';
+      var persona = $('#e-persona', body).value.trim().slice(0, 500);
+      var scenario = $('#e-scenario', body).value.trim().slice(0, 250);
+      UI.toast('Drafting character lore…');
+      API.quickText(Store.settings,
+        'Create 3 distinct, concise character lorebook entries for ' + name +
+        (persona ? '. Persona: ' + persona : '') + (scenario ? '. Story setting: ' + scenario : '') +
+        '. Return exactly three lines, no markdown. Each line must be: trigger keywords | factual lore content. ' +
+        'Use 1-3 comma-separated trigger keywords and one short, reusable fact per line. Do not write actions or dialogue for the player.',
+        360, 0.3).then(function (text) {
+          var entries = API.parseLoreDraft(text || '');
+          if (!entries.length) return UI.toast('No lore entries came back; you can add them manually.', 5000);
+          entries.forEach(function (e) { e.id = UI.uid('l'); });
+          draft.lorebook = draft.lorebook.concat(entries);
+          renderCharLorebook();
+          UI.toast(entries.length + ' lore entr' + (entries.length === 1 ? 'y' : 'ies') + ' drafted — edit, then Save');
+        }).catch(function (e) { UI.toast('Lore draft failed: ' + e.message, 4500); });
     });
 
     on(body, '[data-act=av-url]', 'click', function () {
@@ -1692,28 +1768,29 @@
           if (a.scenario) $('#e-scenario', body).value = String(a.scenario).trim().slice(0, 600);
           if (a.greeting) $('#e-greeting', body).value = String(a.greeting).trim().slice(0, 600);
           if (a.examples) $('#e-examples', body).value = String(a.examples).trim().slice(0, 1200);
-          /* 2/2 the life around the story, conditioned on the person */
+          /* 2/2 the life around the story, conditioned on the person. Use a
+             short labeled-text format rather than fragile nested JSON. */
           UI.toast('Now their life — 2 of 2…');
           var who = ($('#e-name', body).value.trim() || 'the character');
           var personaClip = String(a.persona).trim().slice(0, 300);
-          return API.aiJson(Store.settings,
-            'Draft the life around the story for ' + who +
+          return API.quickText(Store.settings,
+            'Draft a compact daily life for ' + who +
             (personaClip ? ', whose persona is: "' + personaClip + '"' : '') + '. ' +
-            'Return ONLY compact JSON, no markdown or commentary. Keep it brief: 2 places, 3 routine entries, ' +
-            'sleep, 1-2 people, and 1 short diary beat. Use short values and no extra keys: ' +
-            '{"places":[{"id":"snake_id","name":string,"kind":"home|work|outdoor|other"}, 2 places], ' +
-            '"routine":[{"t":"HH:MM","a":short string}, 3 entries], ' +
-            '"sleep":{"start":"HH:MM","end":"HH:MM"}, ' +
-            '"people":[{"name":string,"relation":string,"closeness":number from -1 to 1}], ' +
-            '"diary":[one short past-tense life beat]}',
-            480, null, true).then(function (b) {
-              if (!b) {
-                btn.disabled = false;
-                UI.toast('Life details were not returned; the default routine and places are ready to edit', 5500);
-                collect();
-                return Views.editor($('#editor-body'), Object.assign({}, char, draft, { vh: vh }));
+            'Return exactly these six plain-text lines, not JSON, with short values and no extra commentary:\n' +
+            'Home: place name | one detail\nStudy/work: place name | one detail\n' +
+            'Routine: HH:MM short activity; HH:MM short activity; HH:MM short activity\n' +
+            'Sleep: HH:MM-HH:MM\nPeople: name — relation; name — relation\n' +
+            'Diary: one short past-tense sentence.',
+            480, 0.3).then(function (lifeText) {
+              var b = API.parseLifeNotes(lifeText);
+              var lifeParsed = !!b;
+              var lifeRemainder = String(lifeText || '').trim();
+              if (!b) b = { places: [], routine: [], sleep: null, people: [], diary: [] };
+              if (!lifeParsed && lifeRemainder) {
+                vh.chronicle = (vh.chronicle || []).concat([{ ts: Date.now(), text: lifeRemainder.slice(0, 600) }]).slice(-20);
               }
-              /* the life around the inbox: fill only what came back clean */
+              /* Fill only what came back clean; untouched fields keep the
+                 character's safe defaults so a bad response never blocks Save. */
               if (Array.isArray(b.places) && b.places.length) {
                 var places = b.places.filter(function (p) { return p && p.name; }).slice(0, 8).map(function (p, i) {
                   return { id: (typeof p.id === 'string' && /^[\w-]+$/.test(p.id)) ? p.id : 'place_' + i,
@@ -1742,7 +1819,9 @@
               if (Array.isArray(b.diary) && b.diary.length) {
                 vh.chronicle = b.diary.map(function (t) { return { ts: Date.now(), text: String(t).slice(0, 300) }; });
               }
-              UI.toast('Draft in — edit anything, then Save');
+              UI.toast(lifeParsed ? 'Draft in — edit anything, then Save' :
+                (lifeRemainder ? 'Life note kept; default routine and places are ready to edit' :
+                  'Person drafted; default routine and places are ready to edit'));
               collect();
               Views.editor($('#editor-body'), Object.assign({}, char, draft, { vh: vh }));
             });
@@ -1805,8 +1884,8 @@
         (persona ? ', whose persona is: "' + persona + '"' : '') +
         ', would send the player as their very first line. In their voice, 1-3 sentences, ending so the player can answer. ' +
         'Return ONLY a JSON object, no markdown, no commentary: {"greeting": string}.',
-        120).then(function (d) {
-          if (!d || !d.greeting) return UI.toast('No usable draft — try again', 4500);
+        240, null, 'greeting').then(function (d) {
+          if (!d || !d.greeting) return UI.toast('The model returned no usable greeting. Try again or write it manually.', 5000);
           $('#e-greeting', body).value = String(d.greeting).trim();
           UI.toast('Draft inserted — edit as you like');
         }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
