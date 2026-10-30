@@ -48,3 +48,11 @@ Thumbs.db
 android-sdk/
 research/
 .npm/
+
+# User-authored character cards and their embedded-image exports stay local.
+# All cards created for this user belong in /character-cards/ and are never published.
+/character-cards/
+/Draconica-Malfoy-*.json
+/draconica-malfoy-*.json
+*.card.json
+*.card.png

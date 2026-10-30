@@ -41,6 +41,45 @@ git add .gitignore README.md NOTES.md GITHUB-SETUP.md sync-github.sh 2>/dev/null
 git add tools apk-build horde-studio-mobile tests .github 2>/dev/null || true
 git add docs 2>/dev/null || true
 
+# Character cards are private workspace artifacts, not product source. Keep
+# them under /character-cards/ (gitignored) and hard-stop if a V2/V3 card or
+# PNG-embedded card is ever staged from anywhere else by mistake.
+CARD_BAD="$(python3 - <<'PY'
+import json, os, subprocess
+bad = []
+paths = subprocess.check_output(['git', 'diff', '--cached', '--diff-filter=ACMR', '--name-only', '-z']).decode().split('\0')
+for path in filter(None, paths):
+    low = path.lower()
+    if low.startswith('character-cards/') or low.endswith(('.card.json', '.card.png')):
+        bad.append(path); continue
+    try:
+        raw = open(path, 'rb').read()
+    except OSError:
+        continue
+    is_card = False
+    if low.endswith('.json'):
+        try:
+            obj = json.loads(raw.decode('utf-8'))
+            is_card = obj.get('spec') in ('chara_card_v2', 'chara_card_v3')
+            if not is_card and isinstance(obj.get('data'), dict):
+                d = obj['data']
+                is_card = ('first_mes' in d and 'mes_example' in d and
+                           ('description' in d or 'personality' in d))
+        except Exception:
+            pass
+    elif low.endswith('.png'):
+        is_card = b'ccv3\0' in raw or b'chara_card_v2' in raw or b'chara_card_v3' in raw
+    if is_card: bad.append(path)
+print('\n'.join(bad))
+PY
+)"
+if [ -n "$CARD_BAD" ]; then
+  echo "refusing to publish character-card files; they must stay in /character-cards/:"
+  echo "$CARD_BAD" | sed 's/^/  /'
+  git reset -q
+  exit 1
+fi
+
 # 4. refuse to publish anything that looks like a key, a cache or a photo
 BAD="$(git diff --cached --name-only | grep -E \
   '(^|/)\.ssh/|id_ed25519|id_rsa|\.pem$|\.key$|\.netrc|git-credentials|/\.cache/|/node_modules/|/vendor/|/uploads/|android-sdk|/\.local/' \
