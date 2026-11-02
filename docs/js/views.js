@@ -1036,7 +1036,7 @@
           '<input type="password" id="set-hkey" value="' + esc(s.hordeKey) + '" placeholder="0000000000 = anonymous">' +
           '<div class="hint">Free account at aihorde.net — a key jumps the queue. Anonymous works too.</div></div>' +
         '<div class="field"><div class="field-head"><label>Image model</label></div>' +
-          '<div class="row"><button class="btn ghost sm" id="btn-hmodel" style="flex:1;text-align:left">' + esc(s.hordeModel || 'Tap to choose') + '</button>' +
+          '<div class="row"><button class="btn ghost sm" id="btn-hmodel" style="flex:1;text-align:left">' + esc(Horde.imageModelLabel(s.hordeModel) || 'Tap to choose') + '</button>' +
           '<button class="btn ghost sm" id="btn-refresh-hmodels">' + icon('refresh') + '</button></div></div>' +
         '<div class="field"><div class="field-head"><label>Image size</label><span class="spacer"></span><span class="val" id="v-size">' + s.hordeSize + 'px</span></div>' +
           '<div class="hint">Smaller = cheaper in kudos and much shorter queue time.</div>' +

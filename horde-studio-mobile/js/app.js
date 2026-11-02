@@ -2600,14 +2600,19 @@
         '<div class="hint">Sent to the AI Horde — a free, volunteer-run GPU cluster. Expect 20–60 seconds.</div></div>' +
         '<div class="field"><div class="field-head"><label>Model</label><span class="spacer"></span>' +
         '<button class="chip" id="img-model">Choose…</button></div>' +
-        '<div class="hint" id="img-model-name">' + esc(s.hordeModel || 'Default') + '</div></div>' +
+        '<div class="hint" id="img-model-name">' + esc(Horde.imageModelLabel(s.hordeModel) || 'Any available (fastest)') + '</div></div>' +
+        '<div class="field"><label style="display:flex;align-items:center;gap:9px"><input type="checkbox" id="img-nsfw"> Allow NSFW for this image</label>' +
+        '<div class="hint">Marks the request as potentially adult so only workers that accept NSFW jobs can take it. Other Horde safety checks still apply.</div></div>' +
         '<div class="field"><div class="field-head"><label>Size</label><span class="spacer"></span><span class="val" id="img-size-v">' + s.hordeSize + 'px</span></div>' +
         '<div class="seg" id="img-size">' + [512, 640, 768, 1024].map(function (n) {
           return '<button data-size="' + n + '"' + (n === s.hordeSize ? ' class="on"' : '') + '>' + n + '</button>';
         }).join('') + '</div></div>',
       actions: [
         { label: 'Cancel', cls: 'ghost', value: null },
-        { label: 'Generate', cls: 'primary', onClick: function (b) { return b.querySelector('#img-prompt').value.trim(); } }
+        { label: 'Generate', cls: 'primary', onClick: function (b) {
+          var prompt = b.querySelector('#img-prompt').value.trim();
+          return prompt ? { prompt: prompt, nsfw: b.querySelector('#img-nsfw').checked } : null;
+        } }
       ],
       onMount: function (b) {
         b.querySelector('#img-size').onclick = function (e) {
@@ -2619,17 +2624,17 @@
         };
         b.querySelector('#img-model').onclick = function () {
           App.chooseHordeModel('image', false).then(function (m) {
-            b.querySelector('#img-model-name').textContent = m || 'Any available (fastest)';
+            b.querySelector('#img-model-name').textContent = Horde.imageModelLabel(m) || 'Any available (fastest)';
           });
         };
       }
-    }).then(function (prompt) {
-      if (!prompt) return;
-      App.runImage(prompt, pickedSize);
+    }).then(function (request) {
+      if (!request || !request.prompt) return;
+      App.runImage(request.prompt, pickedSize, request.nsfw);
     });
   };
 
-  App.runImage = function (prompt, size) {
+  App.runImage = function (prompt, size, nsfw) {
     var s = Store.settings;
     var ctrl = new AbortController();
     App.abort = ctrl;
@@ -2643,7 +2648,7 @@
       return s.hordeModel;
     }).catch(function () { return s.hordeModel; }).then(function (model) {
       return Horde.generateImage({
-        prompt: prompt, model: model, width: size, height: size,
+        prompt: prompt, model: model, nsfw: !!nsfw, width: size, height: size,
         steps: s.hordeSteps, apikey: s.hordeKey, signal: ctrl.signal, maxWait: s.hordeMaxWait,
         onProgress: function (info) {
           if (info.state === 'processing') App.genSet('Painting on a volunteer GPU…', info.waitTime);
@@ -2849,13 +2854,24 @@
           value: Horde.ANY_UNCENSORED, label: 'Any available (uncensored)',
           sub: 'only uncensored / abliterated models, whichever is free'
         });
+      } else if (type === 'image') {
+        items.push({
+          value: Horde.ANY_NSFW_IMAGE, label: 'Any available (NSFW-tagged)',
+          sub: 'Horde-reference models marked NSFW with workers online'
+        });
       }
       rows.forEach(function (r) {
+        var name = typeof r === 'string' ? r : r.name;
+        if (!name) return;
+        var count = typeof r === 'string' ? 0 : (r.count || 0);
+        var eta = typeof r === 'string' ? 0 : (r.eta || 0);
+        var jobs = typeof r === 'string' ? 0 : (r.jobs || 0);
         items.push({
-          value: r.name, label: r.name, dim: !r.count,
-          sub: (r.count ? r.count + ' workers' : 'no workers online') +
-               (r.eta ? ' · ETA ' + r.eta + 's' : '') +
-               (r.jobs ? ' · ' + r.jobs + ' jobs queued' : '')
+          value: name, label: name, dim: typeof r === 'string' ? false : !count,
+          sub: typeof r === 'string' ? 'cached model · refresh to check workers' :
+               (count ? count + ' workers' : 'no workers online') +
+               (eta ? ' · ETA ' + eta + 's' : '') +
+               (jobs ? ' · ' + jobs + ' jobs queued' : '')
         });
       });
       return items;

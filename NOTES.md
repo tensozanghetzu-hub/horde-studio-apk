@@ -1,5 +1,26 @@
 # Horde Studio Mobile — release notes
 
+## Web patch 2026-11-02 — Horde image NSFW model routing
+
+- AI Horde image-model picker adds **Any available (NSFW-tagged)**. At
+  generation time it joins the live worker/model list with Horde's official
+  image-model reference (`nsfw: true`), so the request is restricted to
+  tagged models that currently have workers online. This is an NSFW capability
+  tag, not a claim that the model is uncensored.
+- Image generation adds a per-request **Allow NSFW for this image** checkbox.
+  Checked sets the Horde request's `nsfw: true` and `censor_nsfw: false`; it
+  signals that workers must accept NSFW jobs. Unchecked behavior is unchanged.
+  Horde's other content checks still apply.
+- Model-reference metadata is cached for one hour; live worker availability
+  is refreshed on the existing five-minute status cache. Missing metadata or
+  no eligible workers fails with a clear message; it never silently broadens
+  the model filter.
+- Added `tests/horde-image-nsfw-test.js` (12 checks) for tagged-model/live-
+  worker intersection, payload flags, default-safe behavior and empty-pool
+  handling. Full local battery: 76 test files pass; 2 browser tests are blocked
+  because `playwright-core` is not installed in this workspace.
+- Web revision: `d13a7dcc1764` (app version remains 1.39.42; no APK rebuild).
+
 ## v1.39.37 — repair inline memory fact editing and deletion
 - Root cause: UI.input/UI.confirm opened a nested singleton sheet, replacing
   the Memory sheet; its in-memory edits were then lost. Replace fact edit,

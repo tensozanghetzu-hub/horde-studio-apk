@@ -71,6 +71,9 @@
 
   /* ---------- model lists (cached 5 min so we can warn about offline models) ---------- */
   var modelCache = {};
+  var IMAGE_REFERENCE_URL = 'https://models.aihorde.net/model_references/v2/image_generation';
+  var imageReferenceCache = null;
+  var imageReferenceInFlight = null;
 
   function listModels(type) {
     var fresh = modelCache[type] && (Date.now() - modelCache[type].at < 5 * 60 * 1000);
@@ -94,6 +97,53 @@
     return listModels(type).then(function (rows) {
       return rows.filter(function (r) { return r.count > 0; });
     });
+  }
+
+  /* The Horde status endpoint reports workers and queues, but not each
+     image model's NSFW capability. Join it with Horde's authoritative model
+     reference so the picker never guesses from a model's name. */
+  function imageReference() {
+    if (imageReferenceCache && Date.now() - imageReferenceCache.at < 60 * 60 * 1000) {
+      return Promise.resolve(imageReferenceCache.rows);
+    }
+    if (imageReferenceInFlight) return imageReferenceInFlight;
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 15000);
+    imageReferenceInFlight = fetch(IMAGE_REFERENCE_URL, {
+      headers: { Accept: 'application/json' }, signal: ctrl.signal
+    }).then(function (r) {
+      if (!r.ok) throw new Error('Horde image model reference returned HTTP ' + r.status + '.');
+      return r.json();
+    }).then(function (rows) {
+      if (!rows || typeof rows !== 'object') throw new Error('Horde image model reference was invalid.');
+      imageReferenceCache = { at: Date.now(), rows: rows };
+      clearTimeout(timer);
+      imageReferenceInFlight = null;
+      return rows;
+    }).catch(function (e) {
+      clearTimeout(timer);
+      imageReferenceInFlight = null;
+      if (e && e.name === 'AbortError') throw new Error('Horde image model tags timed out. Retry or choose a specific model.');
+      throw e;
+    });
+    return imageReferenceInFlight;
+  }
+
+  var ANY_NSFW_IMAGE = '__any_nsfw_image__';
+  function anyNsfwImageModels() {
+    return Promise.all([onlineModels('image'), imageReference()]).then(function (parts) {
+      var online = parts[0], refs = parts[1], tagged = {};
+      Object.keys(refs).forEach(function (key) {
+        var ref = refs[key];
+        if (ref && ref.nsfw === true) tagged[String(ref.name || key).toLowerCase()] = true;
+      });
+      return online.filter(function (m) { return !!tagged[String(m.name).toLowerCase()]; })
+        .map(function (m) { return m.name; });
+    });
+  }
+  function imageModelLabel(value) {
+    if (value === ANY_NSFW_IMAGE) return 'Any available (NSFW-tagged)';
+    return value || '';
   }
 
   /* ---------- “Any available (uncensored)” ---------- */
@@ -237,45 +287,53 @@
 
   /* ---------- images ---------- */
   function generateImage(o) {
-    var payload = {
-      prompt: o.prompt,
-      nsfw: !!o.nsfw,
-      censor_nsfw: !o.nsfw,
-      r2: true,
-      trusted_workers: false,
-      params: {
-        n: 1,
-        width: o.width || 640,
-        height: o.height || o.width || 640,
-        steps: o.steps || 20,
-        cfg_scale: o.cfg || 6.5,
-        sampler_name: 'k_euler',
-        karras: true
+    var modelsPromise = o.model === ANY_NSFW_IMAGE ? anyNsfwImageModels() : Promise.resolve(null);
+    return modelsPromise.then(function (nsfwModels) {
+      if (o.model === ANY_NSFW_IMAGE && !nsfwModels.length) {
+        throw new Error('No online NSFW-tagged image models are available right now — choose “Any available (fastest)” or a specific online model.');
       }
-    };
-    if (o.model) payload.models = [o.model];
+      var payload = {
+        prompt: o.prompt,
+        nsfw: !!o.nsfw,
+        censor_nsfw: !o.nsfw,
+        r2: true,
+        trusted_workers: false,
+        params: {
+          n: 1,
+          width: o.width || 640,
+          height: o.height || o.width || 640,
+          steps: o.steps || 20,
+          cfg_scale: o.cfg || 6.5,
+          sampler_name: 'k_euler',
+          karras: true
+        }
+      };
+      if (o.model === ANY_NSFW_IMAGE) payload.models = nsfwModels;
+      else if (Array.isArray(o.models) && o.models.length) payload.models = o.models.slice();
+      else if (o.model) payload.models = [o.model];
 
-    var tries = o.emptyTries === undefined ? 2 : Math.max(1, Math.min(5, o.emptyTries));
+      var tries = o.emptyTries === undefined ? 2 : Math.max(1, Math.min(5, o.emptyTries));
 
-    function again(i) {
-    return req('/generate/async', { method: 'POST', apikey: o.apikey, json: payload, signal: o.signal, timeout: 40 })
-      .then(function (res) {
-        if (!res || !res.id) throw new Error('The Horde refused the request.');
-        return pollJob('image', res.id, o).then(function (st) {
-          var g = (st.generations || [])[0];
-          if (g && g.img) {
-            return { url: g.img, seed: g.seed, worker: g.worker_name, model: g.model, id: g.id, kudos: res.kudos };
-          }
-          if (i + 1 >= tries) {
-            throw new Error('The Horde returned no image' + (tries > 1 ? ' after ' + tries + ' tries' : '') +
-              ' (job ' + (st.faulted ? 'faulted' : 'empty') + ').');
-          }
-          if (o.onProgress) o.onProgress({ state: 'empty', attempt: i + 1, of: tries, faulted: !!st.faulted });
-          return sleep(1200, o.signal).then(function () { return again(i + 1); });
+      function again(i) {
+      return req('/generate/async', { method: 'POST', apikey: o.apikey, json: payload, signal: o.signal, timeout: 40 })
+        .then(function (res) {
+          if (!res || !res.id) throw new Error('The Horde refused the request.');
+          return pollJob('image', res.id, o).then(function (st) {
+            var g = (st.generations || [])[0];
+            if (g && g.img) {
+              return { url: g.img, seed: g.seed, worker: g.worker_name, model: g.model, id: g.id, kudos: res.kudos };
+            }
+            if (i + 1 >= tries) {
+              throw new Error('The Horde returned no image' + (tries > 1 ? ' after ' + tries + ' tries' : '') +
+                ' (job ' + (st.faulted ? 'faulted' : 'empty') + ').');
+            }
+            if (o.onProgress) o.onProgress({ state: 'empty', attempt: i + 1, of: tries, faulted: !!st.faulted });
+            return sleep(1200, o.signal).then(function () { return again(i + 1); });
+          });
         });
-      });
-    }
-    return again(0);
+      }
+      return again(0);
+    });
   }
 
   /* ---------- text ---------- */
@@ -359,7 +417,9 @@
   global.Horde = {
     BASE: BASE, ANON: ANON,
     ANY_UNCENSORED: ANY_UNCENSORED,
+    ANY_NSFW_IMAGE: ANY_NSFW_IMAGE,
     isUncensored: isUncensored, anyUncensored: anyUncensored, modelLabel: modelLabel,
+    anyNsfwImageModels: anyNsfwImageModels, imageModelLabel: imageModelLabel,
     listImageModels: function () { return listModels('image'); },
     listTextModels: function () { return listModels('text'); },
     onlineImageModels: function () { return onlineModels('image'); },
