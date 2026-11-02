@@ -1027,6 +1027,9 @@ public class MainActivity extends Activity {
             String n = name == null ? "" : name.toLowerCase(Locale.US);
             if (n.endsWith(".json")) return "application/json";
             if (n.endsWith(".png")) return "image/png";
+            if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+            if (n.endsWith(".webp")) return "image/webp";
+            if (n.endsWith(".gif")) return "image/gif";
             if (n.endsWith(".txt") || n.endsWith(".md")) return "text/plain";
             return "application/octet-stream";
         }

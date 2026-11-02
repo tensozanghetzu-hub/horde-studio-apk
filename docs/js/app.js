@@ -2786,6 +2786,27 @@
   };
 
   /* ---------------- image generation ---------------- */
+  App.downloadChatImage = function (message) {
+    var source = message && message.image;
+    if (!source) return UI.toast('This message has no image to download.');
+    UI.toast('Preparing image download…');
+    return fetch(source, { mode: 'cors' }).then(function (response) {
+      if (!response.ok) throw new Error('Image download returned HTTP ' + response.status);
+      return response.blob();
+    }).then(function (blob) {
+      var mime = (blob.type || '').toLowerCase().split(';')[0];
+      if (mime.indexOf('image/') !== 0) throw new Error('The image source did not return an image.');
+      var ext = mime === 'image/jpeg' ? 'jpg' : (mime.split('/')[1] || 'png').replace(/[^a-z0-9]/g, '');
+      var stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      UI.download('horde-studio-image-' + stamp + '.' + ext, blob, mime);
+      return true;
+    }).catch(function () {
+      UI.toast('Could not fetch this image for download. Opening it so you can try saving it manually.', 5000);
+      UI.lightbox(source);
+      return false;
+    });
+  };
+
   App.imageProviderLabel = function (provider) {
     return provider === 'cloudflare' ? 'Cloudflare Workers AI'
       : provider === 'pollinations' ? 'Pollinations Classic' : 'AI Horde';
@@ -3604,6 +3625,8 @@
       } else if (act === 'copy') {
         if (navigator.clipboard) navigator.clipboard.writeText(msg.text || '');
         UI.toast('Copied');
+      } else if (act === 'download-image') {
+        App.downloadChatImage(msg);
       } else if (act === 'reroll') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
         App.generateReply({ rerollFor: msg });

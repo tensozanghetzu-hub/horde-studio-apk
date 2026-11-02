@@ -1,5 +1,16 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.44 — download generated chat images (2026-11-03)
+
+- Added a **Download image** action to chat messages that contain an image.
+  It saves fetched image bytes to `Downloads/HordeStudio/` in the APK, or uses
+  the browser's standard download path. File extensions and MIME types are
+  preserved for PNG, JPEG, WebP, and GIF images.
+- If a remote image host blocks CORS fetching, the app opens the image viewer
+  and explains that the image can be saved manually.
+- Bumped the offline cache; regression tests cover rendering, successful save
+  and the cross-origin fallback.
+
 ## v1.39.43 — image provider options (2026-11-02)
 
 - Added an image-provider selector for AI Horde, Pollinations Classic, and

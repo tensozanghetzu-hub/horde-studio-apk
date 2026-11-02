@@ -2391,6 +2391,7 @@
           (m.autonomous ? '<div class="auto-tag">· sent on their own</div>' : '') +
         '</div>' +
         '<div class="msg-actions">' +
+          (m.image ? '<button class="chip" data-act="download-image" title="Save this image to Downloads">' + icon('download') + ' Download image</button>' : '') +
           (isMe
             ? (m.retry ? '<button class="chip retry" data-act="retry">' + icon('refresh') + ' Retry</button>' : '') +
               '<button class="chip" data-act="edit">' + icon('edit') + ' Edit</button>' +
