@@ -373,6 +373,15 @@
     return String(s.baseUrl || '').replace(/\/+$/, '');
   }
 
+  /* OpenRouter's free Nemotron 3 endpoints default to reasoning. At the
+     app's normal reply budget, that can consume all generated tokens before
+     any user-facing content is emitted. Keep this workaround narrowly scoped
+     to OpenRouter's NVIDIA Nemotron 3 free routes. */
+  function isOpenRouterFreeNemotron(s, model) {
+    return endpoint(s).toLowerCase().indexOf('openrouter.ai') !== -1 &&
+      /^nvidia\/nemotron-3(?:\.5)?-[^:]+:free$/i.test(String(model || s.model || '').trim());
+  }
+
   function headers(s) {
     var h = { 'Content-Type': 'application/json' };
     if (s.apiKey) h['Authorization'] = 'Bearer ' + s.apiKey;
@@ -478,6 +487,13 @@
       max_tokens: s.maxTokens,
       stream: wantStream
     }, override || {});
+    /* OpenRouter's free Nemotron 3 routes can spend this whole budget on
+       hidden reasoning, returning no final content. Disable it by default
+       only for those routes; leave an explicit caller override intact. */
+    var guardedNemotron = isOpenRouterFreeNemotron(s, body.model);
+    if (guardedNemotron && !(body.reasoning && body.reasoning.enabled === true)) {
+      body.reasoning = Object.assign({}, body.reasoning || {}, { enabled: false });
+    }
     /* v1.39.25 — repetition guard: never sent before, so a model's favorite
        words kept regenerating into the history they were read back from — a
        loop no amount of message-editing could ever finish. 0/unset omits the
@@ -536,6 +552,10 @@
         if (!wantStream) {
           return r.json().then(function (d) {
             var txt = (d.choices && d.choices[0] && (d.choices[0].message ? d.choices[0].message.content : d.choices[0].text)) || '';
+            if (!txt && guardedNemotron) {
+              fail(new Error('The OpenRouter free Nemotron endpoint returned no final answer text. Reasoning is disabled automatically; retry the request.'));
+              return;
+            }
             if (onDelta) onDelta(txt);
             ok(txt);
           }).catch(fail);
@@ -580,6 +600,10 @@
                    was never a real chat stream. A frame that parsed but had
                    no content is legitimate (the app shows its "…" bubble),
                    and keeps resolving '' exactly as before. */
+                if (!full && guardedNemotron) {
+                  fail(new Error('The OpenRouter free Nemotron endpoint returned no final answer text. Reasoning is disabled automatically; retry the request.'));
+                  return;
+                }
                 if (!full && !sawValidFrame) {
                   fail(new Error('The provider completed without visible text. Retry or choose another model.'));
                   return;
