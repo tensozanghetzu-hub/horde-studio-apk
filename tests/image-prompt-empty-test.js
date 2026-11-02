@@ -3,7 +3,7 @@
 var fs=require('fs'), path=require('path');
 var src=fs.readFileSync(path.join(__dirname,'..','horde-studio-mobile','js','app.js'),'utf8');
 var start=src.indexOf('  App.imageSheet = function () {');
-var end=src.indexOf('  App.runImage = function (prompt, size, nsfw) {',start);
+var end=src.indexOf('  App.runImage = function (prompt, size, nsfw, provider) {',start);
 if(start<0||end<0) throw new Error('Could not find imageSheet source block');
 var block=src.slice(start,end);
 var match=block.match(/<textarea\s+id="img-prompt"[^>]*>([\s\S]*?)<\/textarea>/);

@@ -720,7 +720,7 @@
     generation: { title: 'Generation', hint: 'Temperature, reply length, context', icon: 'sparkle', view: 'settingsGeneration' },
     you:        { title: 'You', hint: 'Your name and identity', icon: 'user', view: 'settingsYou' },
     system:     { title: 'System prompt', hint: 'Rules sent with every message', icon: 'chat', view: 'settingsSystem' },
-    horde:      { title: 'AI Horde · images &amp; free text', hint: 'Free key, image model, queue', icon: 'image', view: 'settingsHorde' },
+    horde:      { title: 'Image generation & AI Horde', hint: 'Choose an image provider and configure Horde', icon: 'image', view: 'settingsHorde' },
     memory:     { title: 'Memory', hint: 'Auto-summarise long chats', icon: 'brain', view: 'settingsMemory' },
     data:       { title: 'Data', hint: 'Backup, restore, erase', icon: 'download', view: 'settingsData' },
     storage:    { title: 'Storage', hint: 'What the app is holding', icon: 'copy', view: 'settingsStorage' },
@@ -810,7 +810,7 @@
         '<div class="group-title">About</div>' +
         '<div class="field"><div class="kv"><span>Version</span><b>' + esc(info.verLabel) + ' · mobile</b></div>' +
         '<div class="kv"><span>Text</span><b>' + esc(s.provider === 'horde' ? 'AI Horde (free)' : (Store.PRESETS[s.provider] || {}).label || 'Custom') + '</b></div>' +
-        '<div class="kv"><span>Images</span><b>AI Horde</b></div>' +
+        '<div class="kv"><span>Images</span><b>' + esc(s.imageProvider === 'cloudflare' ? 'Cloudflare Workers AI' : s.imageProvider === 'pollinations' ? 'Pollinations Classic' : 'AI Horde') + '</b></div>' +
         '<div class="hint">Horde Studio Mobile is an unofficial, mobile-first client. It talks to whatever backend you configure — ' +
         'nothing is sent anywhere except your chosen provider.</div></div>' +
       '</div>';
@@ -1034,7 +1034,18 @@
     var body = $('#settings-x-body');
     body.innerHTML =
       '<div class="group">' +
-        '<div class="group-title">AI Horde · images &amp; free text</div>' +
+        '<div class="group-title">Image generation</div>' +
+        '<div class="field"><div class="field-head"><label>Default image provider</label></div>' +
+          '<select id="set-image-provider"><option value="horde"' + (s.imageProvider === 'horde' ? ' selected' : '') + '>AI Horde</option>' +
+          '<option value="pollinations"' + (s.imageProvider === 'pollinations' ? ' selected' : '') + '>Pollinations Classic</option>' +
+          '<option value="cloudflare"' + (s.imageProvider === 'cloudflare' ? ' selected' : '') + '>Cloudflare Workers AI</option></select>' +
+          '<div class="hint">AI Horde is queued and supports model/size controls. Pollinations is free, anonymous and rate-limited. Cloudflare uses your own Worker proxy.</div></div>' +
+        '<div class="field"><div class="field-head"><label>Cloudflare Worker URL</label></div>' +
+          '<input type="url" id="set-cf-worker-url" value="' + esc(s.cloudflareWorkerUrl || '') + '" placeholder="https://your-worker.your-subdomain.workers.dev">' +
+          '<div class="hint">Deploy the user-owned proxy template from tools/cloudflare-image-worker. Paste its HTTPS URL; do not enter a Cloudflare API token.</div></div>' +
+        '<div class="field"><div class="field-head"><label>Worker access token</label></div>' +
+          '<input type="password" id="set-cf-worker-token" value="' + esc(s.cloudflareWorkerToken || '') + '" autocomplete="new-password" placeholder="APP_TOKEN secret from your Worker">' +
+          '<div class="hint">This is the separate APP_TOKEN secret configured on your Worker. It stays on this device and is excluded from backups.</div></div>' +
         '<div class="field"><div class="field-head"><label>Horde API key (optional)</label></div>' +
           '<input type="password" id="set-hkey" value="' + esc(s.hordeKey) + '" placeholder="0000000000 = anonymous">' +
           '<div class="hint">Free account at aihorde.net — a key jumps the queue. Anonymous works too.</div></div>' +
@@ -1058,6 +1069,9 @@
           '<div class="hint">Only used when the provider above is set to AI Horde.</div></div>' +
       '</div>';
     var sc = settingsScope(body);
+    sc.bind('#set-image-provider', 'change', function (e) { sc.set({ imageProvider: e.target.value }); });
+    sc.bind('#set-cf-worker-url', 'change', function (e) { sc.set({ cloudflareWorkerUrl: e.target.value.trim() }); });
+    sc.bind('#set-cf-worker-token', 'change', function (e) { sc.set({ cloudflareWorkerToken: e.target.value.trim() }); });
     sc.bind('#set-hkey', 'change', function (e) { sc.set({ hordeKey: e.target.value.trim() }); });
     sc.range('#set-steps', '#v-steps', 'hordeSteps');
     var mw = $('#set-maxwait', body);
@@ -1401,7 +1415,7 @@
           '<div style="flex:1">' +
             '<button class="btn ghost sm block" data-act="av-url">Use image URL</button>' +
             '<button class="btn ghost sm block" style="margin-top:6px" data-act="av-file">Upload from phone</button>' +
-            '<button class="btn ghost sm block" style="margin-top:6px" data-act="av-gen">Generate with AI Horde</button>' +
+            '<button class="btn ghost sm block" style="margin-top:6px" data-act="av-gen">Generate with ' + esc(App.imageProviderLabel(Store.settings.imageProvider)) + '</button>' +
           '</div>' +
         '</div></div>' +
       '</div>' +

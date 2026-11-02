@@ -2566,7 +2566,8 @@
     var vh = VH.ensure(char);
     if (!opts.manual && !VH.perm(vh, 'photo')) return App.saveAutonomous(char, session, caption, opts);
     var prompt = [char.name, (char.persona || '').slice(0, 120), VH.activity(vh), caption].filter(Boolean).join(', ');
-    return Horde.generateImage({
+    var provider = s.imageProvider || 'horde';
+    return App.generateImageResult(provider, {
       prompt: prompt, model: s.hordeModel, width: 512, height: 512,
       steps: Math.min(s.hordeSteps, 24), apikey: s.hordeKey, maxWait: s.hordeMaxWait,
       onProgress: function (i) {
@@ -2576,25 +2577,11 @@
             : 'Queued · position ' + (i.queuePosition || 0), i.waitTime);
       }
     }).then(function (res) {
-      return fetch(res.url, { mode: 'cors' })
-        .then(function (r) { if (!r.ok) throw new Error('download failed'); return r.blob(); })
-        .then(function (b) {
-          return new Promise(function (resolve) {
-            try {
-              var fr = new FileReader();
-              fr.onload = function () { resolve(fr.result); };
-              fr.onerror = function () { resolve(res.url); };
-              fr.readAsDataURL(b);
-            } catch (e) { resolve(res.url); }   // still show it, just not inlined
-          });
-        })
-        .catch(function () { return res.url; })
-        .then(function (src) { return { src: src, meta: res }; });
+      return App.imageResultSource(res).then(function (src) { return { src: src, meta: res }; });
     }).then(function (out) {
       return Store.addMessage({
         sessionId: session.id, role: 'assistant',
-        text: caption + '\n\n_' + (out.meta.model || 'image') + ' · seed ' + (out.meta.seed || '?') +
-          ' · by ' + (out.meta.worker || 'a volunteer') + '_',
+        text: caption + imageResultNote(out.meta),
         image: out.src, autonomous: true, createdAt: Date.now()
       });
     }).then(function (m) {
@@ -2799,33 +2786,97 @@
   };
 
   /* ---------------- image generation ---------------- */
+  App.imageProviderLabel = function (provider) {
+    return provider === 'cloudflare' ? 'Cloudflare Workers AI'
+      : provider === 'pollinations' ? 'Pollinations Classic' : 'AI Horde';
+  };
+
+  App.generateImageResult = function (provider, options) {
+    options = options || {};
+    if (provider === 'horde') return Horde.generateImage(options);
+    return ImageGen.generate(provider, options, Store.settings);
+  };
+
+  App.imageResultSource = function (result) {
+    if (result.dataUrl) return Promise.resolve(result.dataUrl);
+    var url = result.url || '';
+    if (/^data:image\//i.test(url)) return Promise.resolve(url);
+    if (!url) return Promise.reject(new Error('The provider returned no image.'));
+    return fetch(url, { mode: 'cors' })
+      .then(function (r) { if (!r.ok) throw new Error('download failed'); return r.blob(); })
+      .then(function (blob) {
+        return new Promise(function (resolve) {
+          try {
+            var fr = new FileReader();
+            fr.onload = function () { resolve(fr.result); };
+            fr.onerror = function () { resolve(url); };
+            fr.readAsDataURL(blob);
+          } catch (e) { resolve(url); }
+        });
+      }).catch(function () { return url; });
+  };
+
+  function imageResultNote(result) {
+    var parts = [];
+    if (result.model) parts.push(result.model);
+    if (result.seed !== undefined && result.seed !== null) parts.push('seed ' + result.seed);
+    if (result.worker) parts.push('by ' + result.worker);
+    return parts.length ? '\n\n_' + parts.join(' · ') + '_' : '';
+  }
+
   App.imageSheet = function () {
     var s = Store.settings;
-    var pickedSize = s.hordeSize;
+    var pickedSize = s.hordeSize || 640;
+    var pickedProvider = s.imageProvider || 'horde';
+
+    function providerHint(provider) {
+      if (provider === 'pollinations') return 'No key required. Best-effort and rate-limited: one image request at a time per IP, at least 45 seconds between requests. Maximum 768×768; JPEGs include a small Pollinations logo.';
+      if (provider === 'cloudflare') return 'Uses your own CORS-enabled Worker proxy. Set its HTTPS URL and APP_TOKEN in Settings first. FLUX Schnell controls its own output size and safety behavior.';
+      return 'AI Horde is a free, volunteer-run GPU queue. Queue times vary; your selected model and size are honored.';
+    }
+    function updateProvider(body) {
+      var provider = body.querySelector('#img-provider').value;
+      pickedProvider = provider;
+      body.querySelector('#img-provider-hint').textContent = providerHint(provider);
+      body.querySelector('#img-model-wrap').hidden = provider !== 'horde';
+      body.querySelector('#img-size-wrap').hidden = provider === 'cloudflare';
+      body.querySelector('#img-nsfw-wrap').hidden = provider === 'cloudflare';
+      body.querySelector('#img-nsfw-label').textContent = provider === 'pollinations'
+        ? 'Request less restrictive output' : 'Allow NSFW for this image';
+      body.querySelector('#img-policy-hint').textContent = provider === 'pollinations'
+        ? 'Unchecked sends safe=true for stricter filtering; checked sends safe=false. Pollinations moderation and provider policies still apply.'
+        : 'Marks the request as potentially adult so only workers that accept NSFW jobs can take it. Other Horde safety checks still apply.';
+    }
 
     UI.sheet({
       title: 'Generate an image',
       body:
+        '<div class="field"><div class="field-head"><label>Provider</label></div>' +
+        '<select id="img-provider"><option value="horde"' + (pickedProvider === 'horde' ? ' selected' : '') + '>AI Horde</option>' +
+        '<option value="pollinations"' + (pickedProvider === 'pollinations' ? ' selected' : '') + '>Pollinations Classic</option>' +
+        '<option value="cloudflare"' + (pickedProvider === 'cloudflare' ? ' selected' : '') + '>Cloudflare Workers AI</option></select>' +
+        '<div class="hint" id="img-provider-hint">' + esc(providerHint(pickedProvider)) + '</div></div>' +
         '<div class="field"><div class="field-head"><label>Prompt</label></div>' +
-        '<textarea id="img-prompt" style="min-height:110px" placeholder="Describe the image you want to create…"></textarea>' +
-        '<div class="hint">Sent to the AI Horde — a free, volunteer-run GPU cluster. Expect 20–60 seconds.</div></div>' +
-        '<div class="field"><div class="field-head"><label>Model</label><span class="spacer"></span>' +
+        '<textarea id="img-prompt" style="min-height:110px" placeholder="Describe the image you want to create…"></textarea></div>' +
+        '<div class="field" id="img-model-wrap"><div class="field-head"><label>Horde model</label><span class="spacer"></span>' +
         '<button class="chip" id="img-model">Choose…</button></div>' +
         '<div class="hint" id="img-model-name">' + esc(Horde.imageModelLabel(s.hordeModel) || 'Any available (fastest)') + '</div></div>' +
-        '<div class="field"><label style="display:flex;align-items:center;gap:9px"><input type="checkbox" id="img-nsfw"> Allow NSFW for this image</label>' +
-        '<div class="hint">Marks the request as potentially adult so only workers that accept NSFW jobs can take it. Other Horde safety checks still apply.</div></div>' +
-        '<div class="field"><div class="field-head"><label>Size</label><span class="spacer"></span><span class="val" id="img-size-v">' + s.hordeSize + 'px</span></div>' +
+        '<div class="field" id="img-nsfw-wrap"><label style="display:flex;align-items:center;gap:9px"><input type="checkbox" id="img-nsfw"> <span id="img-nsfw-label">Allow NSFW for this image</span></label>' +
+        '<div class="hint" id="img-policy-hint">Marks the request as potentially adult so only workers that accept NSFW jobs can take it. Other Horde safety checks still apply.</div></div>' +
+        '<div class="field" id="img-size-wrap"><div class="field-head"><label>Size</label><span class="spacer"></span><span class="val" id="img-size-v">' + pickedSize + 'px</span></div>' +
         '<div class="seg" id="img-size">' + [512, 640, 768, 1024].map(function (n) {
-          return '<button data-size="' + n + '"' + (n === s.hordeSize ? ' class="on"' : '') + '>' + n + '</button>';
+          return '<button data-size="' + n + '"' + (n === pickedSize ? ' class="on"' : '') + '>' + n + '</button>';
         }).join('') + '</div></div>',
       actions: [
         { label: 'Cancel', cls: 'ghost', value: null },
         { label: 'Generate', cls: 'primary', onClick: function (b) {
           var prompt = b.querySelector('#img-prompt').value.trim();
-          return prompt ? { prompt: prompt, nsfw: b.querySelector('#img-nsfw').checked } : null;
+          return prompt ? { prompt: prompt, nsfw: b.querySelector('#img-nsfw').checked, provider: b.querySelector('#img-provider').value } : null;
         } }
       ],
       onMount: function (b) {
+        updateProvider(b);
+        b.querySelector('#img-provider').addEventListener('change', function () { updateProvider(b); });
         b.querySelector('#img-size').onclick = function (e) {
           var t = e.target.closest('button'); if (!t) return;
           pickedSize = parseInt(t.getAttribute('data-size'), 10);
@@ -2841,60 +2892,59 @@
       }
     }).then(function (request) {
       if (!request || !request.prompt) return;
-      App.runImage(request.prompt, pickedSize, request.nsfw);
+      App.runImage(request.prompt, pickedSize, request.nsfw, request.provider);
     });
   };
 
-  App.runImage = function (prompt, size, nsfw) {
+  App.runImage = function (prompt, size, nsfw, provider) {
     var s = Store.settings;
+    provider = provider || s.imageProvider || 'horde';
     var ctrl = new AbortController();
     App.abort = ctrl;
-    App.genStart('Sending to the Horde…', ctrl);
-
-    return Horde.modelStatus('image', s.hordeModel).then(function (st) {
-      if (st && st.count === 0) {
-        UI.toast('No workers for “' + s.hordeModel + '” — using any available model', 4000);
-        return '';
-      }
-      return s.hordeModel;
-    }).catch(function () { return s.hordeModel; }).then(function (model) {
-      return Horde.generateImage({
-        prompt: prompt, model: model, nsfw: !!nsfw, width: size, height: size,
-        steps: s.hordeSteps, apikey: s.hordeKey, signal: ctrl.signal, maxWait: s.hordeMaxWait,
-        onProgress: function (info) {
-          if (info.state === 'processing') App.genSet('Painting on a volunteer GPU…', info.waitTime);
-          else if (info.state === 'queued') App.genSet('Queued on the Horde · position ' + (info.queuePosition || 0), info.waitTime);
-          else if (info.state === 'rate-limited') App.genSet('Horde rate limit — pausing ' + (info.waitTime || 10) + 's', info.waitTime);
-          else if (info.state === 'retrying') App.genSet('Connection blip — retrying…', 0);
+    App.genStart('Sending to ' + App.imageProviderLabel(provider) + '…', ctrl);
+    var request;
+    if (provider === 'horde') {
+      request = Horde.modelStatus('image', s.hordeModel).then(function (st) {
+        if (st && st.count === 0) {
+          UI.toast('No workers for “' + s.hordeModel + '” — using any available model', 4000);
+          return '';
         }
-      });
-    }).then(function (res) {
-      App.genSet('Downloading image…', 0);
-      return fetch(res.url, { mode: 'cors' })
-        .then(function (r) { if (!r.ok) throw new Error('download failed'); return r.blob(); })
-        .then(function (blob) {
-          return new Promise(function (resolve) {
-            try {
-              var fr = new FileReader();
-              fr.onload = function () { resolve(fr.result); };
-              fr.onerror = function () { resolve(res.url); };
-              fr.readAsDataURL(blob);
-            } catch (e) { resolve(res.url); }   // keep the remote URL if we can't inline it
-          });
-        })
-        .catch(function () { return res.url; })
-        .then(function (dataOrUrl) {
-          var label = '\u{1F3A8} ' + (prompt.length > 140 ? prompt.slice(0, 140) + '…' : prompt);
-          var msg = {
-            sessionId: App.state.session.id, role: 'assistant',
-            text: label + '\n\n_' + res.model + ' · seed ' + res.seed + ' · by ' + (res.worker || 'a volunteer') + '_',
-            image: dataOrUrl, createdAt: Date.now()
-          };
-          return Store.addMessage(msg).then(function (m) {
-            App.state.messages.push(m);
-            Views.appendMessage(App.state.char, m);
-          });
+        return s.hordeModel;
+      }).catch(function () { return s.hordeModel; }).then(function (model) {
+        return App.generateImageResult('horde', {
+          prompt: prompt, model: model, nsfw: !!nsfw, width: size, height: size,
+          steps: s.hordeSteps, apikey: s.hordeKey, signal: ctrl.signal, maxWait: s.hordeMaxWait,
+          onProgress: function (info) {
+            if (info.state === 'processing') App.genSet('Painting on a volunteer GPU…', info.waitTime);
+            else if (info.state === 'queued') App.genSet('Queued on the Horde · position ' + (info.queuePosition || 0), info.waitTime);
+            else if (info.state === 'rate-limited') App.genSet('Horde rate limit — pausing ' + (info.waitTime || 10) + 's', info.waitTime);
+            else if (info.state === 'retrying') App.genSet('Connection blip — retrying…', 0);
+          }
         });
+      });
+    } else {
+      if (provider === 'cloudflare' && (!s.cloudflareWorkerUrl || !s.cloudflareWorkerToken)) {
+        request = Promise.reject(new Error('Configure your Worker URL and APP_TOKEN in Settings.'));
+      } else {
+        App.genSet('Generating with ' + App.imageProviderLabel(provider) + '…', 0);
+        request = App.generateImageResult(provider, {
+          prompt: prompt, width: size, height: size, nsfw: !!nsfw, signal: ctrl.signal
+        });
+      }
+    }
+    return request.then(function (res) {
+      App.genSet('Saving image…', 0);
+      return App.imageResultSource(res).then(function (image) {
+        var label = '\u{1F3A8} ' + (prompt.length > 140 ? prompt.slice(0, 140) + '…' : prompt);
+        var msg = {
+          sessionId: App.state.session.id, role: 'assistant',
+          text: label + imageResultNote(res), image: image, createdAt: Date.now()
+        };
+        return Store.addMessage(msg).then(function (m) {
+          App.state.messages.push(m);
+          Views.appendMessage(App.state.char, m);
+        });
+      });
     }).then(function () {
       App.genStop();
       App.abort = null;
@@ -2907,39 +2957,31 @@
   };
 
   App.generateAvatar = function (draft) {
+    var provider = Store.settings.imageProvider || 'horde';
     return UI.sheet({
       title: 'Generate avatar',
       body: '<div class="field"><div class="field-head"><label>Prompt</label></div>' +
         '<textarea id="av-prompt" style="min-height:100px">' +
         esc((draft.name || '') + ', portrait, ' + (draft.tagline || '') + ', detailed face, soft lighting, digital painting') +
-        '</textarea><div class="hint">Free via AI Horde · takes 20–60s.</div></div>',
+        '</textarea><div class="hint">Generated with ' + esc(App.imageProviderLabel(provider)) + '.</div></div>',
       actions: [
         { label: 'Cancel', cls: 'ghost', value: null },
         { label: 'Generate', cls: 'primary', onClick: function (b) { return b.querySelector('#av-prompt').value.trim() || null; } }
       ]
     }).then(function (prompt) {
       if (!prompt) return null;
-      UI.toast('Generating on the Horde…');
       var ctrl = new AbortController();
       App.abort = ctrl;
-      App.genStart('Generating avatar on the Horde…', ctrl);
-      return Horde.generateImage({
+      App.genStart('Generating avatar with ' + App.imageProviderLabel(provider) + '…', ctrl);
+      return App.generateImageResult(provider, {
         prompt: prompt, model: Store.settings.hordeModel, width: 512, height: 512,
         steps: Math.min(Store.settings.hordeSteps, 30), apikey: Store.settings.hordeKey,
         signal: ctrl.signal, maxWait: Store.settings.hordeMaxWait,
         onProgress: function (i) {
           App.genSet(i.state === 'processing' ? 'Painting…' : 'Queued · position ' + (i.queuePosition || 0), i.waitTime);
         }
-      }).then(function (res) {
-        return fetch(res.url, { mode: 'cors' }).then(function (r) { return r.blob(); }).then(function (b) {
-          return new Promise(function (resolve) {
-            var fr = new FileReader();
-            fr.onload = function () { resolve(fr.result); };
-            fr.onerror = function () { resolve(res.url); };
-            fr.readAsDataURL(b);
-          });
-        }).catch(function () { return res.url; });
-      }).then(function (url) { App.genStop(); App.abort = null; UI.toast('Avatar generated'); return url; })
+      }).then(function (res) { return App.imageResultSource(res); })
+        .then(function (image) { App.genStop(); App.abort = null; UI.toast('Avatar generated'); return image; })
         .catch(function (e) {
           App.genStop(); App.abort = null;
           if (e.name !== 'AbortError') UI.toast('Failed: ' + e.message, 4000);
@@ -2948,7 +2990,6 @@
     });
   };
 
-  /* ---------------- model pickers ---------------- */
   function modelSheet(title, items, current, onPick) {
     var rows = items.map(function (m) {
       return typeof m === 'string' ? { value: m, label: m, sub: '' } : m;

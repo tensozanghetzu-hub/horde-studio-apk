@@ -72,6 +72,9 @@
     hordeSteps: 20,
     hordeMaxWait: 600,       /* seconds before we give up on a queued job */
     hordeTextModel: '',      /* '' = any available; Horde.ANY_UNCENSORED = uncensored only */
+    imageProvider: 'horde',
+    cloudflareWorkerUrl: '',
+    cloudflareWorkerToken: '',
     autoMemory: true,
     memoryEvery: 14,
     sendOnEnter: false,
@@ -115,6 +118,10 @@
            so an existing install behaves exactly as it did before. Keyed on
            personaSchema, not on undefined — DEFAULTS supplies these keys. */
         var s = self.settings, dirty = false;
+        if (['horde', 'pollinations', 'cloudflare'].indexOf(s.imageProvider) === -1) {
+          s.imageProvider = 'horde';
+          dirty = true;
+        }
         if (s.personaSchema !== 1) {
           s.defaultName = s.userName || 'You';
           s.defaultPersona = s.userPersona || '';
@@ -380,7 +387,7 @@
         IDB.getAll('worlds'), IDB.getAll('worldRuns')
       ]).then(function (r) {
         var s = Object.assign({}, self.settings);
-        delete s.apiKey; delete s.hordeKey;   // credentials never leave the device
+        delete s.apiKey; delete s.hordeKey; delete s.cloudflareWorkerToken; // credentials never leave the device
         return JSON.stringify({
           format: 'horde-studio-mobile', version: 1, exportedAt: new Date().toISOString(),
           settings: s, characters: r[0] || [], sessions: r[1] || [],

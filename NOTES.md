@@ -1,5 +1,26 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.43 — image provider options (2026-11-02)
+
+- Added an image-provider selector for AI Horde, Pollinations Classic, and
+  Cloudflare Workers AI. Manual images, character avatars, and virtual-human
+  photos use the configured provider; AI Horde remains the default and keeps
+  its model/queue controls.
+- Pollinations uses its anonymous Classic image endpoint, enforces a local
+  45-second cooldown, caps requests at 768×768, and surfaces its best-effort
+  rate limits and JPEG logo in the UI. Safe filtering is on unless the user
+  requests less restrictive generation.
+- Cloudflare uses the user-owned Worker template at
+  `tools/cloudflare-image-worker/`; the APK contains no Cloudflare account
+  API credential. The Worker checks a separate APP_TOKEN secret, handles CORS
+  preflight, and calls FLUX.1 Schnell. Worker setup instructions are included.
+  The personal Worker token is excluded from app backups.
+- Bumped the offline service-worker cache and added the provider adapter to
+  its precache. APK rebuilt and signature-verified as **1.39.43** (versionCode
+  122). Focused provider tests plus the complete local test battery pass; 3
+  browser tests remain skipped because Chromium is unavailable.
+- Built locally; not yet pushed or published to the public update channel.
+
 ## Web patch 2026-11-02 — chat lore, groups, prompt tools, and expressions
 
 - Added per-chat keyword lorebooks, isolated from character-wide lore and

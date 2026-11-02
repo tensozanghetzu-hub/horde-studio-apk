@@ -1,0 +1,6 @@
+name = "horde-studio-image-proxy"
+main = "worker.js"
+compatibility_date = "2026-11-02"
+
+[ai]
+binding = "AI"
