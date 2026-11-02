@@ -158,7 +158,7 @@
           persona: '', scenario: '', greeting: '', examples: '',
           postHistory: '', tags: [], systemPrompt: '',
           temperature: null, maxTokens: null,
-          lorebook: [], vh: (global.VH ? VH.defaults() : null),
+          lorebook: [], expressionPortraits: [], vh: (global.VH ? VH.defaults() : null),
           /* v1.13.0: internal state — off by default, so existing and new
              chats behave exactly as before until it is switched on. */
           stateTracking: false, state: { mood: '', intent: '', flags: '' },
@@ -288,6 +288,12 @@
         id: UI.uid('s'), charId: charId, title: title || 'New chat',
         personaId: (this.settings && this.settings.activePersona) || '',
         summary: '', facts: [], messageCount: 0,
+        /* Keyword lore scoped to this transcript only; legacy sessions read as empty. */
+        chatLorebook: [],
+        /* recurring scene reminder and per-chat prompt placement/cadence */
+        sceneNote: '', sceneNotePlacement: 'end', sceneNoteFrequency: 1,
+        /* Empty groupCharIds means this remains a normal one-character chat. */
+        groupCharIds: [], speakerMode: 'manual', nextSpeakerId: '',
         timeline: 'main', pending: null,
         /* v1.39.0 chatwork: pin & archive live on the session, the layer the
            list sorts and hides by. Old sessions arrive without them and
@@ -501,6 +507,18 @@
       return out;
     },
 
+    expressionPortraitsFromCard: function (data, card) {
+      var extensions = (data && data.extensions) || (card && card.extensions) || {};
+      var horde = extensions.horde_studio || extensions.hordeStudio || {};
+      var list = horde.expression_portraits || horde.expressionPortraits;
+      if (!Array.isArray(list)) return [];
+      return list.filter(function (e) { return e && typeof e === 'object'; }).map(function (e) {
+        return { id: UI.uid('expr'), label: String(e.label || ''),
+          keys: Array.isArray(e.keys) ? e.keys.map(String).slice(0, 20) : [],
+          src: String(e.src || '').slice(0, 12000000) };
+      }).filter(function (e) { return e.src && (e.label || e.keys.length); }).slice(0, 12);
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       /* v1.39.16: a V2 card MAY keep its fields only under data (the spec
@@ -545,6 +563,7 @@
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         /* V2 cards with an embedded book were losing it entirely here */
         lorebook: Store.bookFromCard(card, data),
+        expressionPortraits: Store.expressionPortraitsFromCard(data, card),
         alternateGreetings: Store.altGreetingsFromCard(card, data),
         createdAt: Date.now(), updatedAt: Date.now()
       };
@@ -569,6 +588,14 @@
             return { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false };
           })
         };
+      }
+      if (c.expressionPortraits && c.expressionPortraits.length) {
+        card.data.extensions = Object.assign({}, card.data.extensions || {});
+        card.data.extensions.horde_studio = Object.assign({}, card.data.extensions.horde_studio || {}, {
+          expression_portraits: c.expressionPortraits.map(function (e) {
+            return { label: e.label || '', keys: e.keys || [], src: e.src || '' };
+          })
+        });
       }
       /* the intros ride back out too - a card that boasted ten arrivals
          keeps them through an import-export round trip */

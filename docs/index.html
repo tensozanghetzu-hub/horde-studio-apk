@@ -78,6 +78,7 @@
          habits already live -->
     <div class="chat-tools">
       <input id="chat-search" type="search" placeholder="Search chats…" autocomplete="off" hidden>
+      <button id="chats-group" class="btn ghost sm" type="button">New group</button>
       <button id="chats-import" class="icon-btn" aria-label="Import a chat backup">
         <svg viewBox="0 0 24 24"><path d="M12 3v12m0 0l-4.2-4.2M12 15l4.2-4.2M5 20h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -123,6 +124,7 @@
     <div id="thread" class="thread"></div>
     <div id="typing" class="typing" hidden><span></span><span></span><span></span></div>
     <div id="gen-banner" class="gen-banner" hidden></div>
+    <div id="group-speaker" hidden></div>
     <!-- v1.39.0 chatwork: the player may say it with a photo - staged
          above the composer, sent alongside a text (or on its own) -->
     <div id="attach-stage" class="attach-stage" hidden></div>

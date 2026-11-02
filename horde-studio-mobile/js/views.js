@@ -476,7 +476,8 @@
       function matches(s) {
         if (!words.length) return true;
         var c = chars[s.charId] || { name: '' };
-        var hay = ((c.name || '') + ' ' + (s.title || '') + ' ' + (s.summary || '')).toLowerCase();
+        var groupNames = (s.groupCharIds || []).map(function (id) { return chars[id] && chars[id].name; }).filter(Boolean);
+        var hay = ((c.name || '') + ' ' + groupNames.join(' ') + ' ' + (s.title || '') + ' ' + (s.summary || '')).toLowerCase();
         return words.every(function (w) { return hay.indexOf(w) !== -1; });
       }
       var archived = all.filter(function (s) { return s.archived; }).length;
@@ -494,10 +495,12 @@
       }
       list.innerHTML = sessions.map(function (s) {
         var c = chars[s.charId] || { name: 'Deleted character' };
+        var groupChars = (s.groupCharIds || []).map(function (id) { return chars[id]; }).filter(Boolean);
+        var label = groupChars.length > 1 ? groupChars.map(function (x) { return x.name || 'Unnamed'; }).join(' + ') : c.name;
         return '<div class="item" data-open="' + s.id + '">' +
           '<div class="item-av">' + avatarHtml(c.avatar, c.name) + '</div>' +
           '<div class="item-main">' +
-            '<div class="item-title">' + esc(c.name) + ' <span style="color:var(--dim);font-weight:400">· ' + esc(s.title || 'New chat') + '</span>' +
+            '<div class="item-title">' + esc(label) + (groupChars.length > 1 ? ' <span class="item-badge">group</span>' : '') + ' <span style="color:var(--dim);font-weight:400">· ' + esc(s.title || 'New chat') + '</span>' +
               (s.pinned ? '<span class="item-badge">pinned</span>' : '') +
               (s.archived ? '<span class="item-badge">archived</span>' : '') +
             '</div>' +
@@ -1403,6 +1406,12 @@
         '</div></div>' +
       '</div>' +
 
+      '<div class="group"><div class="group-title">Expression portraits · optional</div>' +
+        '<div class="field"><div id="expression-portrait-list"></div>' +
+          '<button class="btn ghost sm" data-act="expression-add">' + icon('plus') + ' Add expression</button>' +
+          '<div class="hint">When internal state tracking is on, the reply’s mood can select a matching portrait. Images are display-only and never enter the prompt.</div></div>' +
+      '</div>' +
+
       /* v1.29.0: pictures the card itself carries, besides the avatar.
          Display-only — never part of the prompt. */
       (char.images && char.images.length
@@ -1576,6 +1585,9 @@
 
     var body = $('#editor-body');
     var draft = Object.assign({}, char);
+    draft.expressionPortraits = (Array.isArray(draft.expressionPortraits) ? draft.expressionPortraits : []).map(function (e) {
+      return Object.assign({}, e || {}, { keys: Array.isArray(e && e.keys) ? e.keys.slice() : String(e && e.keys || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean) });
+    });
     draft.lorebook = (Array.isArray(draft.lorebook) ? draft.lorebook : []).map(function (e) {
       var item = Object.assign({}, e || {});
       item.keys = Array.isArray(item.keys) ? item.keys.slice() : String(item.keys || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean);
@@ -1617,6 +1629,59 @@
       });
     }
     renderCharLorebook();
+    function renderExpressionPortraits() {
+      var box = $('#expression-portrait-list', body);
+      if (!box) return;
+      if (!draft.expressionPortraits.length) {
+        box.innerHTML = '<div class="hint" style="margin:0 0 8px">No expression portraits added.</div>';
+        return;
+      }
+      box.innerHTML = draft.expressionPortraits.map(function (entry, i) {
+        return '<div class="field" style="border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px">' +
+          '<div class="row" style="gap:6px;margin-bottom:6px"><input type="text" data-expr-label="' + i + '" value="' + esc(entry.label || '') + '" placeholder="Expression label, e.g. amused" style="flex:1">' +
+            '<button class="chip" data-expr-remove="' + i + '" aria-label="Remove expression">' + icon('trash') + '</button></div>' +
+          '<input type="text" data-expr-keys="' + i + '" value="' + esc((entry.keys || []).join(', ')) + '" placeholder="Mood keywords, e.g. amused, pleased, teasing">' +
+          '<div class="row" style="gap:6px;margin-top:6px"><input type="text" data-expr-src="' + i + '" value="' + esc(entry.src || '') + '" placeholder="Image URL or upload" style="flex:1;min-width:0">' +
+            '<button class="chip" data-expr-file="' + i + '">Upload</button></div>' +
+          (entry.src ? '<img src="' + esc(entry.src) + '" alt="' + esc(entry.label || 'expression portrait') + '" style="width:64px;height:64px;object-fit:cover;border-radius:8px;margin-top:7px" loading="lazy">' : '') +
+        '</div>';
+      }).join('');
+      box.querySelectorAll('[data-expr-label]').forEach(function (el) {
+        el.oninput = function () { draft.expressionPortraits[+el.getAttribute('data-expr-label')].label = el.value; };
+      });
+      box.querySelectorAll('[data-expr-keys]').forEach(function (el) {
+        el.oninput = function () { draft.expressionPortraits[+el.getAttribute('data-expr-keys')].keys = el.value.split(',').map(function (k) { return k.trim(); }).filter(Boolean); };
+      });
+      box.querySelectorAll('[data-expr-src]').forEach(function (el) {
+        el.oninput = function () {
+          draft.expressionPortraits[+el.getAttribute('data-expr-src')].src = el.value.trim();
+          var preview = el.closest('.field').querySelector('img');
+          if (preview) preview.src = el.value.trim();
+        };
+      });
+      box.querySelectorAll('[data-expr-remove]').forEach(function (el) {
+        el.onclick = function () { draft.expressionPortraits.splice(+el.getAttribute('data-expr-remove'), 1); renderExpressionPortraits(); };
+      });
+      box.querySelectorAll('[data-expr-file]').forEach(function (el) {
+        el.onclick = function () {
+          var index = +el.getAttribute('data-expr-file');
+          pickFile('image/*').then(function (file) {
+            if (!file) return;
+            return normalizeImage(file).then(function (src) {
+              draft.expressionPortraits[index].src = src;
+              renderExpressionPortraits();
+            });
+          }).catch(function () { UI.toast('Could not load that portrait', 3500); });
+        };
+      });
+    }
+    renderExpressionPortraits();
+    on(body, '[data-act=expression-add]', 'click', function () {
+      draft.expressionPortraits.push({ id: UI.uid('expr'), label: '', keys: [], src: '' });
+      renderExpressionPortraits();
+      var first = body.querySelector('[data-expr-label="' + (draft.expressionPortraits.length - 1) + '"]');
+      if (first) first.focus();
+    });
     /* The swipeable intro stack for the Greeting field — slots copy the
        texts, so browsing around never touches the sheet until collect(). */
     var introNav = Views.introNavModel(draft);
@@ -1640,6 +1705,12 @@
       draft.examples = $('#e-examples', body).value;
       draft.postHistory = $('#e-post', body).value;
       draft.systemPrompt = $('#e-sys', body).value;
+      draft.expressionPortraits = draft.expressionPortraits.filter(function (e) {
+        return !!String(e.src || '').trim() && (!!String(e.label || '').trim() || (e.keys && e.keys.length));
+      }).map(function (e) {
+        return { id: e.id || UI.uid('expr'), label: String(e.label || '').trim(),
+          keys: (e.keys || []).slice(), src: String(e.src || '').trim() };
+      });
       if ($('#e-mood', body)) {
         var oldSt = draft.state || {};
         var newSt = {
@@ -2286,7 +2357,9 @@
   /* ================= chat helpers ================= */
   function messageHtml(m, char, s) {
     var isMe = m.role === 'user';
-    var who = isMe ? s.userName : char.name;
+    var who = isMe ? s.userName : (m.speakerName || char.name);
+    var speakerAvatar = !isMe && m.speakerPortrait ? m.speakerPortrait :
+      (!isMe && m.speakerId ? (m.speakerAvatar || '') : char.avatar);
     var text = m.text || '';
     var body = m._stream !== undefined && m._stream !== null ? m._stream : text;
     return '<div class="msg' + (isMe ? ' me' : '') + (m.autonomous ? ' auto' : '') + '" data-mid="' + m.id + '">' +
@@ -2294,7 +2367,7 @@
          when the persona has one, initials otherwise. */
       '<div class="av">' + (isMe
         ? avatarHtml(activePersonaAvatar(s), s.userName)
-        : avatarHtml(char.avatar, char.name)) + '</div>' +
+        : avatarHtml(speakerAvatar, who)) + '</div>' +
       '<div style="min-width:0;max-width:calc(100% - 44px)">' +
         '<div class="bubble">' +
           (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +

@@ -22,12 +22,15 @@ let nextAction = 'save';
 const inputs = {
   '#cs-temp': { value: '' },
   '#cs-maxtok': { value: '' },
-  '#cs-note': { value: 'Keep each reply brief and end on a complete sentence.' }
+  '#cs-note': { value: 'Keep each reply brief and end on a complete sentence.' },
+  '#cs-scene': { value: 'Rain at the west window.' },
+  '#cs-scene-place': { value: 'memory' },
+  '#cs-scene-frequency': { value: '2' }
 };
 const sandbox = {
   App: { state: { session: activeSession } }, console, Promise, Object, String, parseInt, parseFloat,
   IDB: { get: () => Promise.resolve(session) },
-  Store: { putSession: s => { saved = JSON.parse(JSON.stringify(s)); session.overrides = s.overrides; return Promise.resolve(s); } },
+  Store: { putSession: s => { saved = JSON.parse(JSON.stringify(s)); Object.assign(session, s); return Promise.resolve(s); } },
   UI: {
     toast: () => {},
     /* Mirror UI.sheet's important contract: click callback runs with the
@@ -55,21 +58,23 @@ vm.runInContext(bodySrc, sandbox);
   ok('style note was persisted in the chat override', !!saved &&
      saved.overrides && saved.overrides.note === inputs['#cs-note'].value,
      JSON.stringify(saved));
-  ok('empty global overrides remain unset', !!saved && !('temperature' in saved.overrides));
-  ok('the still-open chat receives the fresh in-memory override',
-     sandbox.App.state.session.overrides.note === inputs['#cs-note'].value);
+  ok('empty generation overrides remain unset', !!saved && !('temperature' in saved.overrides));
+  ok('scene note text, placement, and frequency persist independently', !!saved &&
+     saved.sceneNote === inputs['#cs-scene'].value && saved.sceneNotePlacement === 'memory' && saved.sceneNoteFrequency === 2);
+  ok('the still-open chat receives the fresh in-memory settings',
+     sandbox.App.state.session.overrides.note === inputs['#cs-note'].value && sandbox.App.state.session.sceneNote === inputs['#cs-scene'].value);
 
   console.log('B — reopening pre-fills the saved style note');
   nextAction = 'cancel';
   sandbox.App.chatSettingsSheet('s1');
   await new Promise(resolve => setTimeout(resolve, 0));
-  ok('saved note appears in the textarea markup', openedHtml.includes('>' + inputs['#cs-note'].value + '</textarea>'));
+  ok('saved style and scene notes appear in the textarea markup', openedHtml.includes('>' + inputs['#cs-note'].value + '</textarea>') && openedHtml.includes('>' + inputs['#cs-scene'].value + '</textarea>'));
 
   console.log('C — reset refreshes the active chat too');
   nextAction = 'reset';
   sandbox.App.chatSettingsSheet('s1');
   await new Promise(resolve => setTimeout(resolve, 0));
-  ok('reset removes the active in-memory note immediately', sandbox.App.state.session.overrides === null);
+  ok('reset removes active overrides and scene note immediately', sandbox.App.state.session.overrides === null && sandbox.App.state.session.sceneNote === '');
   console.log('\n' + passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -1,5 +1,24 @@
 # Horde Studio Mobile — release notes
 
+## Web patch 2026-11-02 — chat lore, groups, prompt tools, and expressions
+
+- Added per-chat keyword lorebooks, isolated from character-wide lore and
+  copied into forked timelines. Entries support add/edit/remove, enabled
+  state, and keyword-triggered prompt injection.
+- Added per-chat scene reminders with placement controls and a cadence of
+  every 1–20 assistant replies. Existing character post-history instructions
+  remain unchanged.
+- Added group chats with manual next-speaker selection by default and an
+  explicitly chosen round-robin mode. Replies retain speaker identity.
+- Added a prompt/context inspector that previews the provider-specific prompt
+  and estimates token weight; Horde previews use the same plain-text builder.
+- Added optional mood-matched expression portraits, with upload/URL support
+  and private card-extension round-tripping. Portrait images never enter the
+  model prompt.
+- Added focused regression tests for all five features. Full suite: 84 files,
+  82 passed, 2 browser tests skipped because Chromium is not installed.
+- Web revision: `8f2ddc273f67` (app version remains 1.39.42; no APK rebuild).
+
 ## Web patch 2026-11-02 — start image prompts blank
 
 - The AI Horde image-generation dialog now opens with an empty prompt every

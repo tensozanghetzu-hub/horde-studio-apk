@@ -160,7 +160,7 @@
     return out;
   }
 
-  function charSheet(char, s, session, recent) {
+  function charSheet(char, s, session, recent, assistantTurns) {
     var parts = [];
     var persona = plainText(macros(char.persona, char, s));
     if (persona) parts.push(persona);
@@ -169,10 +169,30 @@
     if (s.userPersona) parts.push('About {{user}}: '.replace('{{user}}', s.userName) + s.userPersona);
     var state = statePrompt(char);
     if (state) parts.push(state);
+    var sceneNote = '';
+    if (session && String(session.sceneNote || '').trim()) {
+      var frequency = parseInt(session.sceneNoteFrequency, 10);
+      if (!(frequency > 0)) frequency = 1;
+      if ((assistantTurns || 0) % frequency === 0) {
+        sceneNote = plainText(macros(session.sceneNote, char, s));
+      }
+    }
+    var scenePlacement = session && session.sceneNotePlacement || 'end';
+    if (sceneNote && scenePlacement === 'character') parts.push('Scene note: ' + sceneNote);
 
     var lore = loreHits(char.lorebook, recent);
     if (lore.length) {
       parts.push('Relevant world facts:\n' + lore.map(function (e) {
+        return '- ' + plainText(macros(e.content, char, s));
+      }).join('\n'));
+    }
+    /* Chat lore supplements the character's baseline world facts but only
+       for this transcript. It is intentionally placed afterward so a
+       timeline-specific fact can clarify an otherwise shared canon detail. */
+    var chatLore = session && Array.isArray(session.chatLorebook)
+      ? loreHits(session.chatLorebook, recent, 4, 1024) : [];
+    if (chatLore.length) {
+      parts.push('Relevant chat-only facts:\n' + chatLore.map(function (e) {
         return '- ' + plainText(macros(e.content, char, s));
       }).join('\n'));
     }
@@ -182,8 +202,10 @@
       if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + repairMojibake(f); }).join('\n'));
       parts.push(mem.join('\n'));
     }
+    if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
     var post = plainText(macros(char.postHistory, char, s));
     if (post) parts.push(post);
+    if (sceneNote && scenePlacement !== 'character' && scenePlacement !== 'memory') parts.push('Scene note: ' + sceneNote);
     return parts.join('\n\n');
   }
 
@@ -308,11 +330,12 @@
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note) {
     var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+    var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     /* A world run (and any caller that knows better) supplies character.systemPrompt
        with the narrator rules plus live state. Fall back to the global prompt. */
     var system = macros(character.systemPrompt || s.systemPrompt, character, s);
     system += '\n' + macros(OOC_RULE, character, s);
-    var sheet = charSheet(character, s, session, recent);
+    var sheet = charSheet(character, s, session, recent, assistantTurns);
     if (sheet) system += '\n\n' + sheet;
     if (note) system += '\n\n' + note;
 
@@ -344,8 +367,9 @@
   /** Build a plain-text prompt for AI Horde / non-chat backends. */
   function buildPrompt(character, session, history, s, note, budgetTokens) {
     var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+    var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
-      '\n\n' + charSheet(character, s, session, recent);
+      '\n\n' + charSheet(character, s, session, recent, assistantTurns);
     if (note) head += '\n\n' + note;
     head += '\n\n' + macros(OOC_RULE, character, s);
     var ex = examplesToMessages(character.examples, character, s).map(function (m) {

@@ -91,17 +91,21 @@
       Views.worldCorrect($('.screen'));
     } else if (name === 'chat') {
       var ch = App.state.char;
-      $('#bar-title').textContent = (ch && ch.name) || 'Chat';
+      var groupMembers = App.state.groupCharacters || [];
+      var isGroup = groupMembers.length > 1;
+      var groupNames = isGroup ? groupMembers.map(function (x) { return x.name || 'Unnamed'; }).join(' + ') : '';
+      $('#bar-title').textContent = isGroup ? 'Group chat' : ((ch && ch.name) || 'Chat');
       var sub = App.state.session ? (App.state.session.title || 'New chat') : '';
+      if (isGroup) sub = groupNames + ' · ' + sub;
       /* Who you are in this thread — worth stating, since switching personas
          swaps which of a character's conversations you are looking at. */
       if (Store.settings.activePersona) sub = 'as ' + Store.personaLabel() + ' · ' + sub;
-      if (ch && ch.vh && ch.vh.enabled) {
+      if (!isGroup && ch && ch.vh && ch.vh.enabled) {
         var st = VH.status(ch);
         sub = st.text + ' · ' + sub;
       }
       $('#bar-sub').textContent = sub;
-      Views.stateStrip(ch);
+      if (isGroup) $('#char-state').hidden = true; else Views.stateStrip(ch);
     } else if (name === 'editor') {
       $('#bar-title').textContent = params.isNew ? 'New character' : 'Edit character';
       $('#bar-sub').textContent = '';
@@ -335,6 +339,10 @@
           if (av) c.avatar = av;
           return Views.normalizeCardImages(c.images);
         }).then(function () {
+          return Promise.all((c.expressionPortraits || []).map(function (p) {
+            return Views.normalizeDataUrl(p.src, 512).then(function (src) { if (src) p.src = src; });
+          }));
+        }).then(function () {
           UI.sheet({
             title: 'Import “' + (c.name || 'character') + '”',
             body: '<p style="margin:0 0 8px;color:var(--muted);font-size:13.5px">' +
@@ -429,15 +437,128 @@
     IDB.get('sessions', id).then(function (s) {
       if (!s) return UI.toast('Chat not found');
       return Promise.resolve(Store.getCharacter(s.charId)).then(function (c) {
-        return Store.getMessages(id).then(function (msgs) {
-          App.state.session = s; App.state.char = c; App.state.messages = msgs;
-          App.state.screen = null;
-          App.go('chat');
-          Views.thread(c, s, msgs, null, true);
-          $('#input').focus();
+        var memberIds = Array.isArray(s.groupCharIds) ? s.groupCharIds : [];
+        return Promise.all(memberIds.map(function (charId) { return Store.getCharacter(charId); })).then(function (members) {
+          members = members.filter(Boolean);
+          if (!c && members.length) c = members[0];
+          if (!c) return UI.toast('The character for this chat is missing');
+          return Store.getMessages(id).then(function (msgs) {
+            App.state.session = s; App.state.char = c;
+            App.state.groupCharacters = members.length > 1 ? members : [];
+            App.state.messages = msgs;
+            App.state.screen = null;
+            App.go('chat');
+            Views.thread(c, s, msgs, null, true);
+            App.renderGroupSpeaker();
+            $('#input').focus();
+          });
         });
       });
     });
+  };
+
+  App.createGroupChat = function (selectedIds) {
+    var members = Store.characters.filter(function (c) { return !(c.vh && c.vh.enabled); });
+    if (members.length < 2) return UI.toast('Create at least two regular characters before starting a group chat');
+    var chosen = selectedIds || [];
+    UI.sheet({
+      title: 'New group chat',
+      body: '<p class="hint" style="margin:0 0 10px">Choose two or more characters. Before each message, pick who should reply; automatic round-robin is available only when you choose it.</p>' +
+        members.map(function (c) {
+          return '<label class="field compact" style="display:flex;align-items:center;gap:10px"><input type="checkbox" data-group-member="' + esc(c.id) + '"' +
+            (chosen.indexOf(c.id) >= 0 ? ' checked' : '') + '> ' + esc(c.name || 'Unnamed') + '</label>';
+        }).join(''),
+      actions: [
+        { label: 'Cancel', cls: 'ghost', value: null },
+        { label: 'Create group', cls: 'primary', onClick: function (b) {
+          return Array.prototype.slice.call(b.querySelectorAll('[data-group-member]:checked')).map(function (el) {
+            return el.getAttribute('data-group-member');
+          });
+        } }
+      ]
+    }).then(function (ids) {
+      if (!ids) return;
+      if (ids.length < 2) {
+        UI.toast('Choose at least two characters');
+        return App.createGroupChat(ids);
+      }
+      var selected = ids.map(function (id) { return members.find(function (c) { return c.id === id; }); }).filter(Boolean);
+      var s = Store.newSession(selected[0].id, 'Group: ' + selected.map(function (c) { return c.name || 'Unnamed'; }).join(' + '));
+      s.groupCharIds = selected.map(function (c) { return c.id; });
+      s.speakerMode = 'manual';
+      s.nextSpeakerId = '';
+      return Store.putSession(s).then(function () { App.openSession(s.id); });
+    });
+  };
+
+  App.renderGroupSpeaker = function () {
+    var el = $('#group-speaker');
+    if (!el) return;
+    var members = App.state.groupCharacters || [];
+    var session = App.state.session;
+    if (!session || members.length < 2) {
+      el.hidden = true;
+      el.innerHTML = '';
+      return;
+    }
+    var selected = members.find(function (c) { return c.id === session.nextSpeakerId; });
+    var label = session.speakerMode === 'auto'
+      ? 'Auto · round-robin'
+      : (selected ? selected.name : 'Choose a speaker');
+    el.hidden = false;
+    el.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:6px 12px 2px;color:var(--muted);font-size:12px">' +
+      '<span>Next speaker</span><button type="button" class="chip" id="group-speaker-pick">' + esc(label) + '</button></div>';
+    var button = el.querySelector('#group-speaker-pick');
+    if (button) button.onclick = function () { App.pickGroupSpeaker(); };
+  };
+
+  App.pickGroupSpeaker = function (afterPick) {
+    var members = App.state.groupCharacters || [], session = App.state.session;
+    if (!session || members.length < 2) return;
+    var rows = members.map(function (c) {
+      return '<div class="opt" data-group-speaker="' + esc(c.id) + '">' + esc(c.name || 'Unnamed') +
+        (session.nextSpeakerId === c.id && session.speakerMode !== 'auto' ? ' · next' : '') + '</div>';
+    }).join('') + '<div class="opt" data-group-speaker="auto">Auto · round-robin</div>';
+    UI.sheet({
+      title: 'Choose the next speaker',
+      body: '<p class="hint" style="margin:0 0 8px">Manual selection is the default. Auto advances through the group in order.</p>' + rows,
+      actions: [{ label: 'Cancel', cls: 'ghost', value: null }],
+      onMount: function (b, close) {
+        b.querySelectorAll('[data-group-speaker]').forEach(function (row) {
+          row.onclick = function () {
+            var id = row.getAttribute('data-group-speaker');
+            close();
+            if (id === 'auto') { session.speakerMode = 'auto'; session.nextSpeakerId = ''; }
+            else { session.speakerMode = 'manual'; session.nextSpeakerId = id; }
+            Store.putSession(session).then(function () {
+              if (App.state.session && App.state.session.id === session.id) App.state.session = session;
+              App.renderGroupSpeaker();
+              if (afterPick) afterPick();
+            });
+          };
+        });
+      }
+    });
+  };
+
+  App.nextGroupSpeaker = function (members, messages) {
+    if (!members || !members.length) return null;
+    var last = null;
+    (messages || []).forEach(function (m) { if (m.role === 'assistant' && m.speakerId) last = m.speakerId; });
+    var index = members.findIndex(function (c) { return c.id === last; });
+    return members[(index + 1 + members.length) % members.length];
+  };
+
+  App.expressionPortraitFor = function (char, mood) {
+    var text = String(mood || '').toLowerCase().trim();
+    var portraits = char && Array.isArray(char.expressionPortraits) ? char.expressionPortraits : [];
+    if (!text) return '';
+    for (var i = 0; i < portraits.length; i++) {
+      var p = portraits[i] || {};
+      var keys = (p.keys && p.keys.length ? p.keys : [p.label]).map(function (k) { return String(k || '').toLowerCase().trim(); }).filter(Boolean);
+      if (p.src && keys.some(function (k) { return text.indexOf(k) !== -1; })) return p.src;
+    }
+    return '';
   };
 
   /** v1.39.0 G: the chat health numbers, computed off the ledger itself.
@@ -499,6 +620,9 @@
     IDB.get('sessions', sessionId).then(function (s) {
       if (!s) return;
       var ov = s.overrides || {};
+      var scenePlace = ['character', 'memory', 'end'].indexOf(s.sceneNotePlacement) >= 0 ? s.sceneNotePlacement : 'end';
+      var sceneFrequency = parseInt(s.sceneNoteFrequency, 10);
+      if (!(sceneFrequency > 0)) sceneFrequency = 1;
       function persistSettings(message) {
         return Store.putSession(s).then(function () {
           /* This chat may stay open after the sheet closes. Generation reads
@@ -517,7 +641,17 @@
           '<div class="field"><div class="field-head"><label>Max reply tokens (leave empty for default)</label></div>' +
             '<input id="cs-maxtok" type="number" min="32" max="2048" step="16" value="' + (ov.maxTokens || '') + '" placeholder="default"></div>' +
           '<div class="field"><div class="field-head"><label>Style note for this chat only</label></div>' +
-            '<textarea id="cs-note" class="tall" placeholder="e.g. answer in short, clipped lines">' + esc(ov.note || '') + '</textarea></div>',
+            '<textarea id="cs-note" class="tall" placeholder="e.g. answer in short, clipped lines">' + esc(ov.note || '') + '</textarea></div>' +
+          '<div class="field"><div class="field-head"><label>Scene note for this chat only</label></div>' +
+            '<textarea id="cs-scene" class="tall" placeholder="e.g. Keep the current scene in the rain-soaked courtyard">' + esc(s.sceneNote || '') + '</textarea>' +
+            '<div class="hint">A recurring scene reminder. It stays separate from the character-wide post-history note.</div></div>' +
+          '<div class="field"><div class="field-head"><label>Scene note placement</label></div>' +
+            '<select id="cs-scene-place"><option value="character"' + (scenePlace === 'character' ? ' selected' : '') + '>After character setup</option>' +
+            '<option value="memory"' + (scenePlace === 'memory' ? ' selected' : '') + '>After lore and chat memory</option>' +
+            '<option value="end"' + (scenePlace === 'end' ? ' selected' : '') + '>At the end of the context block</option></select></div>' +
+          '<div class="field"><div class="field-head"><label>Repeat scene note</label></div>' +
+            '<input id="cs-scene-frequency" type="number" min="1" max="20" step="1" value="' + sceneFrequency + '">' +
+            '<div class="hint">Every N assistant replies (1 means every reply; 2 means every other reply). Leave the note blank to turn it off.</div></div>',
         actions: [
           /* UI.sheet clears its body before resolving the returned promise.
              Capture every field inside onClick, while the form still exists;
@@ -527,7 +661,10 @@
               action: 'save',
               temperature: b.querySelector('#cs-temp').value,
               maxTokens: b.querySelector('#cs-maxtok').value,
-              note: b.querySelector('#cs-note').value
+              note: b.querySelector('#cs-note').value,
+              sceneNote: b.querySelector('#cs-scene').value,
+              sceneNotePlacement: b.querySelector('#cs-scene-place').value,
+              sceneNoteFrequency: b.querySelector('#cs-scene-frequency').value
             };
           } },
           { label: 'Reset to defaults', cls: 'ghost', value: 'reset' },
@@ -535,11 +672,26 @@
         ]
       }).then(function (res) {
         if (!res) return;
-        if (res === 'reset') { s.overrides = null; return persistSettings('Chat follows the character again'); }
+        if (res === 'reset') {
+          s.overrides = null;
+          s.sceneNote = '';
+          s.sceneNotePlacement = 'end';
+          s.sceneNoteFrequency = 1;
+          return persistSettings('Chat settings reset to defaults');
+        }
         if (!res || res.action !== 'save') return;
         var temp = String(res.temperature || '').trim();
         var maxt = parseInt(res.maxTokens, 10);
         var note = String(res.note || '').trim();
+        var sceneNote = String(res.sceneNote || '').trim();
+        var scenePlacement = ['character', 'memory', 'end'].indexOf(res.sceneNotePlacement) >= 0
+          ? res.sceneNotePlacement : 'end';
+        var sceneFrequency = parseInt(res.sceneNoteFrequency, 10);
+        if (!(sceneFrequency > 0)) sceneFrequency = 1;
+        sceneFrequency = Math.min(20, sceneFrequency);
+        s.sceneNote = sceneNote;
+        s.sceneNotePlacement = scenePlacement;
+        s.sceneNoteFrequency = sceneFrequency;
         s.overrides = {};
         if (temp !== '') s.overrides.temperature = parseFloat(temp);
         if (maxt > 0) s.overrides.maxTokens = maxt;
@@ -847,6 +999,9 @@
           '<div class="opt" data-a="settings">' + icon('edit') + ' Chat settings</div>' +
           '<div class="opt" data-a="health">' + icon('brain') + ' Chat health</div>' +
           '<div class="opt" data-a="mem">' + icon('brain') + ' Story memory</div>' +
+          '<div class="opt" data-a="chatlore">Chat-only lore' +
+            ((s.chatLorebook && s.chatLorebook.length) ? ' (' + s.chatLorebook.length + ')' : '') + '</div>' +
+          '<div class="opt" data-a="inspector">' + icon('brain') + ' Prompt & context inspector</div>' +
           '<div class="opt" data-a="fork">' + icon('copy') + ' Fork an alternate timeline</div>' +
           '<div class="opt" data-a="export">' + icon('download') + ' Export transcript</div>' +
           '<div class="opt danger" data-a="del">' + icon('trash') + ' Delete chat</div>',
@@ -873,6 +1028,8 @@
               else if (a === 'health') App.chatHealthSheet(id);
               else if (a === 'fork') App.forkTimeline(id);
               else if (a === 'mem') App.memorySheet(id);
+              else if (a === 'chatlore') App.chatLoreBookSheet(id);
+              else if (a === 'inspector') App.promptInspector(id);
               else if (a === 'export') App.exportSheet(id);
               else if (a === 'del') {
                 /* v1.21.0 (upstream 18.3.5): the active chat's reply is still
@@ -987,6 +1144,23 @@
       }
     }
 
+    var groupMembers = st.groupCharacters || [];
+    if (groupMembers.length > 1) {
+      var pinnedMessage = opts.rerollFor || opts.replaceBubble || opts.continueFor;
+      var speakerId = (pinnedMessage && pinnedMessage.speakerId) || (session && session.nextSpeakerId);
+      if (!speakerId && session && session.speakerMode === 'auto') {
+        var autoSpeaker = App.nextGroupSpeaker(groupMembers, st.messages);
+        speakerId = autoSpeaker && autoSpeaker.id;
+      }
+      var chosenSpeaker = groupMembers.find(function (member) { return member.id === speakerId; });
+      if (!chosenSpeaker) {
+        UI.toast('Choose the next speaker before generating a group reply');
+        App.pickGroupSpeaker(function () { App.generateReply(opts); });
+        return;
+      }
+      char = chosenSpeaker;
+    }
+
     if (opts.rerollFor) {
       target = opts.rerollFor;
       history = history.filter(function (m) { return m.createdAt < target.createdAt || m.id === target.id; });
@@ -1018,6 +1192,11 @@
     } else {
       msg = { id: UI.uid('m'), sessionId: session.id, role: 'assistant', text: '', alts: [], altIdx: 0, createdAt: Date.now(), _stream: '' };
       st.messages.push(msg);
+    }
+    if (groupMembers.length > 1) {
+      msg.speakerId = char.id;
+      msg.speakerName = char.name || 'Unnamed';
+      msg.speakerAvatar = char.avatar || '';
     }
 
     /* v1.39.12: a re-spin edits the SAME bubble in place. appendMessage was
@@ -1120,8 +1299,13 @@
             mood: newState.mood, intent: newState.intent, flags: newState.flags,
             updatedAt: Date.now(), by: 'model'
           };
+          msg.speakerMood = newState.mood || '';
+          msg.speakerPortrait = App.expressionPortraitFor(char, newState.mood);
           Store.putCharacter(char);
-          Views.stateStrip(char);
+          if (groupMembers.length > 1) $('#char-state').hidden = true;
+          else Views.stateStrip(char);
+          var face = el.querySelector && el.querySelector('.av');
+          if (face && Views.avatarHtml) face.innerHTML = Views.avatarHtml(msg.speakerPortrait || char.avatar || '', char.name || 'Character');
         }
       }
       msg._stream = null;
@@ -1268,6 +1452,17 @@
     if (!st.session) return;
     IDB.get('sessions', st.session.id).then(function (sess) {
       if (!sess) return;
+      var resetSpeaker = sess.groupCharIds && sess.groupCharIds.length > 1 &&
+        sess.speakerMode !== 'auto' && sess.nextSpeakerId;
+      if (resetSpeaker) {
+        sess.nextSpeakerId = '';
+        return Store.putSession(sess).then(function () {
+          st.session = sess;
+          App.renderGroupSpeaker();
+          var since = (sess.messageCount || 0) - (sess.memAt || 0);
+          if (s.autoMemory && since >= (s.memoryEvery || 14)) App.updateMemory(sess, true);
+        });
+      }
       st.session = sess;
       var since = (sess.messageCount || 0) - (sess.memAt || 0);
       if (s.autoMemory && since >= (s.memoryEvery || 14)) App.updateMemory(sess, true);
@@ -1950,6 +2145,13 @@
     var stage = App.state.attach || null;
     /* v1.39.0 E: a staged photo is a full message by itself - words optional */
     if ((!text && !stage) || App.state.busy) return;
+    var groupMembers = App.state.groupCharacters || [];
+    if (groupMembers.length > 1 && App.state.session && App.state.session.speakerMode !== 'auto' &&
+        !groupMembers.some(function (c) { return c.id === App.state.session.nextSpeakerId; })) {
+      UI.toast('Choose the next speaker before sending');
+      App.pickGroupSpeaker();
+      return;
+    }
     var draft = input.value;
     input.value = ''; input.style.height = 'auto';
     if (stage) { App.state.attach = null; App.renderAttach(); }
@@ -2171,6 +2373,9 @@
         var m = {
           id: UI.uid('m'), sessionId: first.sessionId, role: 'assistant', text: text,
           alts: [text], altIdx: 0, createdAt: stamp, burst: first.id,
+          speakerId: first.speakerId || '', speakerName: first.speakerName || '',
+          speakerAvatar: first.speakerAvatar || '', speakerMood: first.speakerMood || '',
+          speakerPortrait: first.speakerPortrait || '',
           autonomous: first.autonomous || opts.autonomous || false
         };
         App.state.messages.push(m);
@@ -2575,6 +2780,15 @@
       s2.timeline = 'branch-' + Date.now().toString(36);
       s2.summary = old.summary || '';
       s2.facts = (old.facts || []).slice();
+      s2.chatLorebook = (old.chatLorebook || []).map(function (e) {
+        return Object.assign({}, e, { keys: (e.keys || []).slice() });
+      });
+      s2.sceneNote = old.sceneNote || '';
+      s2.sceneNotePlacement = old.sceneNotePlacement || 'end';
+      s2.sceneNoteFrequency = old.sceneNoteFrequency || 1;
+      s2.groupCharIds = (old.groupCharIds || []).slice();
+      s2.speakerMode = old.speakerMode || 'manual';
+      s2.nextSpeakerId = old.nextSpeakerId || '';
       return Store.putSession(s2).then(function () {
         var copies = msgs.map(function (m) {
           return Object.assign({}, m, { id: UI.uid('m'), sessionId: s2.id });
@@ -3012,6 +3226,158 @@
     });
   };
 
+  App.promptInspector = function (sessionId) {
+    return IDB.get('sessions', sessionId).then(function (session) {
+      if (!session) return UI.toast('Chat not found');
+      return Promise.all([
+        Store.getCharacter(session.charId),
+        Store.getMessages(sessionId),
+        Promise.all((session.groupCharIds || []).map(function (id) { return Store.getCharacter(id); }))
+      ]).then(function (loaded) {
+        var baseChar = loaded[0], messages = loaded[1], members = loaded[2].filter(Boolean);
+        var char = baseChar, groupNotice = '';
+        if (members.length > 1) {
+          char = members.find(function (c) { return c.id === session.nextSpeakerId; }) ||
+            (session.speakerMode === 'auto' ? App.nextGroupSpeaker(members, messages) : null) || members[0];
+          if (session.speakerMode !== 'auto' && !session.nextSpeakerId) {
+            groupNotice = 'No next speaker is selected yet. This preview uses ' + (char.name || 'the first group member') +
+              ' for illustration; a real reply still requires your manual selection.';
+          } else {
+            groupNotice = 'Previewing the prompt for ' + (char.name || 'the selected speaker') + '.';
+          }
+        }
+        if (!char) return UI.toast('The character for this chat is missing');
+        var settings = Object.assign({}, Store.settings);
+        if (char.systemPrompt) settings.systemPrompt = char.systemPrompt;
+        if (char.temperature !== null && char.temperature !== undefined) settings.temperature = char.temperature;
+        if (char.maxTokens) settings.maxTokens = char.maxTokens;
+        var overrides = session.overrides || {};
+        if (overrides.temperature !== null && overrides.temperature !== undefined && overrides.temperature !== '') settings.temperature = overrides.temperature;
+        if (overrides.maxTokens) settings.maxTokens = overrides.maxTokens;
+        var payload;
+        if (settings.provider === 'horde') {
+          var promptBudget = API.HORDE_CTX_TOKENS - (settings.maxTokens || 200) - 64;
+          payload = [{ role: 'prompt', content: API.buildPrompt(char, session, messages, settings, overrides.note || null, promptBudget) }];
+        } else {
+          payload = API.buildChat(char, session, messages, settings, overrides.note || null);
+        }
+        var totalChars = payload.reduce(function (n, m) { return n + String(m.content || '').length; }, 0);
+        var blocks = payload.map(function (m, i) {
+          var role = m.role === 'prompt' ? 'Horde plain-text prompt' :
+            (m.role === 'system' ? 'System prompt / context' : (m.role === 'user' ? 'User' : 'Assistant'));
+          var content = String(m.content || '');
+          var tokens = Math.ceil(content.length / 4);
+          return '<details' + (i === 0 ? ' open' : '') + ' style="margin:7px 0;border:1px solid var(--line);border-radius:10px;padding:8px 10px">' +
+            '<summary style="cursor:pointer;font-weight:600">' + esc((i + 1) + '. ' + role + ' · ~' + tokens + ' tokens · ' + content.length + ' chars') + '</summary>' +
+            '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:12px;line-height:1.55;margin:8px 0 0;color:var(--text)">' + esc(content) + '</pre></details>';
+        }).join('');
+        var notice = groupNotice ? '<div class="hint" style="margin:0 0 9px">' + esc(groupNotice) + '</div>' : '';
+        return UI.sheet({
+          title: 'Prompt & context inspector',
+          body: notice + '<div class="hint" style="margin:0 0 9px">' + payload.length + ' messages · about ' +
+            Math.ceil(totalChars / 4) + ' tokens / ' + totalChars.toLocaleString() + ' characters. Token count is a rough estimate; provider tokenizers differ.</div>' +
+            (blocks || '<div class="hint">No prompt messages.</div>'),
+          actions: [{ label: 'Close', cls: 'ghost', value: null }]
+        });
+      });
+    }).catch(function (e) { UI.toast('Could not inspect this prompt: ' + (e && e.message), 4000); });
+  };
+
+  /* Per-chat lore is stored on the session, so separate AUs using the same
+     character cannot leak facts into one another. */
+  App.chatLoreBookSheet = function (sessionId) {
+    IDB.get('sessions', sessionId).then(function (session) {
+      if (!session) return;
+      var entries = Array.isArray(session.chatLorebook) ? session.chatLorebook : [];
+      var rows = entries.map(function (e, i) {
+        var keys = (e.keys || []).join(', ') || 'No trigger keywords';
+        var content = String(e.content || '').replace(/\s+/g, ' ').trim();
+        if (content.length > 150) content = content.slice(0, 147) + '…';
+        return '<div class="opt" data-chatlore-edit="' + i + '" style="align-items:flex-start;gap:8px">' +
+          '<span style="flex:1;min-width:0"><b style="display:block">' + esc(keys) + '</b>' +
+          '<span style="display:block;font-size:12px;color:var(--muted);margin-top:3px">' + esc(content || '(empty)') + '</span></span>' +
+          '<span style="font-size:11px;color:var(--dim)">' + (e.enabled === false ? 'Off' : 'On') + '</span></div>';
+      }).join('');
+      UI.sheet({
+        title: 'Chat-only lore — ' + (session.title || 'New chat'),
+        body: '<p class="hint" style="margin:0 0 10px">These keyword facts apply only to this chat. The character’s own lorebook remains shared across its chats.</p>' +
+          (rows || '<div class="hint" style="padding:10px 0">No chat-only lore yet. Add facts for this timeline, scene, or version of the character.</div>'),
+        actions: [
+          { label: 'Add entry', cls: 'primary', value: 'add' },
+          { label: 'Done', cls: 'ghost', value: null }
+        ],
+        onMount: function (b, close) {
+          b.querySelectorAll('[data-chatlore-edit]').forEach(function (el) {
+            el.onclick = function () {
+              var idx = parseInt(el.getAttribute('data-chatlore-edit'), 10);
+              close();
+              App.editChatLore(sessionId, idx);
+            };
+          });
+        }
+      }).then(function (action) {
+        if (action === 'add') App.editChatLore(sessionId, null);
+      });
+    });
+  };
+
+  App.editChatLore = function (sessionId, idx, draft) {
+    IDB.get('sessions', sessionId).then(function (session) {
+      if (!session) return;
+      var entries = Array.isArray(session.chatLorebook) ? session.chatLorebook.slice() : [];
+      var isNew = idx === null || idx === undefined;
+      var original = !isNew && entries[idx] ? entries[idx] : { id: UI.uid('cl'), keys: [], content: '', enabled: true };
+      var entry = draft || Object.assign({}, original, { keys: (original.keys || []).slice() });
+      UI.sheet({
+        title: isNew ? 'New chat-only lore' : 'Edit chat-only lore',
+        body: '<div class="field"><div class="field-head"><label>Trigger keywords</label></div>' +
+          '<input type="text" id="clk" value="' + esc((entry.keys || []).join(', ')) + '" placeholder="silver gate, the old pact"></div>' +
+          '<div class="field"><div class="field-head"><label>Content</label></div>' +
+          '<textarea id="clc" class="tall">' + esc(entry.content || '') + '</textarea>' +
+          '<div class="hint">Injected only in this chat when a keyword appears in recent messages. Keep details concise.</div></div>' +
+          '<div class="field compact"><label>Enabled</label><div class="toggle' + (entry.enabled !== false ? ' on' : '') + '" id="cle"></div></div>',
+        actions: [
+          { label: 'Cancel', cls: 'ghost', value: null },
+          (isNew ? null : { label: 'Remove', cls: 'danger', value: 'remove' }),
+          { label: 'Save', cls: 'primary', onClick: function (b) {
+            return {
+              keys: b.querySelector('#clk').value.split(',').map(function (k) { return k.trim(); }).filter(Boolean),
+              content: b.querySelector('#clc').value,
+              enabled: b.querySelector('#cle').classList.contains('on')
+            };
+          } }
+        ].filter(Boolean),
+        onMount: function (b) {
+          b.querySelector('#cle').onclick = function () { this.classList.toggle('on'); };
+        }
+      }).then(function (result) {
+        if (result === 'remove') {
+          entries.splice(idx, 1);
+          session.chatLorebook = entries;
+        } else if (result && typeof result === 'object') {
+          if (!result.keys.length || !String(result.content || '').trim()) {
+            UI.toast('Add at least one keyword and some lore text');
+            return App.editChatLore(sessionId, idx, {
+              id: original.id, keys: result.keys, content: result.content, enabled: result.enabled
+            });
+          }
+          entry.keys = result.keys;
+          entry.content = String(result.content).trim();
+          entry.enabled = result.enabled;
+          if (isNew) entries.push(entry); else entries[idx] = entry;
+          session.chatLorebook = entries;
+        } else {
+          return App.chatLoreBookSheet(sessionId);
+        }
+        return Store.putSession(session).then(function () {
+          if (App.state.session && App.state.session.id === sessionId) App.state.session = session;
+          UI.toast(result === 'remove' ? 'Chat lore removed' : 'Chat lore saved');
+          App.chatLoreBookSheet(sessionId);
+        });
+      });
+    });
+  };
+
   App.editLore = function (char, idx) {
     var entry = idx === null ? { id: UI.uid('l'), keys: [], content: '', enabled: true }
       : char.lorebook[idx];
@@ -3106,6 +3472,8 @@
     if (_att) _att.onclick = function () { App.stageAttach(); };
     var _imp = $('#chats-import');
     if (_imp) _imp.onclick = function () { App.importChat(); };
+    var _group = $('#chats-group');
+    if (_group) _group.onclick = function () { App.createGroupChat(); };
 
     var input = $('#input');
     input.addEventListener('input', function () {
