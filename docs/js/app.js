@@ -2588,15 +2588,12 @@
   App.imageSheet = function () {
     var s = Store.settings;
     var pickedSize = s.hordeSize;
-    var last = App.state.messages.slice(-3).map(function (m) { return m.text; }).join(' ');
-    var subject = (App.state.char ? App.state.char.name + ', ' : '') + (App.state.char ? (App.state.char.persona || '').slice(0, 120) : '');
-    var suggested = subject || last.slice(0, 160);
 
     UI.sheet({
       title: 'Generate an image',
       body:
         '<div class="field"><div class="field-head"><label>Prompt</label></div>' +
-        '<textarea id="img-prompt" style="min-height:110px">' + esc(suggested) + '</textarea>' +
+        '<textarea id="img-prompt" style="min-height:110px" placeholder="Describe the image you want to create…"></textarea>' +
         '<div class="hint">Sent to the AI Horde — a free, volunteer-run GPU cluster. Expect 20–60 seconds.</div></div>' +
         '<div class="field"><div class="field-head"><label>Model</label><span class="spacer"></span>' +
         '<button class="chip" id="img-model">Choose…</button></div>' +

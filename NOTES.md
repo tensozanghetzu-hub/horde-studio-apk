@@ -1,5 +1,16 @@
 # Horde Studio Mobile — release notes
 
+## Web patch 2026-11-02 — start image prompts blank
+
+- The AI Horde image-generation dialog now opens with an empty prompt every
+  time. Removed the automatic prefill from the active character description
+  or recent chat; added a placeholder instead. Model, NSFW checkbox, and size
+  choices are unchanged.
+- Regression: `tests/image-prompt-empty-test.js` confirms the prompt starts
+  empty and is not inferred from chat or character state. Focused test and
+  JavaScript syntax check pass.
+- Web revision: `50f61286627b` (app version remains 1.39.42; no APK rebuild).
+
 ## Web patch 2026-11-02 — Horde image NSFW model routing
 
 - AI Horde image-model picker adds **Any available (NSFW-tagged)**. At
