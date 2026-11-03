@@ -866,8 +866,10 @@
           k: 'hordesession', v: 1, title: s.title || 'New chat',
           charName: c ? c.name : 'Character', createdAt: s.createdAt,
           summary: s.summary || '', facts: s.facts || [],
+          rpgStatus: s.rpgStatus || null,
           messages: msgs.map(function (m) {
-            return { role: m.role, text: m.text || '', createdAt: m.createdAt, image: m.image || null, imageCaption: m.imageCaption || null, autonomous: !!m.autonomous };
+            return { role: m.role, text: m.text || '', createdAt: m.createdAt, image: m.image || null, imageCaption: m.imageCaption || null, autonomous: !!m.autonomous,
+              rpgStatusProposal: m.rpgStatusProposal && m.rpgStatusProposal.state === 'pending' ? m.rpgStatusProposal : null };
           })
         };
         UI.download(((c && c.name) || 'chat') + '-' + (s.title || 'chat') + '.hordechat.json',
@@ -875,6 +877,14 @@
       });
     });
   };
+
+  function safeImportedRpgProposal(proposal) {
+    if (!proposal || proposal.state !== 'pending') return null;
+    try {
+      var safe = API.parseRpgUpdate('<rpg_update>' + JSON.stringify({ reason: proposal.reason, changes: proposal.changes }) + '</rpg_update>');
+      return safe ? { state: 'pending', reason: safe.reason, changes: safe.changes, createdAt: Number(proposal.createdAt) || Date.now() } : null;
+    } catch (e) { return null; }
+  }
 
   /** The twin: ingest a .hordechat.json backup as a NEW session under a
       character you choose. Never overwrites: import always creates. */
@@ -886,6 +896,7 @@
     var s = Store.newSession(charId, (data.title || 'Imported chat'));
     s.summary = data.summary || '';
     s.facts = Array.isArray(data.facts) ? data.facts : [];
+    s.rpgStatus = data.rpgStatus && data.rpgStatus.enabled ? normalizeRpgStatus(data.rpgStatus) : null;
     s.createdAt = data.createdAt || Date.now();
     var msgs = data.messages.filter(function (m) {
       return m && (m.role === 'user' || m.role === 'assistant' || m.role === 'system');
@@ -896,6 +907,7 @@
         imageCaption: m.imageCaption || null,
         alts: m.text ? [String(m.text)] : [], altIdx: 0,
         autonomous: !!m.autonomous,
+        rpgStatusProposal: safeImportedRpgProposal(m.rpgStatusProposal),
         createdAt: m.createdAt || Date.now()
       };
     });
@@ -987,6 +999,193 @@
     });
   };
 
+  App.rpgStatusDefaults = function () {
+    return { enabled: true, level: '1', xp: 0, xpToNext: null, attributes: {}, skills: [], inventory: [], notes: [], suggestionsEnabled: true };
+  };
+
+  function normalizeRpgStatus(raw) {
+    var d = App.rpgStatusDefaults(), out = Object.assign(d, raw || {});
+    out.enabled = true;
+    out.level = String(out.level || '1').slice(0, 40);
+    out.xp = Math.max(0, Math.floor(Number(out.xp) || 0));
+    var next = Number(out.xpToNext);
+    out.xpToNext = out.xpToNext === '' || out.xpToNext == null || !isFinite(next) ? null : Math.max(0, Math.floor(next));
+    var attrs = {};
+    Object.keys(out.attributes || {}).slice(0, 40).forEach(function (key) {
+      var k = String(key).trim().slice(0, 48), value = String(out.attributes[key] == null ? '' : out.attributes[key]).trim().slice(0, 160);
+      if (k && value) attrs[k] = value;
+    });
+    out.attributes = attrs;
+    ['skills', 'inventory', 'notes'].forEach(function (key) {
+      out[key] = Array.isArray(out[key]) ? out[key].map(function (x) { return String(x || '').trim().slice(0, 240); }).filter(Boolean).slice(0, 80) : [];
+    });
+    out.suggestionsEnabled = out.suggestionsEnabled !== false;
+    return out;
+  }
+
+  function rpgLines(value) {
+    return String(value || '').split(/\r?\n/).map(function (line) {
+      return line.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').trim().slice(0, 240);
+    }).filter(Boolean).slice(0, 80);
+  }
+
+  function rpgAttributesText(attrs) {
+    return Object.keys(attrs || {}).map(function (key) { return key + ': ' + attrs[key]; }).join('\n');
+  }
+
+  function parseRpgAttributes(text) {
+    var out = {};
+    String(text || '').split(/\r?\n/).slice(0, 40).forEach(function (line) {
+      var match = line.match(/^\s*([^:=]{1,48})\s*[:=]\s*(.{1,160})\s*$/);
+      if (match) out[match[1].trim()] = match[2].trim();
+    });
+    return out;
+  }
+
+  App.rpgStatusSheet = function (sessionId) {
+    IDB.get('sessions', sessionId).then(function (session) {
+      if (!session) return UI.toast('Chat not found');
+      var current = normalizeRpgStatus(session.rpgStatus || {});
+      var wasEnabled = !!(session.rpgStatus && session.rpgStatus.enabled);
+      var statusActions = [{ label: 'Cancel', cls: 'ghost', value: null }];
+      if (wasEnabled) statusActions.push(
+        { label: 'Stop tracking', cls: 'ghost', value: 'stop' },
+        { label: 'Save status', cls: 'primary', onClick: function (b) { return collectRpgStatus(b); } }
+      );
+      else statusActions.push({ label: 'Save & start tracking', cls: 'primary', onClick: function (b) { return collectRpgStatus(b); } });
+      UI.sheet({
+        title: 'RPG status — ' + (session.title || 'chat'),
+        body:
+          '<div class="hint">This sheet belongs to you in this conversation. Group chats share the same player sheet. AI changes are suggestions only; approve each one before it affects your ledger.</div>' +
+          '<div class="group"><div class="group-title">Progression</div>' +
+            '<div class="field"><label>Level</label><input id="rpg-level" type="text" maxlength="40" value="' + esc(current.level) + '"></div>' +
+            '<div class="field"><label>XP</label><input id="rpg-xp" type="number" min="0" step="1" value="' + current.xp + '"></div>' +
+            '<div class="field"><label>XP target for next level (optional)</label><input id="rpg-next" type="number" min="0" step="1" value="' + (current.xpToNext == null ? '' : current.xpToNext) + '"></div>' +
+          '</div>' +
+          '<div class="group"><div class="group-title">Character sheet</div>' +
+            '<div class="field"><label>Attributes <span class="hint">one per line: Strength: 8</span></label><textarea id="rpg-attributes" class="tall" placeholder="Strength: 8\nAgility: 6">' + esc(rpgAttributesText(current.attributes)) + '</textarea></div>' +
+            '<div class="field"><label>Skills <span class="hint">one per line</span></label><textarea id="rpg-skills" class="tall" placeholder="Swordsmanship\nPersuasion">' + esc(current.skills.join('\n')) + '</textarea></div>' +
+            '<div class="field"><label>Inventory <span class="hint">one item per line</span></label><textarea id="rpg-inventory" class="tall" placeholder="Iron sword\nHealing potion">' + esc(current.inventory.join('\n')) + '</textarea></div>' +
+            '<div class="field"><label>Notes <span class="hint">one per line</span></label><textarea id="rpg-notes" class="tall" placeholder="Quest clues, rules, status details">' + esc(current.notes.join('\n')) + '</textarea></div>' +
+          '</div>' +
+          '<div class="field compact"><label>Let the AI suggest status changes</label><div class="toggle' + (current.suggestionsEnabled ? ' on' : '') + '" id="rpg-suggestions"></div><div class="hint">You review and approve every proposed XP, level, attribute, skill, inventory, or note change.</div></div>',
+        actions: statusActions,
+        onMount: function (b) {
+          var toggle = b.querySelector('#rpg-suggestions');
+          toggle.onclick = function () { current.suggestionsEnabled = !current.suggestionsEnabled; toggle.classList.toggle('on', current.suggestionsEnabled); };
+        }
+      }).then(function (result) {
+        if (!result) return;
+        if (result === 'stop') {
+          session.rpgStatus = Object.assign({}, current, { enabled: false });
+          return Store.putSession(session).then(function () {
+            if (App.state.session && App.state.session.id === session.id) App.state.session = session;
+            UI.toast('RPG status tracking stopped');
+          });
+        }
+        if (typeof result !== 'object') return;
+        session.rpgStatus = {
+          enabled: true,
+          level: String(result.level || '1').trim().slice(0, 40) || '1',
+          xp: Math.max(0, Math.floor(Number(result.xp) || 0)),
+          xpToNext: result.xpToNext === '' ? null : Math.max(0, Math.floor(Number(result.xpToNext) || 0)),
+          attributes: parseRpgAttributes(result.attributes),
+          skills: rpgLines(result.skills), inventory: rpgLines(result.inventory), notes: rpgLines(result.notes),
+          suggestionsEnabled: !!result.suggestionsEnabled
+        };
+        return Store.putSession(session).then(function () {
+          if (App.state.session && App.state.session.id === session.id) App.state.session = session;
+          UI.toast(wasEnabled ? 'RPG status saved' : 'RPG status tracking started');
+        });
+      });
+    });
+  };
+
+  function collectRpgStatus(body) {
+    return {
+      level: body.querySelector('#rpg-level').value,
+      xp: body.querySelector('#rpg-xp').value,
+      xpToNext: body.querySelector('#rpg-next').value,
+      attributes: body.querySelector('#rpg-attributes').value,
+      skills: body.querySelector('#rpg-skills').value,
+      inventory: body.querySelector('#rpg-inventory').value,
+      notes: body.querySelector('#rpg-notes').value,
+      suggestionsEnabled: body.querySelector('#rpg-suggestions').classList.contains('on')
+    };
+  }
+
+  function rpgChangeLabel(change) {
+    if (change.field === 'xp') return (change.op === 'add' && change.value >= 0 ? '+' : '') + change.value + ' XP' + (change.op === 'set' ? ' (set total)' : '');
+    if (change.field === 'level') return 'Level → ' + change.value;
+    if (change.field === 'attributes') return change.op === 'remove' ? 'Remove attribute: ' + change.key : change.key + ' → ' + change.value;
+    var label = change.field === 'inventory' ? 'Item' : (change.field === 'skills' ? 'Skill' : 'Note');
+    return (change.op === 'add' ? 'Add ' : 'Remove ') + label + ': ' + change.value;
+  }
+
+  function applyRpgProposal(status, proposal) {
+    var next = normalizeRpgStatus(status);
+    proposal.changes.forEach(function (change) {
+      if (change.field === 'xp') {
+        next.xp = change.op === 'set' ? Math.max(0, change.value) : Math.max(0, next.xp + change.value);
+      } else if (change.field === 'level') {
+        next.level = String(change.value).slice(0, 40);
+      } else if (change.field === 'attributes') {
+        if (change.op === 'remove') delete next.attributes[change.key];
+        else next.attributes[change.key] = String(change.value).slice(0, 160);
+      } else if (['skills', 'inventory', 'notes'].indexOf(change.field) !== -1) {
+        var list = next[change.field];
+        if (change.op === 'add') {
+          if (list.indexOf(change.value) === -1 && list.length < 80) list.push(change.value);
+        } else {
+          next[change.field] = list.filter(function (item) { return item !== change.value; });
+        }
+      }
+    });
+    return next;
+  }
+
+  App.reviewRpgStatusProposal = function (message) {
+    var proposal = message && message.rpgStatusProposal;
+    if (!proposal || proposal.state !== 'pending') return;
+    var safeProposal = API.parseRpgUpdate('<rpg_update>' + JSON.stringify({ reason: proposal.reason, changes: proposal.changes }) + '</rpg_update>');
+    if (!safeProposal) return UI.toast('This status suggestion is invalid and cannot be applied');
+    proposal.reason = safeProposal.reason;
+    proposal.changes = safeProposal.changes;
+    IDB.get('sessions', message.sessionId).then(function (session) {
+      if (!session || !session.rpgStatus || !session.rpgStatus.enabled) {
+        UI.toast('Start RPG status tracking before applying this suggestion');
+        return;
+      }
+      var changes = proposal.changes.map(function (change) {
+        return '<div class="kv"><span>' + esc(rpgChangeLabel(change)) + '</span></div>';
+      }).join('');
+      UI.sheet({
+        title: 'Review RPG status update',
+        body: '<div class="field"><b>Why it was suggested</b><div class="hint">' + esc(proposal.reason || 'Story event') + '</div></div>' +
+          '<div class="group"><div class="group-title">Proposed changes</div>' + changes + '</div>' +
+          '<div class="hint">Nothing changes unless you choose Apply. The fictional characters will not be told about this bookkeeping unless the story establishes they know.</div>',
+        actions: [
+          { label: 'Later', cls: 'ghost', value: null },
+          { label: 'Dismiss', cls: 'ghost', value: 'dismiss' },
+          { label: 'Apply changes', cls: 'primary', value: 'apply' }
+        ]
+      }).then(function (choice) {
+        if (!choice) return;
+        if (choice === 'apply') {
+          session.rpgStatus = applyRpgProposal(session.rpgStatus, proposal);
+          proposal.state = 'applied';
+        } else proposal.state = 'dismissed';
+        return Promise.all([Store.putSession(session), Store.updateMessage(message)]).then(function () {
+          if (App.state.session && App.state.session.id === session.id) {
+            App.state.session = session;
+            Views.thread(App.state.char, session, App.state.messages);
+          }
+          UI.toast(choice === 'apply' ? 'RPG status updated' : 'Suggestion dismissed');
+        });
+      });
+    });
+  };
+
   App.sessionMenu = function (id) {
     IDB.get('sessions', id).then(function (s) {
       if (!s) return;
@@ -997,6 +1196,9 @@
           '<div class="opt" data-a="archive">' + icon('download') + (s.archived ? ' Unarchive' : ' Archive') + '</div>' +
           '<div class="opt" data-a="rename">' + icon('edit') + ' Rename</div>' +
           '<div class="opt" data-a="settings">' + icon('edit') + ' Chat settings</div>' +
+          '<div class="opt" data-a="rpg-status">' + icon('brain') + (s.rpgStatus && s.rpgStatus.enabled
+            ? ' RPG status · level ' + esc(s.rpgStatus.level || '1') + ' · ' + Math.max(0, Number(s.rpgStatus.xp) || 0) + ' XP'
+            : ' Start RPG status tracking') + '</div>' +
           '<div class="opt" data-a="health">' + icon('brain') + ' Chat health</div>' +
           '<div class="opt" data-a="mem">' + icon('brain') + ' Story memory</div>' +
           '<div class="opt" data-a="chatlore">Chat-only lore' +
@@ -1025,6 +1227,7 @@
                 if (s.archived) s.pinned = false;
                 Store.putSession(s).then(function () { Views.chats($('.screen')); });
               } else if (a === 'settings') App.chatSettingsSheet(id);
+              else if (a === 'rpg-status') App.rpgStatusSheet(id);
               else if (a === 'health') App.chatHealthSheet(id);
               else if (a === 'fork') App.forkTimeline(id);
               else if (a === 'mem') App.memorySheet(id);
@@ -1251,6 +1454,20 @@
           return { saved: false };
         }
         throw e;
+      }).then(function (result) {
+        if (result.saved && msg.rpgStatusProposal && el && el.querySelector) {
+          var actions = el.querySelector('.msg-actions');
+          if (actions && !actions.querySelector('[data-act="rpg-review"]')) {
+            var review = document.createElement('button');
+            review.type = 'button';
+            review.className = 'chip';
+            review.setAttribute('data-act', 'rpg-review');
+            review.title = 'Review proposed RPG status changes';
+            review.textContent = 'Review status update';
+            actions.insertBefore(review, actions.firstChild);
+          }
+        }
+        return result;
       });
     }
 
@@ -1269,7 +1486,8 @@
         msg._stream = opts.continueFor && target.text && soFar.indexOf(target.text) === 0
           ? soFar.slice(target.text.length) : soFar;
         var mt = el.querySelector('.mtext');
-        if (mt) mt.innerHTML = UI.md(msg._stream);
+        var visibleStream = API.hideRpgUpdate ? API.hideRpgUpdate(msg._stream) : msg._stream;
+        if (mt) mt.innerHTML = UI.md(visibleStream);
         Views.stickToBottom($('#thread'));
       },
       onProgress: function (info) {
@@ -1287,6 +1505,17 @@
     }).then(function (text) {
       text = (text || '').trim();
       App.genStop();
+      var statusProposal = API.parseRpgUpdate ? API.parseRpgUpdate(text) : null;
+      text = API.stripRpgUpdate ? API.stripRpgUpdate(text) : text;
+      if (opts.rerollFor || opts.replaceBubble) delete msg.rpgStatusProposal;
+      if (statusProposal && session.rpgStatus && session.rpgStatus.enabled === true &&
+          session.rpgStatus.suggestionsEnabled !== false && !(opts.rerollFor || opts.replaceBubble || opts.continueFor)) {
+        msg.rpgStatusProposal = {
+          state: 'pending', reason: statusProposal.reason,
+          changes: statusProposal.changes, createdAt: Date.now()
+        };
+        UI.toast('A status change was suggested — review the reply action', 4500);
+      }
       /* v1.13.0: the reply may end with the character's updated internal
          state — pull it out before the message is stored or shown, and
          keep the character's state current for the next prompt. A reply
@@ -2776,6 +3005,7 @@
       s2.groupCharIds = (old.groupCharIds || []).slice();
       s2.speakerMode = old.speakerMode || 'manual';
       s2.nextSpeakerId = old.nextSpeakerId || '';
+      s2.rpgStatus = old.rpgStatus ? JSON.parse(JSON.stringify(old.rpgStatus)) : null;
       return Store.putSession(s2).then(function () {
         var copies = msgs.map(function (m) {
           return Object.assign({}, m, { id: UI.uid('m'), sessionId: s2.id });
@@ -3609,6 +3839,7 @@
             return;
           }
           msg.text = v;
+          delete msg.rpgStatusProposal;
           if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = v;
           Store.updateMessage(msg).then(function () {
             Views.thread(App.state.char, App.state.session, App.state.messages, null, false, editAnchor);
@@ -3627,6 +3858,8 @@
         UI.toast('Copied');
       } else if (act === 'download-image') {
         App.downloadChatImage(msg);
+      } else if (act === 'rpg-review') {
+        App.reviewRpgStatusProposal(msg);
       } else if (act === 'reroll') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
         App.generateReply({ rerollFor: msg });
@@ -3652,6 +3885,7 @@
         var n = msg.alts.length;
         msg.altIdx = ((msg.altIdx || 0) + dir + n) % n;
         msg.text = msg.alts[msg.altIdx];
+        delete msg.rpgStatusProposal;
         Store.updateMessage(msg).then(function () { Views.thread(App.state.char, App.state.session, App.state.messages); });
       }
     });

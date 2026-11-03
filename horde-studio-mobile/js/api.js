@@ -209,6 +209,78 @@
     return parts.join('\n\n');
   }
 
+  /* ---------------- per-chat player RPG ledger ---------------- */
+  var RPG_UPDATE_RE = /<rpg_update\b[^>]*>([\s\S]*?)<\/rpg_update\s*>/gi;
+
+  function parseRpgUpdate(text) {
+    var source = String(text || ''), match = null, m;
+    RPG_UPDATE_RE.lastIndex = 0;
+    while ((m = RPG_UPDATE_RE.exec(source))) match = m;
+    if (!match || match[1].length > 8000) return null;
+    var raw;
+    try { raw = JSON.parse(match[1].trim()); } catch (e) { return null; }
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.changes) || !raw.changes.length || raw.changes.length > 20) return null;
+    var changes = [];
+    raw.changes.forEach(function (c) {
+      if (!c || typeof c !== 'object') return;
+      var field = String(c.field || ''), op = String(c.op || ''), value = c.value;
+      if (field === 'xp' && (op === 'add' || op === 'set')) {
+        var n = Number(value);
+        if (isFinite(n) && Math.floor(n) === n && Math.abs(n) <= 1000000 && (op !== 'set' || n >= 0)) {
+          changes.push({ field: field, op: op, value: n });
+        }
+      } else if (field === 'level' && op === 'set' && (typeof value === 'string' || typeof value === 'number')) {
+        var level = String(value).trim().slice(0, 40);
+        if (level) changes.push({ field: field, op: op, value: level });
+      } else if (field === 'attributes' && (op === 'set' || op === 'remove')) {
+        var key = String(c.key || '').trim().slice(0, 48);
+        if (!key) return;
+        if (op === 'remove') changes.push({ field: field, op: op, key: key });
+        else if (typeof value === 'string' || typeof value === 'number') {
+          var attr = String(value).trim().slice(0, 160);
+          if (attr) changes.push({ field: field, op: op, key: key, value: attr });
+        }
+      } else if (['skills', 'inventory', 'notes'].indexOf(field) !== -1 && (op === 'add' || op === 'remove') && typeof value === 'string') {
+        var item = value.trim().slice(0, 240);
+        if (item) changes.push({ field: field, op: op, value: item });
+      }
+    });
+    if (!changes.length) return null;
+    return { reason: String(raw.reason || 'A story event may warrant a status change.').trim().slice(0, 400), changes: changes };
+  }
+
+  function stripRpgUpdate(text) {
+    return String(text || '').replace(/<rpg_update\b[^>]*>[\s\S]*?(?:<\/rpg_update\s*>|$)/gi, '').trim();
+  }
+
+  function hideRpgUpdate(text) {
+    var t = String(text || ''), m = /<rpg_update\b/i.exec(t);
+    return m ? t.slice(0, m.index).replace(/\s+$/, '') : t;
+  }
+
+  function rpgStatusPrompt(session) {
+    var st = session && session.rpgStatus;
+    if (!st || st.enabled !== true) return '';
+    var lines = [
+      'PLAYER RPG STATUS — APP-MANAGED LEDGER',
+      'This is one player-facing ledger shared by this conversation (including a group chat). It is for continuity and game bookkeeping; it does not grant any character knowledge of private events or make the sheet visible in-fiction unless the story establishes that.',
+      'Level: ' + String(st.level || '1'),
+      'XP: ' + String(Math.max(0, Number(st.xp) || 0))
+    ];
+    if (st.xpToNext !== null && st.xpToNext !== undefined && st.xpToNext !== '') lines.push('XP target for next level: ' + String(st.xpToNext));
+    if (st.attributes && Object.keys(st.attributes).length) lines.push('Attributes: ' + JSON.stringify(st.attributes));
+    if (Array.isArray(st.skills) && st.skills.length) lines.push('Skills: ' + JSON.stringify(st.skills));
+    if (Array.isArray(st.inventory) && st.inventory.length) lines.push('Inventory: ' + JSON.stringify(st.inventory));
+    if (Array.isArray(st.notes) && st.notes.length) lines.push('Player notes: ' + JSON.stringify(st.notes));
+    lines.push('Do not silently change this ledger. Do not invent rewards, losses, items, skill changes, or level-ups. Only propose a change supported by events explicitly established in this conversation and by the stated game rules.');
+    if (st.suggestionsEnabled !== false) {
+      lines.push('When a concrete event clearly warrants a status change, append one machine-readable proposal after the narrative (and after any <state> block): <rpg_update>{"reason":"brief reason","changes":[{"field":"xp","op":"add","value":10}]}</rpg_update>. Never put story prose inside the tag. Allowed changes: xp add/set (integer), level set, attributes set/remove with key and value, skills/inventory/notes add/remove with a value. The app hides this block and asks the player to approve it; never claim it was applied. Omit the tag entirely when there is no well-supported change.');
+    } else {
+      lines.push('Status suggestions are disabled. Do not output an <rpg_update> block.');
+    }
+    return lines.join('\n');
+  }
+
   /* ------------------------------------------------------------------
    * v1.13.0 — internal state.
    *
@@ -337,6 +409,8 @@
     system += '\n' + macros(OOC_RULE, character, s);
     var sheet = charSheet(character, s, session, recent, assistantTurns);
     if (sheet) system += '\n\n' + sheet;
+    var rpg = rpgStatusPrompt(session);
+    if (rpg) system += '\n\n' + rpg;
     if (note) system += '\n\n' + note;
 
     var msgs = [{ role: 'system', content: system.trim() }];
@@ -370,6 +444,8 @@
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
       '\n\n' + charSheet(character, s, session, recent, assistantTurns);
+    var rpg = rpgStatusPrompt(session);
+    if (rpg) head += '\n\n' + rpg;
     if (note) head += '\n\n' + note;
     head += '\n\n' + macros(OOC_RULE, character, s);
     var ex = examplesToMessages(character.examples, character, s).map(function (m) {
@@ -1701,6 +1777,8 @@
     parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,
     parseLorebookFile: parseLorebookFile, aiJson: aiJson,
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
+    rpgStatusPrompt: rpgStatusPrompt, parseRpgUpdate: parseRpgUpdate,
+    stripRpgUpdate: stripRpgUpdate, hideRpgUpdate: hideRpgUpdate,
     plainText: plainText, repairMojibake: repairMojibake,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); },
     /* v1.29.1: the last real Horde answer, as a receipt (model, worker,

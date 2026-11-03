@@ -1,5 +1,19 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.45 — per-chat RPG status ledger (2026-11-03)
+
+- Added an optional RPG status sheet to normal and group chats, opened from
+  the chat menu. It stores the player's level, XP, optional next-level target,
+  attributes, skills, inventory, and notes per conversation; a group shares
+  one player sheet across speakers.
+- When enabled, the current sheet is included in the model context. The model
+  may suggest evidence-based changes in a hidden structured block; suggestions
+  are stripped from the visible reply and appear as a **Review status update**
+  action. Changes apply only after explicit approval. Users can edit the sheet
+  directly or turn suggestions/tracking off.
+- RPG status is copied when a timeline is forked and included in chat exports.
+  Added focused prompt/parser/application/rendering regression tests.
+
 ## v1.39.44 — download generated chat images (2026-11-03)
 
 - Added a **Download image** action to chat messages that contain an image.
