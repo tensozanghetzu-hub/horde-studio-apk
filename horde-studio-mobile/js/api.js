@@ -140,9 +140,10 @@
     return re.test(text);
   }
 
-  function loreHits(entries, recent, limit, budget) {
+  function loreHits(entries, recent, limit, budget, stage) {
     if (!entries || !entries.length) return [];
     var text = (recent || '').toLowerCase();
+    var activeStage = String(stage || '').trim().toLowerCase();
     var out = [], bytes = 0;
     /* v1.37.0: the same byte discipline the world side has - the pile
        stops at the budget, and a lone match may exceed it alone. */
@@ -150,6 +151,8 @@
     entries.forEach(function (e) {
       if (out.length >= (limit || 6)) return;
       if (e.enabled === false) return;
+      var requiredStage = String(e.stage || '').trim().toLowerCase();
+      if (requiredStage && requiredStage !== '*' && (!activeStage || requiredStage !== activeStage)) return;
       var hit = (e.keys || []).some(function (k) { return k && keyStands(text, k); });
       if (!hit) return;
       var cost = String(e.content || '').length;
@@ -158,6 +161,161 @@
       bytes += cost;
     });
     return out;
+  }
+
+  /* Per-chat continuity state is deliberately generic: the app stores approved
+     scene facts and knowledge provenance; the model may only propose changes. */
+  function emptyContinuity() {
+    return { enabled: false, stage: '', location: '', time: '', participants: [], knowledge: [], objects: [], events: [] };
+  }
+
+  function normalizeContinuity(raw) {
+    raw = raw && typeof raw === 'object' ? raw : {};
+    function text(v, max) { return String(v == null ? '' : v).trim().slice(0, max); }
+    function listStrings(a, max, cap) {
+      var out = [], seen = {};
+      (Array.isArray(a) ? a : []).slice(0, cap * 2).forEach(function (v) {
+        var x = text(v, max), k = x.toLowerCase();
+        if (x && !seen[k] && out.length < cap) { seen[k] = true; out.push(x); }
+      });
+      return out;
+    }
+    var knowledge = [];
+    (Array.isArray(raw.knowledge) ? raw.knowledge : []).slice(0, 100).forEach(function (f) {
+      if (!f || typeof f !== 'object') return;
+      var who = text(f.who, 80), fact = text(f.fact, 320), basis = text(f.basis, 200);
+      if (!who || !fact) return;
+      if (!knowledge.some(function (x) { return x.who.toLowerCase() === who.toLowerCase() && x.fact.toLowerCase() === fact.toLowerCase(); })) {
+        knowledge.push({ who: who, fact: fact, basis: basis });
+      }
+    });
+    var objects = [];
+    (Array.isArray(raw.objects) ? raw.objects : []).slice(0, 100).forEach(function (o) {
+      if (!o || typeof o !== 'object') return;
+      var name = text(o.name, 100), state = text(o.state, 160), holder = text(o.holder, 80), basis = text(o.basis, 200);
+      if (!name || !state) return;
+      var prev = objects.find(function (x) { return x.name.toLowerCase() === name.toLowerCase(); });
+      if (!prev && objects.length < 80) objects.push({ name: name, state: state, holder: holder, basis: basis });
+    });
+    var events = [];
+    (Array.isArray(raw.events) ? raw.events : []).slice(0, 100).forEach(function (e) {
+      if (!e || typeof e !== 'object') return;
+      var name = text(e.name, 120), status = e.status === 'resolved' ? 'resolved' : 'open', detail = text(e.detail, 240);
+      if (!name) return;
+      var prev = events.find(function (x) { return x.name.toLowerCase() === name.toLowerCase(); });
+      if (!prev && events.length < 80) events.push({ name: name, status: status, detail: detail });
+    });
+    return {
+      enabled: raw.enabled === true,
+      stage: text(raw.stage, 120), location: text(raw.location, 160), time: text(raw.time, 120),
+      participants: listStrings(raw.participants, 80, 24), knowledge: knowledge.slice(0, 80), objects: objects, events: events
+    };
+  }
+
+  function continuityPrompt(session) {
+    var raw = session && session.continuity;
+    if (!raw || raw.enabled !== true) return '';
+    var c = normalizeContinuity(raw), lines = [
+      'CHAT CONTINUITY LEDGER — USER-APPROVED STATE',
+      'This state belongs only to this chat. Treat it as authoritative over model-invented details. It is not automatically public knowledge to every character.',
+      'Stage: ' + (c.stage || '(not set)'),
+      'Location: ' + (c.location || '(not set)'),
+      'Time: ' + (c.time || '(not set)'),
+      'Present in scene: ' + (c.participants.length ? c.participants.join(', ') : '(not set; do not invent who is present)'),
+      'Never put words, actions, thoughts, memories, or unrecorded knowledge into the user character. Only characters listed as present may speak or act in this scene; show a transition before anyone enters, leaves, or changes location.'
+    ];
+    var present = {};
+    c.participants.forEach(function (n) { present[n.toLowerCase()] = true; });
+    var gm = [], shared = [], user = [], npc = [];
+    c.knowledge.forEach(function (f) {
+      var who = f.who.toLowerCase(), line = f.who + ' knows: ' + f.fact + (f.basis ? ' (basis: ' + f.basis + ')' : '');
+      if (who === 'narrator only' || who === 'gm only' || who === 'world truth') gm.push(line);
+      else if (who === 'user' || who === '{{user}}') user.push(line);
+      else if (who === 'everyone' || who === 'all' || who === 'shared') shared.push(line);
+      else if (present[who]) npc.push(line);
+    });
+    if (gm.length) lines.push('Narrator-only world facts (not NPC knowledge; reveal only through established evidence):\n- ' + gm.join('\n- '));
+    if (shared.length) lines.push('Approved shared knowledge:\n- ' + shared.join('\n- '));
+    if (user.length) lines.push('Facts explicitly known to {{user}}:\n- ' + user.join('\n- '));
+    if (npc.length) lines.push('Knowledge of present NPCs only:\n- ' + npc.join('\n- '));
+    if (c.objects.length) lines.push('Important object states (approved; not proof that every character knows them):\n- ' + c.objects.map(function (o) { return o.name + ': ' + o.state + (o.holder ? ' (held by ' + o.holder + ')' : '') + (o.basis ? ' (basis: ' + o.basis + ')' : ''); }).join('\n- '));
+    var open = c.events.filter(function (e) { return e.status === 'open'; });
+    var done = c.events.filter(function (e) { return e.status === 'resolved'; });
+    if (open.length) lines.push('Open events:\n- ' + open.map(function (e) { return e.name + (e.detail ? ' — ' + e.detail : ''); }).join('\n- '));
+    if (done.length) lines.push('Resolved events (do not repeat or reopen without a new cause):\n- ' + done.map(function (e) { return e.name + (e.detail ? ' — ' + e.detail : ''); }).join('\n- '));
+    lines.push('Do not silently change this ledger. If a concrete event changes location, cast, object state, knowledge, or an open/resolved event, append a JSON proposal in <continuity_update> at the very end of the reply. Use exactly this outer shape: {"reason":"brief evidence from the chat","changes":[{"type":"scene","op":"set","field":"location","value":"..."}]}. Other change shapes: participant {type,op,name}; knowledge {type,op,who,fact,basis}; object {type,op,name,state,holder,basis}; event {type,op,name,detail}. Propose only changes explicitly established in this chat; never promote a guess, canon fact, or hidden truth to NPC knowledge. The app will ask the user to approve or dismiss it. Omit the tag when no durable state changed. Allowed: scene set (stage/location/time), participant add/remove, knowledge add/remove (who/fact; add also needs basis), object set/remove (name/state; include holder/basis when supported), event add/resolve/reopen/remove.');
+    return lines.join('\n');
+  }
+
+  var CONTINUITY_UPDATE_RE = /<continuity_update\b[^>]*>([\s\S]*?)<\/continuity_update\s*>/gi;
+  function parseContinuityUpdate(text) {
+    var source = String(text || ''), m, last = null;
+    CONTINUITY_UPDATE_RE.lastIndex = 0;
+    while ((m = CONTINUITY_UPDATE_RE.exec(source))) last = m;
+    if (!last || last[1].length > 6000) return null;
+    var raw;
+    try { raw = JSON.parse(last[1].trim()); } catch (e) { return null; }
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.changes) || !raw.changes.length || raw.changes.length > 20) return null;
+    function clip(v, max) { return typeof v === 'string' ? v.trim().slice(0, max) : ''; }
+    var changes = [];
+    raw.changes.forEach(function (x) {
+      if (!x || typeof x !== 'object') return;
+      var type = String(x.type || ''), op = String(x.op || '');
+      if (type === 'scene' && op === 'set' && ['stage', 'location', 'time'].indexOf(x.field) !== -1) {
+        var value = clip(x.value, 160); if (value) changes.push({ type: type, op: op, field: x.field, value: value });
+      } else if (type === 'participant' && ['add', 'remove'].indexOf(op) !== -1) {
+        var name = clip(x.name, 80); if (name) changes.push({ type: type, op: op, name: name });
+      } else if (type === 'knowledge' && ['add', 'remove'].indexOf(op) !== -1) {
+        var who = clip(x.who, 80), fact = clip(x.fact, 320);
+        var basis = clip(x.basis, 200);
+        if (who && fact && (op === 'remove' || basis)) changes.push({ type: type, op: op, who: who, fact: fact, basis: basis });
+      } else if (type === 'object' && ['set', 'remove'].indexOf(op) !== -1) {
+        var objectName = clip(x.name, 100), objectState = clip(x.state, 160);
+        var holder = clip(x.holder, 80), objectBasis = clip(x.basis, 200);
+        if (objectName && (op === 'remove' || objectState)) changes.push({ type: type, op: op, name: objectName, state: objectState, holder: holder, basis: objectBasis });
+      } else if (type === 'event' && ['add', 'resolve', 'reopen', 'remove'].indexOf(op) !== -1) {
+        var event = clip(x.name, 120), detail = clip(x.detail, 240);
+        if (event) changes.push({ type: type, op: op, name: event, detail: detail });
+      }
+    });
+    if (!changes.length) return null;
+    return { reason: clip(raw.reason, 300) || 'A story event may warrant a continuity update.', changes: changes };
+  }
+
+  function stripContinuityUpdate(text) {
+    return String(text || '').replace(/<continuity_update\b[^>]*>[\s\S]*?(?:<\/continuity_update\s*>|$)/gi, '').trim();
+  }
+  function hideContinuityUpdate(text) {
+    var t = String(text || ''), m = /<continuity_update\b/i.exec(t);
+    return m ? t.slice(0, m.index).replace(/\s+$/, '') : t;
+  }
+  function applyContinuityProposal(current, proposal) {
+    var next = normalizeContinuity(current);
+    if (!proposal || !Array.isArray(proposal.changes)) return next;
+    proposal.changes.forEach(function (x) {
+      if (x.type === 'scene' && x.op === 'set') next[x.field] = x.value;
+      else if (x.type === 'participant') {
+        if (x.op === 'add' && !next.participants.some(function (n) { return n.toLowerCase() === x.name.toLowerCase(); }) && next.participants.length < 24) next.participants.push(x.name);
+        if (x.op === 'remove') next.participants = next.participants.filter(function (n) { return n.toLowerCase() !== x.name.toLowerCase(); });
+      } else if (x.type === 'knowledge') {
+        if (x.op === 'add' && !next.knowledge.some(function (f) { return f.who.toLowerCase() === x.who.toLowerCase() && f.fact.toLowerCase() === x.fact.toLowerCase(); }) && next.knowledge.length < 80) next.knowledge.push({ who: x.who, fact: x.fact, basis: x.basis });
+        if (x.op === 'remove') next.knowledge = next.knowledge.filter(function (f) { return !(f.who.toLowerCase() === x.who.toLowerCase() && f.fact.toLowerCase() === x.fact.toLowerCase()); });
+      } else if (x.type === 'object') {
+        var object = next.objects.find(function (o) { return o.name.toLowerCase() === x.name.toLowerCase(); });
+        if (x.op === 'remove') next.objects = next.objects.filter(function (o) { return o.name.toLowerCase() !== x.name.toLowerCase(); });
+        else if (object) { object.state = x.state; object.holder = x.holder || ''; object.basis = x.basis || ''; }
+        else if (next.objects.length < 80) next.objects.push({ name: x.name, state: x.state, holder: x.holder || '', basis: x.basis || '' });
+      } else if (x.type === 'event') {
+        var old = next.events.find(function (e) { return e.name.toLowerCase() === x.name.toLowerCase(); });
+        if (x.op === 'remove') next.events = next.events.filter(function (e) { return e.name.toLowerCase() !== x.name.toLowerCase(); });
+        else if (x.op === 'add' && !old && next.events.length < 80) next.events.push({ name: x.name, status: 'open', detail: x.detail });
+        else if (x.op === 'resolve' || x.op === 'reopen') {
+          if (old) { old.status = x.op === 'resolve' ? 'resolved' : 'open'; if (x.detail) old.detail = x.detail; }
+          else if (next.events.length < 80) next.events.push({ name: x.name, status: x.op === 'resolve' ? 'resolved' : 'open', detail: x.detail });
+        }
+      }
+    });
+    return normalizeContinuity(next);
   }
 
   function charSheet(char, s, session, recent, assistantTurns) {
@@ -180,7 +338,8 @@
     var scenePlacement = session && session.sceneNotePlacement || 'end';
     if (sceneNote && scenePlacement === 'character') parts.push('Scene note: ' + sceneNote);
 
-    var lore = loreHits(char.lorebook, recent);
+    var activeStage = session && session.continuity && session.continuity.enabled ? session.continuity.stage : '';
+    var lore = loreHits(char.lorebook, recent, 6, 1536, activeStage);
     if (lore.length) {
       parts.push('Relevant world facts:\n' + lore.map(function (e) {
         return '- ' + plainText(macros(e.content, char, s));
@@ -190,7 +349,7 @@
        for this transcript. It is intentionally placed afterward so a
        timeline-specific fact can clarify an otherwise shared canon detail. */
     var chatLore = session && Array.isArray(session.chatLorebook)
-      ? loreHits(session.chatLorebook, recent, 4, 1024) : [];
+      ? loreHits(session.chatLorebook, recent, 4, 1024, activeStage) : [];
     if (chatLore.length) {
       parts.push('Relevant chat-only facts:\n' + chatLore.map(function (e) {
         return '- ' + plainText(macros(e.content, char, s));
@@ -203,6 +362,8 @@
       parts.push(mem.join('\n'));
     }
     if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
+    var continuity = continuityPrompt(session);
+    if (continuity) parts.push(continuity);
     var post = plainText(macros(char.postHistory, char, s));
     if (post) parts.push(post);
     if (sceneNote && scenePlacement !== 'character' && scenePlacement !== 'memory') parts.push('Scene note: ' + sceneNote);
@@ -1714,7 +1875,8 @@
       var content = plainText(String(rawContent)).trim().slice(0, 12000);
       if (!keys.length || !content) return null;
       return { keys: keys, content: content,
-        enabled: entry.enabled !== false && entry.disable !== true && entry.disabled !== true };
+        enabled: entry.enabled !== false && entry.disable !== true && entry.disabled !== true,
+        stage: typeof entry.stage === 'string' ? entry.stage.trim().slice(0, 100) : '' };
     }).filter(Boolean).slice(0, 200);
   }
 
@@ -1779,6 +1941,10 @@
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     rpgStatusPrompt: rpgStatusPrompt, parseRpgUpdate: parseRpgUpdate,
     stripRpgUpdate: stripRpgUpdate, hideRpgUpdate: hideRpgUpdate,
+    emptyContinuity: emptyContinuity, normalizeContinuity: normalizeContinuity,
+    continuityPrompt: continuityPrompt, parseContinuityUpdate: parseContinuityUpdate,
+    stripContinuityUpdate: stripContinuityUpdate, hideContinuityUpdate: hideContinuityUpdate,
+    applyContinuityProposal: applyContinuityProposal,
     plainText: plainText, repairMojibake: repairMojibake,
     estTokens: function (t) { return Math.ceil((t || '').length / 4); },
     /* v1.29.1: the last real Horde answer, as a receipt (model, worker,

@@ -1,5 +1,14 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.46 — per-chat conversation continuity (2026-09-10)
+
+- Added generic, opt-in continuity for any conversation and character card. The per-chat ledger records scene stage/location/time and present characters, object states, open/resolved events, and knowledge with provenance kept separate for NPCs, {{user}}, shared knowledge, and narrator-only truth.
+- Model updates are parsed into hidden proposals and require explicit review before application. Added a manual editor, pending-proposal review actions, prompt injection, and per-chat state isolation.
+- Forks and `.hordechat.json` backups preserve continuity. Optional exact-stage lorebook labels withhold stage-gated entries when the active stage does not match.
+- Continuity defaults off to avoid unexpected extra model output. No setting-specific facts or character cards were added to the app.
+- Focused continuity tests plus the JavaScript suite pass: 86 passed, 0 failed; 2 browser-dependent tests skipped (Chromium not available).
+- Bumped app version to 1.39.46 (versionCode 125) and service-worker cache to v114. Built the signed APK with the existing keystore; v2/v3 signature verification passed and the packaged APK contains the continuity prompt and approval UI.
+
 ## v1.39.45 — per-chat RPG status ledger (2026-11-03)
 
 - Added an optional RPG status sheet to normal and group chats, opened from

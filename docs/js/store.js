@@ -20,7 +20,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.39.45';
+  var VERSION = '1.39.46';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -311,6 +311,8 @@
         overrides: null,
         /* Optional player RPG ledger, scoped to this transcript and shared across its group speakers. */
         rpgStatus: null,
+        /* Generic continuity state is opt-in and isolated to this conversation. */
+        continuity: { enabled: false, stage: '', location: '', time: '', participants: [], knowledge: [], events: [] },
         /* auto-title bookkeeping: once we named it for you, a manual rename
            is never overwritten; unset means the chat may learn its name. */
         titleAuto: false,
@@ -495,7 +497,7 @@
         || card.character_book || null;
       var entries = book && book.entries;
       return Array.isArray(entries) ? entries.map(function (e) {
-        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false };
+        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
       }) : [];
     },
 
@@ -594,7 +596,7 @@
         card.data.character_book = {
           name: (c.name || 'character') + ' lorebook',
           entries: c.lorebook.map(function (e) {
-            return { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false };
+            return { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
           })
         };
       }

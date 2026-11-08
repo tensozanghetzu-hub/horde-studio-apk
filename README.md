@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.23.1
+# Horde Studio — Mobile (Android) · v1.39.46
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,8 +6,8 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.23.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
-— ~280 KB, Android 7.0 (API 24) and up. This is the one to use: it shows in the
+**Releases → [Horde Studio v1.39.46](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+— signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
 Tap this on your phone and it downloads without any further clicking:
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.23.1.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.39.46.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -31,7 +31,7 @@ an earlier version keeps your characters and chats.
 
 | Path | What it is |
 |---|---|
-| `docs/HordeStudio-latest.apk` | The Android app. Signed, ~280 KB, Android 7.0 (API 24) and up. |
+| `docs/HordeStudio-latest.apk` | The signed Android app. Android 7.0 (API 24) and up. |
 | `horde-studio-mobile/` | The full web/PWA source that the APK wraps (also hostable anywhere). |
 | `apk-build/` | Android wrapper source + `build.sh` / `setup-sdk.sh` to rebuild the APK. |
 | Live preview | [The same app running as a website](https://tensozanghetzu-hub.github.io/horde-studio-apk/) — try it in your browser before installing. |
@@ -604,6 +604,12 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.39.46
+
+**Conversation continuity is now available for any chat and character card.** Turn it on per chat to track the current stage, location, time, present characters, important objects, open/resolved events, and who knows what—with provenance kept separate for NPCs, `{{user}}`, shared knowledge, and narrator-only truth. Chats remain isolated, and forks and backup exports carry their own continuity state.
+
+Characters can suggest structured updates, but suggestions are hidden from replies and never change the ledger until you review and apply them. The continuity sheet also supports manual edits. Optional stage labels on lorebook entries use exact matching, so unmatched timeline details stay out of the prompt. Continuity is off by default to avoid unexpected extra model output.
 
 ## What's new in v1.39.37
 

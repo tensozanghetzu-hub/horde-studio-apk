@@ -2393,6 +2393,7 @@
         '<div class="msg-actions">' +
           (m.image ? '<button class="chip" data-act="download-image" title="Save this image to Downloads">' + icon('download') + ' Download image</button>' : '') +
           (m.rpgStatusProposal && m.rpgStatusProposal.state === 'pending' ? '<button class="chip" data-act="rpg-review" title="Review proposed RPG status changes">' + icon('brain') + ' Review status update</button>' : '') +
+          (m.continuityProposal && m.continuityProposal.state === 'pending' ? '<button class="chip" data-act="continuity-review" title="Review proposed continuity changes">' + icon('brain') + ' Review continuity update</button>' : '') +
           (isMe
             ? (m.retry ? '<button class="chip retry" data-act="retry">' + icon('refresh') + ' Retry</button>' : '') +
               '<button class="chip" data-act="edit">' + icon('edit') + ' Edit</button>' +

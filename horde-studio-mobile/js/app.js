@@ -867,9 +867,12 @@
           charName: c ? c.name : 'Character', createdAt: s.createdAt,
           summary: s.summary || '', facts: s.facts || [],
           rpgStatus: s.rpgStatus || null,
+          continuity: s.continuity || null,
+          chatLorebook: s.chatLorebook || [],
           messages: msgs.map(function (m) {
             return { role: m.role, text: m.text || '', createdAt: m.createdAt, image: m.image || null, imageCaption: m.imageCaption || null, autonomous: !!m.autonomous,
-              rpgStatusProposal: m.rpgStatusProposal && m.rpgStatusProposal.state === 'pending' ? m.rpgStatusProposal : null };
+              rpgStatusProposal: m.rpgStatusProposal && m.rpgStatusProposal.state === 'pending' ? m.rpgStatusProposal : null,
+              continuityProposal: m.continuityProposal && m.continuityProposal.state === 'pending' ? m.continuityProposal : null };
           })
         };
         UI.download(((c && c.name) || 'chat') + '-' + (s.title || 'chat') + '.hordechat.json',
@@ -886,6 +889,14 @@
     } catch (e) { return null; }
   }
 
+  function safeImportedContinuityProposal(proposal) {
+    if (!proposal || proposal.state !== 'pending' || !API.parseContinuityUpdate) return null;
+    try {
+      var safe = API.parseContinuityUpdate('<continuity_update>' + JSON.stringify({ reason: proposal.reason, changes: proposal.changes }) + '</continuity_update>');
+      return safe ? { state: 'pending', reason: safe.reason, changes: safe.changes, createdAt: Number(proposal.createdAt) || Date.now() } : null;
+    } catch (e) { return null; }
+  }
+
   /** The twin: ingest a .hordechat.json backup as a NEW session under a
       character you choose. Never overwrites: import always creates. */
   App.importChatData = function (raw, charId) {
@@ -897,6 +908,8 @@
     s.summary = data.summary || '';
     s.facts = Array.isArray(data.facts) ? data.facts : [];
     s.rpgStatus = data.rpgStatus && data.rpgStatus.enabled ? normalizeRpgStatus(data.rpgStatus) : null;
+    s.continuity = API.normalizeContinuity ? API.normalizeContinuity(data.continuity) : (s.continuity || null);
+    s.chatLorebook = API.parseLorebookFile ? API.parseLorebookFile(JSON.stringify({ entries: data.chatLorebook || [] })) : [];
     s.createdAt = data.createdAt || Date.now();
     var msgs = data.messages.filter(function (m) {
       return m && (m.role === 'user' || m.role === 'assistant' || m.role === 'system');
@@ -908,6 +921,7 @@
         alts: m.text ? [String(m.text)] : [], altIdx: 0,
         autonomous: !!m.autonomous,
         rpgStatusProposal: safeImportedRpgProposal(m.rpgStatusProposal),
+        continuityProposal: safeImportedContinuityProposal(m.continuityProposal),
         createdAt: m.createdAt || Date.now()
       };
     });
@@ -1041,6 +1055,128 @@
     });
     return out;
   }
+
+  function continuityRows(items, fields, statusField) {
+    return (items || []).map(function (item) {
+      var values = fields.map(function (f) { return item[f] || ''; });
+      if (statusField) values.unshift(item[statusField] || 'open');
+      return values.join(' | ');
+    }).join('\n');
+  }
+
+  App.continuitySheet = function (sessionId) {
+    IDB.get('sessions', sessionId).then(function (session) {
+      if (!session) return UI.toast('Chat not found');
+      var c = API.normalizeContinuity(session.continuity);
+      var closeSheet;
+      UI.sheet({
+        title: 'Chat continuity — ' + (session.title || 'chat'),
+        body:
+          '<div class="hint">Opt-in, per-chat ledger. Different chats never share this state. Model suggestions stay pending until you review and apply them.</div>' +
+          '<div class="field compact"><label>Enable continuity in prompts</label><div class="toggle' + (c.enabled ? ' on' : '') + '" id="cont-enabled"></div><div class="hint">Off by default to avoid extra model output. When enabled, relevant state is included for any character in this chat.</div></div>' +
+          '<div class="group"><div class="group-title">Scene</div>' +
+            '<div class="field"><label>Timeline stage</label><input id="cont-stage" maxlength="120" value="' + esc(c.stage) + '" placeholder="A named chapter, date, or timeline point"></div>' +
+            '<div class="hint">Stage-gated lore entries are injected only when their exact stage matches this value. With continuity off or stage blank, stage-gated lore stays hidden.</div>' +
+            '<div class="field"><label>Location</label><input id="cont-location" maxlength="160" value="' + esc(c.location) + '"></div>' +
+            '<div class="field"><label>Time</label><input id="cont-time" maxlength="120" value="' + esc(c.time) + '" placeholder="Time of day, date, or elapsed time"></div>' +
+            '<div class="field"><label>Present characters <span class="hint">one per line</span></label><textarea class="tall" id="cont-participants">' + esc(c.participants.join('\n')) + '</textarea></div>' +
+          '</div>' +
+          '<div class="group"><div class="group-title">Knowledge & truth</div>' +
+            '<div class="field"><label>Knowledge records <span class="hint">who | fact | basis</span></label><textarea class="tall" id="cont-knowledge" placeholder="Mara | the gate is sealed | witnessed it\n{{user}} | the letter is forged | was told by Mara\nNarrator only | the key is cursed | hidden world truth">' + esc(continuityRows(c.knowledge, ['who', 'fact', 'basis'])) + '</textarea><div class="hint">Use each NPC’s name separately. Basis records provenance (witnessed, told by whom, inferred). Use {{user}} for player knowledge, Everyone for shared knowledge, or Narrator only for hidden world truth. NPC knowledge is injected only for present NPCs.</div></div>' +
+          '</div>' +
+          '<div class="group"><div class="group-title">Important objects</div>' +
+            '<div class="field"><label>Object state <span class="hint">name | state | holder | basis</span></label><textarea class="tall" id="cont-objects" placeholder="Brass key | bent, still usable | Mara | picked up from the floor">' + esc(continuityRows(c.objects, ['name', 'state', 'holder', 'basis'])) + '</textarea></div>' +
+          '</div>' +
+          '<div class="group"><div class="group-title">Open and resolved events</div>' +
+            '<div class="field"><label>Events <span class="hint">open/resolved | name | detail</span></label><textarea class="tall" id="cont-events" placeholder="open | Find the missing ledger | Last seen in the archive\nresolved | The alarm was disabled | Confirmed by the group">' + esc(continuityRows(c.events, ['name', 'detail'], 'status')) + '</textarea></div>' +
+          '</div>',
+        actions: [
+          { label: 'Cancel', cls: 'ghost', value: null },
+          { label: 'Save continuity', cls: 'primary', close: false, onClick: function (b) {
+            var out = {
+              enabled: b.querySelector('#cont-enabled').classList.contains('on'),
+              stage: b.querySelector('#cont-stage').value.trim(), location: b.querySelector('#cont-location').value.trim(),
+              time: b.querySelector('#cont-time').value.trim(),
+              participants: b.querySelector('#cont-participants').value.split(/\r?\n/).map(function (x) { return x.trim(); }).filter(Boolean),
+              knowledgeText: b.querySelector('#cont-knowledge').value,
+              objectsText: b.querySelector('#cont-objects').value,
+              eventsText: b.querySelector('#cont-events').value
+            };
+            function rows(text, min, label) {
+              var parsed = [], error = '';
+              String(text || '').split(/\r?\n/).forEach(function (line, i) {
+                if (!line.trim()) return;
+                var p = line.split('|').map(function (x) { return x.trim(); });
+                if (p.length < min || p.slice(0, min).some(function (x) { return !x; })) error = label + ' line ' + (i + 1) + ' needs at least ' + min + ' non-empty fields separated by |.';
+                else parsed.push(p);
+              });
+              return { parsed: parsed, error: error };
+            }
+            var k = rows(out.knowledgeText, 2, 'Knowledge'), o = rows(out.objectsText, 2, 'Object'), e = rows(out.eventsText, 2, 'Event');
+            var problem = k.error || o.error || e.error;
+            if (!problem && e.parsed.some(function (p) { return ['open', 'resolved'].indexOf(String(p[0]).toLowerCase()) < 0; })) problem = 'Event status must be open or resolved.';
+            if (problem) { UI.toast(problem, 5000); return; }
+            out.knowledge = k.parsed.map(function (p) { return { who: p[0], fact: p[1], basis: p.slice(2).join(' | ') }; });
+            out.objects = o.parsed.map(function (p) { return { name: p[0], state: p[1], holder: p[2] || '', basis: p.slice(3).join(' | ') }; });
+            out.events = e.parsed.map(function (p) { return { status: String(p[0]).toLowerCase() === 'resolved' ? 'resolved' : 'open', name: p[1], detail: p.slice(2).join(' | ') }; });
+            delete out.knowledgeText; delete out.objectsText; delete out.eventsText;
+            closeSheet(out);
+          } }
+        ],
+        onMount: function (b, close) {
+          closeSheet = close;
+          var toggle = b.querySelector('#cont-enabled');
+          toggle.onclick = function () { toggle.classList.toggle('on'); };
+        }
+      }).then(function (result) {
+        if (!result) return;
+        session.continuity = API.normalizeContinuity(result);
+        return Store.putSession(session).then(function () {
+          if (App.state.session && App.state.session.id === sessionId) App.state.session = session;
+          UI.toast(session.continuity.enabled ? 'Continuity saved for this chat' : 'Continuity saved and kept off');
+        });
+      });
+    }).catch(function (e) { UI.toast('Could not save continuity: ' + (e && e.message), 4000); });
+  };
+
+  App.reviewContinuityProposal = function (message) {
+    var proposal = message && message.continuityProposal;
+    if (!proposal || proposal.state !== 'pending') return;
+    var safe = API.parseContinuityUpdate('<continuity_update>' + JSON.stringify({ reason: proposal.reason, changes: proposal.changes }) + '</continuity_update>');
+    if (!safe) return UI.toast('This continuity proposal is invalid and cannot be applied.');
+    function changeLine(x) {
+      if (x.type === 'scene') return 'Scene ' + x.field + ' → ' + x.value;
+      if (x.type === 'participant') return (x.op === 'add' ? 'Add present character: ' : 'Remove present character: ') + x.name;
+      if (x.type === 'knowledge') return (x.op === 'add' ? 'Knowledge: ' : 'Remove knowledge: ') + x.who + ' — ' + x.fact + (x.basis ? ' (basis: ' + x.basis + ')' : '');
+      if (x.type === 'object') return (x.op === 'set' ? 'Object state: ' : 'Remove object: ') + x.name + (x.state ? ' → ' + x.state : '') + (x.holder ? ' (holder: ' + x.holder + ')' : '');
+      if (x.type === 'event') return x.op + ' event: ' + x.name + (x.detail ? ' — ' + x.detail : '');
+      return 'Continuity change';
+    }
+    UI.sheet({
+      title: 'Review continuity proposal',
+      body: '<div class="hint">' + esc(safe.reason) + '</div><div class="hint" style="margin-top:12px">Nothing changes unless you choose Apply. Review each proposal against the actual conversation.</div><div class="group">' + safe.changes.map(function (x) { return '<div class="opt" style="white-space:normal">' + esc(changeLine(x)) + '</div>'; }).join('') + '</div>',
+      actions: [
+        { label: 'Cancel', cls: 'ghost', value: null },
+        { label: 'Dismiss', cls: 'danger', value: 'dismiss' },
+        { label: 'Apply approved changes', cls: 'primary', value: 'apply' }
+      ]
+    }).then(function (action) {
+      if (!action) return;
+      var sessionId = message.sessionId;
+      return IDB.get('sessions', sessionId).then(function (session) {
+        if (!session) return UI.toast('Chat not found');
+        if (action === 'apply') session.continuity = API.applyContinuityProposal(session.continuity, safe);
+        message.continuityProposal = { state: action === 'apply' ? 'approved' : 'dismissed', reason: safe.reason, changes: safe.changes, reviewedAt: Date.now() };
+        return Promise.all([Store.putSession(session), Store.updateMessage(message)]).then(function () {
+          if (App.state.session && App.state.session.id === sessionId) {
+            App.state.session = session;
+            Views.thread(App.state.char, session, App.state.messages);
+          }
+          UI.toast(action === 'apply' ? 'Approved continuity changes saved' : 'Continuity proposal dismissed');
+        });
+      });
+    }).catch(function (e) { UI.toast('Could not update continuity: ' + (e && e.message), 4000); });
+  };
 
   App.rpgStatusSheet = function (sessionId) {
     IDB.get('sessions', sessionId).then(function (session) {
@@ -1199,6 +1335,9 @@
           '<div class="opt" data-a="rpg-status">' + icon('brain') + (s.rpgStatus && s.rpgStatus.enabled
             ? ' RPG status · level ' + esc(s.rpgStatus.level || '1') + ' · ' + Math.max(0, Number(s.rpgStatus.xp) || 0) + ' XP'
             : ' Start RPG status tracking') + '</div>' +
+          '<div class="opt" data-a="continuity">' + icon('brain') + (s.continuity && s.continuity.enabled
+            ? ' Continuity · ' + esc(s.continuity.stage || s.continuity.location || 'enabled')
+            : ' Set up chat continuity') + '</div>' +
           '<div class="opt" data-a="health">' + icon('brain') + ' Chat health</div>' +
           '<div class="opt" data-a="mem">' + icon('brain') + ' Story memory</div>' +
           '<div class="opt" data-a="chatlore">Chat-only lore' +
@@ -1228,6 +1367,7 @@
                 Store.putSession(s).then(function () { Views.chats($('.screen')); });
               } else if (a === 'settings') App.chatSettingsSheet(id);
               else if (a === 'rpg-status') App.rpgStatusSheet(id);
+              else if (a === 'continuity') App.continuitySheet(id);
               else if (a === 'health') App.chatHealthSheet(id);
               else if (a === 'fork') App.forkTimeline(id);
               else if (a === 'mem') App.memorySheet(id);
@@ -1455,16 +1595,21 @@
         }
         throw e;
       }).then(function (result) {
-        if (result.saved && msg.rpgStatusProposal && el && el.querySelector) {
+        if (result.saved && el && el.querySelector) {
           var actions = el.querySelector('.msg-actions');
-          if (actions && !actions.querySelector('[data-act="rpg-review"]')) {
+          if (actions && msg.rpgStatusProposal && !actions.querySelector('[data-act="rpg-review"]')) {
             var review = document.createElement('button');
-            review.type = 'button';
-            review.className = 'chip';
+            review.type = 'button'; review.className = 'chip';
             review.setAttribute('data-act', 'rpg-review');
-            review.title = 'Review proposed RPG status changes';
-            review.textContent = 'Review status update';
+            review.title = 'Review proposed RPG status changes'; review.textContent = 'Review status update';
             actions.insertBefore(review, actions.firstChild);
+          }
+          if (actions && msg.continuityProposal && !actions.querySelector('[data-act="continuity-review"]')) {
+            var continuityReview = document.createElement('button');
+            continuityReview.type = 'button'; continuityReview.className = 'chip';
+            continuityReview.setAttribute('data-act', 'continuity-review');
+            continuityReview.title = 'Review proposed continuity changes'; continuityReview.textContent = 'Review continuity update';
+            actions.insertBefore(continuityReview, actions.firstChild);
           }
         }
         return result;
@@ -1487,6 +1632,7 @@
           ? soFar.slice(target.text.length) : soFar;
         var mt = el.querySelector('.mtext');
         var visibleStream = API.hideRpgUpdate ? API.hideRpgUpdate(msg._stream) : msg._stream;
+        visibleStream = API.hideContinuityUpdate ? API.hideContinuityUpdate(visibleStream) : visibleStream;
         if (mt) mt.innerHTML = UI.md(visibleStream);
         Views.stickToBottom($('#thread'));
       },
@@ -1506,8 +1652,10 @@
       text = (text || '').trim();
       App.genStop();
       var statusProposal = API.parseRpgUpdate ? API.parseRpgUpdate(text) : null;
+      var continuityProposal = API.parseContinuityUpdate ? API.parseContinuityUpdate(text) : null;
       text = API.stripRpgUpdate ? API.stripRpgUpdate(text) : text;
-      if (opts.rerollFor || opts.replaceBubble) delete msg.rpgStatusProposal;
+      text = API.stripContinuityUpdate ? API.stripContinuityUpdate(text) : text;
+      if (opts.rerollFor || opts.replaceBubble) { delete msg.rpgStatusProposal; delete msg.continuityProposal; }
       if (statusProposal && session.rpgStatus && session.rpgStatus.enabled === true &&
           session.rpgStatus.suggestionsEnabled !== false && !(opts.rerollFor || opts.replaceBubble || opts.continueFor)) {
         msg.rpgStatusProposal = {
@@ -1515,6 +1663,14 @@
           changes: statusProposal.changes, createdAt: Date.now()
         };
         UI.toast('A status change was suggested — review the reply action', 4500);
+      }
+      if (continuityProposal && session.continuity && session.continuity.enabled === true &&
+          !(opts.rerollFor || opts.replaceBubble || opts.continueFor)) {
+        msg.continuityProposal = {
+          state: 'pending', reason: continuityProposal.reason,
+          changes: continuityProposal.changes, createdAt: Date.now()
+        };
+        UI.toast('A continuity change was suggested — review the reply action', 4500);
       }
       /* v1.13.0: the reply may end with the character's updated internal
          state — pull it out before the message is stored or shown, and
@@ -3006,6 +3162,7 @@
       s2.speakerMode = old.speakerMode || 'manual';
       s2.nextSpeakerId = old.nextSpeakerId || '';
       s2.rpgStatus = old.rpgStatus ? JSON.parse(JSON.stringify(old.rpgStatus)) : null;
+      s2.continuity = API.normalizeContinuity ? API.normalizeContinuity(old.continuity) : (old.continuity || null);
       return Store.putSession(s2).then(function () {
         var copies = msgs.map(function (m) {
           return Object.assign({}, m, { id: UI.uid('m'), sessionId: s2.id });
@@ -3587,7 +3744,8 @@
         if (content.length > 150) content = content.slice(0, 147) + '…';
         return '<div class="opt" data-chatlore-edit="' + i + '" style="align-items:flex-start;gap:8px">' +
           '<span style="flex:1;min-width:0"><b style="display:block">' + esc(keys) + '</b>' +
-          '<span style="display:block;font-size:12px;color:var(--muted);margin-top:3px">' + esc(content || '(empty)') + '</span></span>' +
+          '<span style="display:block;font-size:12px;color:var(--muted);margin-top:3px">' + esc(content || '(empty)') + '</span>' +
+          (e.stage ? '<span style="display:block;font-size:11px;color:var(--dim);margin-top:3px">Stage: ' + esc(e.stage) + '</span>' : '') + '</span>' +
           '<span style="font-size:11px;color:var(--dim)">' + (e.enabled === false ? 'Off' : 'On') + '</span></div>';
       }).join('');
       UI.sheet({
@@ -3618,7 +3776,7 @@
       if (!session) return;
       var entries = Array.isArray(session.chatLorebook) ? session.chatLorebook.slice() : [];
       var isNew = idx === null || idx === undefined;
-      var original = !isNew && entries[idx] ? entries[idx] : { id: UI.uid('cl'), keys: [], content: '', enabled: true };
+      var original = !isNew && entries[idx] ? entries[idx] : { id: UI.uid('cl'), keys: [], content: '', enabled: true, stage: '' };
       var entry = draft || Object.assign({}, original, { keys: (original.keys || []).slice() });
       UI.sheet({
         title: isNew ? 'New chat-only lore' : 'Edit chat-only lore',
@@ -3627,6 +3785,7 @@
           '<div class="field"><div class="field-head"><label>Content</label></div>' +
           '<textarea id="clc" class="tall">' + esc(entry.content || '') + '</textarea>' +
           '<div class="hint">Injected only in this chat when a keyword appears in recent messages. Keep details concise.</div></div>' +
+          '<div class="field"><label>Timeline stage (optional, exact match)</label><input type="text" id="cls" maxlength="100" value="' + esc(entry.stage || '') + '" placeholder="e.g. Before the trial"><div class="hint">Requires the same active stage in Chat continuity. Leave blank for stage-independent lore; use * to always allow.</div></div>' +
           '<div class="field compact"><label>Enabled</label><div class="toggle' + (entry.enabled !== false ? ' on' : '') + '" id="cle"></div></div>',
         actions: [
           { label: 'Cancel', cls: 'ghost', value: null },
@@ -3635,6 +3794,7 @@
             return {
               keys: b.querySelector('#clk').value.split(',').map(function (k) { return k.trim(); }).filter(Boolean),
               content: b.querySelector('#clc').value,
+              stage: b.querySelector('#cls').value.trim().slice(0, 100),
               enabled: b.querySelector('#cle').classList.contains('on')
             };
           } }
@@ -3650,12 +3810,13 @@
           if (!result.keys.length || !String(result.content || '').trim()) {
             UI.toast('Add at least one keyword and some lore text');
             return App.editChatLore(sessionId, idx, {
-              id: original.id, keys: result.keys, content: result.content, enabled: result.enabled
+              id: original.id, keys: result.keys, content: result.content, enabled: result.enabled, stage: result.stage
             });
           }
           entry.keys = result.keys;
           entry.content = String(result.content).trim();
           entry.enabled = result.enabled;
+          entry.stage = result.stage || '';
           if (isNew) entries.push(entry); else entries[idx] = entry;
           session.chatLorebook = entries;
         } else {
@@ -3671,7 +3832,7 @@
   };
 
   App.editLore = function (char, idx) {
-    var entry = idx === null ? { id: UI.uid('l'), keys: [], content: '', enabled: true }
+    var entry = idx === null ? { id: UI.uid('l'), keys: [], content: '', enabled: true, stage: '' }
       : char.lorebook[idx];
     UI.sheet({
       title: idx === null ? 'New lore entry' : 'Edit lore entry',
@@ -3680,6 +3841,7 @@
         '<div class="field"><div class="field-head"><label>Content</label></div>' +
         '<textarea id="lc" class="tall">' + esc(entry.content || '') + '</textarea>' +
         '<div class="hint">Injected whenever any keyword appears in recent messages.</div></div>' +
+        '<div class="field"><label>Timeline stage (optional, exact match)</label><input type="text" id="ls" maxlength="100" value="' + esc(entry.stage || '') + '" placeholder="e.g. Before the trial"><div class="hint">Requires the same active stage in Chat continuity. Leave blank for stage-independent lore; use * to always allow.</div></div>' +
         '<div class="field compact"><label>Enabled</label><div class="toggle' + (entry.enabled !== false ? ' on' : '') + '" id="le"></div></div>',
       actions: [
         { label: 'Cancel', cls: 'ghost', value: null },
@@ -3690,6 +3852,7 @@
         { label: 'Save', cls: 'primary', onClick: function (b) {
             entry.keys = b.querySelector('#lk').value.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
             entry.content = b.querySelector('#lc').value;
+            entry.stage = b.querySelector('#ls').value.trim().slice(0, 100);
             if (idx === null) char.lorebook.push(entry);
             Store.putCharacter(char).then(function () { Views.world($('.screen')); UI.toast('Saved'); });
           } }
@@ -3840,6 +4003,7 @@
           }
           msg.text = v;
           delete msg.rpgStatusProposal;
+          delete msg.continuityProposal;
           if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = v;
           Store.updateMessage(msg).then(function () {
             Views.thread(App.state.char, App.state.session, App.state.messages, null, false, editAnchor);
@@ -3860,6 +4024,8 @@
         App.downloadChatImage(msg);
       } else if (act === 'rpg-review') {
         App.reviewRpgStatusProposal(msg);
+      } else if (act === 'continuity-review') {
+        App.reviewContinuityProposal(msg);
       } else if (act === 'reroll') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
         App.generateReply({ rerollFor: msg });
@@ -3886,6 +4052,7 @@
         msg.altIdx = ((msg.altIdx || 0) + dir + n) % n;
         msg.text = msg.alts[msg.altIdx];
         delete msg.rpgStatusProposal;
+        delete msg.continuityProposal;
         Store.updateMessage(msg).then(function () { Views.thread(App.state.char, App.state.session, App.state.messages); });
       }
     });
