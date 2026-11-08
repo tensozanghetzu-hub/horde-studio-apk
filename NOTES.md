@@ -8,6 +8,7 @@
 - Continuity defaults off to avoid unexpected extra model output. No setting-specific facts or character cards were added to the app.
 - Focused continuity tests plus the JavaScript suite pass: 86 passed, 0 failed; 2 browser-dependent tests skipped (Chromium not available).
 - Bumped app version to 1.39.46 (versionCode 125) and service-worker cache to v114. Built the signed APK with the existing keystore; v2/v3 signature verification passed and the packaged APK contains the continuity prompt and approval UI.
+- Published commit `51f3311` to `main`; the `v1.39.46` release workflow succeeded with both APK assets. GitHub Pages reports web revision `6ebc0fbcdc71` and version 1.39.46.
 
 ## v1.39.45 — per-chat RPG status ledger (2026-11-03)
 
