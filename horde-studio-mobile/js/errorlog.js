@@ -16,11 +16,13 @@
 
   var Logs = {
     /** Record one error. Never throws. */
-    push: function (msg) {
+    push: function (msg, maxLength) {
       try {
         msg = String(msg || '').replace(/\s+/g, ' ').trim();
         if (!msg) return;
-        if (msg.length > 300) msg = msg.slice(0, 300) + '…';
+        maxLength = Number(maxLength) || 300;
+        maxLength = Math.max(300, Math.min(5000, Math.floor(maxLength)));
+        if (msg.length > maxLength) msg = msg.slice(0, maxLength) + '…';
         if (can()) native().logError(msg);
         else console.error('[errorlog] ' + msg);
       } catch (e) { /* never break the caller over logging */ }

@@ -12,6 +12,33 @@
     });
   }
 
+  /* Keep failed in-chat generations readable after their transient toast
+     disappears. Store metadata and the provider error only—never prompts,
+     replies, or credentials. The native log keeps at most 200 entries. */
+  function logChatGenerationFailure(err, character, settings) {
+    if (!err || err.name === 'AbortError') return;
+    try {
+      if (!global.Logs || !Logs.push) return;
+      settings = settings || Store.settings || {};
+      var preset = Store.PRESETS && Store.PRESETS[settings.provider];
+      var provider = (preset && preset.label) || settings.provider || 'unknown provider';
+      var model = settings.provider === 'horde'
+        ? (settings.hordeTextModel || 'AI Horde')
+        : (settings.model || 'model not selected');
+      var detail = String(err.message || err).replace(/\s+/g, ' ').trim();
+      [settings.apiKey, settings.hordeKey, settings.cloudflareWorkerToken].forEach(function (secret) {
+        secret = String(secret || '');
+        if (secret.length >= 6) detail = detail.split(secret).join('[credential redacted]');
+      });
+      detail = detail.replace(/sk-or-v1-[a-f0-9]{64}/gi, '[credential redacted]');
+      var parts = ['chat response failed', 'provider ' + provider, 'model ' + model];
+      if (character && character.name) parts.push('character ' + character.name);
+      if (err.status) parts.push('HTTP ' + err.status);
+      parts.push(detail || err.name || 'unknown error');
+      Logs.push(parts.join(' | '), 1200);
+    } catch (e) { /* logging must never interfere with generation cleanup */ }
+  }
+
   var App = {
     state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {}, settingsSection: 'connection', worldStatusOpen: false },
     stack: [],
@@ -1767,6 +1794,7 @@
       /* The handler must never throw: if it did, the cleanup below would be
          skipped and the "thinking" dots would run forever. */
       try {
+        logChatGenerationFailure(e, char, charSettings);
         msg._stream = null;
         App.genStop();
         if (e.name === 'AbortError') {

@@ -151,8 +151,11 @@ function renderSettingsUpdate(env) {
   ok('module: whitespace normalised', env.log.pushed.length === 1 && env.log.pushed[0] === 'install: boom',
     JSON.stringify(env.log.pushed));
   Logs.push('x'.repeat(500));
-  ok('module: long messages truncated', env.log.pushed[1].length === 301 && env.log.pushed[1].slice(0, 3) === 'xxx',
+  ok('module: ordinary long messages retain the default 300-character cap', env.log.pushed[1].length === 301 && env.log.pushed[1].slice(0, 3) === 'xxx',
     String(env.log.pushed[1].length));
+  Logs.push('y'.repeat(1600), 1200);
+  ok('module: callers can keep a longer but bounded diagnostic', env.log.pushed[2].length === 1201 && env.log.pushed[2].slice(0, 3) === 'yyy',
+    String(env.log.pushed[2].length));
   var threw = false;
   try {
     var broken = makeSandbox();

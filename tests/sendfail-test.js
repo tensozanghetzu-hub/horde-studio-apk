@@ -35,7 +35,7 @@ function freshWorld(overrides) {
   var calls = {
     add: 0, addAttempts: 0, update: [], updateAttempts: 0,
     delChar: 0, delSession: 0, putSession: 0, gen: 0, thread: 0,
-    confirm: null, toasts: [], append: 0, go: [], sheet: null, afterReply: 0, els: []
+    confirm: null, toasts: [], append: 0, go: [], sheet: null, afterReply: 0, els: [], logs: []
   };
   var char = Object.assign({ id: 'c1', name: 'Sera', avatar: null, systemPrompt: '', vh: { enabled: false } }, overrides.char || {});
   var session = { id: 's1', charId: 'c1', pending: null };
@@ -61,6 +61,7 @@ function freshWorld(overrides) {
     isNaN: isNaN, parseFloat: parseFloat, parseInt: parseInt,
     setInterval: setInterval, clearInterval: clearInterval,
     AbortController: AbortController,
+    Logs: { push: function (msg, maxLength) { calls.logs.push({ msg: String(msg), maxLength: maxLength }); } },
     UI: {
       esc: function (s) { return String(s == null ? '' : s); },
       icon: function (n) { return '<svg data-icon="' + n + '"></svg>'; },
@@ -75,7 +76,7 @@ function freshWorld(overrides) {
       sheet: function (o) { calls.sheet = o; return { close: function () {} }; }
     },
     Store: {
-      settings: { provider: 'horde', hordeKey: '0000000000', userName: 'Sam', model: 'm', maxTokens: 300, temperature: 0.8 },
+      settings: Object.assign({ provider: 'horde', hordeKey: '0000000000', userName: 'Sam', model: 'm', maxTokens: 300, temperature: 0.8 }, overrides.settings || {}),
       updateMessage: function (m) {
         calls.updateAttempts++;
         if (overrides.updateMessageFails) return Promise.reject(new Error('Quota exceeded'));
@@ -106,7 +107,7 @@ function freshWorld(overrides) {
           var err = new Error('aborted'); err.name = 'AbortError';
           return Promise.reject(err);
         }
-        if (mode === 'reject') return Promise.reject(new Error('provider down'));
+        if (mode === 'reject') return Promise.reject(new Error(overrides.apiError || 'provider down'));
         var text = overrides.reply !== undefined ? overrides.reply : 'a reply';
         opts.onDelta(text, text);
         return Promise.resolve(text);
@@ -236,7 +237,9 @@ function clickDel(w) {
   ok('save fail: busy flag cleared', w8.App.state.busy === false);
 
   /* ---- generateReply: the provider-failure path is unchanged --------- */
-  var w9 = freshWorld({ messages: [u('u1', 'hi')], apiGenerate: 'reject' });
+  var w9 = freshWorld({ messages: [u('u1', 'hi')], apiGenerate: 'reject',
+    settings: { provider: 'openrouter', model: 'google/gemma-4-31b-it:free', apiKey: 'test-secret-key' },
+    apiError: 'provider down — test-secret-key' });
   w9.App.generateReply();
   await tick();
   ok('provider fail: reply removed from state', w9.App.state.messages.length === 1 && w9.App.state.messages[0].role === 'user');
@@ -244,12 +247,19 @@ function clickDel(w) {
   ok('provider fail: error toasted', /Error: provider down/.test(toasts(w9)), toasts(w9));
   ok('provider fail: retry chip armed', w9.App.state.messages[0].retry === true);
   ok('provider fail: thread re-rendered', w9.calls.thread === 1);
+  ok('provider fail: full diagnostic saved to the App-updates error log', w9.calls.logs.length === 1 &&
+    /chat response failed/.test(w9.calls.logs[0].msg) && /provider down/.test(w9.calls.logs[0].msg) &&
+    /google\/gemma-4-31b-it:free/.test(w9.calls.logs[0].msg) && w9.calls.logs[0].maxLength === 1200, JSON.stringify(w9.calls.logs));
+  ok('provider fail: logged error redacts the API key and omits chat text', w9.calls.logs.length === 1 &&
+    w9.calls.logs[0].msg.indexOf('test-secret-key') < 0 && w9.calls.logs[0].msg.indexOf('hi') < 0 &&
+    w9.calls.logs[0].msg.indexOf('[credential redacted]') >= 0, JSON.stringify(w9.calls.logs));
 
   /* ---- generateReply: empty abort still removes the bubble ----------- */
   var w10 = freshWorld({ messages: [u('u1', 'hi')], apiGenerate: 'abort' });
   w10.App.generateReply();
   await tick();
   ok('abort: empty abort removes the bubble', w10.els[0].removed === true && w10.App.state.messages.length === 1);
+  ok('abort: user cancellations do not clutter the error log', w10.calls.logs.length === 0);
   ok('abort: stopped toasted', /Stopped/.test(toasts(w10)), toasts(w10));
 
   /* ---- generateReply: reroll abort keeps its text, save failure loud -- */
