@@ -1,9 +1,9 @@
 /* Horde Studio — offline app shell */
-/* Bumped for the 1.6.0 upstream-18.1.0 alignment. This worker is
+/* Bumped for v1.39.47 OpenRouter quota and route diagnostics. This worker is
    cache-first (`return hit || net`), so without a new cache name a phone
    keeps running the previous vhuman.js, views.js and app.js from disk even
    after the web channel has replaced them. */
-var CACHE = 'horde-studio-v114';
+var CACHE = 'horde-studio-v115';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',

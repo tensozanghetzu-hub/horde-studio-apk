@@ -3,6 +3,7 @@
   'use strict';
 
   var esc = UI.esc, md = UI.md, icon = UI.icon;
+  var openRouterQuotaClock = null, openRouterQuotaPoll = null;
 
   function $(sel, root) { return (root || document).querySelector(sel); }
   function on(root, sel, ev, fn) {
@@ -863,7 +864,22 @@
           '</div>' +
           '<div class="hint" id="test-out"></div>' +
         '</div>' +
-      '</div>';
+      '</div>' +
+      (s.provider === 'openrouter' && /^https:\/\/openrouter\.ai(?:\/|$)/i.test(String(s.baseUrl || ''))
+        ? '<div class="group"><div class="group-title">OpenRouter quota &amp; route health</div>' +
+          '<div class="field"><div class="row">' +
+            '<button class="btn ghost sm" id="btn-or-refresh" style="flex:1"' + (!s.apiKey ? ' disabled' : '') + '>Refresh account quota</button>' +
+            '<button class="btn ghost sm" id="btn-or-probe" style="flex:1"' + (!s.apiKey || !s.model ? ' disabled' : '') + '>Test selected model</button>' +
+          '</div><div class="hint">Selected model: <b>' + esc(s.model || 'none selected') + '</b>. The model test sends one short request and may use one free-model request. It tests the selected route now; it does not guarantee future availability.</div></div>' +
+          '<div class="field"><div id="or-quota-status" class="hint">Checking OpenRouter…</div>' +
+            '<div id="or-quota-countdown" class="kv" hidden><span>Daily reset</span><b></b></div>' +
+            '<div id="or-quota-credits" class="kv" hidden><span>API-key credit cap remaining</span><b></b></div>' +
+            '<div class="hint" id="or-quota-checked"></div>' +
+            '<div id="or-local-usage"></div>' +
+            '<div id="or-probe-result" class="hint" aria-live="polite"></div>' +
+            '<div id="or-recent-activity"></div>' +
+          '</div></div>'
+        : '');
     var sc = settingsScope(body);
     sc.bind('#set-provider', 'change', function (e) {
       var p = e.target.value;
@@ -871,7 +887,10 @@
       Views.settingsConnection(root);
     });
     sc.bind('#set-url', 'change', function (e) { sc.set({ baseUrl: e.target.value.trim() }); });
-    sc.bind('#set-key', 'change', function (e) { sc.set({ apiKey: e.target.value.trim() }); });
+    sc.bind('#set-key', 'change', function (e) {
+      sc.set({ apiKey: e.target.value.trim() });
+      if (Store.settings.provider === 'openrouter') Views.settingsConnection(root);
+    });
     sc.bind('#btn-test', 'click', function () {
       var out = $('#test-out', body);
       out.innerHTML = '<span class="pill">Testing…</span>';
@@ -881,6 +900,100 @@
     });
     sc.bind('#btn-refresh-models', 'click', function () { App.chooseModel(true); });
     sc.bind('#btn-model', 'click', function () { App.chooseModel(false); });
+
+    if (s.provider === 'openrouter' && /^https:\/\/openrouter\.ai(?:\/|$)/i.test(String(s.baseUrl || ''))) {
+      if (openRouterQuotaClock) clearInterval(openRouterQuotaClock);
+      if (openRouterQuotaPoll) clearInterval(openRouterQuotaPoll);
+      var quotaInfo = null;
+      function isVisible() {
+        var screen = $('[data-screen="settings-x"]');
+        return !!(screen && !screen.hidden && Store.settings.provider === 'openrouter');
+      }
+      function renderCountdown() {
+        var row = $('#or-quota-countdown', body);
+        if (!row || !quotaInfo || !quotaInfo.resetsAt) return;
+        row.hidden = false;
+        var ms = Math.max(0, quotaInfo.resetsAt - Date.now()), sec = Math.floor(ms / 1000);
+        var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), r = sec % 60;
+        var text = (h ? h + 'h ' : '') + (m ? m + 'm ' : '') + r + 's';
+        var reset = new Date(quotaInfo.resetsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        row.querySelector('b').textContent = text + ' · ' + reset + ' local';
+      }
+      function renderLocalActivity() {
+        var usageBox = $('#or-local-usage', body), recentBox = $('#or-recent-activity', body);
+        if (!usageBox || !recentBox) return;
+        var totals = API.openRouterActivityToday(Store.settings);
+        usageBox.innerHTML = '<div class="kv"><span>Generation calls logged on this phone today</span><b>' + totals.requests + ' · ' + totals.successes + ' succeeded · ' + totals.failures + ' failed</b></div>' +
+          '<div class="kv"><span>Reported tokens today (this app)</span><b>' + (totals.tokenReports
+            ? totals.promptTokens.toLocaleString() + ' in · ' + totals.completionTokens.toLocaleString() + ' out'
+            : 'No token-usage data reported yet') + '</b></div>' +
+          '<div class="hint">These are logical calls and token totals observed on this phone, not an OpenRouter token allowance. The account-wide counter above is authoritative; failed or interrupted calls may not return token counts.</div>';
+        var events = API.openRouterActivity(Store.settings).slice(0, 5);
+        recentBox.innerHTML = '<div class="field-head" style="margin-top:10px"><label>Recent route results</label></div>' +
+          (events.length ? events.map(function (x) {
+            var time = new Date(x.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            var label = x.diagnosis || (x.kind === 'success' ? 'Completed' : x.kind);
+            var pill = x.kind === 'success' ? 'ok' : (x.kind === 'timeout' || x.kind === 'provider_limit' || x.kind === 'account_limit' || x.kind === 'ambiguous_limit' ? 'warn' : 'err');
+            return '<div class="kv"><span>' + esc(time + ' · ' + (x.model || 'model')) + '</span><b><span class="pill ' + pill + '">' + esc(label) + '</span></b></div>' +
+              (x.message ? '<div class="hint">' + esc(x.message) + (x.provider ? ' · route: ' + esc(x.provider) : '') + '</div>' : '');
+          }).join('') : '<div class="hint">No generation calls logged by this app today.</div>');
+      }
+      function refreshQuota() {
+        var status = $('#or-quota-status', body), button = $('#btn-or-refresh', body);
+        if (!status) return Promise.resolve();
+        if (button) button.disabled = true;
+        if (!Store.settings.apiKey) { status.innerHTML = '<span class="pill warn">Add your OpenRouter API key to view quota.</span>'; return Promise.resolve(); }
+        status.innerHTML = '<span class="pill">Checking account quota…</span>';
+        return API.openRouterKeyStatus(Store.settings).then(function (info) {
+          quotaInfo = info;
+          var d = info.data, free = d.free_model_daily_requests;
+          if (free && typeof free.remaining === 'number') {
+            status.innerHTML = '<span class="pill ' + (free.remaining > 0 ? 'ok' : 'warn') + '">Free-model requests: ' +
+              esc(String(free.used)) + ' used / ' + esc(String(free.limit)) + ' today · ' + esc(String(free.remaining)) + ' remaining</span>' +
+              '<div class="hint">Account-wide counter from OpenRouter. Model-provider throttling is separate and can happen even while requests remain.</div>';
+          } else {
+            status.innerHTML = '<span class="pill warn">OpenRouter did not report a free-model daily counter for this key.</span>';
+          }
+          var creditRow = $('#or-quota-credits', body);
+          if (creditRow && typeof d.limit_remaining === 'number') {
+            creditRow.hidden = false;
+            creditRow.querySelector('b').textContent = '$' + Number(d.limit_remaining).toFixed(4);
+          } else if (creditRow) creditRow.hidden = true;
+          var checked = $('#or-quota-checked', body);
+          if (checked) checked.textContent = 'Updated ' + new Date(info.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          renderCountdown();
+          renderLocalActivity();
+        }).catch(function (e) {
+          status.innerHTML = '<span class="pill err">Quota check failed</span> ' + esc(e && e.message || 'Unknown error') +
+            '<div class="hint">This check uses the saved OpenRouter key and does not use a model reply request.</div>';
+        }).then(function () { if (button) button.disabled = false; });
+      }
+      sc.bind('#btn-or-refresh', 'click', refreshQuota);
+      sc.bind('#btn-or-probe', 'click', function () {
+        var button = $('#btn-or-probe', body), out = $('#or-probe-result', body);
+        if (button) button.disabled = true;
+        if (out) out.innerHTML = '<span class="pill">Testing selected model… up to 30 seconds</span>';
+        API.probeOpenRouterModel(Store.settings).then(function (r) {
+          if (out) out.innerHTML = '<span class="pill ok">Model answered in ' + (r.elapsedMs / 1000).toFixed(1) + 's</span>' +
+            (r.provider ? '<div class="hint">Provider route: ' + esc(r.provider) + '</div>' : '');
+        }).catch(function (e) {
+          var cls = e && e.name === 'TimeoutError' ? 'warn' : 'err';
+          if (out) out.innerHTML = '<span class="pill ' + cls + '">Model test failed</span> ' + esc(e && e.message || 'Unknown error');
+        }).then(function () {
+          if (button) button.disabled = false;
+          renderLocalActivity();
+          refreshQuota();
+        });
+      });
+      renderLocalActivity();
+      if (s.apiKey) refreshQuota();
+      else { var emptyKeyStatus = $('#or-quota-status', body); if (emptyKeyStatus) emptyKeyStatus.innerHTML = '<span class="pill warn">Add your OpenRouter API key to view quota.</span>'; }
+      openRouterQuotaClock = setInterval(function () { if (!isVisible()) { clearInterval(openRouterQuotaClock); openRouterQuotaClock = null; return; } renderCountdown(); }, 1000);
+      if (s.apiKey) openRouterQuotaPoll = setInterval(function () { if (!isVisible()) { clearInterval(openRouterQuotaPoll); openRouterQuotaPoll = null; return; } refreshQuota(); }, 120000);
+    } else {
+      if (openRouterQuotaClock) { clearInterval(openRouterQuotaClock); openRouterQuotaClock = null; }
+      if (openRouterQuotaPoll) { clearInterval(openRouterQuotaPoll); openRouterQuotaPoll = null; }
+    }
   };
 
   /* ---- Generation ---- */

@@ -634,6 +634,125 @@
     return String(s.baseUrl || '').replace(/\/+$/, '');
   }
 
+  function isOpenRouterEndpoint(s) {
+    return /^https:\/\/openrouter\.ai(?:\/|$)/i.test(endpoint(s));
+  }
+
+  /* Local OpenRouter diagnostics deliberately store metadata only: never
+     prompts, completions, API keys, or chat transcripts. The key fingerprint
+     keeps activity from two different configured keys from being combined. */
+  var OR_ACTIVITY_PREFIX = 'hs.openrouter.activity.v1.';
+  function openRouterKeyTag(s) {
+    var key = String((s && s.apiKey) || ''), hash = 2166136261;
+    for (var i = 0; i < key.length; i++) {
+      hash ^= key.charCodeAt(i);
+      hash = Math.imul ? Math.imul(hash, 16777619) : (hash * 16777619) | 0;
+    }
+    return key.length.toString(36) + '-' + (hash >>> 0).toString(36);
+  }
+  function readOpenRouterStore(s) {
+    try {
+      var raw = global.localStorage && global.localStorage.getItem(OR_ACTIVITY_PREFIX + openRouterKeyTag(s));
+      var data = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(data)) return { events: data.slice(0, 60), dayStats: null };
+      if (data && typeof data === 'object') return {
+        events: Array.isArray(data.events) ? data.events.slice(0, 60) : [],
+        dayStats: data.dayStats && typeof data.dayStats === 'object' ? data.dayStats : null
+      };
+    } catch (e) { /* storage can be unavailable in private WebViews */ }
+    return { events: [], dayStats: null };
+  }
+  function readOpenRouterActivity(s) { return readOpenRouterStore(s).events; }
+  function openRouterUtcDay(ts) { return new Date(ts || Date.now()).toISOString().slice(0, 10); }
+  function recordOpenRouterEvent(s, event) {
+    if (!isOpenRouterEndpoint(s) || !s.apiKey) return;
+    try {
+      var oldStore = readOpenRouterStore(s), list = oldStore.events;
+      var usage = event && event.usage || {}, prompt = Number(usage.prompt_tokens), completion = Number(usage.completion_tokens);
+      var entry = {
+        at: Date.now(), model: String((event && event.model) || s.model || '').slice(0, 180),
+        kind: String((event && event.kind) || 'other'), status: (event && event.status) || null,
+        diagnosis: String((event && event.diagnosis) || ''),
+        message: String((event && event.message) || '').replace(/\s+/g, ' ').slice(0, 300),
+        provider: String((event && event.provider) || '').slice(0, 100),
+        promptTokens: isFinite(prompt) && prompt >= 0 ? prompt : null,
+        completionTokens: isFinite(completion) && completion >= 0 ? completion : null,
+        totalTokens: isFinite(Number(usage.total_tokens)) ? Number(usage.total_tokens) :
+          (isFinite(prompt) && isFinite(completion) ? prompt + completion : null)
+      };
+      list.unshift(entry);
+      if (list.length > 60) list.length = 60;
+      var today = openRouterUtcDay(entry.at), stats = oldStore.dayStats;
+      if (!stats || stats.day !== today) stats = { day: today, requests: 0, successes: 0, failures: 0, promptTokens: 0, completionTokens: 0, tokenReports: 0 };
+      stats.requests++;
+      if (entry.kind === 'success') stats.successes++;
+      else if (entry.kind !== 'cancelled') stats.failures++;
+      if (entry.promptTokens !== null && entry.completionTokens !== null) {
+        stats.promptTokens += entry.promptTokens;
+        stats.completionTokens += entry.completionTokens;
+        stats.tokenReports++;
+      }
+      if (global.localStorage) global.localStorage.setItem(OR_ACTIVITY_PREFIX + openRouterKeyTag(s), JSON.stringify({ events: list, dayStats: stats }));
+    } catch (e) { /* telemetry is best-effort; inference still succeeds */ }
+  }
+  function openRouterActivityToday(s) {
+    var store = readOpenRouterStore(s), today = openRouterUtcDay(Date.now());
+    var events = store.events.filter(function (x) { return x && openRouterUtcDay(x.at) === today; });
+    var stats = store.dayStats && store.dayStats.day === today ? store.dayStats : null;
+    if (!stats) {
+      stats = { requests: events.length, successes: 0, failures: 0, promptTokens: 0, completionTokens: 0, tokenReports: 0 };
+      events.forEach(function (x) {
+        if (x.kind === 'success') stats.successes++;
+        else if (x.kind !== 'cancelled') stats.failures++;
+        if (typeof x.promptTokens === 'number' && typeof x.completionTokens === 'number') {
+          stats.promptTokens += x.promptTokens;
+          stats.completionTokens += x.completionTokens;
+          stats.tokenReports++;
+        }
+      });
+    }
+    return { requests: stats.requests, successes: stats.successes, failures: stats.failures,
+      promptTokens: stats.promptTokens, completionTokens: stats.completionTokens,
+      tokenReports: stats.tokenReports, events: events };
+  }
+  function openRouterErrorDiagnosis(err, headers) {
+    var status = Number(err && err.status) || null, metadata = err && err.openRouterMetadata || {};
+    var type = String(metadata.error_type || metadata.type || '').toLowerCase();
+    var limitHeader = false;
+    try { limitHeader = !!(headers && headers.get && headers.get('x-ratelimit-limit')); } catch (e) {}
+    if (err && err.openRouterKind === 'empty') return { kind: 'empty', diagnosis: 'Route returned no visible answer' };
+    if (err && err.name === 'TimeoutError' || /timeout/.test(type)) return { kind: 'timeout', diagnosis: 'App/provider timeout — quota not confirmed' };
+    if (err && err.name === 'AbortError') return { kind: 'cancelled', diagnosis: 'Cancelled by user' };
+    if (metadata.limit_source || limitHeader) return { kind: 'account_limit', diagnosis: 'OpenRouter account rate limit' };
+    if (status === 429 || /rate_limit/.test(type)) {
+      if (metadata.provider_code) return { kind: 'provider_limit', diagnosis: 'Model provider throttled / saturated' };
+      return { kind: 'ambiguous_limit', diagnosis: '429 rate limit — compare account quota; provider may also throttle' };
+    }
+    if (/provider_overloaded|provider_unavailable/.test(type)) return { kind: 'provider_error', diagnosis: 'Model provider overloaded / unavailable' };
+    if (status === 402) return { kind: 'credits', diagnosis: 'OpenRouter credits or key budget' };
+    if (status === 401 || status === 403) return { kind: 'auth', diagnosis: 'API key / permission / budget issue' };
+    if (status === 404) return { kind: 'route', diagnosis: 'Model ID or provider route unavailable' };
+    if (status >= 500) return { kind: 'provider_error', diagnosis: 'Provider or OpenRouter server error' };
+    if (!status) return { kind: 'network', diagnosis: 'Network / connection failure' };
+    return { kind: 'error', diagnosis: 'Request failed' };
+  }
+  function recordOpenRouterFailure(s, err, headers, model, provider) {
+    if (!isOpenRouterEndpoint(s)) return;
+    var diagnosis = openRouterErrorDiagnosis(err || {}, headers);
+    recordOpenRouterEvent(s, {
+      kind: diagnosis.kind, diagnosis: diagnosis.diagnosis,
+      status: err && err.status,
+      /* Keep raw provider error text out of local history: only store a safe
+         status/diagnosis summary, since an upstream could echo request data. */
+      message: err && err.status ? 'HTTP ' + err.status : diagnosis.diagnosis,
+      model: model, provider: provider
+    });
+  }
+  function openRouterResetAt(now) {
+    var d = new Date(now || Date.now());
+    return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0);
+  }
+
   /* OpenRouter's free Nemotron 3 endpoints default to reasoning. At the
      app's normal reply budget, that can consume all generated tokens before
      any user-facing content is emitted. Keep this workaround narrowly scoped
@@ -646,7 +765,7 @@
   function headers(s) {
     var h = { 'Content-Type': 'application/json' };
     if (s.apiKey) h['Authorization'] = 'Bearer ' + s.apiKey;
-    if (endpoint(s).indexOf('openrouter.ai') !== -1) {
+    if (isOpenRouterEndpoint(s)) {
       h['HTTP-Referer'] = location.origin;
       h['X-Title'] = 'Horde Studio Mobile';
     }
@@ -690,6 +809,86 @@
     }).catch(function (e) { return { ok: false, message: e.message }; });
   }
 
+  /* Authoritative OpenRouter account counter. This is account-wide request
+     quota; it is different from an individual provider/model's saturation. */
+  function openRouterKeyStatus(s) {
+    if (!isOpenRouterEndpoint(s)) return Promise.reject(new Error('Quota status is only available for the official OpenRouter endpoint.'));
+    if (!s.apiKey) return Promise.reject(new Error('Add your OpenRouter API key in Connection settings first.'));
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, 15000) : null;
+    return fetch(endpoint(s) + '/key', { method: 'GET', headers: headers(s), signal: controller ? controller.signal : undefined })
+      .then(function (r) {
+        return r.text().then(function (text) {
+          var payload = {};
+          try { payload = text ? JSON.parse(text) : {}; } catch (e) { payload = {}; }
+          if (!r.ok) {
+            var detail = payload && payload.error || {};
+            var err = providerError(r.status, detail.message || text || r.statusText, s.model, detail.metadata, r.headers, true);
+            throw err;
+          }
+          var data = payload && payload.data;
+          if (!data || typeof data !== 'object') throw new Error('OpenRouter returned an unexpected quota response.');
+          return { data: data, checkedAt: Date.now(), resetsAt: openRouterResetAt(Date.now()) };
+        });
+      }).catch(function (err) {
+        if (err && err.name === 'AbortError') {
+          var timeout = new Error('OpenRouter quota check timed out after 15 seconds.');
+          timeout.name = 'TimeoutError';
+          throw timeout;
+        }
+        throw err;
+      }).then(function (v) { if (timer) clearTimeout(timer); return v; }, function (e) { if (timer) clearTimeout(timer); throw e; });
+  }
+
+  /* Explicit, cheap smoke test. Never runs automatically because it consumes
+     one model request. A success proves the selected route answered now; it
+     cannot promise the route will remain healthy for the next generation. */
+  function probeOpenRouterModel(s) {
+    if (!isOpenRouterEndpoint(s)) return Promise.reject(new Error('Model probe requires the official OpenRouter endpoint.'));
+    if (!s.apiKey || !s.model) return Promise.reject(new Error('Set an OpenRouter API key and choose a model first.'));
+    var started = Date.now(), controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, 30000) : null;
+    var request = fetch(endpoint(s) + '/chat/completions', {
+      method: 'POST', headers: headers(s), signal: controller ? controller.signal : undefined,
+      body: JSON.stringify((function () {
+        var probeBody = { model: s.model, messages: [{ role: 'user', content: 'Reply with OK.' }], max_tokens: 12, temperature: 0, stream: false };
+        if (isOpenRouterFreeNemotron(s, s.model)) probeBody.reasoning = { enabled: false };
+        return probeBody;
+      })())
+    }).then(function (r) {
+      return r.text().then(function (text) {
+        var payload = {};
+        try { payload = text ? JSON.parse(text) : {}; } catch (e) { payload = {}; }
+        if (!r.ok) {
+          var detail = payload && payload.error || {};
+          var err = providerError(r.status, detail.message || text || r.statusText, s.model, detail.metadata, r.headers, true);
+          recordOpenRouterFailure(s, err, r.headers, s.model, payload.provider || '');
+          throw err;
+        }
+        var choice = payload.choices && payload.choices[0], message = choice && choice.message || {};
+        var answer = String(message.content || choice && choice.text || '');
+        var elapsedMs = Date.now() - started;
+        if (!answer.trim()) {
+          var empty = new Error('The selected route returned no visible answer text.');
+          empty.status = 200; empty.openRouterKind = 'empty';
+          recordOpenRouterEvent(s, { kind: 'empty', diagnosis: 'Route answered with no visible text', status: 200, message: empty.message, model: s.model, provider: payload.provider, usage: payload.usage });
+          throw empty;
+        }
+        recordOpenRouterEvent(s, { kind: 'success', diagnosis: 'Selected model answered', status: 200, message: 'Probe succeeded in ' + (elapsedMs / 1000).toFixed(1) + 's', model: s.model, provider: payload.provider, usage: payload.usage });
+        return { ok: true, model: s.model, elapsedMs: elapsedMs, answer: answer.slice(0, 80), usage: payload.usage || null, provider: payload.provider || '' };
+      });
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') {
+        var timeout = new Error('Model probe timed out after 30 seconds. This indicates a slow or stalled route; it does not by itself prove the quota is exhausted.');
+        timeout.name = 'TimeoutError';
+        recordOpenRouterFailure(s, timeout, null, s.model);
+        throw timeout;
+      }
+      throw err;
+    }).then(function (v) { if (timer) clearTimeout(timer); return v; }, function (e) { if (timer) clearTimeout(timer); throw e; });
+    return request;
+  }
+
   /* v1.39.19: rate-limit discipline for the OpenAI-compatible socket.
      A 429 gets bounded backoff retries (a Retry-After header wins, capped);
      402/401/403 are explained in plain language and never retried — the
@@ -705,18 +904,24 @@
     } catch (e) {}
     return 0;
   }
-  function providerError(status, msg, modelName) {
+  function providerError(status, msg, modelName, metadata, responseHeaders, openRouterRequest) {
     msg = String(msg == null ? '' : msg).trim();
     var base = msg ? 'API ' + status + ': ' + msg : 'API ' + status;
     var e;
     if (status === 429) {
-      /* v1.39.20: a :free ID means the failure is almost always the SHARED
-         upstream pool being throttled by its provider — the user's own
-         balance and daily count are innocent. Say so, and give an exit. */
       var sharedFree = /:free\s*$/i.test(modelName || '');
-      e = new Error(base + (sharedFree
-        ? ' — the shared free endpoint for this model is saturated upstream; its provider throttles the pool regardless of YOUR balance or today\u2019s count (both are fine). Retried already — try again in a few minutes, pick another :free model, or drop the :free suffix to spend your balance on it instead.'
-        : ' — rate limit reached. Free tiers cap requests per minute and per day (OpenRouter free: 20/min, 50/day until a one-time $10 top-up). The app already retried it — give it a minute; if every try today fails, the daily cap is spent.'));
+      var isAccountLimit = !!(metadata && metadata.limit_source);
+      try { isAccountLimit = isAccountLimit || !!(responseHeaders && responseHeaders.get && responseHeaders.get('x-ratelimit-limit')); } catch (ignored) {}
+      var providerCode = metadata && metadata.provider_code;
+      e = new Error(base + (isAccountLimit
+        ? ' — OpenRouter reports an account/key rate limit. Check the quota panel for requests remaining and reset time.'
+        : (openRouterRequest
+          ? (providerCode
+            ? ' — the upstream model provider rate-limited this route. Check the quota panel: a provider throttle can happen while account requests remain.'
+            : ' — 429 rate limit. It may be the OpenRouter account cap or this model’s provider; check the quota panel to distinguish. The app retries briefly, then records the result.')
+          : (sharedFree
+            ? ' — the shared free endpoint for this model is saturated upstream; its provider throttles the pool regardless of YOUR balance or today’s count (both are fine). Retried already — try again in a few minutes, pick another :free model, or drop the :free suffix to spend your balance on it instead.'
+            : ' — rate limit reached. Free tiers cap requests per minute and per day (OpenRouter free: 20/min, 50/day until a one-time $10 top-up). The app already retried it — give it a minute; if every try today fails, the daily cap may be spent.'))));
       e.rateLimited = true;
     } else if (status === 402) {
       e = new Error(base + ' — the provider says the account is out of credits/quota. ' +
@@ -727,6 +932,7 @@
       e = new Error(base);
     }
     e.status = status;
+    e.openRouterMetadata = metadata || null;
     return e;
   }
 
@@ -768,12 +974,13 @@
        the whole request dies at a deadline instead of waiting on silence. */
     return new Promise(function (resolve, reject) {
       var settled = false;
-      var reader = null;
+      var reader = null, streamedUsage = null, streamedProvider = '';
       function fail(err) {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         if (reader) { try { reader.cancel().catch(function () {}); } catch (e) {} }
+        recordOpenRouterFailure(s, err, err && err.openRouterHeaders, body.model, streamedProvider);
         reject(err);
       }
       function ok(v) {
@@ -799,25 +1006,30 @@
       }).then(function (r) {
         if (!r.ok) {
           return r.text().then(function (t) {
-            var msg = t;
-            try { var j = JSON.parse(t); msg = (j.error && (j.error.message || JSON.stringify(j.error))) || j.message; } catch (e) {}
+            var msg = t, errorMeta = null;
+            try { var j = JSON.parse(t); msg = (j.error && (j.error.message || JSON.stringify(j.error))) || j.message; errorMeta = j.error && j.error.metadata || null; } catch (e) {}
             if (r.status === 429 && connectAttempt < RATE_BACKOFF.length && !settled) {
               var wait = rateRetryAfterMs(r.headers) || RATE_BACKOFF[connectAttempt];
               connectAttempt++;
               setTimeout(attemptFetch, wait);
               return;
             }
-            fail(providerError(r.status, msg, body.model));
+            var httpErr = providerError(r.status, msg, body.model, errorMeta, r.headers, isOpenRouterEndpoint(s));
+            httpErr.openRouterHeaders = r.headers;
+            fail(httpErr);
           }).catch(fail);
         }
         if (!wantStream) {
           return r.json().then(function (d) {
             var txt = (d.choices && d.choices[0] && (d.choices[0].message ? d.choices[0].message.content : d.choices[0].text)) || '';
             if (!txt && guardedNemotron) {
-              fail(new Error('The OpenRouter free Nemotron endpoint returned no final answer text. Reasoning is disabled automatically; retry the request.'));
+              var noText = new Error('The OpenRouter free Nemotron endpoint returned no final answer text. Reasoning is disabled automatically; retry the request.');
+              noText.openRouterKind = 'empty';
+              fail(noText);
               return;
             }
             if (onDelta) onDelta(txt);
+            recordOpenRouterEvent(s, { kind: 'success', diagnosis: 'Request completed', status: 200, model: body.model, provider: d.provider || '', usage: d.usage || null });
             ok(txt);
           }).catch(fail);
         }
@@ -836,10 +1048,15 @@
                  provider hiccup mid-stream) must fail with ITS message —
                  before, it silently settled as an empty "…" bubble */
               if (j && j.error) {
-                fail(new Error('API stream error: ' + (j.error.message || JSON.stringify(j.error))));
+                var streamErr = new Error('API stream error: ' + (j.error.message || JSON.stringify(j.error)));
+                streamErr.status = Number(j.error.code) || null;
+                streamErr.openRouterMetadata = j.error.metadata || null;
+                fail(streamErr);
                 return;
               }
               sawValidFrame = true;
+              if (j.usage) streamedUsage = j.usage;
+              if (j.provider) streamedProvider = String(j.provider);
               var ch = j.choices && j.choices[0];
               var delta = ch && (ch.delta ? ch.delta.content : ch.text);
               if (delta) { full += delta; if (onDelta) onDelta(delta, full); }
@@ -862,13 +1079,16 @@
                    no content is legitimate (the app shows its "…" bubble),
                    and keeps resolving '' exactly as before. */
                 if (!full && guardedNemotron) {
-                  fail(new Error('The OpenRouter free Nemotron endpoint returned no final answer text. Reasoning is disabled automatically; retry the request.'));
+                  var noStreamText = new Error('The OpenRouter free Nemotron endpoint returned no final answer text. Reasoning is disabled automatically; retry the request.');
+                  noStreamText.openRouterKind = 'empty';
+                  fail(noStreamText);
                   return;
                 }
                 if (!full && !sawValidFrame) {
                   fail(new Error('The provider completed without visible text. Retry or choose another model.'));
                   return;
                 }
+                recordOpenRouterEvent(s, { kind: 'success', diagnosis: 'Request completed', status: 200, model: body.model, provider: streamedProvider, usage: streamedUsage });
                 ok(full);
                 return;
               }
@@ -1933,6 +2153,9 @@
     CONTEXT_CAP: CONTEXT_CAP,
     HORDE_CTX_TOKENS: HORDE_CTX_TOKENS,
     summarize: summarize, listModels: listModels, testConnection: testConnection,
+    openRouterKeyStatus: openRouterKeyStatus, probeOpenRouterModel: probeOpenRouterModel,
+    openRouterActivity: readOpenRouterActivity, openRouterActivityToday: openRouterActivityToday,
+    openRouterErrorDiagnosis: openRouterErrorDiagnosis, openRouterResetAt: openRouterResetAt,
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,

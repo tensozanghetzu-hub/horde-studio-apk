@@ -1,5 +1,12 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.47 — OpenRouter quota and route diagnostics (2026-09-10)
+
+- Added an OpenRouter account-quota panel to **Settings → Connection**. It reads the API key's actual free-model request count and limit from OpenRouter, refreshes automatically while open, and displays a local countdown to the next UTC-midnight reset.
+- Added a user-initiated **Test selected model** probe (one short request; counts against free request quota) and a recent route-results log. Errors distinguish account limits when OpenRouter identifies them, provider throttling, timeouts, invalid routes, and authentication/budget errors. Ambiguous 429s are explicitly marked ambiguous rather than guessed.
+- Logs store only timestamps, model/provider names, status/error summaries, and reported usage metadata locally. They do not store API keys, prompts, or replies. Daily input/output token totals are shown only when the response reports usage; they are observed usage, not a remaining token allowance.
+- Preserved the user's 600-token maximum reply setting; the separate diagnostic probe is capped at 12 tokens. No character cards or lorebooks are included in the release.
+
 ## v1.39.46 — per-chat conversation continuity (2026-09-10)
 
 - Added generic, opt-in continuity for any conversation and character card. The per-chat ledger records scene stage/location/time and present characters, object states, open/resolved events, and knowledge with provenance kept separate for NPCs, {{user}}, shared knowledge, and narrator-only truth.
