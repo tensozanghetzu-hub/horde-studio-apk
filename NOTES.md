@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.49 — Empty chat responses reported (2026-09-10)
+
+- A successful streaming response with valid frames but no visible text no longer silently completes a reroll. The existing answer remains intact; the user receives an explanatory failure message and the issue is recorded in the Error log.
+- Reroll and continue failures now show their error instead of quietly restoring the previous bubble.
+
 ## v1.39.48 — Persistent chat generation errors (2026-09-10)
 
 - Failed chat responses are saved to **Settings → App updates → Error log** so longer provider errors can be reviewed after the toast disappears.

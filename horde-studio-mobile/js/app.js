@@ -1677,6 +1677,10 @@
       }
     }).then(function (text) {
       text = (text || '').trim();
+      /* A valid streaming frame can still finish without visible content.
+         Treat that as a failed generation, not a successful reroll that
+         silently leaves the old bubble in place. */
+      if (!text) throw new Error('The model completed without a visible reply. Retry or choose another model.');
       App.genStop();
       var statusProposal = API.parseRpgUpdate ? API.parseRpgUpdate(text) : null;
       var continuityProposal = API.parseContinuityUpdate ? API.parseContinuityUpdate(text) : null;
@@ -1822,6 +1826,7 @@
           el.classList.remove('streaming');
           var mtE = el.querySelector && el.querySelector('.mtext');
           if (mtE) mtE.innerHTML = UI.md(msg.text);
+          UI.toast((opts.rerollFor || opts.replaceBubble ? 'Reroll' : 'Continue') + ' failed: ' + e.message, 6000);
         } else {
           el.remove();
           App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });

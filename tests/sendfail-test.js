@@ -108,6 +108,7 @@ function freshWorld(overrides) {
           return Promise.reject(err);
         }
         if (mode === 'reject') return Promise.reject(new Error(overrides.apiError || 'provider down'));
+        if (mode === 'empty') return Promise.resolve('');
         var text = overrides.reply !== undefined ? overrides.reply : 'a reply';
         opts.onDelta(text, text);
         return Promise.resolve(text);
@@ -253,6 +254,16 @@ function clickDel(w) {
   ok('provider fail: logged error redacts the API key and omits chat text', w9.calls.logs.length === 1 &&
     w9.calls.logs[0].msg.indexOf('test-secret-key') < 0 && w9.calls.logs[0].msg.indexOf('hi') < 0 &&
     w9.calls.logs[0].msg.indexOf('[credential redacted]') >= 0, JSON.stringify(w9.calls.logs));
+
+  /* ---- generateReply: a successful but empty model response is failure */
+  var w9b = freshWorld({ messages: [u('u1', 'hi'), a('a1', 'old answer')], apiGenerate: 'empty' });
+  w9b.App.generateReply({ rerollFor: w9b.App.state.messages[1] });
+  await tick();
+  ok('empty reroll: previous answer is preserved', w9b.App.state.messages[1].text === 'old answer' &&
+    w9b.els[0].mtext.innerHTML === 'old answer');
+  ok('empty reroll: failure is surfaced instead of silent success', /Reroll failed: The model completed without a visible reply/.test(toasts(w9b)), toasts(w9b));
+  ok('empty reroll: failure is recorded in the persistent log', w9b.calls.logs.length === 1 &&
+    /without a visible reply/.test(w9b.calls.logs[0].msg), JSON.stringify(w9b.calls.logs));
 
   /* ---- generateReply: empty abort still removes the bubble ----------- */
   var w10 = freshWorld({ messages: [u('u1', 'hi')], apiGenerate: 'abort' });
