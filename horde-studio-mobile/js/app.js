@@ -1527,7 +1527,10 @@
       return;
     }
 
-    var history = st.messages.slice();
+    /* Capture this turn's message list. App.state is reused while navigating,
+       so an async failure must not attach Retry to whichever chat is open later. */
+    var generationMessages = st.messages.slice();
+    var history = generationMessages.slice();
     var target = null;
 
     /* v1.39.28: rerolling a continuation bubble re-CONTINUES from its severed
@@ -1754,9 +1757,11 @@
       msg._stream = null;
       /* A reply came through — clear retry markers in memory and IndexedDB,
          so an old chip does not return when this chat is reopened. */
-      var retryMarkerWrites = clearRetryMarkers(st.messages);
-      var chips = document.querySelectorAll('#thread .chip.retry');
-      for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
+      var retryMarkerWrites = clearRetryMarkers(generationMessages);
+      if (App.state.screen === 'chat' && App.state.session && App.state.session.id === session.id) {
+        var chips = document.querySelectorAll('#thread .chip.retry');
+        for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
+      }
       if (!text) { text = '…'; }
       if (opts.continueFor) {
         /* v1.39.28: generate() assembled seed + continuation; only the NEW
@@ -1824,13 +1829,16 @@
     }).catch(function (e) {
       /* The handler must never throw: if it did, the cleanup below would be
          skipped and the "thinking" dots would run forever. */
+      var retryWrite = Promise.resolve();
       try {
         logChatGenerationFailure(e, char, charSettings);
         msg._stream = null;
         App.genStop();
         if (e.name === 'AbortError') {
           if (!msg.text) {
-            App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+            if (App.state.session && App.state.session.id === session.id) {
+              App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+            }
             el.remove();
           } else {
             el.classList.remove('streaming');
@@ -1856,16 +1864,22 @@
           UI.toast((opts.rerollFor || opts.replaceBubble ? 'Reroll' : 'Continue') + ' failed: ' + e.message, 6000);
         } else {
           el.remove();
-          App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+          if (App.state.session && App.state.session.id === session.id) {
+            App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+          }
           /* The Horde already tried five workers and all came back blank — offer a
              Retry on the message the user just wrote, so nothing has to be retyped. */
           var lastUser = null;
-          for (var i = st.messages.length - 1; i >= 0; i--) {
-            if (st.messages[i].role === 'user') { lastUser = st.messages[i]; break; }
+          for (var i = generationMessages.length - 1; i >= 0; i--) {
+            if (generationMessages[i].role === 'user') { lastUser = generationMessages[i]; break; }
           }
           if (lastUser) {
-            persistRetryMarker(lastUser, true);
-            Views.thread(char, session, st.messages);
+            retryWrite = persistRetryMarker(lastUser, true);
+            /* Save against the original session even if the user navigated
+               away while the provider was still responding. */
+            if (App.state.screen === 'chat' && App.state.session && App.state.session.id === session.id) {
+              Views.thread(char, session, generationMessages);
+            }
           }
           UI.toast('Error: ' + e.message, 6000);
           console.error(e);
@@ -1873,6 +1887,7 @@
       } catch (inner) {
         console.error('reply error handler failed:', inner);
       }
+      return retryWrite;
     }).then(function () {
       /* Cleanup always runs, success or failure: a wedged busy flag is
          exactly how the thinking dots never stop. */

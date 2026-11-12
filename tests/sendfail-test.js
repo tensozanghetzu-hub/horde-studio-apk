@@ -35,7 +35,7 @@ function freshWorld(overrides) {
   var calls = {
     add: 0, addAttempts: 0, update: [], updateAttempts: 0,
     delChar: 0, delSession: 0, putSession: 0, gen: 0, thread: 0,
-    confirm: null, toasts: [], append: 0, go: [], sheet: null, afterReply: 0, els: [], logs: []
+    confirm: null, toasts: [], append: 0, go: [], sheet: null, afterReply: 0, els: [], logs: [], rejectGeneration: null
   };
   var char = Object.assign({ id: 'c1', name: 'Sera', avatar: null, systemPrompt: '', vh: { enabled: false } }, overrides.char || {});
   var session = { id: 's1', charId: 'c1', pending: null };
@@ -108,6 +108,7 @@ function freshWorld(overrides) {
           return Promise.reject(err);
         }
         if (mode === 'reject') return Promise.reject(new Error(overrides.apiError || 'provider down'));
+        if (mode === 'deferred') return new Promise(function (resolve, reject) { calls.rejectGeneration = reject; });
         if (mode === 'empty') return Promise.resolve('');
         var text = overrides.reply !== undefined ? overrides.reply : 'a reply';
         opts.onDelta(text, text);
@@ -273,6 +274,20 @@ function clickDel(w) {
   await tick();
   ok('retry success: marker removed in memory', !w9c.App.state.messages[0].retry);
   ok('retry success: cleared marker persisted', w9c.calls.update.some(function (m) { return m.id === 'u1' && !m.retry; }), JSON.stringify(w9c.calls.update));
+
+  /* ---- failure after leaving uses the original chat, not current state */
+  var w9d = freshWorld({ messages: [u('u-old', 'first chat turn')], apiGenerate: 'deferred' });
+  w9d.App.generateReply();
+  w9d.App.state.screen = 'settings';
+  w9d.App.state.session = { id: 's2', charId: 'c2' };
+  w9d.App.state.messages = [u('u-new', 'other chat turn')];
+  w9d.calls.rejectGeneration(new Error('provider timeout'));
+  await tick();
+  ok('navigate during generation: original failed message gets the saved Retry marker',
+    w9d.calls.update.some(function (m) { return m.id === 'u-old' && m.retry === true; }), JSON.stringify(w9d.calls.update));
+  ok('navigate during generation: other chat is untouched',
+    !w9d.App.state.messages[0].retry && !w9d.calls.update.some(function (m) { return m.id === 'u-new'; }), JSON.stringify(w9d.calls.update));
+  ok('navigate during generation: current screen is not overwritten by old thread render', w9d.calls.thread === 0);
 
   /* ---- generateReply: empty abort still removes the bubble ----------- */
   var w10 = freshWorld({ messages: [u('u1', 'hi')], apiGenerate: 'abort' });

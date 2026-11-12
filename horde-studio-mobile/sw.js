@@ -1,8 +1,8 @@
 /* Horde Studio — offline app shell */
-/* Bumped for v1.39.50 persistent retry markers. This worker is
+/* Bumped for v1.39.51 session-safe retry markers. This worker is
    cache-first (`return hit || net`), so without a new cache name a phone
    keeps running the previous app.js from disk. */
-var CACHE = 'horde-studio-v118';
+var CACHE = 'horde-studio-v119';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',

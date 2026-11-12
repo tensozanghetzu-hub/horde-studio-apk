@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.51 — Session-safe persistent Retry action (2026-09-10)
+
+- Retry is saved on the message that failed, and the failed generation retains the original session reference if the user navigates away before the provider fails.
+- Returning to that chat shows Retry; other chats and the destination screen are left untouched. The marker clears only after success or a newer user message in that same chat.
+
 ## v1.39.50 — Retry button survives leaving a chat (2026-09-10)
 
 - Saved the failed-turn Retry marker on the user's message in IndexedDB. The button remains when leaving and reopening the conversation, and also survives an app restart.
