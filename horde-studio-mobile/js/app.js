@@ -39,6 +39,33 @@
     } catch (e) { /* logging must never interfere with generation cleanup */ }
   }
 
+  /* The Retry chip belongs to its failed user message, so persist the marker
+     with that record. Removing it is persisted too, preventing stale chips
+     from returning after the chat is reopened. */
+  function persistRetryMarker(message, pending) {
+    if (!message) return Promise.resolve();
+    if (pending) message.retry = true;
+    else delete message.retry;
+    try {
+      return Promise.resolve(Store.updateMessage(message)).catch(function (e) {
+        console.error('retry marker save failed:', e);
+        UI.toast('Could not save the Retry button: ' + (e && e.message || 'storage error'), 6000);
+      });
+    } catch (e) {
+      console.error('retry marker save failed:', e);
+      UI.toast('Could not save the Retry button: ' + (e && e.message || 'storage error'), 6000);
+      return Promise.resolve();
+    }
+  }
+
+  function clearRetryMarkers(messages) {
+    var writes = [];
+    (messages || []).forEach(function (message) {
+      if (message && message.retry) writes.push(persistRetryMarker(message, false));
+    });
+    return Promise.all(writes);
+  }
+
   var App = {
     state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {}, settingsSection: 'connection', worldStatusOpen: false },
     stack: [],
@@ -1725,9 +1752,9 @@
         }
       }
       msg._stream = null;
-      /* A reply came through — a failed send is no longer failed: drop any
-         Retry chip still showing in the thread. */
-      for (var ri = 0; ri < st.messages.length; ri++) if (st.messages[ri].retry) st.messages[ri].retry = false;
+      /* A reply came through — clear retry markers in memory and IndexedDB,
+         so an old chip does not return when this chat is reopened. */
+      var retryMarkerWrites = clearRetryMarkers(st.messages);
       var chips = document.querySelectorAll('#thread .chip.retry');
       for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
       if (!text) { text = '…'; }
@@ -1776,14 +1803,14 @@
         msg.altIdx = 0;
         var mt2 = el.querySelector('.mtext');
         if (mt2) mt2.innerHTML = UI.md(parts[0]);
-        return persist().then(function (r) {
+        return retryMarkerWrites.then(function () { return persist(); }).then(function (r) {
           /* if the first bubble could not be saved, the burst parts would
              not be either — keep what is on screen */
           if (!r.saved) return;
           return App.deliverBurst(char, msg, parts);
         });
       }
-      return persist();
+      return retryMarkerWrites.then(persist);
     }).then(function () {
       if (msg.saveFailed) return;   /* the ledger is down — do not write to it again */
       /* A finished reply must not yank the view to the last word if the
@@ -1837,7 +1864,7 @@
             if (st.messages[i].role === 'user') { lastUser = st.messages[i]; break; }
           }
           if (lastUser) {
-            lastUser.retry = true;
+            persistRetryMarker(lastUser, true);
             Views.thread(char, session, st.messages);
           }
           UI.toast('Error: ' + e.message, 6000);
@@ -2596,7 +2623,7 @@
    *  their own schedule, everyone else gets a reply generated now.
    *  Shared by a fresh send and by edit-and-resend. */
   App.afterUserMessage = function (m) {
-    for (var ri = 0; ri < App.state.messages.length; ri++) if (App.state.messages[ri].retry) App.state.messages[ri].retry = false;
+    clearRetryMarkers(App.state.messages);
     var chips = document.querySelectorAll('#thread .chip.retry');
     for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
     var char = App.state.char, session = App.state.session;
@@ -4072,9 +4099,8 @@
         App.speakMessage(msg, btn);
       } else if (act === 'retry') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
-        /* Same message, fresh attempt: the Horde re-dispatches to whatever
-           worker is free. */
-        msg.retry = false;
+        /* Same message, fresh attempt: keep its persisted marker until a reply
+           succeeds, so leaving during a failed/in-flight retry cannot lose it. */
         App.generateReply();
       } else if (act === 'cont') {
         if (App.state.busy) return UI.toast('Wait for the current reply');

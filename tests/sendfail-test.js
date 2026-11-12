@@ -80,7 +80,7 @@ function freshWorld(overrides) {
       updateMessage: function (m) {
         calls.updateAttempts++;
         if (overrides.updateMessageFails) return Promise.reject(new Error('Quota exceeded'));
-        calls.update.push(m);
+        calls.update.push(Object.assign({}, m));
         return Promise.resolve(m);
       },
       addMessage: function (m) {
@@ -248,6 +248,7 @@ function clickDel(w) {
   ok('provider fail: error toasted', /Error: provider down/.test(toasts(w9)), toasts(w9));
   ok('provider fail: retry chip armed', w9.App.state.messages[0].retry === true);
   ok('provider fail: thread re-rendered', w9.calls.thread === 1);
+  ok('provider fail: Retry marker is persisted with the failed user message', w9.calls.update.some(function (m) { return m.id === 'u1' && m.retry === true; }), JSON.stringify(w9.calls.update));
   ok('provider fail: full diagnostic saved to the App-updates error log', w9.calls.logs.length === 1 &&
     /chat response failed/.test(w9.calls.logs[0].msg) && /provider down/.test(w9.calls.logs[0].msg) &&
     /google\/gemma-4-31b-it:free/.test(w9.calls.logs[0].msg) && w9.calls.logs[0].maxLength === 1200, JSON.stringify(w9.calls.logs));
@@ -264,6 +265,14 @@ function clickDel(w) {
   ok('empty reroll: failure is surfaced instead of silent success', /Reroll failed: The model completed without a visible reply/.test(toasts(w9b)), toasts(w9b));
   ok('empty reroll: failure is recorded in the persistent log', w9b.calls.logs.length === 1 &&
     /without a visible reply/.test(w9b.calls.logs[0].msg), JSON.stringify(w9b.calls.logs));
+
+  /* ---- a successful retry clears its marker durably ----------------- */
+  var retriedUser = u('u1', 'hi'); retriedUser.retry = true;
+  var w9c = freshWorld({ messages: [retriedUser] });
+  w9c.App.generateReply();
+  await tick();
+  ok('retry success: marker removed in memory', !w9c.App.state.messages[0].retry);
+  ok('retry success: cleared marker persisted', w9c.calls.update.some(function (m) { return m.id === 'u1' && !m.retry; }), JSON.stringify(w9c.calls.update));
 
   /* ---- generateReply: empty abort still removes the bubble ----------- */
   var w10 = freshWorld({ messages: [u('u1', 'hi')], apiGenerate: 'abort' });

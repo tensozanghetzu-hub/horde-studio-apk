@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.50 — Retry button survives leaving a chat (2026-09-10)
+
+- Saved the failed-turn Retry marker on the user's message in IndexedDB. The button remains when leaving and reopening the conversation, and also survives an app restart.
+- A successful retry or a newer user message clears the saved marker. An in-flight retry keeps it until success so leaving the chat cannot discard it.
+
 ## v1.39.49 — Empty chat responses reported (2026-09-10)
 
 - A successful streaming response with valid frames but no visible text no longer silently completes a reroll. The existing answer remains intact; the user receives an explanatory failure message and the issue is recorded in the Error log.
