@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.55 — JanitorAI links import via JanitorAI's own API (2026-11-13)
+
+- JanitorAI character links now resolve through JanitorAI's hampter API (name, description, tags, creator and portrait from its CDN), which answers without a login and allows cross-origin reads — instead of relying on JannyAI's archive, whose Cloudflare bot protection 403s most clients.
+- When a creator has hidden the definition (no public first message), the character still imports with its metadata, and JannyAI's archive is tried for the full card as a fallback. No character cards or lorebooks are included in the release.
+
 ## v1.39.54 — JanitorAI bulk exports and import from URL (2026-11-13)
 
 - The character importer now recognizes JanitorAI bulk exports ({exported_at, characters, skipped}) and unwraps them into one character per entry — name, description, greetings, tags and avatar carried over — instead of importing a blank bot. When the export could not fetch a definition, the first alternate greeting becomes the opening and the card says so in its creator comment.

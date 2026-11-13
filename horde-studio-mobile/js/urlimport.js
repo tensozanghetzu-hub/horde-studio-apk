@@ -59,9 +59,9 @@
     });
   }
 
-  function fetchBytes(url, opts) {
+  function fetchBytes(url, opts, forceWeb) {
     opts = opts || {};
-    var go = hasBridge() ? fetchViaBridge(url, opts) : fetchViaFetch(url, opts);
+    var go = (!forceWeb && hasBridge()) ? fetchViaBridge(url, opts) : fetchViaFetch(url, opts);
     return go.then(function (r) {
       if (r.status >= 400) throw new Error('The server answered ' + r.status + ' for that address');
       return r;
@@ -93,21 +93,82 @@
     return Promise.resolve(cards);
   }
 
-  /* JanitorAI page -> JannyAI's archive (the same route Sillytavern takes). */
-  function fromJanitor(url) {
-    var uuid = uuidFrom(url);
-    if (!uuid) throw new Error('That JanitorAI link does not name a character');
+  /* JanitorAI page -> the character's own API (hampter). It answers without
+     a login and allows cross-origin reads, so it works everywhere — unlike
+     JannyAI's archive, which sits behind Cloudflare bot protection and 403s
+     most clients. The definition fields are only filled when the creator
+     made them public; when they are hidden, JannyAI is tried for the full
+     card, and if that fails too the metadata card still imports. */
+  function fromHampter(uuid) {
+    return fetchBytes('https://janitorai.com/hampter/characters/' + uuid)
+      .then(function (r) {
+        var d;
+        try { d = JSON.parse(new TextDecoder().decode(r.bytes)); }
+        catch (e) { throw new Error('JanitorAI did not answer with a character'); }
+        if (!d || !d.name) throw new Error('JanitorAI has no character at that address');
+        var tags = [];
+        (d.tags || []).forEach(function (t) { if (t && t.name) tags.push(t.name); });
+        (d.custom_tags || []).forEach(function (t) { if (t) tags.push(t); });
+        var card = {
+          name: d.name,
+          description: d.description || '',
+          personality: d.personality || '',
+          scenario: d.scenario || '',
+          first_mes: d.first_message || '',
+          mes_example: d.example_dialogs || '',
+          creatorcomment: 'Imported from JanitorAI by ' + (d.creator_name || 'unknown') + '.',
+          tags: tags,
+          talkativeness: '0.5', fav: false,
+          spec: 'chara_card_v2', spec_version: '2.0',
+          data: { name: d.name },
+          alternate_greetings: Array.isArray(d.first_messages) ? d.first_messages : []
+        };
+        var hasDefinition = !!(d.first_message && String(d.first_message).trim());
+        var avatarFile = d.avatar;
+        if (!avatarFile) return { card: card, hasDefinition: hasDefinition };
+        var avatarUrl = 'https://ella.janitorai.com/bot-avatars/' + avatarFile + '?width=512';
+        return fetchBytes(avatarUrl).then(function (ar) {
+          if (isPng(ar.bytes) || /^image\//i.test(ar.contentType || '')) {
+            card.data.char_x = Store.bytesToDataUrl(ar.bytes, ar.contentType || 'image/png');
+          }
+          return { card: card, hasDefinition: hasDefinition };
+        }).catch(function () { return { card: card, hasDefinition: hasDefinition }; });
+      });
+  }
+
+  /* JannyAI's archive (the route Sillytavern takes for JanitorAI links). It
+     carries the full card, definition included — but it sits behind
+     Cloudflare bot protection, so it goes through the web view's fetch
+     (a real browser fingerprint) rather than the native bridge. */
+  function fromJanny(uuid) {
     return fetchBytes('https://api.jannyai.com/api/v1/download', {
       method: 'POST', contentType: 'application/json',
       body: JSON.stringify({ characterId: uuid })
-    }).then(function (r) {
+    }, true).then(function (r) {
       var data;
       try { data = JSON.parse(new TextDecoder().decode(r.bytes)); }
       catch (e) { throw new Error('JannyAI did not answer with a character'); }
       if (!data || data.status !== 'ok' || !data.downloadUrl) {
-        throw new Error('JannyAI has no copy of that character — download the card file from the JanitorAI page instead');
+        throw new Error('JannyAI has no copy of that character');
       }
-      return fetchBytes(data.downloadUrl).then(cardsFromBytes);
+      return fetchBytes(data.downloadUrl, null, true).then(cardsFromBytes);
+    });
+  }
+
+  function fromJanitor(url) {
+    var uuid = uuidFrom(url);
+    if (!uuid) throw new Error('That JanitorAI link does not name a character');
+    return fromHampter(uuid).then(function (h) {
+      if (h.hasDefinition) return [h.card];
+      /* The creator hid the definition — JannyAI's archive may still have
+         the full card. If it does not, the metadata card imports as-is. */
+      return fromJanny(uuid).catch(function () { return [h.card]; });
+    }).catch(function () {
+      /* hampter itself failed (private/deleted character?) — JannyAI is
+         the only route left. */
+      return fromJanny(uuid).catch(function () {
+        throw new Error('JanitorAI has no character at that address, or it is private');
+      });
     });
   }
 
