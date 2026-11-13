@@ -2101,6 +2101,14 @@
             el.onclick = function () {
               var i = +el.getAttribute('data-sci');
               $('#e-scenario', body).value = list[i];
+              /* Keep the greeting in step: the picked scenario is also its
+                 intro, so move the Greeting switcher onto it. */
+              var g = $('#e-greeting', body);
+              if (g) {
+                introNav.set(g.value);
+                introNav.goToText(list[i]);
+                introPaint();
+              }
               UI.toast('Scenario ' + (i + 1) + ' loaded — edit it as you like');
               close();
             };
@@ -2734,6 +2742,16 @@
       set: function (v) { slots[idx] = String(v == null ? '' : v); },
       move: function (dir) {
         idx = ((idx + dir) % slots.length + slots.length) % slots.length;
+        return slots[idx];
+      },
+      /* Jump to the slot already holding this text, or put the text in the
+         current slot — so picking a scenario can move the greeting to it. */
+      goToText: function (text) {
+        text = String(text == null ? '' : text);
+        for (var k = 0; k < slots.length; k++) {
+          if (slots[k] === text) { idx = k; return slots[idx]; }
+        }
+        slots[idx] = text;
         return slots[idx];
       },
       add: function () { slots.push(''); idx = slots.length - 1; return slots[idx]; },

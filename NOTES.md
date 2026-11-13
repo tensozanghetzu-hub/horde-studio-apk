@@ -1,5 +1,11 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.58 — Scenarios and intros move together (2026-11-13)
+
+- Picking a scenario in the character editor now also moves the Greeting to that scenario's intro, so the two stay in step.
+- Scenarios extracted from an imported JanitorAI description now double as swipeable intros: the chat's opening bubble steps through all of them, and the editor's Greeting switcher shows the full set.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.57 — Imported JanitorAI cards split their description into scenarios (2026-11-13)
 
 - When a JanitorAI card carries a "Scenarios" section in its description ("Scenario 1 — Title" entries) with the dedicated fields hidden, the importer now extracts each scenario into the Scenario field, uses the first as the greeting, and keeps Persona for the character writeup. Cards without such a section import exactly as before.

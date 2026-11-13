@@ -179,6 +179,11 @@
           card.scenario_list = split.list;
           card.description = split.before || card.description;
           if (!card.first_mes && split.list.length) card.first_mes = split.list[0];
+          /* The scenarios double as intros, so the chat's opening bubble
+             and the editor's Greeting switcher can step through them. */
+          if (!card.alternate_greetings.length && split.list.length > 1) {
+            card.alternate_greetings = split.list.slice(1);
+          }
         }
         var hasDefinition = !!(d.first_message && String(d.first_message).trim());
         var avatarFile = d.avatar;
