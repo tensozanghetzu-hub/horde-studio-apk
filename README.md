@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.39.58
+# Horde Studio — Mobile (Android) · v1.39.59
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.39.58.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.39.59.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,10 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.39.59
+
+Section headings in a character sheet are no longer mistaken for people. The Scene strip used to pick up lines like "Basic Info" or "Facial Features" as cast members; it now only counts a name when the card actually uses it as someone who speaks. Existing chats correct themselves the first time you open them, unless you edited the cast yourself.
 
 ## What's new in v1.39.58
 

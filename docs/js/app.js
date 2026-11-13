@@ -651,17 +651,39 @@
      addresses; the app then tells the model every turn, so people in
      other rooms stop answering conversations they cannot hear. */
 
+  var CAST_REV = 2;          /* bump when detection rules change */
+
   App.initSceneCast = function (char, session) {
-    if (!char || !session || session.castChecked) return;
-    session.castChecked = true;
+    if (!char || !session) return;
     var members = App.state.groupCharacters || [];
-    if (members.length > 1 || (char.vh && char.vh.enabled)) { Store.putSession(session); return; }
+    if (members.length > 1 || (char.vh && char.vh.enabled)) {
+      if (!session.castChecked) { session.castChecked = true; Store.putSession(session); }
+      return;
+    }
+    /* Older chats may hold headings the loose scan mistook for people.
+       Re-detect once, unless the player has edited the cast by hand. */
+    if (session.castRev !== CAST_REV && !session.castEdited) {
+      var fresh = App.detectCast(char);
+      var wasPresent = Array.isArray(session.scenePresent) ? session.scenePresent : [];
+      var present = fresh.filter(function (n) { return wasPresent.indexOf(n) !== -1; });
+      if (!present.length) present = fresh.slice();
+      session.sceneCast = fresh;
+      session.scenePresent = present;
+      if (session.addressedTo && fresh.indexOf(session.addressedTo) === -1) session.addressedTo = '';
+      session.castRev = CAST_REV;
+      session.castChecked = true;
+      Store.putSession(session);
+      return;
+    }
+    if (session.castChecked) return;
+    session.castChecked = true;
     var names = App.detectCast(char);
     if (names.length >= 2) {
       session.sceneCast = names;
       session.scenePresent = names.slice();
       session.addressedTo = '';
     }
+    session.castRev = CAST_REV;
     Store.putSession(session);
   };
 
@@ -672,7 +694,12 @@
       if (name.length < 2 || name.length > 24) return;
       if (/[{}<>]/.test(name)) return;                       /* {{char}} / {{user}} */
       var low = name.toLowerCase();
-      if (low === 'user' || low === 'you' || low === String(char.name || '').toLowerCase()) return;
+      if (low === 'user' || low === 'you') return;
+      /* the card's own name, also when written in full ("Nira'veth
+         Tal'ira") or with a curly apostrophe */
+      var norm = function (s) { return String(s || '').toLowerCase().replace(/[\u2018\u2019]/g, "'"); };
+      var selfFirst = norm(char.name).split(/[\s,]+/)[0];
+      if (norm(low) === norm(char.name) || (selfFirst && norm(low).split(/[\s,]+/)[0] === selfFirst)) return;
       if (seen[low] || seen[low.split(' ')[0]]) return;      /* also catches "First" vs "First Last" duplicates */
       seen[low] = true;
       seen[low.split(' ')[0]] = true;
@@ -689,9 +716,25 @@
       var m, re = /^Name:\s*(.+)$/gim;
       while ((m = re.exec(String(text || '')))) add(m[1]);
     }
+    /* A bare "Two Words" line is only a person if the card actually uses
+       that name elsewhere — profile headings like "Basic Info" or "Facial
+       Features" appear once and never speak, so they are not cast. */
+    var blob = [char.persona, char.greeting, char.scenario, char.examples].join('\n');
+    function speaks(full) {
+      var q = full.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var hits = blob.match(new RegExp('\\b' + q + '\\b', 'gi'));
+      if (!hits || hits.length < 3) return false;
+      var act = new RegExp(
+        '(\\b' + q + '\\s+(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added)\\b)' +
+        '|(\\b(?:said|says|asked|replied|answered)\\s+' + q + '\\b)' +
+        '|(^' + q + '\\s*[:\u2014-])', 'im');
+      return act.test(blob);
+    }
     function scanHeaders(text) {
       var m, re = /^([A-Z][a-z]+ [A-Z][a-z]+)$/gm;
-      while ((m = re.exec(String(text || '')))) add(m[1].split(' ')[0]);
+      while ((m = re.exec(String(text || '')))) {
+        if (speaks(m[1])) add(m[1]);
+      }
     }
     scanLabels(char.examples);
     scanLabels(char.greeting);
@@ -790,6 +833,8 @@
           names.forEach(function (n) { if (session.scenePresent.indexOf(n) === -1) session.scenePresent.push(n); });
           if (session.addressedTo && names.indexOf(session.addressedTo) === -1) session.addressedTo = '';
           session.castChecked = true;
+          session.castEdited = true;      /* player's call — leave it alone */
+          session.castRev = CAST_REV;
           Store.putSession(session).then(function () { App.renderSceneCast(); });
           return null;
         } }

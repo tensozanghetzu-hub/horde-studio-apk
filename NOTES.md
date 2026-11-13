@@ -1,5 +1,11 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.59 — Scene cast stops reading headings as people (2026-11-13)
+
+- The header scan behind Scene detection now requires a name to recur and to appear in a speaking context ("Sloane said", "Sloane:", "said Sloane"), so profile headings such as "Basic Info", "Facial Features", "Composure First", "Battlefield Precision" and "Emotional Suppression" are no longer added as cast.
+- A card's own name is excluded even when given in full or with a curly apostrophe.
+- Chats that stored the old picks re-detect once on open; casts the player edited by hand are left untouched.
+
 ## v1.39.58 — Scenarios and intros move together (2026-11-13)
 
 - Picking a scenario in the character editor now also moves the Greeting to that scenario's intro, so the two stay in step.
