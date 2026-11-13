@@ -101,6 +101,46 @@
     return Promise.resolve(cards);
   }
 
+  /* JanitorAI creators often write the whole card into the description,
+     scenarios included ("Scenarios" section, "Scenario 1 — Title" entries),
+     while the dedicated fields stay hidden. Pull those entries out into the
+     card's scenario list so they land in the Scenario field instead of
+     piling into Persona. Returns null when there is no such section. */
+  function extractScenarios(html) {
+    var text = String(html || '');
+    /* Crude HTML -> text: block tags become line breaks, the rest is
+       stripped. Good enough to find the section headers. */
+    text = text.replace(/<(br|p|div|h[1-6]|li|tr)[^>]*>/gi, '\n')
+               .replace(/<[^>]+>/g, '')
+               .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&')
+               .replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"');
+    var lines = text.split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); });
+    var start = -1;
+    for (var i = 0; i < lines.length; i++) {
+      if (/^scenarios$/i.test(lines[i])) { start = i; break; }
+    }
+    if (start === -1) return null;
+    var headerRe = /^scenario\s+\d+\s*[\u2014\u2013-]\s*(.+)$/i;
+    var scenarios = [], current = null;
+    for (var j = start + 1; j < lines.length; j++) {
+      var m = lines[j].match(headerRe);
+      if (m) {
+        if (current) scenarios.push(current);
+        current = { title: m[1].trim(), body: [] };
+      } else if (current && lines[j]) {
+        current.body.push(lines[j]);
+      }
+    }
+    if (current) scenarios.push(current);
+    if (!scenarios.length) return null;
+    var list = scenarios.map(function (s) {
+      return (s.title + '\n' + s.body.join('\n').trim()).trim();
+    });
+    /* Everything before the "Scenarios" header is the character writeup. */
+    var before = lines.slice(0, start).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    return { before: before, list: list };
+  }
+
   /* JanitorAI page -> the character's own API (hampter). It answers without
      a login and allows cross-origin reads, so it works everywhere — unlike
      JannyAI's archive, which sits behind Cloudflare bot protection and 403s
@@ -131,6 +171,15 @@
           data: { name: d.name },
           alternate_greetings: Array.isArray(d.first_messages) ? d.first_messages : []
         };
+        /* Scenarios written into the description move to the Scenario
+           field; the first one doubles as the greeting when the creator
+           hid the real first message. */
+        var split = extractScenarios(d.description || '');
+        if (split) {
+          card.scenario_list = split.list;
+          card.description = split.before || card.description;
+          if (!card.first_mes && split.list.length) card.first_mes = split.list[0];
+        }
         var hasDefinition = !!(d.first_message && String(d.first_message).trim());
         var avatarFile = d.avatar;
         if (!avatarFile) return { card: card, hasDefinition: hasDefinition };

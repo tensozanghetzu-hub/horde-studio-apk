@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.57 — Imported JanitorAI cards split their description into scenarios (2026-11-13)
+
+- When a JanitorAI card carries a "Scenarios" section in its description ("Scenario 1 — Title" entries) with the dedicated fields hidden, the importer now extracts each scenario into the Scenario field, uses the first as the greeting, and keeps Persona for the character writeup. Cards without such a section import exactly as before.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.56 — Link imports retry through the browser when the native fetch is blocked (2026-11-13)
 
 - URL imports (and JanitorAI links in particular) now fall back to the web view's fetch when the native download is turned away, e.g. by bot protection that blocks the app's HTTP client but lets a real browser through. The import only fails when both routes fail.
