@@ -280,6 +280,9 @@ pre,code{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
 .chip svg{width:14px;height:14px}
 .chip:active{background:var(--surface-2)}
 .chip.on{color:var(--accent-2);border-color:color-mix(in srgb, var(--accent-2) 40%, transparent)}
+.chip.off{opacity:.45}
+.scene-cast{display:flex;align-items:center;gap:6px;padding:6px 12px 2px;flex-wrap:wrap}
+.scene-cast .sc-label{color:var(--muted);font-size:12px}
 /* a failed send: the message you just wrote gets an offer to send it again */
 .chip.retry{color:var(--accent);border-color:color-mix(in srgb, var(--accent) 50%, transparent);background:var(--accent-soft);font-weight:600}
 .swipe{display:flex;align-items:center;gap:6px;margin-top:5px;color:var(--dim);font-size:11.5px}

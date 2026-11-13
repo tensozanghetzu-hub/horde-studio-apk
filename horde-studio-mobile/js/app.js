@@ -504,6 +504,8 @@
             App.go('chat');
             Views.thread(c, s, msgs, null, true);
             App.renderGroupSpeaker();
+            App.initSceneCast(c, s);
+            App.renderSceneCast();
             $('#input').focus();
           });
         });
@@ -592,6 +594,158 @@
           };
         });
       }
+    });
+  };
+
+  /* ---------------- scene cast (multi-person cards) ----------------
+     A single card can hold several people. The cast strip lets the
+     player say who is in the current scene and who the next message
+     addresses; the app then tells the model every turn, so people in
+     other rooms stop answering conversations they cannot hear. */
+
+  App.initSceneCast = function (char, session) {
+    if (!char || !session || session.castChecked) return;
+    session.castChecked = true;
+    var members = App.state.groupCharacters || [];
+    if (members.length > 1 || (char.vh && char.vh.enabled)) { Store.putSession(session); return; }
+    var names = App.detectCast(char);
+    if (names.length >= 2) {
+      session.sceneCast = names;
+      session.scenePresent = names.slice();
+      session.addressedTo = '';
+    }
+    Store.putSession(session);
+  };
+
+  App.detectCast = function (char) {
+    var found = [], seen = {};
+    function add(name) {
+      name = String(name || '').replace(/\s+/g, ' ').trim();
+      if (name.length < 2 || name.length > 24) return;
+      if (/[{}<>]/.test(name)) return;                       /* {{char}} / {{user}} */
+      var low = name.toLowerCase();
+      if (low === 'user' || low === 'you' || low === String(char.name || '').toLowerCase()) return;
+      if (seen[low] || seen[low.split(' ')[0]]) return;      /* also catches "First" vs "First Last" duplicates */
+      seen[low] = true;
+      seen[low.split(' ')[0]] = true;
+      found.push(name);
+    }
+    function scanLabels(text) {
+      String(text || '').split('\n').forEach(function (line) {
+        var t = line.replace(/^\s*[^A-Za-z{]+/, '');        /* strip emoji/bullets */
+        var m = /^([A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+)?)\s*:/.exec(t);
+        if (m) add(m[1]);
+      });
+    }
+    function scanNames(text) {
+      var m, re = /^Name:\s*(.+)$/gim;
+      while ((m = re.exec(String(text || '')))) add(m[1]);
+    }
+    function scanHeaders(text) {
+      var m, re = /^([A-Z][a-z]+ [A-Z][a-z]+)$/gm;
+      while ((m = re.exec(String(text || '')))) add(m[1].split(' ')[0]);
+    }
+    scanLabels(char.examples);
+    scanLabels(char.greeting);
+    scanNames(char.persona);
+    scanHeaders(char.persona);
+    return found.slice(0, 6);
+  };
+
+  App.renderSceneCast = function () {
+    var el = $('#scene-cast');
+    if (!el) return;
+    var session = App.state.session, char = App.state.char;
+    var members = App.state.groupCharacters || [];
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    if (!session || members.length > 1 || (char && char.vh && char.vh.enabled) || cast.length < 2) {
+      el.hidden = true;
+      el.innerHTML = '';
+      return;
+    }
+    var present = session.scenePresent || [];
+    var to = String(session.addressedTo || '').trim();
+    var chips = cast.map(function (n) {
+      var on = present.indexOf(n) !== -1;
+      return '<button type="button" class="chip' + (on ? ' on' : ' off') + '" data-scene-toggle="' + esc(n) + '"' +
+        ' title="' + (on ? 'Present — tap to send away' : 'Away — tap to bring here') + '">' + esc(n) + '</button>';
+    }).join('');
+    el.hidden = false;
+    el.innerHTML = '<div class="scene-cast">' +
+      '<span class="sc-label">Scene</span>' + chips +
+      '<span class="sc-label">Speaking to</span>' +
+      '<button type="button" class="chip on" id="scene-to-pick">' + esc(to || 'Everyone') + '</button>' +
+      '<button type="button" class="chip" id="scene-cast-edit" title="Edit the cast">✎</button></div>';
+    el.querySelectorAll('[data-scene-toggle]').forEach(function (b) {
+      b.onclick = function () { App.toggleScenePresent(b.getAttribute('data-scene-toggle')); };
+    });
+    el.querySelector('#scene-to-pick').onclick = function () { App.pickAddressedTo(); };
+    el.querySelector('#scene-cast-edit').onclick = function () { App.editSceneCast(); };
+  };
+
+  App.toggleScenePresent = function (name) {
+    var session = App.state.session;
+    if (!session) return;
+    var present = Array.isArray(session.scenePresent) ? session.scenePresent.slice() : [];
+    var i = present.indexOf(name);
+    if (i === -1) present.push(name); else present.splice(i, 1);
+    session.scenePresent = present;
+    if (session.addressedTo === name) session.addressedTo = '';   /* they just left */
+    Store.putSession(session).then(function () { App.renderSceneCast(); });
+  };
+
+  App.pickAddressedTo = function () {
+    var session = App.state.session;
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    if (!session || cast.length < 2) return;
+    var rows = '<div class="opt" data-scene-to="">Everyone</div>' + cast.map(function (n) {
+      return '<div class="opt" data-scene-to="' + esc(n) + '">' + esc(n) + ((session.addressedTo === n) ? ' · next' : '') + '</div>';
+    }).join('');
+    UI.sheet({
+      title: 'Speaking to',
+      body: '<p class="hint" style="margin:0 0 8px">Only this person answers your next message. It resets after you send.</p>' + rows,
+      actions: [{ label: 'Cancel', cls: 'ghost', value: null }],
+      onMount: function (b, close) {
+        b.querySelectorAll('[data-scene-to]').forEach(function (row) {
+          row.onclick = function () {
+            session.addressedTo = row.getAttribute('data-scene-to');
+            close();
+            Store.putSession(session).then(function () { App.renderSceneCast(); });
+          };
+        });
+      }
+    });
+  };
+
+  App.editSceneCast = function () {
+    var session = App.state.session;
+    if (!session) return;
+    var cast = Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    UI.sheet({
+      title: 'Scene cast',
+      body: '<p class="hint" style="margin:0 0 8px">One name per line. These are the people the app tracks in this chat — tap a name above to bring them into the scene or send them away.</p>' +
+        '<textarea id="scene-cast-text" class="tall" style="width:100%">' + esc(cast.join('\n')) + '</textarea>',
+      actions: [
+        { label: 'Cancel', cls: 'ghost', value: null },
+        { label: 'Save cast', cls: 'primary', onClick: function (b) {
+          var text = b.querySelector('#scene-cast-text').value || '';
+          var names = [], seen = {};
+          text.split('\n').forEach(function (line) {
+            var n = line.replace(/\s+/g, ' ').trim();
+            if (!n || n.length > 24 || seen[n.toLowerCase()]) return;
+            seen[n.toLowerCase()] = true;
+            names.push(n);
+          });
+          names = names.slice(0, 8);
+          session.sceneCast = names;
+          session.scenePresent = (session.scenePresent || []).filter(function (n) { return names.indexOf(n) !== -1; });
+          names.forEach(function (n) { if (session.scenePresent.indexOf(n) === -1) session.scenePresent.push(n); });
+          if (session.addressedTo && names.indexOf(session.addressedTo) === -1) session.addressedTo = '';
+          session.castChecked = true;
+          Store.putSession(session).then(function () { App.renderSceneCast(); });
+          return null;
+        } }
+      ]
     });
   };
 
@@ -923,6 +1077,8 @@
           rpgStatus: s.rpgStatus || null,
           continuity: s.continuity || null,
           chatLorebook: s.chatLorebook || [],
+          sceneCast: s.sceneCast || [],
+          scenePresent: s.scenePresent || [],
           messages: msgs.map(function (m) {
             return { role: m.role, text: m.text || '', createdAt: m.createdAt, image: m.image || null, imageCaption: m.imageCaption || null, autonomous: !!m.autonomous,
               rpgStatusProposal: m.rpgStatusProposal && m.rpgStatusProposal.state === 'pending' ? m.rpgStatusProposal : null,
@@ -964,6 +1120,11 @@
     s.rpgStatus = data.rpgStatus && data.rpgStatus.enabled ? normalizeRpgStatus(data.rpgStatus) : null;
     s.continuity = API.normalizeContinuity ? API.normalizeContinuity(data.continuity) : (s.continuity || null);
     s.chatLorebook = API.parseLorebookFile ? API.parseLorebookFile(JSON.stringify({ entries: data.chatLorebook || [] })) : [];
+    s.sceneCast = Array.isArray(data.sceneCast) ? data.sceneCast.slice(0, 8) : [];
+    s.scenePresent = Array.isArray(data.scenePresent)
+      ? data.scenePresent.filter(function (n) { return s.sceneCast.indexOf(n) !== -1; })
+      : s.sceneCast.slice();
+    s.castChecked = s.sceneCast.length > 0;
     s.createdAt = data.createdAt || Date.now();
     var msgs = data.messages.filter(function (m) {
       return m && (m.role === 'user' || m.role === 'assistant' || m.role === 'system');
@@ -1636,6 +1797,17 @@
     }
     var finalNote = [vhNote, ov && ov.note].filter(Boolean).join('\n\n') || null;
     vhNote = finalNote;
+
+    /* Scene cast: a "speaking to" pick applies to this one reply only. */
+    if (session && session.addressedTo && Array.isArray(session.sceneCast) &&
+        session.sceneCast.indexOf(session.addressedTo) !== -1) {
+      var toLine = 'The user is speaking to ' + session.addressedTo + '. Only ' + session.addressedTo +
+        ' answers; others present may react briefly but do not answer for ' + session.addressedTo + '.';
+      vhNote = vhNote ? vhNote + '\n\n' + toLine : toLine;
+      session.addressedTo = '';
+      Store.putSession(session);
+      App.renderSceneCast();
+    }
 
     /* v1.21.0 (upstream 18.3.5): a save failure is not a provider failure.
        The model already did its work — a finished reply stays in the thread
@@ -3236,6 +3408,9 @@
       s2.groupCharIds = (old.groupCharIds || []).slice();
       s2.speakerMode = old.speakerMode || 'manual';
       s2.nextSpeakerId = old.nextSpeakerId || '';
+      s2.sceneCast = (old.sceneCast || []).slice();
+      s2.scenePresent = (old.scenePresent || []).slice();
+      s2.castChecked = !!old.castChecked;
       s2.rpgStatus = old.rpgStatus ? JSON.parse(JSON.stringify(old.rpgStatus)) : null;
       s2.continuity = API.normalizeContinuity ? API.normalizeContinuity(old.continuity) : (old.continuity || null);
       return Store.putSession(s2).then(function () {

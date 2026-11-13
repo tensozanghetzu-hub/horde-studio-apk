@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.52 — Scene cast for multi-person cards (2026-11-13)
+
+- Added a per-chat Scene strip for cards holding several people: presence chips (who is in the current scene) and a "Speaking to" pick for the next message. The cast is auto-detected from the card's dialogue labels and profiles, editable per chat, and injected into the prompt so absent characters do not speak or react.
+- The "Speaking to" pick applies to one reply and resets after sending. Single-character cards are unaffected (no cast detected, strip hidden). No character cards or lorebooks are included in the release.
+
 ## v1.39.51 — Session-safe persistent Retry action (2026-09-10)
 
 - Retry is saved on the message that failed, and the failed generation retains the original session reference if the user navigates away before the provider fails.

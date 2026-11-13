@@ -1341,9 +1341,9 @@
           '<div class="field-head"><label>Error log</label>' +
             '<button class="btn ghost sm" id="btn-log-clear" style="margin-left:auto">Clear</button></div>' +
           '<div class="errlog" id="errlog-box"></div>' +
-          '<div class="hint">The last things that went wrong — installs, downloads, crashes. ' +
-            'The log keeps its newest 200 entries and drops the rest on its own; ' +
-            'Clear starts it fresh.</div>' +
+          '<div class="hint">The last things that went wrong — installs, downloads, crashes, and failed chat responses. ' +
+            'Chat errors include provider/model details and up to 1,200 characters of the error; prompts, replies, and credentials are not logged. ' +
+            'The log keeps its newest 200 entries and drops the rest on its own; Clear starts it fresh.</div>' +
         '</div>' +
       '</div>';
     var sc = settingsScope(body);

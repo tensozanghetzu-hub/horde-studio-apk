@@ -361,6 +361,18 @@
       if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + repairMojibake(f); }).join('\n'));
       parts.push(mem.join('\n'));
     }
+    /* Scene cast (multi-person cards): who is present here and who is
+       elsewhere. Locations are hard boundaries — absent characters do
+       not speak, react, or comment. */
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    if (cast.length) {
+      var presentNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) !== -1; });
+      var awayNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) === -1; });
+      var castLines = [];
+      if (presentNow.length) castLines.push('Present in this scene: ' + presentNow.join(', ') + ', ' + s.userName);
+      if (awayNow.length) castLines.push('Elsewhere and out of the scene (do not speak, react, or comment): ' + awayNow.join(', '));
+      if (castLines.length) parts.push('Scene cast:\n' + castLines.join('\n'));
+    }
     if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
     var continuity = continuityPrompt(session);
     if (continuity) parts.push(continuity);

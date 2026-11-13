@@ -20,7 +20,7 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.39.47';
+  var VERSION = '1.39.51';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -301,6 +301,10 @@
         sceneNote: '', sceneNotePlacement: 'end', sceneNoteFrequency: 1,
         /* Empty groupCharIds means this remains a normal one-character chat. */
         groupCharIds: [], speakerMode: 'manual', nextSpeakerId: '',
+        /* Scene cast for multi-person cards: who is in this chat's cast,
+           who is currently present, and who the next message addresses.
+           An empty cast keeps the feature off for this chat. */
+        sceneCast: [], scenePresent: [], addressedTo: '', castChecked: false,
         timeline: 'main', pending: null,
         /* v1.39.0 chatwork: pin & archive live on the session, the layer the
            list sorts and hides by. Old sessions arrive without them and

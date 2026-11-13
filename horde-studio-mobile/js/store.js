@@ -301,6 +301,10 @@
         sceneNote: '', sceneNotePlacement: 'end', sceneNoteFrequency: 1,
         /* Empty groupCharIds means this remains a normal one-character chat. */
         groupCharIds: [], speakerMode: 'manual', nextSpeakerId: '',
+        /* Scene cast for multi-person cards: who is in this chat's cast,
+           who is currently present, and who the next message addresses.
+           An empty cast keeps the feature off for this chat. */
+        sceneCast: [], scenePresent: [], addressedTo: '', castChecked: false,
         timeline: 'main', pending: null,
         /* v1.39.0 chatwork: pin & archive live on the session, the layer the
            list sorts and hides by. Old sessions arrive without them and

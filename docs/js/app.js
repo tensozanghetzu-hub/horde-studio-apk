@@ -12,6 +12,60 @@
     });
   }
 
+  /* Keep failed in-chat generations readable after their transient toast
+     disappears. Store metadata and the provider error only—never prompts,
+     replies, or credentials. The native log keeps at most 200 entries. */
+  function logChatGenerationFailure(err, character, settings) {
+    if (!err || err.name === 'AbortError') return;
+    try {
+      if (!global.Logs || !Logs.push) return;
+      settings = settings || Store.settings || {};
+      var preset = Store.PRESETS && Store.PRESETS[settings.provider];
+      var provider = (preset && preset.label) || settings.provider || 'unknown provider';
+      var model = settings.provider === 'horde'
+        ? (settings.hordeTextModel || 'AI Horde')
+        : (settings.model || 'model not selected');
+      var detail = String(err.message || err).replace(/\s+/g, ' ').trim();
+      [settings.apiKey, settings.hordeKey, settings.cloudflareWorkerToken].forEach(function (secret) {
+        secret = String(secret || '');
+        if (secret.length >= 6) detail = detail.split(secret).join('[credential redacted]');
+      });
+      detail = detail.replace(/sk-or-v1-[a-f0-9]{64}/gi, '[credential redacted]');
+      var parts = ['chat response failed', 'provider ' + provider, 'model ' + model];
+      if (character && character.name) parts.push('character ' + character.name);
+      if (err.status) parts.push('HTTP ' + err.status);
+      parts.push(detail || err.name || 'unknown error');
+      Logs.push(parts.join(' | '), 1200);
+    } catch (e) { /* logging must never interfere with generation cleanup */ }
+  }
+
+  /* The Retry chip belongs to its failed user message, so persist the marker
+     with that record. Removing it is persisted too, preventing stale chips
+     from returning after the chat is reopened. */
+  function persistRetryMarker(message, pending) {
+    if (!message) return Promise.resolve();
+    if (pending) message.retry = true;
+    else delete message.retry;
+    try {
+      return Promise.resolve(Store.updateMessage(message)).catch(function (e) {
+        console.error('retry marker save failed:', e);
+        UI.toast('Could not save the Retry button: ' + (e && e.message || 'storage error'), 6000);
+      });
+    } catch (e) {
+      console.error('retry marker save failed:', e);
+      UI.toast('Could not save the Retry button: ' + (e && e.message || 'storage error'), 6000);
+      return Promise.resolve();
+    }
+  }
+
+  function clearRetryMarkers(messages) {
+    var writes = [];
+    (messages || []).forEach(function (message) {
+      if (message && message.retry) writes.push(persistRetryMarker(message, false));
+    });
+    return Promise.all(writes);
+  }
+
   var App = {
     state: { screen: 'characters', query: '', tag: '', worldChar: null, messages: [], char: null, session: null, busy: false, lifeBusy: {}, settingsSection: 'connection', worldStatusOpen: false },
     stack: [],
@@ -450,6 +504,8 @@
             App.go('chat');
             Views.thread(c, s, msgs, null, true);
             App.renderGroupSpeaker();
+            App.initSceneCast(c, s);
+            App.renderSceneCast();
             $('#input').focus();
           });
         });
@@ -538,6 +594,158 @@
           };
         });
       }
+    });
+  };
+
+  /* ---------------- scene cast (multi-person cards) ----------------
+     A single card can hold several people. The cast strip lets the
+     player say who is in the current scene and who the next message
+     addresses; the app then tells the model every turn, so people in
+     other rooms stop answering conversations they cannot hear. */
+
+  App.initSceneCast = function (char, session) {
+    if (!char || !session || session.castChecked) return;
+    session.castChecked = true;
+    var members = App.state.groupCharacters || [];
+    if (members.length > 1 || (char.vh && char.vh.enabled)) { Store.putSession(session); return; }
+    var names = App.detectCast(char);
+    if (names.length >= 2) {
+      session.sceneCast = names;
+      session.scenePresent = names.slice();
+      session.addressedTo = '';
+    }
+    Store.putSession(session);
+  };
+
+  App.detectCast = function (char) {
+    var found = [], seen = {};
+    function add(name) {
+      name = String(name || '').replace(/\s+/g, ' ').trim();
+      if (name.length < 2 || name.length > 24) return;
+      if (/[{}<>]/.test(name)) return;                       /* {{char}} / {{user}} */
+      var low = name.toLowerCase();
+      if (low === 'user' || low === 'you' || low === String(char.name || '').toLowerCase()) return;
+      if (seen[low] || seen[low.split(' ')[0]]) return;      /* also catches "First" vs "First Last" duplicates */
+      seen[low] = true;
+      seen[low.split(' ')[0]] = true;
+      found.push(name);
+    }
+    function scanLabels(text) {
+      String(text || '').split('\n').forEach(function (line) {
+        var t = line.replace(/^\s*[^A-Za-z{]+/, '');        /* strip emoji/bullets */
+        var m = /^([A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+)?)\s*:/.exec(t);
+        if (m) add(m[1]);
+      });
+    }
+    function scanNames(text) {
+      var m, re = /^Name:\s*(.+)$/gim;
+      while ((m = re.exec(String(text || '')))) add(m[1]);
+    }
+    function scanHeaders(text) {
+      var m, re = /^([A-Z][a-z]+ [A-Z][a-z]+)$/gm;
+      while ((m = re.exec(String(text || '')))) add(m[1].split(' ')[0]);
+    }
+    scanLabels(char.examples);
+    scanLabels(char.greeting);
+    scanNames(char.persona);
+    scanHeaders(char.persona);
+    return found.slice(0, 6);
+  };
+
+  App.renderSceneCast = function () {
+    var el = $('#scene-cast');
+    if (!el) return;
+    var session = App.state.session, char = App.state.char;
+    var members = App.state.groupCharacters || [];
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    if (!session || members.length > 1 || (char && char.vh && char.vh.enabled) || cast.length < 2) {
+      el.hidden = true;
+      el.innerHTML = '';
+      return;
+    }
+    var present = session.scenePresent || [];
+    var to = String(session.addressedTo || '').trim();
+    var chips = cast.map(function (n) {
+      var on = present.indexOf(n) !== -1;
+      return '<button type="button" class="chip' + (on ? ' on' : ' off') + '" data-scene-toggle="' + esc(n) + '"' +
+        ' title="' + (on ? 'Present — tap to send away' : 'Away — tap to bring here') + '">' + esc(n) + '</button>';
+    }).join('');
+    el.hidden = false;
+    el.innerHTML = '<div class="scene-cast">' +
+      '<span class="sc-label">Scene</span>' + chips +
+      '<span class="sc-label">Speaking to</span>' +
+      '<button type="button" class="chip on" id="scene-to-pick">' + esc(to || 'Everyone') + '</button>' +
+      '<button type="button" class="chip" id="scene-cast-edit" title="Edit the cast">✎</button></div>';
+    el.querySelectorAll('[data-scene-toggle]').forEach(function (b) {
+      b.onclick = function () { App.toggleScenePresent(b.getAttribute('data-scene-toggle')); };
+    });
+    el.querySelector('#scene-to-pick').onclick = function () { App.pickAddressedTo(); };
+    el.querySelector('#scene-cast-edit').onclick = function () { App.editSceneCast(); };
+  };
+
+  App.toggleScenePresent = function (name) {
+    var session = App.state.session;
+    if (!session) return;
+    var present = Array.isArray(session.scenePresent) ? session.scenePresent.slice() : [];
+    var i = present.indexOf(name);
+    if (i === -1) present.push(name); else present.splice(i, 1);
+    session.scenePresent = present;
+    if (session.addressedTo === name) session.addressedTo = '';   /* they just left */
+    Store.putSession(session).then(function () { App.renderSceneCast(); });
+  };
+
+  App.pickAddressedTo = function () {
+    var session = App.state.session;
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    if (!session || cast.length < 2) return;
+    var rows = '<div class="opt" data-scene-to="">Everyone</div>' + cast.map(function (n) {
+      return '<div class="opt" data-scene-to="' + esc(n) + '">' + esc(n) + ((session.addressedTo === n) ? ' · next' : '') + '</div>';
+    }).join('');
+    UI.sheet({
+      title: 'Speaking to',
+      body: '<p class="hint" style="margin:0 0 8px">Only this person answers your next message. It resets after you send.</p>' + rows,
+      actions: [{ label: 'Cancel', cls: 'ghost', value: null }],
+      onMount: function (b, close) {
+        b.querySelectorAll('[data-scene-to]').forEach(function (row) {
+          row.onclick = function () {
+            session.addressedTo = row.getAttribute('data-scene-to');
+            close();
+            Store.putSession(session).then(function () { App.renderSceneCast(); });
+          };
+        });
+      }
+    });
+  };
+
+  App.editSceneCast = function () {
+    var session = App.state.session;
+    if (!session) return;
+    var cast = Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    UI.sheet({
+      title: 'Scene cast',
+      body: '<p class="hint" style="margin:0 0 8px">One name per line. These are the people the app tracks in this chat — tap a name above to bring them into the scene or send them away.</p>' +
+        '<textarea id="scene-cast-text" class="tall" style="width:100%">' + esc(cast.join('\n')) + '</textarea>',
+      actions: [
+        { label: 'Cancel', cls: 'ghost', value: null },
+        { label: 'Save cast', cls: 'primary', onClick: function (b) {
+          var text = b.querySelector('#scene-cast-text').value || '';
+          var names = [], seen = {};
+          text.split('\n').forEach(function (line) {
+            var n = line.replace(/\s+/g, ' ').trim();
+            if (!n || n.length > 24 || seen[n.toLowerCase()]) return;
+            seen[n.toLowerCase()] = true;
+            names.push(n);
+          });
+          names = names.slice(0, 8);
+          session.sceneCast = names;
+          session.scenePresent = (session.scenePresent || []).filter(function (n) { return names.indexOf(n) !== -1; });
+          names.forEach(function (n) { if (session.scenePresent.indexOf(n) === -1) session.scenePresent.push(n); });
+          if (session.addressedTo && names.indexOf(session.addressedTo) === -1) session.addressedTo = '';
+          session.castChecked = true;
+          Store.putSession(session).then(function () { App.renderSceneCast(); });
+          return null;
+        } }
+      ]
     });
   };
 
@@ -869,6 +1077,8 @@
           rpgStatus: s.rpgStatus || null,
           continuity: s.continuity || null,
           chatLorebook: s.chatLorebook || [],
+          sceneCast: s.sceneCast || [],
+          scenePresent: s.scenePresent || [],
           messages: msgs.map(function (m) {
             return { role: m.role, text: m.text || '', createdAt: m.createdAt, image: m.image || null, imageCaption: m.imageCaption || null, autonomous: !!m.autonomous,
               rpgStatusProposal: m.rpgStatusProposal && m.rpgStatusProposal.state === 'pending' ? m.rpgStatusProposal : null,
@@ -910,6 +1120,11 @@
     s.rpgStatus = data.rpgStatus && data.rpgStatus.enabled ? normalizeRpgStatus(data.rpgStatus) : null;
     s.continuity = API.normalizeContinuity ? API.normalizeContinuity(data.continuity) : (s.continuity || null);
     s.chatLorebook = API.parseLorebookFile ? API.parseLorebookFile(JSON.stringify({ entries: data.chatLorebook || [] })) : [];
+    s.sceneCast = Array.isArray(data.sceneCast) ? data.sceneCast.slice(0, 8) : [];
+    s.scenePresent = Array.isArray(data.scenePresent)
+      ? data.scenePresent.filter(function (n) { return s.sceneCast.indexOf(n) !== -1; })
+      : s.sceneCast.slice();
+    s.castChecked = s.sceneCast.length > 0;
     s.createdAt = data.createdAt || Date.now();
     var msgs = data.messages.filter(function (m) {
       return m && (m.role === 'user' || m.role === 'assistant' || m.role === 'system');
@@ -1473,7 +1688,10 @@
       return;
     }
 
-    var history = st.messages.slice();
+    /* Capture this turn's message list. App.state is reused while navigating,
+       so an async failure must not attach Retry to whichever chat is open later. */
+    var generationMessages = st.messages.slice();
+    var history = generationMessages.slice();
     var target = null;
 
     /* v1.39.28: rerolling a continuation bubble re-CONTINUES from its severed
@@ -1580,6 +1798,17 @@
     var finalNote = [vhNote, ov && ov.note].filter(Boolean).join('\n\n') || null;
     vhNote = finalNote;
 
+    /* Scene cast: a "speaking to" pick applies to this one reply only. */
+    if (session && session.addressedTo && Array.isArray(session.sceneCast) &&
+        session.sceneCast.indexOf(session.addressedTo) !== -1) {
+      var toLine = 'The user is speaking to ' + session.addressedTo + '. Only ' + session.addressedTo +
+        ' answers; others present may react briefly but do not answer for ' + session.addressedTo + '.';
+      vhNote = vhNote ? vhNote + '\n\n' + toLine : toLine;
+      session.addressedTo = '';
+      Store.putSession(session);
+      App.renderSceneCast();
+    }
+
     /* v1.21.0 (upstream 18.3.5): a save failure is not a provider failure.
        The model already did its work — a finished reply stays in the thread
        and the storage error is surfaced on its own, instead of the generic
@@ -1650,6 +1879,10 @@
       }
     }).then(function (text) {
       text = (text || '').trim();
+      /* A valid streaming frame can still finish without visible content.
+         Treat that as a failed generation, not a successful reroll that
+         silently leaves the old bubble in place. */
+      if (!text) throw new Error('The model completed without a visible reply. Retry or choose another model.');
       App.genStop();
       var statusProposal = API.parseRpgUpdate ? API.parseRpgUpdate(text) : null;
       var continuityProposal = API.parseContinuityUpdate ? API.parseContinuityUpdate(text) : null;
@@ -1694,11 +1927,13 @@
         }
       }
       msg._stream = null;
-      /* A reply came through — a failed send is no longer failed: drop any
-         Retry chip still showing in the thread. */
-      for (var ri = 0; ri < st.messages.length; ri++) if (st.messages[ri].retry) st.messages[ri].retry = false;
-      var chips = document.querySelectorAll('#thread .chip.retry');
-      for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
+      /* A reply came through — clear retry markers in memory and IndexedDB,
+         so an old chip does not return when this chat is reopened. */
+      var retryMarkerWrites = clearRetryMarkers(generationMessages);
+      if (App.state.screen === 'chat' && App.state.session && App.state.session.id === session.id) {
+        var chips = document.querySelectorAll('#thread .chip.retry');
+        for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
+      }
       if (!text) { text = '…'; }
       if (opts.continueFor) {
         /* v1.39.28: generate() assembled seed + continuation; only the NEW
@@ -1745,14 +1980,14 @@
         msg.altIdx = 0;
         var mt2 = el.querySelector('.mtext');
         if (mt2) mt2.innerHTML = UI.md(parts[0]);
-        return persist().then(function (r) {
+        return retryMarkerWrites.then(function () { return persist(); }).then(function (r) {
           /* if the first bubble could not be saved, the burst parts would
              not be either — keep what is on screen */
           if (!r.saved) return;
           return App.deliverBurst(char, msg, parts);
         });
       }
-      return persist();
+      return retryMarkerWrites.then(persist);
     }).then(function () {
       if (msg.saveFailed) return;   /* the ledger is down — do not write to it again */
       /* A finished reply must not yank the view to the last word if the
@@ -1766,12 +2001,16 @@
     }).catch(function (e) {
       /* The handler must never throw: if it did, the cleanup below would be
          skipped and the "thinking" dots would run forever. */
+      var retryWrite = Promise.resolve();
       try {
+        logChatGenerationFailure(e, char, charSettings);
         msg._stream = null;
         App.genStop();
         if (e.name === 'AbortError') {
           if (!msg.text) {
-            App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+            if (App.state.session && App.state.session.id === session.id) {
+              App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+            }
             el.remove();
           } else {
             el.classList.remove('streaming');
@@ -1794,18 +2033,25 @@
           el.classList.remove('streaming');
           var mtE = el.querySelector && el.querySelector('.mtext');
           if (mtE) mtE.innerHTML = UI.md(msg.text);
+          UI.toast((opts.rerollFor || opts.replaceBubble ? 'Reroll' : 'Continue') + ' failed: ' + e.message, 6000);
         } else {
           el.remove();
-          App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+          if (App.state.session && App.state.session.id === session.id) {
+            App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
+          }
           /* The Horde already tried five workers and all came back blank — offer a
              Retry on the message the user just wrote, so nothing has to be retyped. */
           var lastUser = null;
-          for (var i = st.messages.length - 1; i >= 0; i--) {
-            if (st.messages[i].role === 'user') { lastUser = st.messages[i]; break; }
+          for (var i = generationMessages.length - 1; i >= 0; i--) {
+            if (generationMessages[i].role === 'user') { lastUser = generationMessages[i]; break; }
           }
           if (lastUser) {
-            lastUser.retry = true;
-            Views.thread(char, session, st.messages);
+            retryWrite = persistRetryMarker(lastUser, true);
+            /* Save against the original session even if the user navigated
+               away while the provider was still responding. */
+            if (App.state.screen === 'chat' && App.state.session && App.state.session.id === session.id) {
+              Views.thread(char, session, generationMessages);
+            }
           }
           UI.toast('Error: ' + e.message, 6000);
           console.error(e);
@@ -1813,6 +2059,7 @@
       } catch (inner) {
         console.error('reply error handler failed:', inner);
       }
+      return retryWrite;
     }).then(function () {
       /* Cleanup always runs, success or failure: a wedged busy flag is
          exactly how the thinking dots never stop. */
@@ -2563,7 +2810,7 @@
    *  their own schedule, everyone else gets a reply generated now.
    *  Shared by a fresh send and by edit-and-resend. */
   App.afterUserMessage = function (m) {
-    for (var ri = 0; ri < App.state.messages.length; ri++) if (App.state.messages[ri].retry) App.state.messages[ri].retry = false;
+    clearRetryMarkers(App.state.messages);
     var chips = document.querySelectorAll('#thread .chip.retry');
     for (var ci = 0; ci < chips.length; ci++) chips[ci].remove();
     var char = App.state.char, session = App.state.session;
@@ -3161,6 +3408,9 @@
       s2.groupCharIds = (old.groupCharIds || []).slice();
       s2.speakerMode = old.speakerMode || 'manual';
       s2.nextSpeakerId = old.nextSpeakerId || '';
+      s2.sceneCast = (old.sceneCast || []).slice();
+      s2.scenePresent = (old.scenePresent || []).slice();
+      s2.castChecked = !!old.castChecked;
       s2.rpgStatus = old.rpgStatus ? JSON.parse(JSON.stringify(old.rpgStatus)) : null;
       s2.continuity = API.normalizeContinuity ? API.normalizeContinuity(old.continuity) : (old.continuity || null);
       return Store.putSession(s2).then(function () {
@@ -4039,9 +4289,8 @@
         App.speakMessage(msg, btn);
       } else if (act === 'retry') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
-        /* Same message, fresh attempt: the Horde re-dispatches to whatever
-           worker is free. */
-        msg.retry = false;
+        /* Same message, fresh attempt: keep its persisted marker until a reply
+           succeeds, so leaving during a failed/in-flight retry cannot lose it. */
         App.generateReply();
       } else if (act === 'cont') {
         if (App.state.busy) return UI.toast('Wait for the current reply');
