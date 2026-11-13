@@ -318,6 +318,22 @@
     return normalizeContinuity(next);
   }
 
+  /* Scene cast (multi-person cards): who is present here and who is
+     elsewhere. Appended at the very end of the prompt so it is the
+     most recent instruction — and worded to override the card. */
+  function sceneCastPrompt(session, userName) {
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    if (!cast.length) return '';
+    var presentNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) !== -1; });
+    var awayNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) === -1; });
+    var lines = [];
+    if (presentNow.length) lines.push('Present in this scene: ' + presentNow.join(', ') + ', ' + userName);
+    if (awayNow.length) lines.push('Elsewhere and out of the scene: ' + awayNow.join(', '));
+    if (!lines.length) return '';
+    return 'SCENE CAST — THIS OVERRIDES THE CARD: ' + lines.join('. ') +
+      '. Characters listed as elsewhere never speak, react, act, or get narrated in this reply, even if the card or examples show them speaking.';
+  }
+
   function charSheet(char, s, session, recent, assistantTurns) {
     var parts = [];
     var persona = plainText(macros(char.persona, char, s));
@@ -360,18 +376,6 @@
       if (session.summary) mem.push('Story so far: ' + repairMojibake(session.summary));
       if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + repairMojibake(f); }).join('\n'));
       parts.push(mem.join('\n'));
-    }
-    /* Scene cast (multi-person cards): who is present here and who is
-       elsewhere. Locations are hard boundaries — absent characters do
-       not speak, react, or comment. */
-    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
-    if (cast.length) {
-      var presentNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) !== -1; });
-      var awayNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) === -1; });
-      var castLines = [];
-      if (presentNow.length) castLines.push('Present in this scene: ' + presentNow.join(', ') + ', ' + s.userName);
-      if (awayNow.length) castLines.push('Elsewhere and out of the scene (do not speak, react, or comment): ' + awayNow.join(', '));
-      if (castLines.length) parts.push('Scene cast:\n' + castLines.join('\n'));
     }
     if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
     var continuity = continuityPrompt(session);
@@ -585,6 +589,8 @@
     var rpg = rpgStatusPrompt(session);
     if (rpg) system += '\n\n' + rpg;
     if (note) system += '\n\n' + note;
+    var sceneCast = sceneCastPrompt(session, s.userName);
+    if (sceneCast) system += '\n\n' + sceneCast;
 
     var msgs = [{ role: 'system', content: system.trim() }];
     var ex = examplesToMessages(character.examples, character, s);
@@ -621,6 +627,8 @@
     if (rpg) head += '\n\n' + rpg;
     if (note) head += '\n\n' + note;
     head += '\n\n' + macros(OOC_RULE, character, s);
+    var sceneCast = sceneCastPrompt(session, s.userName);
+    if (sceneCast) head += '\n\n' + sceneCast;
     var ex = examplesToMessages(character.examples, character, s).map(function (m) {
       return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
     }).join('\n');

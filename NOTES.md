@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.53 — Scene cast prompt priority (2026-11-13)
+
+- The Scene cast block now sits at the very end of the prompt, worded to override the card, so characters marked as elsewhere stay silent even when a card's examples show several speakers.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.52 — Scene cast for multi-person cards (2026-11-13)
 
 - Added a per-chat Scene strip for cards holding several people: presence chips (who is in the current scene) and a "Speaking to" pick for the next message. The cast is auto-detected from the card's dialogue labels and profiles, editable per chat, and injected into the prompt so absent characters do not speak or react.
