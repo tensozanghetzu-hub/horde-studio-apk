@@ -627,82 +627,149 @@
     },
 
     /* Read a character card from a .json or .png file */
-    readCardFile: function (file) {
+    /* Bytes -> data URL, chunked so a big card art never blows the call
+       stack the way String.fromCharCode.apply on the whole buffer would. */
+    bytesToDataUrl: function (buf, mime) {
+      var bytes = new Uint8Array(buf);
+      var bin = '';
+      var CHUNK = 0x8000;
+      for (var i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+      }
+      return 'data:' + (mime || 'application/octet-stream') + ';base64,' + btoa(bin);
+    },
+
+    /* Pull the embedded card out of PNG bytes (the chara/ccv3 tEXt chunks).
+       Shared by file import and URL import, so both read cards the same way. */
+    cardFromPngBytes: function (buf) {
+      return new Promise(function (resolve, reject) {
+        try {
+          var view = new DataView(buf);
+          if (view.getUint32(0) !== 0x89504e47) throw new Error('Not a PNG character card');
+          var off = 8, chunks = [];
+          while (off < view.byteLength) {
+            var len = view.getUint32(off);
+            var type = '';
+            for (var i = 0; i < 4; i++) type += String.fromCharCode(view.getUint8(off + 4 + i));
+            if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
+              chunks.push({ type: type, data: buf.slice(off + 8, off + 8 + len) });
+            }
+            off += 12 + len;
+            if (type === 'IEND') break;
+          }
+          var card = null;
+          chunks.forEach(function (ch) {
+            if (card) return;
+            var bytes = new Uint8Array(ch.data);
+            var nul = bytes.indexOf(0);
+            var key = String.fromCharCode.apply(null, bytes.subarray(0, nul));
+            var rest = bytes.subarray(nul + 1);
+            if (key === 'ccv3') {
+              var text = '';
+              if (ch.type === 'iTXt') {
+                // iTXt: compression flag, compression method, lang tag, translated keyword, then text
+                var p = 2;
+                while (rest[p] !== 0) p++;
+                p++;
+                while (rest[p] !== 0) p++;
+                p++;
+                text = new TextDecoder().decode(rest.subarray(p));
+              } else {
+                text = new TextDecoder().decode(rest);
+              }
+              try { card = JSON.parse(text); } catch (e) {}
+            } else if (key === 'chara') {
+              var b64 = new TextDecoder().decode(rest);
+              /* atob gives a BINARY string - bytes as chars. Parsing that
+                 directly mangles every multibyte sequence (emoji, dashes,
+                 curly quotes, accents - everything that is not ASCII).
+                 Decode the bytes as UTF-8, like the ccv3 branch above
+                 already does. */
+              try {
+                var bin = atob(b64);
+                var utf = new Uint8Array(bin.length);
+                for (var bi = 0; bi < bin.length; bi++) utf[bi] = bin.charCodeAt(bi) & 0xff;
+                card = JSON.parse(new TextDecoder().decode(utf));
+              } catch (e) {}
+            }
+          });
+          if (!card) throw new Error('No character data embedded in this PNG');
+          /* A PNG-embedded card IS its own avatar: SillyTavern stores the
+             picture in the file, not in the JSON. Attach the file itself
+             when the embedded JSON carries no usable char_x of its own.
+             (v3 cards keep char_x inside `data`.) */
+          var target = (card.spec === 'chara_card_v3' && card.data) ? card.data : card;
+          if (!Store.cardAvatar(target.char_x)) {
+            target.char_x = Store.bytesToDataUrl(buf, 'image/png');
+          }
+          resolve(card);
+        } catch (e) { reject(e); }
+      });
+    },
+
+    /* One parsed JSON value -> the cards it carries. A plain card is one;
+       a JanitorAI bulk export ({exported_at, characters: {id: {...}}, skipped})
+       carries one card per character, so it unwraps into many. */
+    cardsFromRaw: function (raw) {
+      if (raw && typeof raw === 'object' && raw.characters && typeof raw.characters === 'object') {
+        var entries = Array.isArray(raw.characters)
+          ? raw.characters
+          : Object.keys(raw.characters).map(function (k) { return raw.characters[k]; });
+        var out = [];
+        entries.forEach(function (entry) {
+          if (!entry || typeof entry !== 'object') return;
+          var card = (entry.card && typeof entry.card === 'object') ? entry.card : entry;
+          var alts = Array.isArray(card.alternate_greetings) ? card.alternate_greetings : [];
+          var name = card.name || entry.character_name || 'Imported character';
+          var hadFirst = !!(card.first_mes && String(card.first_mes).trim());
+          var c = {
+            name: name,
+            description: card.description || '',
+            personality: card.personality || '',
+            scenario: card.scenario || '',
+            first_mes: hadFirst ? card.first_mes : (alts[0] || ''),
+            mes_example: card.mes_example || '',
+            creatorcomment: hadFirst
+              ? 'Converted from a JanitorAI bulk export.'
+              : 'Converted from a JanitorAI bulk export. The export could not fetch the definition, so the main greeting/scenario/examples were not recovered; the first alternate greeting is used as the opening.',
+            tags: card.tags || [],
+            talkativeness: '0.5', fav: false,
+            spec: 'chara_card_v2', spec_version: '2.0',
+            data: { name: name },
+            alternate_greetings: alts
+          };
+          var ad = card.avatar_data;
+          if (ad && ad.base64) c.char_x = 'data:' + (ad.mimeType || 'image/png') + ';base64,' + ad.base64;
+          out.push(c);
+        });
+        return out;
+      }
+      return [raw];
+    },
+
+    /* A picked file -> every card it carries (usually one). */
+    readCardsFile: function (file) {
       return new Promise(function (resolve, reject) {
         var fr = new FileReader();
         if (/\.json$/i.test(file.name) || file.type === 'application/json') {
           fr.onload = function () {
-            try { resolve(JSON.parse(fr.result)); } catch (e) { reject(new Error('Invalid JSON')); }
+            try { resolve(Store.cardsFromRaw(JSON.parse(fr.result))); }
+            catch (e) { reject(new Error('Invalid JSON')); }
           };
           fr.readAsText(file);
           return;
         }
         fr.onload = function () {
-          try {
-            var view = new DataView(fr.result);
-            if (view.getUint32(0) !== 0x89504e47) throw new Error('Not a PNG character card');
-            var off = 8, chunks = [];
-            while (off < view.byteLength) {
-              var len = view.getUint32(off);
-              var type = '';
-              for (var i = 0; i < 4; i++) type += String.fromCharCode(view.getUint8(off + 4 + i));
-              if (type === 'tEXt' || type === 'iTXt' || type === 'zTXt') {
-                var payload = fr.result.slice(off + 8, off + 8 + len);
-                chunks.push({ type: type, data: payload });
-              }
-              off += 12 + len;
-              if (type === 'IEND') break;
-            }
-            var card = null;
-            chunks.forEach(function (ch) {
-              if (card) return;
-              var bytes = new Uint8Array(ch.data);
-              var nul = bytes.indexOf(0);
-              var key = String.fromCharCode.apply(null, bytes.subarray(0, nul));
-              var rest = bytes.subarray(nul + 1);
-              if (key === 'ccv3') {
-                var text = '';
-                if (ch.type === 'iTXt') {
-                  // iTXt: compression flag, compression method, lang tag, translated keyword, then text
-                  var p = 2;
-                  while (rest[p] !== 0) p++;
-                  p++;
-                  while (rest[p] !== 0) p++;
-                  p++;
-                  text = new TextDecoder().decode(rest.subarray(p));
-                } else {
-                  text = new TextDecoder().decode(rest);
-                }
-                try { card = JSON.parse(text); } catch (e) {}
-              } else if (key === 'chara') {
-                var b64 = new TextDecoder().decode(rest);
-                /* v1.39.14: atob gives a BINARY string - bytes as chars.
-                   Parsing that directly mangled every multibyte sequence
-                   (emoji, dashes, curly quotes, accents - everything that is
-                   not ASCII). Decode the bytes as UTF-8, like the ccv3 branch
-                   above already does. */
-                try {
-                  var bin = atob(b64);
-                  var utf = new Uint8Array(bin.length);
-                  for (var bi = 0; bi < bin.length; bi++) utf[bi] = bin.charCodeAt(bi) & 0xff;
-                  card = JSON.parse(new TextDecoder().decode(utf));
-                } catch (e) {}
-              }
-            });
-            if (!card) throw new Error('No character data embedded in this PNG');
-            /* A PNG-embedded card IS its own avatar: SillyTavern stores the
-               picture in the file, not in the JSON. Attach the file itself
-               when the embedded JSON carries no usable char_x of its own.
-               (v3 cards keep char_x inside `data`.) */
-            var target = (card.spec === 'chara_card_v3' && card.data) ? card.data : card;
-            if (Store.cardAvatar(target.char_x)) { resolve(card); return; }
-            var fr2 = new FileReader();
-            fr2.onload = function () { target.char_x = fr2.result; resolve(card); };
-            fr2.onerror = function () { resolve(card); };
-            fr2.readAsDataURL(file);
-          } catch (e) { reject(e); }
+          Store.cardFromPngBytes(fr.result).then(function (card) { resolve([card]); }, reject);
         };
         fr.readAsArrayBuffer(file);
+      });
+    },
+
+    readCardFile: function (file) {
+      return Store.readCardsFile(file).then(function (cards) {
+        if (!cards || !cards.length) throw new Error('No character found in that file');
+        return cards[0];
       });
     },
 

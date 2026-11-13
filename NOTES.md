@@ -1,5 +1,11 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.54 — JanitorAI bulk exports and import from URL (2026-11-13)
+
+- The character importer now recognizes JanitorAI bulk exports ({exported_at, characters, skipped}) and unwraps them into one character per entry — name, description, greetings, tags and avatar carried over — instead of importing a blank bot. When the export could not fetch a definition, the first alternate greeting becomes the opening and the card says so in its creator comment.
+- Added **Import from URL** to the Cast menu, mirroring Sillytavern's External Import: JanitorAI pages resolve through JannyAI's archive, Chub pages through Chub's API, and Pygmalion, Risu and AICharacterCards pages through their export endpoints; a direct link to a .png/.json card works too. Perchance links report as unsupported.
+- In the APK the download runs through a new native bridge method (HSAndroid.fetchUrl), so CORS and bot walls that stop a web page do not block the import; the web version falls back to fetch(). No character cards or lorebooks are included in the release.
+
 ## v1.39.53 — Scene cast prompt priority (2026-11-13)
 
 - The Scene cast block now sits at the very end of the prompt, worded to override the card, so characters marked as elsewhere stay silent even when a card's examples show several speakers.

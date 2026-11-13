@@ -359,68 +359,116 @@
     });
   };
 
+  /* v1.39.54: the shared tail of every import — file or link. Card text
+     arrives as HTML — SillyTavern/Janitor descriptions, <br> line breaks,
+     the bot's avatar as <img src="…">. Convert it to plain prose now, so
+     the sheet, the greeting and the prompt never carry markup a model
+     could read and echo back as literal text. */
+  App.prepareImportedCharacter = function (card) {
+    var c = Store.cardToCharacter(card);
+    /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor
+       descriptions, <br> line breaks, the bot's avatar as
+       <img src="…">. Convert it to plain prose now, so the sheet,
+       the greeting and the prompt never carry markup a model could
+       read and echo back as literal text. */
+    c.persona = API.plainText(c.persona);
+    c.scenario = API.plainText(c.scenario);
+    c.greeting = API.plainText(c.greeting);
+    c.examples = API.plainText(c.examples);
+    c.postHistory = API.plainText(c.postHistory);
+    c.lorebook = (c.lorebook || []).map(function (e) {
+      e.content = API.plainText(e.content);
+      return e;
+    });
+    /* …and the intros, for the same reason (v1.39.14) */
+    c.alternateGreetings = (c.alternateGreetings || []).map(function (g) {
+      return API.plainText(g);
+    });
+    /* v1.12.0: the imported avatar joins the card, normalized like every
+       other imported image (512px long edge, PNG only with real
+       transparency) so a 12 MP card art never becomes several MB of
+       base64 sitting in IndexedDB. Non-image values pass through. */
+    /* v1.29.0: the card's other pictures join the avatar with the same
+       diet (512px long edge), so a picture-heavy card never becomes
+       several megabytes of base64 in IndexedDB. */
+    return Views.normalizeDataUrl(c.avatar, 512).then(function (av) {
+      if (av) c.avatar = av;
+      return Views.normalizeCardImages(c.images);
+    }).then(function () {
+      return Promise.all((c.expressionPortraits || []).map(function (p) {
+        return Views.normalizeDataUrl(p.src, 512).then(function (src) { if (src) p.src = src; });
+      }));
+    }).then(function () { return c; });
+  };
+
+  /* One card -> the preview sheet -> in. The sheet says plainly whether a
+     lorebook and alternate intros came along, so a missing pill is never
+     mistaken for a book that failed to import. */
+  App.previewImport = function (card) {
+    return App.prepareImportedCharacter(card).then(function (c) {
+      return UI.sheet({
+        title: 'Import "' + (c.name || 'character') + '"',
+        body: '<p style="margin:0 0 8px;color:var(--muted);font-size:13.5px">' +
+          esc((c.persona || '').slice(0, 260)) + (c.persona && c.persona.length > 260 ? '…' : '') + '</p>' +
+          /* v1.39.11: say it plainly either way — a missing pill was
+             indistinguishable from a book that failed to import */
+          (c.lorebook && c.lorebook.length
+            ? '<div class="hint">This card carries <b>' + c.lorebook.length + ' lorebook entr' + (c.lorebook.length === 1 ? 'y' : 'ies') + '</b> — they import with the card.</div>'
+            : '<div class="hint">No lorebook embedded in this card.</div>') +
+          /* ...and the same plain speech for multi-intro cards: the
+             alternates become swipes on the opening message */
+          (c.alternateGreetings && c.alternateGreetings.length
+            ? '<div class="hint">It also brings <b>' + (c.alternateGreetings.length + 1) + ' intros</b> — swipe the first message to step into another one.</div>'
+            : ''),
+        actions: [
+          { label: 'Cancel', cls: 'ghost', value: null },
+          { label: 'Import', cls: 'primary', onClick: function () { return c; } }
+        ]
+      }).then(function (res) {
+        if (!res) return;
+        return Store.putCharacter(res).then(function () { App.go('characters'); UI.toast('Imported ' + res.name); });
+      });
+    });
+  };
+
+  /* Several cards at once (a JanitorAI bulk export) import together,
+     with no preview — there is nothing to preview one at a time. */
+  App.importMany = function (cards) {
+    return Promise.all(cards.map(App.prepareImportedCharacter)).then(function (chars) {
+      return chars.reduce(function (p, c) {
+        return p.then(function () { return Store.putCharacter(c); });
+      }, Promise.resolve()).then(function () {
+        App.go('characters');
+        UI.toast('Imported ' + chars.length + ' characters');
+      });
+    });
+  };
+
   App.importCard = function () {
     Views.pickFile('.json,.png,application/json,image/png').then(function (f) {
       if (!f) return;
-      Store.readCardFile(f).then(function (card) {
-        var c = Store.cardToCharacter(card);
-        /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor
-           descriptions, <br> line breaks, the bot's avatar as
-           <img src="…">. Convert it to plain prose now, so the sheet,
-           the greeting and the prompt never carry markup a model could
-           read and echo back as literal text. */
-        c.persona = API.plainText(c.persona);
-        c.scenario = API.plainText(c.scenario);
-        c.greeting = API.plainText(c.greeting);
-        c.examples = API.plainText(c.examples);
-        c.postHistory = API.plainText(c.postHistory);
-        c.lorebook = (c.lorebook || []).map(function (e) {
-          e.content = API.plainText(e.content);
-          return e;
-        });
-        /* …and the intros, for the same reason (v1.39.14) */
-        c.alternateGreetings = (c.alternateGreetings || []).map(function (g) {
-          return API.plainText(g);
-        });
-        /* v1.12.0: the imported avatar joins the card, normalized like every
-           other imported image (512px long edge, PNG only with real
-           transparency) so a 12 MP card art never becomes several MB of
-           base64 sitting in IndexedDB. Non-image values pass through. */
-        /* v1.29.0: the card's other pictures join the avatar with the same
-           diet (512px long edge), so a picture-heavy card never becomes
-           several megabytes of base64 in IndexedDB. */
-        return Views.normalizeDataUrl(c.avatar, 512).then(function (av) {
-          if (av) c.avatar = av;
-          return Views.normalizeCardImages(c.images);
-        }).then(function () {
-          return Promise.all((c.expressionPortraits || []).map(function (p) {
-            return Views.normalizeDataUrl(p.src, 512).then(function (src) { if (src) p.src = src; });
-          }));
-        }).then(function () {
-          UI.sheet({
-            title: 'Import “' + (c.name || 'character') + '”',
-            body: '<p style="margin:0 0 8px;color:var(--muted);font-size:13.5px">' +
-              esc((c.persona || '').slice(0, 260)) + (c.persona && c.persona.length > 260 ? '…' : '') + '</p>' +
-              /* v1.39.11: say it plainly either way — a missing pill was
-                 indistinguishable from a book that failed to import */
-              (c.lorebook && c.lorebook.length
-                ? '<div class="hint">This card carries <b>' + c.lorebook.length + ' lorebook entr' + (c.lorebook.length === 1 ? 'y' : 'ies') + '</b> — they import with the card.</div>'
-                : '<div class="hint">No lorebook embedded in this card.</div>') +
-              /* ...and the same plain speech for multi-intro cards: the
-                 alternates become swipes on the opening message */
-              (c.alternateGreetings && c.alternateGreetings.length
-                ? '<div class="hint">It also brings <b>' + (c.alternateGreetings.length + 1) + ' intros</b> — swipe the first message to step into another one.</div>'
-                : ''),
-            actions: [
-              { label: 'Cancel', cls: 'ghost', value: null },
-              { label: 'Import', cls: 'primary', onClick: function () { return c; } }
-            ]
-          }).then(function (res) {
-            if (!res) return;
-            Store.putCharacter(res).then(function () { App.go('characters'); UI.toast('Imported ' + res.name); });
-          });
-        });
+      Store.readCardsFile(f).then(function (cards) {
+        if (!cards || !cards.length) throw new Error('No character found in that file');
+        return cards.length === 1 ? App.previewImport(cards[0]) : App.importMany(cards);
       }).catch(function (e) { UI.toast('Import failed: ' + e.message, 4000); });
+    });
+  };
+
+  /* v1.39.54: Sillytavern-style "External Import" — paste a character page
+     link (JanitorAI, Chub, Pygmalion, Risu, AICharacterCards) or a direct
+     link to a card file, and the card comes in like a picked file. */
+  App.importCardFromUrl = function () {
+    UI.input('Import character from a link', {
+      message: 'Paste a character page link (JanitorAI, Chub, Pygmalion, Risu, AICharacterCards) or a direct link to a card file (.png / .json).',
+      placeholder: 'https://…',
+      okLabel: 'Fetch'
+    }).then(function (url) {
+      if (!url) return;
+      UI.toast('Fetching the character…', 2000);
+      UrlImport.importFromUrl(url).then(function (cards) {
+        if (!cards || !cards.length) throw new Error('No character found at that address');
+        return cards.length === 1 ? App.previewImport(cards[0]) : App.importMany(cards);
+      }).catch(function (e) { UI.toast('Import failed: ' + e.message, 4500); });
     });
   };
 
@@ -4144,12 +4192,15 @@
         UI.sheet({
           title: 'Cast',
           body: '<div class="opt" data-a="import">' + icon('upload') + ' Import character card</div>' +
+                '<div class="opt" data-a="import-url">' + icon('download') + ' Import from URL</div>' +
                 '<div class="opt" data-a="new">' + icon('plus') + ' New character</div>',
           onMount: function (b, close) {
             b.querySelectorAll('.opt').forEach(function (el) {
               el.onclick = function () {
                 close();
-                if (el.getAttribute('data-a') === 'import') App.importCard();
+                var a = el.getAttribute('data-a');
+                if (a === 'import') App.importCard();
+                else if (a === 'import-url') App.importCardFromUrl();
                 else App.editCharacter(null);
               };
             });

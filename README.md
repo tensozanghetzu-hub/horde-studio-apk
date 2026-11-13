@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.39.53
+# Horde Studio — Mobile (Android) · v1.39.54
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.39.53](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.39.54](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.39.53.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.39.54.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,10 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.39.54
+
+Character import now understands JanitorAI bulk exports — the file unwraps into one character per entry instead of a blank bot — and the Cast menu gained **Import from URL**: paste a character page link (JanitorAI, Chub, Pygmalion, Risu, AICharacterCards) or a direct link to a card file, and the card comes in like a picked file. In the app the download runs natively, so CORS and bot walls do not block it; on the web version it uses the browser's fetch.
 
 ## What's new in v1.39.53
 

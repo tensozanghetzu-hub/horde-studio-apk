@@ -775,6 +775,70 @@ public class MainActivity extends Activity {
             return job.id;
         }
 
+        /** Fetch any URL for the card importer (GET, or POST with a text body).
+         *  The bytes come back as base64 in the job result, so the web UI never
+         *  hits CORS or bot walls that only let a real client through — the same
+         *  reason Sillytavern fetches card links on its server. Returns a job id. */
+        @JavascriptInterface
+        public int fetchUrl(final String url, final String method, final String contentType, final String bodyText) {
+            final Job job = newJob();
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    HttpURLConnection c = null;
+                    InputStream in = null;
+                    try {
+                        URL u = new URL(url);
+                        String proto = u.getProtocol();
+                        if (!"https".equals(proto) && !"http".equals(proto)) { jobFail(job, "Only http(s) addresses are supported"); return; }
+                        c = (HttpURLConnection) u.openConnection();
+                        c.setInstanceFollowRedirects(true);
+                        c.setConnectTimeout(15000);
+                        c.setReadTimeout(45000);
+                        c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36");
+                        c.setRequestProperty("Accept", "*/*");
+                        String m = (method == null || method.trim().isEmpty()) ? "GET" : method.trim().toUpperCase(Locale.US);
+                        c.setRequestMethod(m);
+                        byte[] body = null;
+                        if (bodyText != null && !bodyText.isEmpty()) {
+                            body = bodyText.getBytes("UTF-8");
+                            c.setDoOutput(true);
+                            if (contentType != null && !contentType.trim().isEmpty()) c.setRequestProperty("Content-Type", contentType.trim());
+                            c.setFixedLengthStreamingMode(body.length);
+                        }
+                        if (body != null) {
+                            OutputStream os = c.getOutputStream();
+                            os.write(body);
+                            os.close();
+                        }
+                        int code = c.getResponseCode();
+                        String ct = c.getContentType();
+                        in = new BufferedInputStream(code >= 400 ? c.getErrorStream() : c.getInputStream());
+                        if (in == null) { jobFail(job, "The server answered " + code); return; }
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        byte[] buf = new byte[16384];
+                        long total = 0;
+                        int n;
+                        while ((n = in.read(buf)) > 0) {
+                            total += n;
+                            if (total > 25L * 1024 * 1024) { jobFail(job, "That file is too large to import (over 25 MB)"); return; }
+                            bos.write(buf, 0, n);
+                        }
+                        String b64 = Base64.encodeToString(bos.toByteArray(), Base64.NO_WRAP);
+                        jobDone(job, "{" + Q + "status" + Q + ":" + code
+                                + "," + Q + "contentType" + Q + ":" + Q + jsonString(ct == null ? "" : ct) + Q
+                                + "," + Q + "body" + Q + ":" + Q + b64 + Q + "}");
+                    } catch (Exception e) {
+                        String msg = e.getMessage();
+                        jobFail(job, (msg == null || msg.isEmpty()) ? e.toString() : msg);
+                    } finally {
+                        if (in != null) try { in.close(); } catch (IOException ignored) { }
+                        if (c != null) c.disconnect();
+                    }
+                }
+            }).start();
+            return job.id;
+        }
+
         /** Download the web bundle and switch to it. Returns a job id. */
         @JavascriptInterface
         public int applyWebUpdate(final String zipUrl, final String rev) {
