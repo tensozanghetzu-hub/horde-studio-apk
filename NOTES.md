@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.56 — Link imports retry through the browser when the native fetch is blocked (2026-11-13)
+
+- URL imports (and JanitorAI links in particular) now fall back to the web view's fetch when the native download is turned away, e.g. by bot protection that blocks the app's HTTP client but lets a real browser through. The import only fails when both routes fail.
+- Clearer failure message when a JanitorAI character cannot be reached at all. No character cards or lorebooks are included in the release.
+
 ## v1.39.55 — JanitorAI links import via JanitorAI's own API (2026-11-13)
 
 - JanitorAI character links now resolve through JanitorAI's hampter API (name, description, tags, creator and portrait from its CDN), which answers without a login and allows cross-origin reads — instead of relying on JannyAI's archive, whose Cloudflare bot protection 403s most clients.

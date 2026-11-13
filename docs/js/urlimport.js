@@ -61,11 +61,19 @@
 
   function fetchBytes(url, opts, forceWeb) {
     opts = opts || {};
-    var go = (!forceWeb && hasBridge()) ? fetchViaBridge(url, opts) : fetchViaFetch(url, opts);
-    return go.then(function (r) {
+    function check(r) {
       if (r.status >= 400) throw new Error('The server answered ' + r.status + ' for that address');
       return r;
-    });
+    }
+    if (!forceWeb && hasBridge()) {
+      /* The native fetch can be turned away where the web view's real
+         browser fingerprint gets through (bot walls) — so a failed native
+         attempt is retried through fetch() before giving up. */
+      return fetchViaBridge(url, opts).then(check).catch(function () {
+        return fetchViaFetch(url, opts).then(check);
+      });
+    }
+    return fetchViaFetch(url, opts).then(check);
   }
 
   function isPng(bytes) {
@@ -167,7 +175,7 @@
       /* hampter itself failed (private/deleted character?) — JannyAI is
          the only route left. */
       return fromJanny(uuid).catch(function () {
-        throw new Error('JanitorAI has no character at that address, or it is private');
+        throw new Error('Could not reach that JanitorAI character — it may be private, or the network blocked the request');
       });
     });
   }
