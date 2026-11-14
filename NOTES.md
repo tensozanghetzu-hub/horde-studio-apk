@@ -1,5 +1,10 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.68 — Pronoun capitalisation (2026-11-14)
+
+- {{Poss_p}} carries a capital P as part of its name (possessive pronoun), not as a case signal, so it no longer capitalises its output mid-sentence ("takes Hers hand" -> "takes hers hand"). Only a plain title-case name such as {{Sub}} or {{Poss}} capitalises.
+- Regression checks added for both forms.
+
 ## v1.39.67 — Pronoun macros (2026-11-14)
 
 - JanitorAI cards use {{sub}} {{obj}} {{poss}} {{poss_p}} {{ref}} so one card works for any player. The app only substituted {{char}}, {{user}} and the sheet macros, so these printed literally into the prompt and the model echoed the braces back.

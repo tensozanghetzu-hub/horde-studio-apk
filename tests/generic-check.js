@@ -185,6 +185,11 @@ const mixed = API.macros('{{char}} {{user}} {{poss_p}} {{obj}} {{sub}} {{poss}} 
 check(!/\{\{|\}\}/.test(mixed), 'no macro braces survive substitution', mixed);
 check(API.macros('{{Sub}} nods.', { name: 'C' }, { userName: 'P', pronounPreset: 'he' }) === 'He nods.',
   'a capitalised macro keeps its capital');
+/* {{Poss_p}} carries a capital P as part of its NAME, not as a case signal */
+check(API.macros('takes {{Poss_p}} hand', { name: 'C' }, { userName: 'P', pronounPreset: 'she' }) === 'takes hers hand',
+  '{{Poss_p}} does not capitalise mid-sentence');
+check(API.macros('{{Poss}} choice', { name: 'C' }, { userName: 'P', pronounPreset: 'she' }) === 'Her choice',
+  '{{Poss}} at the start still capitalises');
 
 /* ------------------------------------------------------------------ */
 section('6. No hardcoded player names');

@@ -21,11 +21,13 @@
     return out;
   }
   function cap(t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
-  /* {{Sub}} at the start of a sentence must stay capitalised */
+  /* {{Sub}} at the start of a sentence keeps its capital. Only a plain
+     title-case name counts: in {{Poss_p}} the capital P belongs to the macro
+     name (possessive pronoun), so it must not capitalise the output. */
   function capIf(source, word) {
     var inner = /\{\{\s*([A-Za-z_]+)\s*\}\}/.exec(source);
     var raw = inner ? inner[1] : '';
-    return raw && raw.charAt(0) === raw.charAt(0).toUpperCase() ? cap(word) : word;
+    return /^[A-Z][a-z]*$/.test(raw) ? cap(word) : word;
   }
 
   function macros(text, char, s) {
