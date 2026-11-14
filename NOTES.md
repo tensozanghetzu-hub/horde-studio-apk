@@ -13,6 +13,14 @@
   where it is: the GitHub Pages URL is built from that path.
 - Anything that names a version in prose (README download box, "also carries a
   copy named ...") must be bumped with every release, or it goes stale silently.
+- The workspace holds only what the app build, test and publish need. Card
+  fixtures, screenshots and card-repair tooling are not part of it: they live in
+  the chat they are used in, so `uploads/` and `character-cards/` stay empty.
+- `tests/generic-check.js` compares shipped code against any card JSON in
+  `character-cards/` and `uploads/`. With both empty that check compares zero
+  strings and passes trivially — the hardcoded card-name check still runs. To
+  make the text-leak check meaningful, drop a card into `character-cards/` for
+  the duration of a release check.
 
 ## v1.39.68 — Pronoun capitalisation (2026-11-14)
 
