@@ -2495,6 +2495,13 @@ There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub acc
   `android-sdk/`, which is gitignored and safe to delete at any time
   (`setup-sdk.sh` reinstalls it)
 - An **SSH key (or GitHub token) with push access** to this repo
+
+**No character card is needed to build, test or publish.** The build copies only
+`horde-studio-mobile/` (`index.html`, `css/`, `js/`, `icons/`, `worlds/`, `sw.js`,
+`manifest.webmanifest`), and the test suite builds its fixtures in memory. A card
+placed in `character-cards/` is used by exactly one optional check — the comparison
+that proves no card text leaked into the shipped code — and that check reports
+`skip` when the folder is empty rather than passing quietly. Nothing else reads it.
 - Optional: `playwright-core` for the two browser suites
 
 ### The loop (per change)

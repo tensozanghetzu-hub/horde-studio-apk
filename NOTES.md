@@ -16,11 +16,16 @@
 - The workspace holds only what the app build, test and publish need. Card
   fixtures, screenshots and card-repair tooling are not part of it: they live in
   the chat they are used in, so `uploads/` and `character-cards/` stay empty.
-- `tests/generic-check.js` compares shipped code against any card JSON in
-  `character-cards/` and `uploads/`. With both empty that check compares zero
-  strings and passes trivially — the hardcoded card-name check still runs. To
-  make the text-leak check meaningful, drop a card into `character-cards/` for
-  the duration of a release check.
+- Nothing in the build, test or publish path needs a character card. Verified:
+  the APK assets are copied from `horde-studio-mobile/` only (29 files, no card
+  or upload content), and every test builds its fixtures in memory.
+- `tests/generic-check.js` compares shipped code against any card JSON found in
+  `character-cards/` or `uploads/`. With both empty it prints `skip` and says how
+  to enable it — it no longer reports a hollow pass. The hardcoded card-name check
+  and an always-on rule ("the build pipeline never reads a card folder", plus
+  "sync-github.sh still refuses to publish card files") run regardless.
+- If the deep text-leak check has not run for a long stretch, ask the user for one
+  card to drop into `character-cards/` for a release check, then delete it.
 
 ## v1.39.68 — Pronoun capitalisation (2026-11-14)
 

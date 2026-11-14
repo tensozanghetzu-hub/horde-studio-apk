@@ -80,7 +80,39 @@ SHIPPED.forEach(f => {
     });
   });
 });
-check(leaked === 0, `no card text appears in shipped code (${cardStrings} strings compared)`);
+if (cardStrings === 0) {
+  console.log('  skip no card text appears in shipped code — no cards on disk');
+  console.log('       (this pass is optional: the hardcoded-name check above still ran)');
+  console.log('       to run it, drop a card JSON into character-cards/ for one release check');
+} else {
+  check(leaked === 0, `no card text appears in shipped code (${cardStrings} strings compared)`);
+}
+
+/* The build and the app must not reach into card folders at all. A card may
+   be dropped in for a check, but nothing may depend on one being there. */
+/* The build pipeline must not touch a card folder: a card may be dropped in for
+   a check, but nothing may depend on one. sync-github.sh is the exception and is
+   checked the other way round — it must keep its guard that refuses to publish
+   anything card-shaped. */
+const BUILD_INPUTS = ['apk-build/build.sh', 'tools/build-channel.py',
+                      '.github/workflows/release.yml'];
+let cardRefs = [];
+BUILD_INPUTS.forEach(rel => {
+  const p = path.join(ROOT, rel);
+  if (!fs.existsSync(p)) return;
+  fs.readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
+    if (/character-cards|uploads\//.test(line)) {
+      cardRefs.push(`${rel}:${i + 1}: ${line.trim().slice(0, 80)}`);
+    }
+  });
+});
+check(cardRefs.length === 0, 'the build pipeline never reads a card folder',
+  cardRefs.join('\n         '));
+
+const syncSrc = fs.existsSync(path.join(ROOT, 'sync-github.sh'))
+  ? fs.readFileSync(path.join(ROOT, 'sync-github.sh'), 'utf8') : '';
+check(/character-cards/.test(syncSrc) && /refus/i.test(syncSrc),
+  'sync-github.sh still refuses to publish card files');
 
 /* ------------------------------------------------------------------ */
 section('2. Scene cast: headings are not people');
