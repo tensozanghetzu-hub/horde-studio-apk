@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.39.61
+# Horde Studio — Mobile (Android) · v1.39.62
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.39.61.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.39.62.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,10 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.39.62
+
+Looping replies are now caught and rewritten. If a new reply mostly repeats one already in the chat, the app writes it again instead of showing you the repeat. A slow free route also no longer dies at two minutes, and a provider 503 is retried instead of reported.
 
 ## What's new in v1.39.61
 

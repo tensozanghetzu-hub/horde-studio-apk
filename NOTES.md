@@ -1,5 +1,14 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.62 — Loops are caught instead of repeated (2026-11-14)
+
+- Repeat guard: after a reply arrives, it is compared against the last five assistant replies using 5-word shingles and containment. A score of 0.55 or more means the reply is largely lifted from an earlier one; the app then writes it again with a hard anti-repetition order and a small temperature bump, up to two extra passes, and keeps the least repetitive result.
+- The order names the failure directly: no retelling, replaying, rewording, and no re-running the same sequence (arrival, instruction, training, dismissal, rest); move time, place or situation forward instead.
+- Once three replies exist, every generation also carries a standing seam rule telling the model to continue rather than retell. This prevents most loops before they start.
+- Free-route ceiling raised from 120s to 240s: queued free models routinely exceeded two minutes and were reported as failures.
+- 502/503/504 are retried with the existing backoff instead of surfacing as "Provider returned error".
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.61 — The reroll order is read last (2026-11-14)
 
 - v1.39.60 added the rewrite note but appended it to the system message, ahead of the card sheet, the examples and the whole transcript — a weak position that a forceful card or chat style note can outvote.

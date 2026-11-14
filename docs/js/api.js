@@ -559,7 +559,7 @@
   /* v1.21.0 (upstream 18.3.5): a hard ceiling on one OpenAI-compatible
      request. The Horde path is already bounded by hordeMaxWait; this is for
      the streaming providers, where a hung read() used to wait forever. */
-  var STREAM_TIMEOUT_MS = 120000;
+  var STREAM_TIMEOUT_MS = 240000;   /* free routes queue well past 2 min */
   function bytesOf(s) {
     try { return new TextEncoder().encode(s || '').length; } catch (e) { return String(s || '').length; }
   }
@@ -1038,6 +1038,16 @@
               var wait = rateRetryAfterMs(r.headers) || RATE_BACKOFF[connectAttempt];
               connectAttempt++;
               setTimeout(attemptFetch, wait);
+              return;
+            }
+            /* 502/503/504: the upstream provider is saturated or restarting,
+               which is the single most common failure on free routes. Asking
+               again shortly usually succeeds, so do not surface it at once. */
+            if ((r.status === 502 || r.status === 503 || r.status === 504) &&
+                connectAttempt < RATE_BACKOFF.length && !settled) {
+              var fWait = RATE_BACKOFF[connectAttempt];
+              connectAttempt++;
+              setTimeout(attemptFetch, fWait);
               return;
             }
             var httpErr = providerError(r.status, msg, body.model, errorMeta, r.headers, isOpenRouterEndpoint(s));

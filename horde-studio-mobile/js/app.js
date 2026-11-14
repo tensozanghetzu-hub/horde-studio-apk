@@ -743,6 +743,30 @@
     return found.slice(0, 6);
   };
 
+  /* How much of this reply is lifted from an earlier one. 5-word shingles
+     and containment (share of the NEW text found in the old), because a
+     model that loops rewrites a line or two and keeps the rest. */
+  App.repeatScore = function (text, prevTexts) {
+    var shingles = function (t) {
+      var w = String(t || '').toLowerCase().replace(/[^a-z0-9\s']/g, ' ').split(/\s+/).filter(Boolean);
+      var set = {};
+      for (var i = 0; i + 4 < w.length; i++) set[w.slice(i, i + 5).join(' ')] = 1;
+      return set;
+    };
+    var a = shingles(text), keys = Object.keys(a);
+    if (keys.length < 8) return 0;
+    var best = 0;
+    (prevTexts || []).forEach(function (p) {
+      var b = shingles(p), bk = Object.keys(b);
+      if (!bk.length) return;
+      var hit = 0;
+      keys.forEach(function (k) { if (b[k]) hit++; });
+      var score = hit / keys.length;
+      if (score > best) best = score;
+    });
+    return best;
+  };
+
   App.renderSceneCast = function () {
     var el = $('#scene-cast');
     if (!el) return;
@@ -1979,12 +2003,35 @@
     App.abort = new AbortController();
     App.genStart(s.provider === 'horde' ? 'Sending to the Horde…' : 'Generating…', App.abort);
 
-    API.generate({
-      settings: charSettings, character: char, session: session, history: history,
+    /* Replies already in the transcript, newest last. A looping model copies
+       itself, and once a repeat is in the context it validates the next one. */
+    var priorReplies = (st.messages || []).filter(function (m) {
+      return m.role === 'assistant' && m.text && (!target || m.id !== target.id);
+    }).slice(-5).map(function (m) { return m.text; });
+
+    /* Once a few replies exist, say plainly that the scene must move. This is
+       what stops the loop before it starts; the retry above catches the rest. */
+    if (!rerollSeam && priorReplies.length >= 3) {
+      rerollSeam = 'Do not retell, replay or reword anything already in this chat. ' +
+        'Continue from the last message and let something happen that has not happened yet.';
+    }
+
+    var LOOP_ORDER = 'DO NOT REPEAT YOURSELF. This reply must not retell, replay or reword any beat that ' +
+      'already appears in the transcript above, and must not run the same sequence again (arrival, ' +
+      'instruction, training, dismissal, rest). Change what happens next: move time, place, or the ' +
+      'situation forward in a way the story has not used yet. Say something new.';
+
+    var loopTries = 0, bestText = '', bestScore = 2;
+    function generateOnce() {
+      var extra = opts.continueFor ? null : (loopTries ? LOOP_ORDER : null);
+      return API.generate({
+      settings: (loopTries ? Object.assign({}, charSettings, {
+        temperature: Math.min(1.25, Math.round(((parseFloat(charSettings.temperature) || 0.85) + 0.12 * loopTries) * 100) / 100)
+      }) : charSettings), character: char, session: session, history: history,
       continueFrom: opts.continueFor ? (target.text || '') : undefined,
       signal: App.abort ? App.abort.signal : undefined,
       note: vhNote,
-      finalNote: rerollSeam,
+      finalNote: [rerollSeam, extra].filter(Boolean).join('\n\n') || null,
       onDelta: function (chunk, full) {
         var soFar = full || ((msg._stream || '') + chunk);
         /* v1.39.28: while continuing, `full` is seed + new prose — the new
@@ -2009,7 +2056,23 @@
         else txt = 'Working…';
         App.genSet(txt, info.waitTime);
       }
-    }).then(function (text) {
+      }).then(function (text) {
+        text = (text || '').trim();
+        var score = priorReplies.length ? App.repeatScore(text, priorReplies) : 0;
+        if (score < bestScore) { bestScore = score; bestText = text; }
+        /* A near-copy of an earlier reply is a failed generation, not a
+           creative choice: spend up to two more passes before showing it. */
+        if (score >= 0.55 && loopTries < 2 && text) {
+          loopTries++;
+          msg._stream = '';
+          App.genSet('That reply repeated an earlier one — writing a different one…');
+          return generateOnce();
+        }
+        return bestText || text;
+      });
+    }
+
+    generateOnce().then(function (text) {
       text = (text || '').trim();
       /* A valid streaming frame can still finish without visible content.
          Treat that as a failed generation, not a successful reroll that
