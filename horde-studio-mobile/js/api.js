@@ -1363,6 +1363,27 @@
      these we treat the next chunk as a new word and re-insert the space. */
   var COMMON_WORDS = /^(a|an|and|the|to|of|in|on|at|is|it|its|was|were|be|been|am|are|that|this|these|those|with|for|from|by|as|but|not|no|nor|or|so|if|then|than|there|here|their|his|her|hers|him|she|he|they|them|we|you|your|yours|i|my|our|have|has|had|will|would|can|could|should|shall|may|might|must|do|does|did|done|up|out|down|over|under|again|more|most|some|any|all|one|two|three|what|when|where|why|how|who|whom|which|because|about|into|onto|off|after|before|while|during|through|between|against|among|also|very|just|only|even|still|yet|ever|never|always|now|soon|later|today|tonight|yes|ok|okay|well|good|bad|right|left|back|away|enough|much|many|few|own|same|such|other|another|every|both|each|either|neither|mine|me|us|let|lets|go|going|went|come|coming|came|said|says|say|know|knows|knew|think|thought|want|wants|need|needs|see|saw|look|looked|take|took|give|gave|make|made|get|got|tell|told|ask|asked|keep|kept|put|find|found|leave|left|feel|felt|seem|seemed|turn|turned|stand|stood|hold|held|hear|heard|run|ran|move|moved|open|opened|close|closed|begin|began|start|started|stop|stopped|work|worked|try|tried|use|used)$/i;
 
+  /* A continuation sometimes starts with two words fused into one token
+     ("shattereach", "Precisionover") because the model picks up mid-sentence.
+     Split it when the tail is a common word and the head is not — a real word
+     such as "understand" or "everyone" has a common HEAD, so it is left
+     alone. Only ever applied to the first word of a continuation. */
+  function unfuseFirstWord(piece) {
+    var m = /^([\"'\u201c\u2018(]*)([A-Za-z]{10,})(?![A-Za-z])/.exec(piece);
+    if (!m) return piece;
+    var lead = m[1], word = m[2];
+    if (COMMON_WORDS.test(word)) return piece;
+    /* both halves must be at least four letters: a three-letter tail catches
+       real words ("under|stand" -> "underst and"), four does not */
+    for (var k = word.length - 4; k >= 4; k--) {
+      var head = word.slice(0, k), tail = word.slice(k);
+      if (COMMON_WORDS.test(tail) && !COMMON_WORDS.test(head)) {
+        return lead + head + ' ' + tail + piece.slice(m[0].length);
+      }
+    }
+    return piece;
+  }
+
   /** Does this read like it was cut off? */
   function looksTruncated(text) {
     var t = String(text || '').trim();
@@ -1599,6 +1620,7 @@
            piece — otherwise the glue logic pastes the rerun whole (the
            doubled paragraph the user screenshot) and the pass's budget is
            spent on text we already had. */
+        if (o.continueFrom && idx === 0 && piece) piece = unfuseFirstWord(piece);
         var reran = replayedTail(full, piece);
         if (reran) piece = piece.slice(reran);
         /* v1.39.30: a model that parrots the continue-note sheds its bracket

@@ -1,5 +1,12 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.65 — Fused continuation words are separated (2026-11-14)
+
+- v1.39.64 fixed fusion created by the seam glue, but the model also fuses words inside its own output: a reply cut at "Or they can" continued with "shattereach other apart", and an earlier one with "Precisionover power".
+- A continuation's first word is now split when it is long, its tail is a common word and its head is not. Real words fail that test because their head is a common word ("every|one", "under|stand", "with|out"), and the four-letter minimum on both halves stops three-letter tails from catching them.
+- Verified against the live examples and against "understand", "everyone", "without", "another" and "something"; ordinary continuation openings are untouched.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.64 — Word counts, and a seam that keeps its spaces (2026-11-14)
 
 - Seam repair: when a continuation re-emits the cut word fused to the next one ("Precision" + "over power" arriving as "Precisionover power"), the app now strips the duplicate and restores the word boundary. It only does this when what follows reads as a whole word, so a genuinely split word ("interl" + "aced") still joins tight.
