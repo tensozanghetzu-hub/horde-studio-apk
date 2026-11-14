@@ -1875,6 +1875,7 @@
     if (global.KeepAwake) KeepAwake.hold();
 
     var vhNote = opts.note || null;
+    var rerollSeam = null;
     var charSettings = Object.assign({}, s);
     if (char.systemPrompt) charSettings.systemPrompt = char.systemPrompt;
     if (char.temperature !== null && char.temperature !== undefined) charSettings.temperature = char.temperature;
@@ -1914,6 +1915,18 @@
         'Move the scene forward from the last message instead of retelling an earlier one.\n' +
         (openings ? 'Rejected already — do not reuse any of this:\n' + openings : '');
       vhNote = vhNote ? vhNote + '\n\n' + rewrite : rewrite;
+      /* The same order, restated at the seam: this is the text the model
+         reads immediately before writing, so the card cannot outvote it. */
+      rerollSeam = 'REWRITE THIS REPLY. The previous attempt was rejected — do not write it again, ' +
+        'not even reworded, and do not replay a scene that already happened earlier in the chat. ' +
+        'Open on a different line and let the scene move somewhere it has not been yet.' +
+        (openings ? '\nRejected openings:\n' + openings : '');
+      /* Sampling relief: without it the model walks the same tokens again
+         no matter what it was told. Applied to this request only. */
+      var t = parseFloat(charSettings.temperature);
+      if (!(t > 0)) t = 0.85;
+      charSettings.temperature = Math.min(1.2, Math.round((t + 0.15) * 100) / 100);
+      if (!charSettings.frequencyPenalty) charSettings.frequencyPenalty = 0.3;
     }
 
     /* Scene cast: a "speaking to" pick applies to this one reply only. */
@@ -1971,6 +1984,7 @@
       continueFrom: opts.continueFor ? (target.text || '') : undefined,
       signal: App.abort ? App.abort.signal : undefined,
       note: vhNote,
+      finalNote: rerollSeam,
       onDelta: function (chunk, full) {
         var soFar = full || ((msg._stream || '') + chunk);
         /* v1.39.28: while continuing, `full` is seed + new prose — the new

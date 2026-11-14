@@ -577,7 +577,7 @@
   }
 
   /** Build the payload for an OpenAI-compatible endpoint. */
-  function buildChat(character, session, history, s, note) {
+  function buildChat(character, session, history, s, note, finalNote) {
     var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     /* A world run (and any caller that knows better) supplies character.systemPrompt
@@ -610,6 +610,12 @@
     hist = trimHistory(hist, s.contextMessages || 40, s.maxContextChars || 26000);
     hist.forEach(function (m) { msgs.push(m); });
 
+    /* A reroll instruction rides LAST, after the card, the examples and the
+       transcript. Buried in the system block it argued with the card from a
+       weaker position and lost; here it is the final thing read before the
+       reply, which is where a model actually takes its orders from. */
+    if (finalNote) msgs.push({ role: 'system', content: finalNote });
+
     msgs = fitContext(msgs, 1 + ex.length);
     if (totalBytes(msgs) > CONTEXT_CAP && ex.length) {
       msgs = [msgs[0]].concat(msgs.slice(1 + ex.length));   // last resort: drop the examples
@@ -618,7 +624,7 @@
   }
 
   /** Build a plain-text prompt for AI Horde / non-chat backends. */
-  function buildPrompt(character, session, history, s, note, budgetTokens) {
+  function buildPrompt(character, session, history, s, note, budgetTokens, finalNote) {
     var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
@@ -639,7 +645,7 @@
     });
     var join = function (h) {
       return [head.trim(), ex ? 'Example dialogue:\n' + ex : '', 'Chat history:\n' + h.join('\n'),
-        character.name + ':'].filter(Boolean).join('\n\n');
+        finalNote || '', character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */
     /* Drop the OLDEST turns first, so the newest thing you typed always survives.
@@ -1488,7 +1494,7 @@
            prompt, so it has to leave room for two replies, not one. */
         var inContinuation = (idx > 0 || !!o.continueFrom);
         var budget = HORDE_CTX_TOKENS - (s.maxTokens || 200) * (inContinuation ? 2 : 1) - 64;
-        var base = buildPrompt(char, session, o.history, s, o.note, budget);
+        var base = buildPrompt(char, session, o.history, s, o.note, budget, o.finalNote);
         var prompt = inContinuation ? base + ' ' + full : base;
         return guardModel('text', s.hordeTextModel).then(function () {
           return Horde.generateText({
@@ -1519,7 +1525,7 @@
           return r.text;
         });
       }
-      var msgs = buildChat(char, session, o.history, s, o.note);
+      var msgs = buildChat(char, session, o.history, s, o.note, o.finalNote);
       if (idx > 0 || o.continueFrom) {
         /* v1.39.30: the trailing assistant PREFILL alone is not portable.
            Some chat endpoints read it as a FINISHED turn and answer with a

@@ -1,5 +1,13 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.61 — The reroll order is read last (2026-11-14)
+
+- v1.39.60 added the rewrite note but appended it to the system message, ahead of the card sheet, the examples and the whole transcript — a weak position that a forceful card or chat style note can outvote.
+- The rewrite order is now sent as its own trailing system message, after the transcript and immediately before the reply is written, which is the position models actually follow.
+- Rerolls raise temperature by 0.15 (capped at 1.2) and set frequency_penalty 0.3 for that one request only, when no penalty is already configured. Instructing a model to differ rarely works if it is still free to walk the same token path; this gives it somewhere else to go. Settings are not modified.
+- Plain-text (Horde) prompts carry the same trailing order before the speaker cue.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.60 — Rerolls tell the model what it already wrote (2026-11-14)
 
 - Root cause: a reroll dropped the rejected reply from the context and added no note about it, so the model received byte-identical input and reproduced the same reply. Repeated rerolls therefore converged on the same text, and a guided reroll changed little.
