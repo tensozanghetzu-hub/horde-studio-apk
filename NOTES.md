@@ -1,5 +1,13 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.60 — Rerolls tell the model what it already wrote (2026-11-14)
+
+- Root cause: a reroll dropped the rejected reply from the context and added no note about it, so the model received byte-identical input and reproduced the same reply. Repeated rerolls therefore converged on the same text, and a guided reroll changed little.
+- Rerolls now append a rewrite block to the system note: it names the rejected attempt (its opening lines, up to four of them, deduplicated) and states plainly that the new reply must differ in opening, imagery and sequence of events.
+- The same block forbids replaying an encounter that already appears earlier in the transcript, and tells the model to move forward from the last message instead — the failure the player hit was a copied encounter from several replies earlier.
+- The block is labelled as overriding the card and any chat style note, so a card's own length or style absolutes no longer silently win.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.59 — Scene cast stops reading headings as people (2026-11-13)
 
 - The header scan behind Scene detection now requires a name to recur and to appear in a speaking context ("Sloane said", "Sloane:", "said Sloane"), so profile headings such as "Basic Info", "Facial Features", "Composure First", "Battlefield Precision" and "Emotional Suppression" are no longer added as cast.

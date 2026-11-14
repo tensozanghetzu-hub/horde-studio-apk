@@ -1891,6 +1891,31 @@
     var finalNote = [vhNote, ov && ov.note].filter(Boolean).join('\n\n') || null;
     vhNote = finalNote;
 
+    /* A reroll drops the rejected reply from the context, which leaves the
+       model looking at exactly what it saw the first time — so it writes the
+       same reply again. Tell it what it already tried, and call out replay. */
+    if (opts.rerollFor) {
+      var prior = [], seenPrior = {};
+      var collectPrior = function (t) {
+        t = String(t || '').trim();
+        if (!t || seenPrior[t]) return;
+        seenPrior[t] = true;
+        prior.push(t);
+      };
+      collectPrior(opts.rerollFor.text);
+      (opts.rerollFor.alts || []).forEach(collectPrior);
+      var openings = prior.slice(-4).map(function (t) {
+        return '- ' + String(t).split(/\n+/)[0].replace(/\s+/g, ' ').trim().slice(0, 140);
+      }).join('\n');
+      var rewrite = 'REWRITE — THIS OVERRIDES THE CARD AND ANY STYLE NOTE.\n' +
+        'The reply you are writing replaces an attempt the player rejected. Write a genuinely different reply: ' +
+        'a different opening line, different imagery, a different sequence of events. Do not paraphrase the rejected text.\n' +
+        'Do not replay an encounter, conversation or action that already appears earlier in this transcript. ' +
+        'Move the scene forward from the last message instead of retelling an earlier one.\n' +
+        (openings ? 'Rejected already — do not reuse any of this:\n' + openings : '');
+      vhNote = vhNote ? vhNote + '\n\n' + rewrite : rewrite;
+    }
+
     /* Scene cast: a "speaking to" pick applies to this one reply only. */
     if (session && session.addressedTo && Array.isArray(session.sceneCast) &&
         session.sceneCast.indexOf(session.addressedTo) !== -1) {
