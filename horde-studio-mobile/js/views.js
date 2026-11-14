@@ -1109,6 +1109,15 @@
           '<input type="text" id="set-uname" value="' + esc(s.userName) + '"></div>' +
         '<div class="field"><div class="field-head"><label>Your persona</label></div>' +
           '<textarea id="set-upersona" placeholder="Who you are in the story — appearance, background, goals.">' + esc(s.userPersona) + '</textarea></div>' +
+        '<div class="field"><div class="field-head"><label>Your pronouns</label></div>' +
+          '<div class="hint" style="margin:0 0 6px">Cards that use {{sub}}, {{obj}}, {{poss}}, {{poss_p}} or {{ref}} fill them in from here. Without a set, they print as literal braces.</div>' +
+          '<div class="chips" id="set-pronoun-presets">' +
+            [['they', 'they / them'], ['she', 'she / her'], ['he', 'he / him'], ['it', 'it / its']].map(function (opt) {
+              var on = (s.pronounPreset || 'they') === opt[0];
+              return '<button type="button" class="chip' + (on ? ' on' : '') + '" data-pronoun="' + opt[0] + '">' + opt[1] + '</button>';
+            }).join('') +
+          '</div></div>' +
+        pronounCustomHtml(s) +
       '</div>';
     var sc = settingsScope(body);
     /* Identity edits land on the persona when one is active, else on the default. */
@@ -1116,7 +1125,39 @@
       Store.setIdentity({ name: e.target.value.trim() || 'You' }).then(function () { Views.settingsYou(root); });
     });
     sc.bind('#set-upersona', 'change', function (e) { Store.setIdentity({ text: e.target.value }); });
+    body.querySelectorAll('[data-pronoun]').forEach(function (b) {
+      b.onclick = function () {
+        var preset = b.getAttribute('data-pronoun');
+        /* a preset replaces any custom words the player typed */
+        Store.setIdentity({ pronounPreset: preset, pronouns: { sub: '', obj: '', poss: '', possP: '', ref: '' } })
+          .then(function () { Views.settingsYou(root); });
+      };
+    });
+    body.querySelectorAll('[data-pron]').forEach(function (inp) {
+      inp.onchange = function () {
+        var patch = {}; patch[inp.getAttribute('data-pron')] = inp.value.trim();
+        Store.setIdentity({ pronouns: patch });
+      };
+    });
   };
+
+  /* Five override boxes, prefilled with the active preset so the player can
+     change one word without retyping the set. */
+  function pronounCustomHtml(s) {
+    var preset = (API.pronounPresets && API.pronounPresets[(s.pronounPreset || 'they')]) || {};
+    var custom = s.pronouns || {};
+    var rows = [['sub', 'he / she / they'], ['obj', 'him / her / them'],
+      ['poss', 'his / her / their'], ['possP', 'his / hers / theirs'], ['ref', 'himself / herself / themselves']];
+    return '<div class="field"><div class="field-head"><label>Fine-tune words</label></div>' +
+      '<div class="hint" style="margin:0 0 6px">Leave a box empty to use the preset above.</div>' +
+      rows.map(function (r) {
+        return '<div class="row" style="gap:8px;align-items:center;margin-bottom:6px">' +
+          '<span class="hint" style="min-width:96px">' + r[0] + '</span>' +
+          '<input type="text" data-pron="' + r[0] + '" placeholder="' + esc(preset[r[0]] || '') + '" value="' +
+          esc(custom[r[0]] || '') + '" style="flex:1">' +
+          '</div>';
+      }).join('') + '</div>';
+  }
 
   /* ---- System prompt ---- */
   Views.settingsSystem = function (root) {

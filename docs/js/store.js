@@ -49,6 +49,9 @@
     systemPrompt: DEFAULT_SYSTEM,
     userName: 'You',
     userPersona: '',
+    /* pronoun macros: {{sub}} {{obj}} {{poss}} {{poss_p}} {{ref}} */
+    pronounPreset: 'they',
+    pronouns: {},
     /* Personas: settings.userName / userPersona always hold the *effective*
        identity — the one every existing code path already reads. Switching a
        persona swaps these two in place, so nothing else has to change.
@@ -253,6 +256,8 @@
       s.activePersona = p ? p.id : '';
       s.userName = p ? (p.name || 'You') : (s.defaultName || 'You');
       s.userPersona = p ? (p.text || '') : (s.defaultPersona || '');
+      s.pronounPreset = (p && p.pronounPreset) || 'they';
+      s.pronouns = (p && p.pronouns) || {};
       return IDB.put('kv', { key: 'settings', value: s }).then(function () { return p || null; });
     },
 
@@ -262,6 +267,8 @@
       if (!p) return Promise.resolve(null);
       s.userName = p.name || 'You';
       s.userPersona = p.text || '';
+      s.pronounPreset = p.pronounPreset || 'they';
+      s.pronouns = p.pronouns || {};
       return Promise.resolve(p);
     },
 
@@ -277,10 +284,14 @@
       var s = this.settings, p = this.activePersonaObj();
       if (patch.name !== undefined) s.userName = patch.name;
       if (patch.text !== undefined) s.userPersona = patch.text;
+      if (patch.pronounPreset !== undefined) s.pronounPreset = patch.pronounPreset;
+      if (patch.pronouns !== undefined) s.pronouns = Object.assign({}, s.pronouns || {}, patch.pronouns);
       var chain = Promise.resolve();
       if (p) {
         if (patch.name !== undefined) p.name = patch.name;
         if (patch.text !== undefined) p.text = patch.text;
+        if (patch.pronounPreset !== undefined) p.pronounPreset = patch.pronounPreset;
+        if (patch.pronouns !== undefined) p.pronouns = Object.assign({}, p.pronouns || {}, patch.pronouns);
         chain = this.putPersona(p);
       } else {
         if (patch.name !== undefined) s.defaultName = patch.name;

@@ -2,11 +2,44 @@
 (function (global) {
   'use strict';
 
+  /* Pronoun sets. JanitorAI cards use {{sub}} {{obj}} {{poss}} {{poss_p}}
+     {{ref}} so a card works for any player; without these the braces print
+     literally into the prompt and the model copies them. */
+  var PRONOUN_PRESETS = {
+    'they': { sub: 'they', obj: 'them', poss: 'their', possP: 'theirs', ref: 'themselves' },
+    'she':  { sub: 'she', obj: 'her', poss: 'her', possP: 'hers', ref: 'herself' },
+    'he':   { sub: 'he', obj: 'him', poss: 'his', possP: 'his', ref: 'himself' },
+    'it':   { sub: 'it', obj: 'it', poss: 'its', possP: 'its', ref: 'itself' }
+  };
+  function pronounsFor(s) {
+    var custom = (s && s.pronouns) || {};
+    var set = PRONOUN_PRESETS[(s && s.pronounPreset) || 'they'] || PRONOUN_PRESETS.they;
+    var out = {};
+    ['sub', 'obj', 'poss', 'possP', 'ref'].forEach(function (k) {
+      out[k] = String(custom[k] || set[k] || '').trim() || set[k];
+    });
+    return out;
+  }
+  function cap(t) { return t ? t.charAt(0).toUpperCase() + t.slice(1) : t; }
+  /* {{Sub}} at the start of a sentence must stay capitalised */
+  function capIf(source, word) {
+    var inner = /\{\{\s*([A-Za-z_]+)\s*\}\}/.exec(source);
+    var raw = inner ? inner[1] : '';
+    return raw && raw.charAt(0) === raw.charAt(0).toUpperCase() ? cap(word) : word;
+  }
+
   function macros(text, char, s) {
     if (!text) return '';
     var name = (char && char.name) || 'Assistant';
     var user = (s && s.userName) || 'You';
-    return String(text)
+    var pr = pronounsFor(s);
+    var out = String(text)
+      /* pronoun macros first: {{poss_p}} must not be eaten by {{poss}} */
+      .replace(/\{\{\s*poss[_-]?p\s*\}\}/gi, function (m, o) { return capIf(m, pr.possP); })
+      .replace(/\{\{\s*poss\s*\}\}/gi, function (m) { return capIf(m, pr.poss); })
+      .replace(/\{\{\s*obj\s*\}\}/gi, function (m) { return capIf(m, pr.obj); })
+      .replace(/\{\{\s*subj?\s*\}\}/gi, function (m) { return capIf(m, pr.sub); })
+      .replace(/\{\{\s*ref(?:lexive)?\s*\}\}/gi, function (m) { return capIf(m, pr.ref); })
       .replace(/\{\{char\}\}/gi, name)
       .replace(/\{\{user\}\}/gi, user)
       .replace(/\{\{name\}\}/gi, name)
@@ -14,6 +47,7 @@
       .replace(/\{\{description\}\}/gi, (char && char.persona) || '')
       .replace(/\{\{scenario\}\}/gi, (char && char.scenario) || '')
       .replace(/\{\{persona\}\}/gi, (s && s.userPersona) || '');
+    return out;
   }
 
   /* v1.30.3: OOC notes are the one sanctioned break. The default prompt says
@@ -2229,7 +2263,8 @@
 
   global.API = {
     generateFree: generateFree,
-    macros: macros, buildChat: buildChat, buildPrompt: buildPrompt, generate: generate,
+    macros: macros, pronounPresets: PRONOUN_PRESETS, pronounsFor: pronounsFor,
+    buildChat: buildChat, buildPrompt: buildPrompt, generate: generate,
     cleanReply: cleanReply, looksTruncated: looksTruncated,
     splitBurst: splitBurst,
     stripThinking: stripThinking,
@@ -2263,6 +2298,7 @@
        finished), or null. Read after generate() resolves. */
     lastFinish: function () { return lastFinish; },
     resetFinish: function () { lastFinish = null; },
+    _unfuseFirstWord: unfuseFirstWord,
     /* tests shorten the stream deadline and the 429 backoff; the app never calls these */
     _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; },
     _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); }

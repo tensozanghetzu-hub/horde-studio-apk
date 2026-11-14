@@ -1,5 +1,14 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.67 — Pronoun macros (2026-11-14)
+
+- JanitorAI cards use {{sub}} {{obj}} {{poss}} {{poss_p}} {{ref}} so one card works for any player. The app only substituted {{char}}, {{user}} and the sheet macros, so these printed literally into the prompt and the model echoed the braces back.
+- All five now resolve from a pronoun set: she/her, he/him, they/them, it/its, or per-word overrides. Default is they/them, so nothing prints braces out of the box.
+- Settings > You gains a pronoun picker plus five fine-tune boxes. Values are stored per persona when one is active, so two characters can be played with different pronouns; switching persona carries its own set.
+- A capitalised macro keeps its capital ({{Sub}} at the start of a sentence).
+- {{poss_p}} is matched before {{poss}}, so the longer name is not clipped.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.66 — Why a reply stopped (2026-11-14)
 
 - The provider's stop reason is now captured from the stream (and from non-streaming replies) and stored on the message: 'length' means the max-token cap ended the reply, 'stop' means the model finished on its own.
