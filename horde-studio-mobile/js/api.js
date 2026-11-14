@@ -1554,7 +1554,8 @@
           'mid-stream by a length limit. It is NOT a finished turn, and the events in it are not ' +
           'resolved. Finish it. The text stops at these exact words: "' + cutTail + '" — your first ' +
           'words must continue that unfinished sentence and complete the action being described, ' +
-          'before anything else happens. Do not start a new sentence, paragraph or story beat. Do not ' +
+          'before anything else happens. Begin with the characters that follow those words — do not ' +
+          're-emit the final word you were given. Do not start a new sentence, paragraph or story beat. Do not ' +
           'describe the result of an order that was still being given. Do not repeat, restate or ' +
           'rephrase any text already written, and do not speak as the user.]' });
         msgs.push({ role: 'assistant', content: full });
@@ -1622,7 +1623,14 @@
                 /[A-Za-z'\u2019]/.test(piece.charAt(L))) { stutRun = L; break; }
           }
           if (stutRun) {
+            /* v1.39.64: the re-emitted cut word can be FUSED to the next one
+               by the model ("Precision" + "over power" came back as
+               "Precisionover power", pasted as one word). If what follows the
+               stripped tail reads as a whole word, the seam is a boundary and
+               keeps its space; only a fragment ("aced") stays tight. */
+            var restWord = (piece.slice(stutRun).match(/^[A-Za-z']+/) || [''])[0];
             piece = piece.slice(stutRun);
+            if (restWord && COMMON_WORDS.test(restWord)) seamSpace = true;
           } else {
             var tw = full.match(/[A-Za-z'\u2019]{3,}$/);
             if (tw && piece.indexOf(tw[0]) === 0 && piece.charAt(tw[0].length) === ' ') {

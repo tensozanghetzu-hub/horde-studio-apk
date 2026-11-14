@@ -1,5 +1,13 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.64 — Word counts, and a seam that keeps its spaces (2026-11-14)
+
+- Seam repair: when a continuation re-emits the cut word fused to the next one ("Precision" + "over power" arriving as "Precisionover power"), the app now strips the duplicate and restores the word boundary. It only does this when what follows reads as a whole word, so a genuinely split word ("interl" + "aced") still joins tight.
+- The continue note also tells the model not to re-emit the final word at all.
+- Every assistant bubble now shows its word count permanently, and marks the bubble "cut" when the text stops without closing punctuation — the same number the swipe strip shows.
+- The Max reply length setting now displays the approximate word count for its token value (tokens x 0.75), so a cut reply can be matched to the limit that produced it.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.63 — Continue finishes the cut sentence (2026-11-14)
 
 - A seeded Continue tells the model the trailing text is one reply cut off mid-stream, but models still read it as a finished turn and wrote what happened NEXT: a cut at "Remove your outer robe. Place it" came back as "You fold the outer robe and set it on the bench by the door."
