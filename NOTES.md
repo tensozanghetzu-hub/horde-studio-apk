@@ -1,5 +1,12 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.63 — Continue finishes the cut sentence (2026-11-14)
+
+- A seeded Continue tells the model the trailing text is one reply cut off mid-stream, but models still read it as a finished turn and wrote what happened NEXT: a cut at "Remove your outer robe. Place it" came back as "You fold the outer robe and set it on the bench by the door."
+- The seam note now quotes the exact stopping point (last 90 characters of the cut text), states that the events in it are unresolved, requires the first words to finish that sentence and complete the action being described, and forbids starting a new paragraph, describing the result of an order still being given, or speaking as the player.
+- Continuation passes run at a steadier temperature (capped at 0.7) so the finished sentence follows the seam instead of wandering into a new beat.
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.62 — Loops are caught instead of repeated (2026-11-14)
 
 - Repeat guard: after a reply arrives, it is compared against the last five assistant replies using 5-word shingles and containment. A score of 0.55 or more means the reply is largely lifted from an earlier one; the app then writes it again with a hard anti-repetition order and a small temperature bump, up to two extra passes, and keeps the least repetitive result.

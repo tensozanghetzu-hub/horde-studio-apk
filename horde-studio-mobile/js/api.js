@@ -1544,24 +1544,37 @@
            "Draconica's expression doesn't change…"). Pin the instruction in
            words right at the seam, immediately before the seed, so even a
            prefill-blind endpoint knows the following text is in-progress. */
+        /* Quote the exact stopping point. Told only "continue", models read the
+           cut text as a finished turn and write what happened NEXT — the robe
+           order came back as "You fold the outer robe…" instead of finishing
+           "Place it". Naming the words removes that reading. */
+        var cutTail = String(full).replace(/\s+/g, ' ').trim().slice(-90);
         msgs.push({ role: 'system', content:
-          '[System note: the assistant message that follows this note is a reply CUT OFF ' +
-          'mid-stream by a length limit, not a finished answer. Continue that same reply ' +
-          'from exactly where its text stops — if a word is cut, finish the word first — ' +
-          'without repeating or rephrasing any already-written text, and without starting ' +
-          'a new reply, action or paragraph beat.]' });
+          '[System note: the assistant message that follows this note is one reply that was CUT OFF ' +
+          'mid-stream by a length limit. It is NOT a finished turn, and the events in it are not ' +
+          'resolved. Finish it. The text stops at these exact words: "' + cutTail + '" — your first ' +
+          'words must continue that unfinished sentence and complete the action being described, ' +
+          'before anything else happens. Do not start a new sentence, paragraph or story beat. Do not ' +
+          'describe the result of an order that was still being given. Do not repeat, restate or ' +
+          'rephrase any text already written, and do not speak as the user.]' });
         msgs.push({ role: 'assistant', content: full });
       }
       /* Preview this pass in its own buffer. loop() cleans the returned text and
          commits it to `full` exactly once — accumulating here as well left two
          copies of every tag, so a single [[cash:+10]] settled as +20. */
       var streamed = '';
+      var contOverride = o.override;
+      if (o.continueFrom && !(contOverride && contOverride.temperature !== undefined)) {
+        var ct = parseFloat(s.temperature);
+        if (!(ct > 0)) ct = 0.85;
+        contOverride = Object.assign({}, contOverride || {}, { temperature: Math.min(ct, 0.7) });
+      }
       return streamChat(s, msgs, function (chunk) {
         streamed += chunk;
         /* a seeded continuation previews seed + stream WITHOUT the glue
            guess — the real seam rule settles it in the assembled text */
         if (o.onDelta) o.onDelta(chunk, full ? full + (o.continueFrom && idx === 0 ? '' : ' ') + streamed : streamed);
-      }, o.signal, o.override);
+      }, o.signal, contOverride);
     }
 
     function loop(idx) {

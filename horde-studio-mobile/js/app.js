@@ -695,8 +695,8 @@
       if (/[{}<>]/.test(name)) return;                       /* {{char}} / {{user}} */
       var low = name.toLowerCase();
       if (low === 'user' || low === 'you') return;
-      /* the card's own name, also when written in full ("Nira'veth
-         Tal'ira") or with a curly apostrophe */
+      /* the card's own name, also when written in full ("Firstname
+         Lastname") or with a curly apostrophe */
       var norm = function (s) { return String(s || '').toLowerCase().replace(/[\u2018\u2019]/g, "'"); };
       var selfFirst = norm(char.name).split(/[\s,]+/)[0];
       if (norm(low) === norm(char.name) || (selfFirst && norm(low).split(/[\s,]+/)[0] === selfFirst)) return;
