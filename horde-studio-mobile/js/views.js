@@ -1006,7 +1006,7 @@
         '<div class="field"><div class="field-head"><label>Temperature</label><span class="spacer"></span><span class="val" id="v-temp">' + s.temperature + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-temp" min="0" max="2" step="0.05" value="' + s.temperature + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Max reply length</label><span class="spacer"></span><button type="button" class="val val-edit" id="v-max" title="Tap to type an exact token limit" aria-label="Max reply length: ' + s.maxTokens + ' tokens. Tap to enter a number">' + s.maxTokens + '</button></div>' +
-          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens \u00b7 about ' + Math.round((s.maxTokens || 400) * 0.75) + ' words</span></div>' +
+          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens \u00b7 about ' + Math.round((s.maxTokens || 400) * 0.65) + ' words of dialogue</span></div>' +
           '<div class="hint">Tap the number to type an exact value (64–2048 tokens).</div></div>' +
         '<div class="field"><div class="field-head"><label>Top P</label><span class="spacer"></span><span class="val" id="v-topp">' + s.topP + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-topp" min="0.1" max="1" step="0.05" value="' + s.topP + '"></div></div>' +
@@ -2509,7 +2509,10 @@
           '<div class="mtext">' + md(body) + '</div>' +
           (!isMe ? '<div class="mstat" style="margin-top:6px;font-size:11px;opacity:.55;letter-spacing:.02em">' +
             altWordCount(body) + ' words' +
-            (/[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim()) ? '' : ' \u00b7 cut') +
+            (/[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim())
+              ? ''
+              : ' \u00b7 cut' + (m.finishReason === 'length' ? ' at the length limit'
+                  : (m.finishReason === 'stop' ? ' (the model chose to stop)' : ''))) +
             '</div>' : '') +
           (m.image ? '<img class="gen" src="' + esc(m.image) + '" alt="' + esc(m.imageCaption || 'image') + '" data-lightbox="' + esc(m.image) + '">' : '') +
           (m.imageCaption ? '<div class="imgcap">' + esc(m.imageCaption) + '</div>' : '') +

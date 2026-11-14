@@ -560,6 +560,10 @@
      request. The Horde path is already bounded by hordeMaxWait; this is for
      the streaming providers, where a hung read() used to wait forever. */
   var STREAM_TIMEOUT_MS = 240000;   /* free routes queue well past 2 min */
+  /* Why the last generation stopped, as the provider reported it:
+     'length' means our max-token cap cut the reply, 'stop' means the model
+     finished (or a stop sequence fired). Shown on the bubble. */
+  var lastFinish = null;
   function bytesOf(s) {
     try { return new TextEncoder().encode(s || '').length; } catch (e) { return String(s || '').length; }
   }
@@ -1057,6 +1061,7 @@
         }
         if (!wantStream) {
           return r.json().then(function (d) {
+            if (d.choices && d.choices[0] && d.choices[0].finish_reason) lastFinish = String(d.choices[0].finish_reason);
             var txt = (d.choices && d.choices[0] && (d.choices[0].message ? d.choices[0].message.content : d.choices[0].text)) || '';
             if (!txt && guardedNemotron) {
               var noText = new Error('The OpenRouter free Nemotron endpoint returned no final answer text. Reasoning is disabled automatically; retry the request.');
@@ -1094,6 +1099,7 @@
               if (j.usage) streamedUsage = j.usage;
               if (j.provider) streamedProvider = String(j.provider);
               var ch = j.choices && j.choices[0];
+              if (ch && ch.finish_reason) lastFinish = String(ch.finish_reason);
               var delta = ch && (ch.delta ? ch.delta.content : ch.text);
               if (delta) { full += delta; if (onDelta) onDelta(delta, full); }
             } catch (e) { /* a malformed frame: the end-of-stream checks judge it */ }
@@ -2253,6 +2259,10 @@
        kudos, tries, what was requested). Set by generate(); the world's
        status sheet reads it. null until the first text generation. */
     lastHorde: null,
+    /* why the last reply stopped: 'length' (our cap), 'stop' (the model
+       finished), or null. Read after generate() resolves. */
+    lastFinish: function () { return lastFinish; },
+    resetFinish: function () { lastFinish = null; },
     /* tests shorten the stream deadline and the 429 backoff; the app never calls these */
     _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; },
     _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); }

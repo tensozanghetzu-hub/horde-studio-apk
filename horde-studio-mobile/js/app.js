@@ -2002,6 +2002,7 @@
 
     App.abort = new AbortController();
     App.genStart(s.provider === 'horde' ? 'Sending to the Horde…' : 'Generating…', App.abort);
+    if (API.resetFinish) API.resetFinish();
 
     /* Replies already in the transcript, newest last. A looping model copies
        itself, and once a repeat is in the context it validates the next one. */
@@ -2079,6 +2080,8 @@
          silently leaves the old bubble in place. */
       if (!text) throw new Error('The model completed without a visible reply. Retry or choose another model.');
       App.genStop();
+      var fin = API.lastFinish ? API.lastFinish() : null;
+      if (fin) msg.finishReason = fin;
       var statusProposal = API.parseRpgUpdate ? API.parseRpgUpdate(text) : null;
       var continuityProposal = API.parseContinuityUpdate ? API.parseContinuityUpdate(text) : null;
       text = API.stripRpgUpdate ? API.stripRpgUpdate(text) : text;

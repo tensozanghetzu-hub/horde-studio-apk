@@ -1,5 +1,13 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.66 — Why a reply stopped (2026-11-14)
+
+- The provider's stop reason is now captured from the stream (and from non-streaming replies) and stored on the message: 'length' means the max-token cap ended the reply, 'stop' means the model finished on its own.
+- The word count under a cut bubble now reads "N words · cut at the length limit" or "N words · cut (the model chose to stop)", so the cap can be adjusted from evidence instead of guesswork.
+- The Max reply length estimate is recalibrated from 0.75 to 0.65 words per token: a real reply measured 364 words on a 600-token cap, which is about 1.65 tokens per word in dialogue-heavy prose.
+- Fixed a load-time crash introduced while adding the accessor (API was referenced before it existed).
+- No character cards or lorebooks are included in the release.
+
 ## v1.39.65 — Fused continuation words are separated (2026-11-14)
 
 - v1.39.64 fixed fusion created by the seam glue, but the model also fuses words inside its own output: a reply cut at "Or they can" continued with "shattereach other apart", and an earlier one with "Precisionover power".

@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.39.65
+# Horde Studio — Mobile (Android) · v1.39.66
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -17,7 +17,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.39.65.apk`, so you can tell which version you
+carries a copy named `HordeStudio-v1.39.66.apk`, so you can tell which version you
 have after downloading.)
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
@@ -604,6 +604,10 @@ edge of the screen, and was clipped mid-word.
 Now `<pre>` and `<code>` wrap like any other text, and they are given a proper panel
 style rather than the browser's default. Long words, long URLs and unbroken tokens were
 already handled. Every screen was measured at 320, 360 and 412 px wide.
+
+## What's new in v1.39.66
+
+A cut reply now says why it stopped: "cut at the length limit" when the token cap ended it, "the model chose to stop" when it was not the cap. The length setting's word estimate now matches dialogue-heavy prose.
 
 ## What's new in v1.39.65
 
