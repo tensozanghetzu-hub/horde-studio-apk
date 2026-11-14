@@ -7,6 +7,11 @@ name: Publish APK release
 #
 # Runs on every push to main and is idempotent: the release for the current
 # version is updated in place, not duplicated.
+#
+# Only the newest release carries downloadable files. Older releases keep
+# their tag and notes - that is the version history - but their APKs are
+# pruned, because nothing reads them: the app updates from the docs/ channel
+# (version.json -> HordeStudio-latest.apk) and never from a release asset.
 
 on:
   push:
@@ -62,3 +67,23 @@ jobs:
             gh release create "$TAG" --title "Horde Studio v${{ steps.ver.outputs.name }}" \
               --notes "$NOTES" --target main $ASSETS
           fi
+
+      - name: Prune APKs from older releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT: v${{ steps.ver.outputs.name }}
+        run: |
+          # Keep the history, drop the files. Tags and notes stay; only the
+          # current release keeps an APK attached. Idempotent: a release with
+          # no APKs left simply matches nothing on the next run.
+          gh release list --limit 200 --json tagName --jq '.[].tagName' |
+          while read -r tag; do
+            [ -z "$tag" ] && continue
+            [ "$tag" = "$CURRENT" ] && continue
+            gh release view "$tag" --json assets --jq '.assets[].name' 2>/dev/null |
+            grep -i '\.apk$' |
+            while read -r asset; do
+              echo "pruning $tag / $asset"
+              gh release delete-asset "$tag" "$asset" --yes || echo "  (already gone)"
+            done
+          done

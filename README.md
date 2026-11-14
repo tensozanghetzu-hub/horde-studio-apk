@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.39.67
+# Horde Studio — Mobile (Android) · v1.39.68
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.39.58](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.39.68](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
@@ -16,9 +16,15 @@ Tap this on your phone and it downloads without any further clicking:
 https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/HordeStudio-latest.apk
 ```
 
-That URL never changes — it follows whatever release is newest. (The release also
-carries a copy named `HordeStudio-v1.39.67.apk`, so you can tell which version you
-have after downloading.)
+That URL never changes — it follows whatever release is newest. (The newest release
+also carries a copy named `HordeStudio-v1.39.68.apk`, so you can tell which version
+you have after downloading.)
+
+Only the newest release keeps an APK attached. Older releases stay in the list with
+their tag and notes — that is the version history — but their files are pruned
+automatically by the release workflow. Nothing reads them: the app updates from the
+`docs/` channel, never from a release asset. If you ever need an older build, it is
+in the git history of this repo's release workflow or can be rebuilt from its tag.
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
 which is what GitHub Pages serves, because that is how it can check for updates
@@ -2477,8 +2483,9 @@ There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub acc
   tests / ship state) plus accumulated pitfalls. **Read it first.**
 - `sync-github.sh` — the publish script (channel rebuild, identity/remote
   re-assert, commit, push).
-- `HordeStudio-vX.Y.Z.apk` in the repo root — the current local build (only the
-  newest one is kept on disk).
+- `HordeStudio-vX.Y.Z.apk` in the repo root — the current local build. `build.sh`
+  deletes every other root APK after a successful build, so exactly one is kept on
+  disk no matter how many versions are released in a row.
 
 ### Prerequisites
 
@@ -2506,7 +2513,8 @@ There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub acc
    "Current build" header lines).
 6. Build — **one command, no pipes** (a `| tail` can mask a failure):
    `cd apk-build && bash setup-sdk.sh && bash build.sh`.
-   Output: `HordeStudio-vX.Y.Z.apk` in the repo root.
+   Output: `HordeStudio-vX.Y.Z.apk` in the repo root. Older root APKs are removed
+   by the same run — one build file on disk, always.
 7. **Verify in the APK**: unzip it and grep the packaged files for your change's
    markers (plus `aapt dump badging` for versionCode/Name). A build that hasn't
    been opened is not a build.

@@ -30,6 +30,26 @@ Card formats it reads: character card **V1**, **V2**, **V3** (JSON or PNG with a
 | `character_book` | **lorebook** | Keyword-triggered, token-budgeted, injected only on a match |
 | `char_x` | avatar + images | Base64 in the card |
 
+**Precedence and parsing rules that change what you should edit:**
+
+- **`scenario` beats `scenario_list[0]`.** The importer is
+  `scenario || scenario_list[0]`. If both exist, `scenario_list[0]` is a
+  *fallback only* — editing it alone changes nothing the player sees.
+- **Every tag is stripped.** All card text goes through a plain-text pass that
+  removes `<...>`, decodes entities and turns `<br>`/`</p>` into newlines.
+  `<System>…</System>` does **not** act as a system message here; it is just
+  deleted punctuation, and the text inside it becomes ordinary prose.
+- **Ignored metadata:** `talkativeness`, `fav`, `creatorcomment`,
+  `creator_notes`, `character_version`, `create_date`, `spec`,
+  `spec_version`. Nothing reads them. `talkativeness`/`fav` are SillyTavern
+  group-chat fields; editing them is wasted effort.
+- **V2/V3 cards store fields twice** (top level and under `data`). The importer
+  merges them with `data` winning, so an edit only needs to land in `data` —
+  but keep them consistent rather than deliberately divergent.
+- **`{{user}}` is the only player name.** Never write a real name.
+  Pronoun macros `{{sub}} {{obj}} {{poss}} {{poss_p}} {{ref}}` resolve from the
+  player's pronoun setting; anything else in braces prints literally.
+
 ## The order the model actually sees
 
 1. System prompt (global or the card's own `systemPrompt`)
@@ -130,6 +150,67 @@ Say the answer out loud before proposing anything, with the reason. Then:
 A useful tell: if the same problem appears with a second, unrelated card, it is
 not the card. And if a "fix" only works for the card in front of you, it is not a
 fix — it is a workaround that will fail on the next card.
+
+## The card audit (run this before proposing anything)
+
+Two parts: the script does the mechanical checks, you do the reading.
+
+### Step 1 — mechanical check
+
+If you can run code, run **`card-audit.py`** against the card:
+
+```
+python3 card-audit.py path/to/card.json
+```
+
+If you cannot run code, do these checks by inspection:
+
+1. List every `{{…}}` in the card. Known names: `char`, `user`, `name`,
+   `personality`, `description`, `scenario`, `persona`, `sub`, `obj`, `poss`,
+   `poss_p`, `ref`. Anything else prints as literal braces.
+2. Find macros **glued to letters**: `[A-Za-z]{{` or `}}{{...}}` followed by a
+   letter. That is corruption, not a macro — see below.
+3. Note whether `scenario` and `scenario_list[0]` both exist, and whether they
+   say the same thing.
+4. Ignore `talkativeness`, `fav`, `creatorcomment`.
+
+### Step 2 — repairing a corrupted macro
+
+A macro glued to letters **inside a word** means a literal string was replaced
+by the macro. The original survives as prefix + suffix:
+
+```
+"being {{user}}ed"  ->  "being ___ed"   (a verb, past tense)
+"grea{{user}} fear" ->  "great___"      (an adjective)
+```
+
+Find **one** string that turns every occurrence back into a real word. In the
+example above, `test` does both: `tested`, `greatest`. That consistency is the
+proof — a single find-and-replace caused all of them, so one string must repair
+all of them.
+
+Then propose, per field:
+
+```
+description: "discipline slowly being {{user}}ed." -> "discipline slowly being tested."
+description: "Nira'veth's grea{{user}} fear"       -> "Nira'veth's greatest fear"
+reason: "test" was replaced by "{{user}}"; both words are restored by it.
+```
+
+Rules for this repair:
+
+- **Propose, do not apply silently.** Show before → after and the reasoning.
+- If no single string fits every occurrence, say so and list the candidates —
+  do not invent two different words and call it solved.
+- If the glued fragment could be several things, ask.
+- The same damage usually appears in `description`, `scenario` **and**
+  `scenario_list[0]` because the importer copied the text. Fix all of them, or
+  the player sees the same break in whichever field wins.
+
+### Step 3 — re-run and confirm
+
+Run the audit again. The glued list must be **empty**, and every macro must be
+one of the known names. A fix you have not re-checked is a guess.
 
 ## How to validate before handing a card back
 

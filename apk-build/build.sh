@@ -162,6 +162,15 @@ with open(vpath, 'w') as f:
 print('   version.json: web', version, 'rev', webrev)
 PYEOF
 
+# Keep exactly one root APK. Every version is permanently available from its
+# GitHub release, so older local builds are scratch - they used to stack up
+# one per release until someone noticed a pile of fifteen.
+for old in /home/user/HordeStudio-v*.apk; do
+  [ -e "$old" ] || continue
+  [ "$old" = "$FINAL" ] && continue
+  rm -f "$old"
+done
+
 echo
 echo "==> done: $FINAL"
 ls -lh "$FINAL"

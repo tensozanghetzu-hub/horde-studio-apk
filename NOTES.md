@@ -1,5 +1,19 @@
 # Horde Studio Mobile — release notes
 
+## Build artefact policy (2026-11-14)
+
+- Exactly one root APK exists at a time: `build.sh` deletes every other
+  `HordeStudio-v*.apk` after a successful build. Before this, one file per
+  release accumulated to fifteen.
+- Exactly one release carries files: the release workflow prunes APKs from
+  every older tag after each publish. Tags and notes remain as the version
+  history; nothing reads release assets, because the updater uses the `docs/`
+  channel (`version.json` -> `HordeStudio-latest.apk`).
+- `docs/HordeStudio-latest.apk` is the only APK tracked by git, and it must stay
+  where it is: the GitHub Pages URL is built from that path.
+- Anything that names a version in prose (README download box, "also carries a
+  copy named ...") must be bumped with every release, or it goes stale silently.
+
 ## v1.39.68 — Pronoun capitalisation (2026-11-14)
 
 - {{Poss_p}} carries a capital P as part of its name (possessive pronoun), not as a case signal, so it no longer capitalises its output mid-sentence ("takes Hers hand" -> "takes hers hand"). Only a plain title-case name such as {{Sub}} or {{Poss}} capitalises.
