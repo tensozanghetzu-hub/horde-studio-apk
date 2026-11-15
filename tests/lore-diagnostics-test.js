@@ -123,5 +123,47 @@ var viewsSrc2 = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
 ok('the Lore screen shows the sheet size', /tokens<\/b> of character text/.test(viewsSrc2));
 ok('the Lore screen shows per-entry state', /reason \|\| ''/.test(viewsSrc2));
 
+
+/* ------------------------------------------------------------------ */
+console.log('\nC2 (v1.39.74) — the match window is the prompt, not the last six messages');
+
+var hist = [];
+for (var h = 0; h < 20; h++) {
+  hist.push({ role: h % 2 ? 'assistant' : 'user', text: h === 0 ? 'We reached the ridge at dusk.' : 'Filler ' + h + '.' });
+}
+var sample = API.loreSample(hist);
+ok('the sample covers the whole history it is given', /reached the ridge/.test(sample));
+same('every message is in it', sample.split('\n').length, 20);
+
+/* The defect: something said ten messages ago used to be invisible. */
+var worn = [{ keys: ['ridge'], content: 'Dragons nest on the ridge.', enabled: true }];
+same('an entry keyed to something said long ago still fires',
+  API._loreHits(worn, sample, 6, 1536, '').length, 1);
+same('…and the readout agrees',
+  API.loreDiagnostics(worn, sample, 6, 1536, '').rows[0].reason, 'matched');
+
+/* The old window would have missed it — this is the regression this pins. */
+var oldWindow = hist.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+same('the old six-message window really did miss it',
+  API._loreHits(worn, oldWindow, 6, 1536, '').length, 0);
+
+/* Widening what can trigger must not widen what is sent. */
+var many = [];
+for (var m = 0; m < 40; m++) many.push({ keys: ['filler'], content: 'z'.repeat(200), enabled: true });
+same('still at most 6 entries', API._loreHits(many, sample, 6, 1536, '').length, 6);
+var dg = API.loreDiagnostics(many, sample, 6, 1536, '');
+same('…and the readout says the same', dg.admitted, 6);
+ok('the byte budget still binds', dg.used <= 1536, String(dg.used));
+
+/* The empty case must not throw. */
+same('an empty history is an empty sample', API.loreSample([]), '');
+same('a missing history is tolerated', API.loreSample(undefined), '');
+
+console.log('\nD2 — the settings screen says how context is measured');
+var setSrc = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
+ok('the byte-vs-token assumption is stated', /measured in <b>bytes<\/b>/.test(setSrc));
+ok('…and names the non-Latin cost', /Cyrillic/.test(setSrc));
+ok('…and the lorebook window is explained', /how far back the lorebook looks/.test(setSrc));
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

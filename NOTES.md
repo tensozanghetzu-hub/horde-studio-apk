@@ -1,5 +1,25 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.74 — C2 (match window) and D2 (say what context costs) (2026-11-15)
+
+- C2: the lorebook was matched against the last six messages — three
+  exchanges. An entry keyed to "the ridge" fired while the ridge was being
+  discussed and went quiet four messages later, though the ridge was still in
+  the prompt, still in the story, and still underfoot. `loreSample(history)`
+  now hands the matcher the same transcript the request carries, already cut to
+  the "Messages in context" setting by `trimHistory`. Prompt cost does not
+  change: admission is still capped at 6 entries and 1536 bytes, so this widens
+  what can *fire* an entry, never what is sent.
+- The Lore screen reads the same sample through `API.loreSample`, and its copy
+  changed from "comparing the last few messages" to "checking the conversation"
+  — the readout cannot describe a different window from the one in use.
+- D2: the settings sheet now says that context is measured in bytes (about four
+  per Latin character, four per emoji, two or three for CJK and Cyrillic), so
+  "same card, different language, less memory" is documented rather than
+  surprising. It also says the same number is how far back the lorebook looks.
+- Tests: lore-diagnostics-test grew 32 → 45 (the widening, the old window
+  missing the same entry, the caps still holding). Suite 95 files, 0 failing.
+
 ## v1.39.73 — H2, export shape (2026-11-15)
 
 - The export wrote every character field at the top level and left `data` with

@@ -616,10 +616,12 @@
         return;
       }
       return Store.getMessages(newest.id).then(function (msgs) {
-        var sample = (msgs || []).slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+        /* v1.39.74: the same window the request uses — loreSample over the
+           stored history — so the readout and the prompt cannot disagree. */
+        var sample = API.loreSample(msgs || []);
         var stage = newest.continuity && newest.continuity.enabled ? newest.continuity.stage : '';
         var diag = API.loreDiagnostics(c.lorebook || [], sample, 6, 1536, stage);
-        summary.innerHTML = 'Comparing the last few messages of “' + esc(newest.title || 'New chat') +
+        summary.innerHTML = 'Checking the conversation “' + esc(newest.title || 'New chat') +
           '”. <b>' + diag.admitted + ' of ' + diag.rows.length + '</b> ' +
           (diag.rows.length === 1 ? 'entry is' : 'entries are') + ' in the prompt now · ' +
           diag.used + ' of ' + diag.cap + ' bytes used.';
@@ -1058,7 +1060,11 @@
           '<div class="range-row"><input type="range" id="set-topp" min="0.1" max="1" step="0.05" value="' + s.topP + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Messages in context</label><span class="spacer"></span><span class="val" id="v-ctx">' + s.contextMessages + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-ctx" min="6" max="120" step="2" value="' + s.contextMessages + '"></div>' +
-          '<div class="hint">Higher = longer memory per request, but slower and more expensive.</div></div>' +
+          '<div class="hint">Higher = longer memory per request, but slower and more expensive. ' +
+          'This is also how far back the lorebook looks for its keywords.</div>' +
+          '<div class="hint">Context is measured in <b>bytes</b>, about four per Latin character. ' +
+          'Emoji cost four bytes each; Chinese, Japanese, Korean and Cyrillic text cost two or three, ' +
+          'so the same setting holds noticeably less of it before the oldest turns are dropped.</div></div>' +
         '<div class="field"><div class="field-head"><label>Repetition guard</label><span class="spacer"></span><span class="val" id="v-freqp">' + ((s.frequencyPenalty || 0).toFixed(2)) + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-freqp" min="0" max="1" step="0.05" value="' + (s.frequencyPenalty || 0) + '"></div>' +
           '<div class="hint">Makes the model shy away from words it already used — the fix for signature phrases repeating ' +

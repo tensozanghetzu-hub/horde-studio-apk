@@ -662,6 +662,21 @@
   function totalBytes(msgs) {
     return msgs.reduce(function (a, m) { return a + bytesOf(m.content); }, 0);
   }
+  /* C2 (v1.39.74): what the lorebook is matched against.
+     It used to be the last six messages — three exchanges. An entry keyed to
+     "the ridge" fired while the ridge was being discussed and went silent four
+     messages later, even though the ridge was still in the prompt, still in the
+     story, and still the thing you were standing on. The prompt was right; the
+     trigger was looking at a window that closed behind you.
+
+     It is now the same transcript the request carries: the history the caller
+     passed, already cut by trimHistory to the user's "Messages in context"
+     setting. Cost does not grow — admission is still capped at 6 entries and
+     1536 bytes; only what can *fire* an entry widens. */
+  function loreSample(history) {
+    return (history || []).map(function (m) { return m.text || ''; }).join('\n');
+  }
+
   function fitContext(msgs, floor) {
     var total = totalBytes(msgs);
     if (total <= CONTEXT_CAP) return msgs;
@@ -674,7 +689,7 @@
 
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note, finalNote) {
-    var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+    var recent = loreSample(history);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     /* A world run (and any caller that knows better) supplies character.systemPrompt
        with the narrator rules plus live state. Fall back to the global prompt. */
@@ -721,7 +736,7 @@
 
   /** Build a plain-text prompt for AI Horde / non-chat backends. */
   function buildPrompt(character, session, history, s, note, budgetTokens, finalNote) {
-    var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+    var recent = loreSample(history);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
       '\n\n' + charSheet(character, s, session, recent, assistantTurns);
@@ -2363,6 +2378,7 @@
     /* tests call the matcher directly; the app never does */
     _loreHits: loreHits,
     loreDiagnostics: loreDiagnostics,
+    loreSample: loreSample,
     DEFAULT_MAX_TOKENS: DEFAULT_MAX_TOKENS,
     maxTokensOf: maxTokensOf,
     _examplesToMessages: examplesToMessages
