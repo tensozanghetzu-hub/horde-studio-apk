@@ -20,7 +20,12 @@
     'outlines, or commentary about the prompt or the character card.';
 
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.39.75';
+  function isProbablyJson(text) {
+    var t = String(text || '').trim();
+    return t.charAt(0) === '{' || t.charAt(0) === '[';
+  }
+
+  var VERSION = '1.39.76';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -550,16 +555,33 @@
       }).filter(function (e) { return e.src && (e.label || e.keys.length); }).slice(0, 12);
     },
 
+    /* A card's fields, top level and `data` merged with `data` winning.
+       The card object itself must not survive in the result: `card.data`
+       would come along as a `data` property and the image scanner would walk
+       it again, importing every picture twice under a "data_" name. */
+    mergeCardData: function (card) {
+      var out = Object.assign({}, card, card.data);
+      delete out.data;
+      return out;
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       /* v1.39.16: a V2 card MAY keep its fields only under data (the spec
          asks for both top level and data; plenty of tools write just data).
          Merge with data winning so either packing imports whole. */
       if ((card.spec === 'chara_card_v2' || card.spec === 'chara_card_v3') && card.data) {
-        data = Object.assign({}, card, card.data);
+        data = Store.mergeCardData(card);
       }
       if (card.spec === 'chara_card_v3' && card.data) {
-        data = card.data;
+        /* K4 (v1.39.76): the V3 branch reads `data` alone, so a V3 card whose
+           fields sit at the TOP level (no `data`, or a `data` holding only the
+           name) imported as an empty character with no warning. Merge the two
+           with `data` winning — the same rule the V2 branch has always used,
+           and what the spec's own "prefer data" wording amounts to. A card
+           that was already correct reads identically: every field it uses
+           comes from `data`. */
+        data = Store.mergeCardData(card);
         var slist = Store.scenarioList(data);
         var main = (data.scenario || '').trim();
         /* A1 (v1.39.69): the scenario is NOT folded in. It used to be, back
@@ -706,8 +728,104 @@
       return 'data:' + (mime || 'application/octet-stream') + ';base64,' + btoa(bin);
     },
 
-    /* Pull the embedded card out of PNG bytes (the chara/ccv3 tEXt chunks).
-       Shared by file import and URL import, so both read cards the same way. */
+    /* ---- PNG card containers (K1-K3, v1.39.76) ---------------------------
+       A card PNG carries its JSON in a text chunk. Four things are legal and
+       all four appear in the wild:
+
+         tEXt      keyword \0 text
+         zTXt      keyword \0 method(1) zlib(text)
+         iTXt      keyword \0 flag(1) method(1) lang \0 translated \0 text
+         (iTXt with flag = 1 compresses that text)
+
+       and the card itself is base64 in `chara` (V2) or `ccv3` (V3) — the V3
+       spec says `ccv3` is base64 UTF-8 JSON, and says an application should
+       prefer it when both are present. This reader used to: parse every chunk
+       as plain text, parse `ccv3` as raw JSON (never decoding it), take the
+       first chunk in file order, and give up on anything compressed. It now
+       does the opposite of all four. */
+
+    /* zlib inflate for a compressed chunk. The browser primitive is not
+       present in very old WebViews, so its absence is reported as a fact
+       rather than crashing the import. */
+    inflateBytes: function (bytes) {
+      if (typeof global.DecompressionStream !== 'function' || typeof global.Response !== 'function') {
+        return Promise.reject(new Error('This card\'s text is compressed, and this Android WebView is too old to unpack it. Update Android System WebView (Play Store) — or import the .json version of the card.'));
+      }
+      try {
+        var stream = new Blob([bytes]).stream()
+          .pipeThrough(new global.DecompressionStream('deflate'));
+        return new global.Response(stream).arrayBuffer().then(function (b) {
+          return new Uint8Array(b);
+        });
+      } catch (e) {
+        return Promise.reject(new Error('This card\'s text is compressed and could not be unpacked: ' + (e && e.message)));
+      }
+    },
+
+    /* One chunk -> { key, text }, or null if it is not a text chunk we know.
+       Async only because zTXt/compressed iTXt have to be inflated. */
+    pngTextChunk: function (ch) {
+      var bytes = new Uint8Array(ch.data);
+      var nul = bytes.indexOf(0);
+      if (nul < 0) return Promise.resolve(null);
+      var key = String.fromCharCode.apply(null, Array.prototype.slice.call(bytes.subarray(0, nul)));
+      var rest = bytes.subarray(nul + 1);
+      var utf8 = function (b) { return new TextDecoder().decode(b); };
+
+      if (ch.type === 'zTXt') {
+        /* keyword \0 method(1) compressed */
+        return Store.inflateBytes(rest.subarray(1))
+          .then(function (out) { return { key: key, text: utf8(out) }; })
+          .catch(function (e) { return Promise.reject(e); });
+      }
+      if (ch.type === 'iTXt') {
+        /* keyword \0 flag(1) method(1) lang \0 translated \0 text */
+        var flag = rest[0], p = 2;
+        while (p < rest.length && rest[p] !== 0) p++;
+        p++;
+        while (p < rest.length && rest[p] !== 0) p++;
+        p++;
+        var body = rest.subarray(p);
+        if (flag === 1) {
+          return Store.inflateBytes(body)
+            .then(function (out) { return { key: key, text: utf8(out) }; })
+            .catch(function (e) { return Promise.reject(e); });
+        }
+        return Promise.resolve({ key: key, text: utf8(body) });
+      }
+      /* tEXt: the payload is Latin-1 in the spec, but every card writer puts
+         UTF-8 JSON there and every reader treats it as UTF-8. Do the same. */
+      return Promise.resolve({ key: key, text: utf8(rest) });
+    },
+
+    /* A chunk's text -> the card object inside it, or null.
+       K1: `ccv3` is base64 per the spec — decode it first. Raw JSON is
+       accepted after that because it costs nothing and old local fixtures
+       were written that way. `chara` is always base64, but a bare JSON
+       payload there is accepted for the same reason. */
+    cardFromChunkText: function (key, text) {
+      var decodeBase64Json = function (b64) {
+        try {
+          var bin = atob(String(b64).replace(/\s+/g, ''));
+          var bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
+          return JSON.parse(new TextDecoder().decode(bytes));
+        } catch (e) { return null; }
+      };
+      var parseRaw = function (t) {
+        try { return JSON.parse(String(t).replace(/^\uFEFF/, '').trim()); } catch (e) { return null; }
+      };
+      var looksBase64 = /^[A-Za-z0-9+/=\s]+$/.test(String(text).slice(0, 200)) && String(text).trim().length > 8;
+      if (key === 'ccv3') {
+        /* base64 first (the spec), raw second */
+        return (looksBase64 ? decodeBase64Json(text) : null) || parseRaw(text);
+      }
+      /* chara: SillyTavern has always written base64 here */
+      return decodeBase64Json(text) || parseRaw(text);
+    },
+
+    /* Pull the embedded card out of PNG bytes. Shared by file import and URL
+       import, so both read cards the same way. */
     cardFromPngBytes: function (buf) {
       return new Promise(function (resolve, reject) {
         try {
@@ -724,52 +842,44 @@
             off += 12 + len;
             if (type === 'IEND') break;
           }
-          var card = null;
-          chunks.forEach(function (ch) {
-            if (card) return;
-            var bytes = new Uint8Array(ch.data);
-            var nul = bytes.indexOf(0);
-            var key = String.fromCharCode.apply(null, bytes.subarray(0, nul));
-            var rest = bytes.subarray(nul + 1);
-            if (key === 'ccv3') {
-              var text = '';
-              if (ch.type === 'iTXt') {
-                // iTXt: compression flag, compression method, lang tag, translated keyword, then text
-                var p = 2;
-                while (rest[p] !== 0) p++;
-                p++;
-                while (rest[p] !== 0) p++;
-                p++;
-                text = new TextDecoder().decode(rest.subarray(p));
-              } else {
-                text = new TextDecoder().decode(rest);
-              }
-              try { card = JSON.parse(text); } catch (e) {}
-            } else if (key === 'chara') {
-              var b64 = new TextDecoder().decode(rest);
-              /* atob gives a BINARY string - bytes as chars. Parsing that
-                 directly mangles every multibyte sequence (emoji, dashes,
-                 curly quotes, accents - everything that is not ASCII).
-                 Decode the bytes as UTF-8, like the ccv3 branch above
-                 already does. */
-              try {
-                var bin = atob(b64);
-                var utf = new Uint8Array(bin.length);
-                for (var bi = 0; bi < bin.length; bi++) utf[bi] = bin.charCodeAt(bi) & 0xff;
-                card = JSON.parse(new TextDecoder().decode(utf));
-              } catch (e) {}
+          if (!chunks.length) throw new Error('No character data embedded in this PNG');
+
+          /* Read every chunk, then choose. K2: `ccv3` wins over `chara`
+             regardless of file order — a stale V2 copy in `chara` must not
+             shadow the real V3 card. */
+          Promise.all(chunks.map(function (ch) {
+            return Store.pngTextChunk(ch)
+              .then(function (t) {
+                if (!t || (t.key !== 'ccv3' && t.key !== 'chara')) return null;
+                var card = Store.cardFromChunkText(t.key, t.text);
+                return card && typeof card === 'object' ? { key: t.key, card: card } : null;
+              })
+              .catch(function (e) { return { error: e }; });
+          })).then(function (found) {
+            var usable = found.filter(function (f) { return f && f.card; });
+            var card = null;
+            for (var k = 0; k < usable.length; k++) {
+              if (usable[k].key === 'ccv3') { card = usable[k].card; break; }
             }
-          });
-          if (!card) throw new Error('No character data embedded in this PNG');
-          /* A PNG-embedded card IS its own avatar: SillyTavern stores the
-             picture in the file, not in the JSON. Attach the file itself
-             when the embedded JSON carries no usable char_x of its own.
-             (v3 cards keep char_x inside `data`.) */
-          var target = (card.spec === 'chara_card_v3' && card.data) ? card.data : card;
-          if (!Store.cardAvatar(target.char_x)) {
-            target.char_x = Store.bytesToDataUrl(buf, 'image/png');
-          }
-          resolve(card);
+            if (!card && usable.length) card = usable[0].card;
+            if (!card) {
+              /* A compressed chunk that could not be inflated is a different
+                 failure from "there was no card here", and the person holding
+                 the phone can act on the first and not the second. */
+              var err = found.filter(function (f) { return f && f.error; })[0];
+              if (err) throw err.error;
+              throw new Error('No character data embedded in this PNG');
+            }
+            /* A PNG-embedded card IS its own avatar: SillyTavern stores the
+               picture in the file, not in the JSON. Attach the file itself
+               when the embedded JSON carries no usable char_x of its own.
+               (v3 cards keep char_x inside `data`.) */
+            var target = (card.spec === 'chara_card_v3' && card.data) ? card.data : card;
+            if (!Store.cardAvatar(target.char_x)) {
+              target.char_x = Store.bytesToDataUrl(buf, 'image/png');
+            }
+            resolve(card);
+          }).catch(reject);
         } catch (e) { reject(e); }
       });
     },
@@ -815,20 +925,40 @@
     },
 
     /* A picked file -> every card it carries (usually one). */
+    /* K5 (v1.39.76): the reader used to be chosen by FILE NAME, so a PNG
+       saved as .json said "Invalid JSON" and a JSON saved as .png said "Not a
+       PNG character card" — both of which are the app describing its own
+       guesswork as your mistake. Sniff the bytes instead: every PNG opens with
+       the same eight, and anything else is text. */
     readCardsFile: function (file) {
       return new Promise(function (resolve, reject) {
         var fr = new FileReader();
-        if (/\.json$/i.test(file.name) || file.type === 'application/json') {
-          fr.onload = function () {
-            try { resolve(Store.cardsFromRaw(JSON.parse(fr.result))); }
-            catch (e) { reject(new Error('Invalid JSON')); }
-          };
-          fr.readAsText(file);
-          return;
-        }
         fr.onload = function () {
-          Store.cardFromPngBytes(fr.result).then(function (card) { resolve([card]); }, reject);
+          var buf = fr.result;
+          var head = new Uint8Array(buf, 0, Math.min(8, buf.byteLength));
+          var isPng = head.length === 8 && head[0] === 0x89 && head[1] === 0x50 &&
+            head[2] === 0x4e && head[3] === 0x47 && head[4] === 0x0d &&
+            head[5] === 0x0a && head[6] === 0x1a && head[7] === 0x0a;
+          if (isPng) {
+            Store.cardFromPngBytes(buf).then(function (card) { resolve([card]); }, reject);
+            return;
+          }
+          var text;
+          try { text = new TextDecoder().decode(buf); }
+          catch (e) { reject(new Error('That file is neither a PNG card nor readable text')); return; }
+          /* a text file that is not JSON gets the honest error, and says what
+             it actually is rather than blaming the extension */
+          var parsed;
+          try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')); }
+          catch (e) {
+            reject(new Error(isProbablyJson(text) ? 'That file looks like JSON but will not parse — it may be truncated.'
+              : 'That file is not a character card (no JSON and no PNG data in it).'));
+            return;
+          }
+          try { resolve(Store.cardsFromRaw(parsed)); }
+          catch (e) { reject(e); }
         };
+        fr.onerror = function () { reject(new Error('That file could not be read')); };
         fr.readAsArrayBuffer(file);
       });
     },

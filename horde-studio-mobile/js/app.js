@@ -367,6 +367,31 @@
   /* G (v1.39.69): say what the import could not carry. Each note is a real
      loss the player would otherwise only discover as "my card behaves
      strangely". Computed from the RAW card, before plainText rewrites it. */
+  /* K4 (v1.39.76): a `chara_card_v3` whose fields sit at the top level instead
+     of under `data` used to import as a character with no name, no sheet and
+     no greeting — silently, because cardToCharacter reads `data` alone for V3.
+     The card is still importable (see Store.cardToCharacter), but the person
+     needs to know the file is malformed, not that the app ate it. */
+  App.v3ShapeNote = function (card) {
+    if (!card || card.spec !== 'chara_card_v3') return null;
+    var data = card.data && typeof card.data === 'object' ? card.data : null;
+    var hasData = !!(data && (data.first_mes || data.description || data.name));
+    var hasTop = !!(card.first_mes || card.description || card.name);
+    if (hasData) {
+      if (hasTop && !data.first_mes && card.first_mes) {
+        return 'This V3 card keeps its fields both at the top level and under "data", and the two disagree. ' +
+          'The "data" copy is the one used — that is what the spec says to prefer.';
+      }
+      return null;
+    }
+    if (hasTop) {
+      return 'This V3 card puts its fields at the top level instead of under "data", which is not what the spec ' +
+        'asks for. They were read from the top level so nothing is lost, but other apps may show an empty character.';
+    }
+    return 'This card claims to be V3 but carries no character fields in either place. ' +
+      'The file is probably damaged or a stub.';
+  };
+
   App.importLossNotes = function (card) {
     var notes = [];
     var data = (card && card.data) || card || {};
@@ -406,6 +431,8 @@
   App.prepareImportedCharacter = function (card) {
     var c = Store.cardToCharacter(card);
     c.importNotes = App.importLossNotes(card);
+    var shapeNote = App.v3ShapeNote(card);
+    if (shapeNote) c.importNotes.unshift(shapeNote);
     /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor
        descriptions, <br> line breaks, the bot's avatar as
        <img src="…">. Convert it to plain prose now, so the sheet,

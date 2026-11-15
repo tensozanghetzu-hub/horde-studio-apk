@@ -1,5 +1,36 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.76 — card containers (§K, APK-ISSUES-2) (2026-11-15)
+
+All five findings confirmed against the code at `b84df09` before anything was
+touched; every fixture in the new test is a real PNG built byte by byte.
+
+- **K1 (critical)** — `ccv3` is base64 UTF-8 JSON per the V3 spec, and the
+  reader parsed it as literal text. Any conforming exporter that writes only
+  `ccv3` failed with "No character data embedded in this PNG". It now decodes
+  base64 first and falls back to raw JSON, exactly like `chara` does.
+- **K2** — `chunks.forEach` took the first parseable chunk in file order, so a
+  stale V2 copy in `chara` shadowed the real V3 card. All chunks are read, then
+  `ccv3` wins, as the spec says.
+- **K3** — `zTXt` and compressed `iTXt` were collected and parsed as plain text.
+  Both are now inflated (via `DecompressionStream`), and a WebView too old to
+  inflate says that specifically instead of "no character data".
+- **K4** — the V3 branch read `data` alone, so a V3 tag with top-level fields
+  imported as an empty character with no warning. `mergeCardData` merges top
+  level and `data` with `data` winning (the same rule the V2 branch always had),
+  and `App.v3ShapeNote` explains in the import preview when a file is shaped
+  that way.
+- **K5** — the reader was chosen by file name. It now sniffs the PNG signature
+  and falls back to JSON, so a PNG named `.json` and a JSON named `.png` both
+  import, and a file that is neither gets "that file is not a character card"
+  rather than a complaint about the extension.
+- Found while fixing K4: the merge left the card's own `data` object inside the
+  merged result, so `cardImages` walked it a second time and imported every
+  picture twice under `data_`-prefixed names. `mergeCardData` deletes it.
+- Tests: card-container-test (25) covers every finding with real PNG bytes,
+  including zlib-compressed chunks and non-ASCII round trips. Suite 96 → 97
+  files, 0 failing.
+
 ## v1.39.75 — the version string the app reports (2026-11-15)
 
 - `store.js` carried `var VERSION = '1.39.51'` — six releases behind. It is what
