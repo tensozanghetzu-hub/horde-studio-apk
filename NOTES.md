@@ -1,5 +1,27 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.75 — the version string the app reports (2026-11-15)
+
+- `store.js` carried `var VERSION = '1.39.51'` — six releases behind. It is what
+  the About screen shows whenever the updater has not answered yet, which is
+  precisely the moment someone writes down a bug report, so every report would
+  have quoted a version that matched no release. The stale copy had also already
+  reached `docs/js/store.js`, so phones were serving it.
+- It was hand-maintained in two places that cannot read the manifest (`store.js`
+  for display, `sw.js` for the cache name). Both are now stamped from
+  `android:versionName` by `tools/stamp-version.py`, which runs at the top of
+  `build.sh` and `build-channel.py`. There is no manual step left to forget.
+- `sw.js` no longer counts its own cache (`horde-studio-v142` vs app `1.39.74`
+  was a third number to keep in your head). The cache is now
+  `horde-studio-v<version>`, so a release always installs a fresh shell; the
+  worker's activate step deletes every other cache, so nothing accumulates.
+- Its banner comment named `v1.39.53`, a third stale literal in a comment nobody
+  greps. Replaced with a version-neutral one the stamp owns.
+- Tests: version-consistency-test (17) ties the manifest to store.js, sw.js,
+  `docs/`, the README headline, and checks the stamp is wired into both build
+  paths — so the next drift fails CI instead of reaching a phone. Suite 96
+  files, 0 failing.
+
 ## v1.39.74 — C2 (match window) and D2 (say what context costs) (2026-11-15)
 
 - C2: the lorebook was matched against the last six messages — three

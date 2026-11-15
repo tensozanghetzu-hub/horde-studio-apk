@@ -1,8 +1,9 @@
-/* Horde Studio — offline app shell */
-/* Bumped for v1.39.53 scene cast prompt priority. This worker is
-   cache-first (`return hit || net`), so without a new cache name a phone
-   keeps running the previous app.js from disk. */
-var CACHE = 'horde-studio-v142';
+/* Horde Studio — offline app shell.
+   The cache name carries the release, and this worker is cache-first
+   (`return hit || net`), so a new version always installs a fresh shell
+   instead of serving the previous app.js from disk.
+   Written by tools/stamp-version.py from the manifest — do not edit by hand. */
+var CACHE = 'horde-studio-v1.39.75';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
