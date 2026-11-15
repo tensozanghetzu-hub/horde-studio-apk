@@ -183,6 +183,42 @@
     return re.test(text);
   }
 
+  /* C2 (v1.39.71): why each entry did or did not join the prompt. loreHits
+     answers yes/no; an author whose entry never fires needs the reason, and
+     "dropped for budget" and "no keyword" are very different fixes.
+     Returns one row per entry, in book order. */
+  function loreDiagnostics(entries, recent, limit, budget, stage) {
+    var rows = [], text = String(recent || '').toLowerCase();
+    var activeStage = String(stage || '').trim().toLowerCase();
+    var cap = (typeof budget === 'number' && budget > 0) ? budget : 1536;
+    var max = limit || 6, used = 0, admitted = 0;
+    (entries || []).forEach(function (e) {
+      var row = { keys: e.keys || [], content: e.content || '', matched: false, reason: '' };
+      if (e.enabled === false) { row.reason = 'disabled'; rows.push(row); return; }
+      var need = String(e.stage || '').trim().toLowerCase();
+      if (need && need !== '*' && (!activeStage || need !== activeStage)) {
+        row.reason = 'wrong stage (' + (e.stage || '') + ')'; rows.push(row); return;
+      }
+      var kw = e.constant === true ||
+        (e.keys || []).some(function (k) { return k && keyStands(text, k); });
+      if (!kw) {
+        row.reason = e.constant === true ? '' : 'no keyword matched in the recent messages';
+        row.matched = e.constant === true;
+        if (!row.matched) { rows.push(row); return; }
+      }
+      row.matched = true;
+      if (admitted >= max) { row.reason = 'matched, but the ' + max + '-entry limit was reached'; rows.push(row); return; }
+      var cost = String(e.content || '').length;
+      if (admitted && used + cost > cap) {
+        row.reason = 'matched, but over the ' + cap + '-byte budget'; rows.push(row); return;
+      }
+      row.reason = e.constant === true ? 'always (constant)' : 'matched';
+      used += cost; admitted++;
+      rows.push(row);
+    });
+    return { rows: rows, used: used, cap: cap, admitted: admitted, limit: max };
+  }
+
   function loreHits(entries, recent, limit, budget, stage) {
     if (!entries || !entries.length) return [];
     var text = (recent || '').toLowerCase();
@@ -383,9 +419,9 @@
 
   function charSheet(char, s, session, recent, assistantTurns) {
     var parts = [];
-    var persona = plainText(macros(char.persona, char, s));
+    var persona = macros(plainText(char.persona), char, s);
     if (persona) parts.push(persona);
-    var scenario = plainText(macros(char.scenario, char, s));
+    var scenario = macros(plainText(char.scenario), char, s);
     if (scenario) parts.push('Current situation: ' + scenario);
     if (s.userPersona) parts.push('About {{user}}: '.replace('{{user}}', s.userName) + s.userPersona);
     var state = statePrompt(char);
@@ -395,7 +431,7 @@
       var frequency = parseInt(session.sceneNoteFrequency, 10);
       if (!(frequency > 0)) frequency = 1;
       if ((assistantTurns || 0) % frequency === 0) {
-        sceneNote = plainText(macros(session.sceneNote, char, s));
+        sceneNote = macros(plainText(session.sceneNote), char, s);
       }
     }
     var scenePlacement = session && session.sceneNotePlacement || 'end';
@@ -405,7 +441,7 @@
     var lore = loreHits(char.lorebook, recent, 6, 1536, activeStage);
     if (lore.length) {
       parts.push('Relevant world facts:\n' + lore.map(function (e) {
-        return '- ' + plainText(macros(e.content, char, s));
+        return '- ' + macros(plainText(e.content), char, s);
       }).join('\n'));
     }
     /* Chat lore supplements the character's baseline world facts but only
@@ -415,7 +451,7 @@
       ? loreHits(session.chatLorebook, recent, 4, 1024, activeStage) : [];
     if (chatLore.length) {
       parts.push('Relevant chat-only facts:\n' + chatLore.map(function (e) {
-        return '- ' + plainText(macros(e.content, char, s));
+        return '- ' + macros(plainText(e.content), char, s);
       }).join('\n'));
     }
     if (session && (session.summary || (session.facts && session.facts.length))) {
@@ -427,7 +463,7 @@
     if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
     var continuity = continuityPrompt(session);
     if (continuity) parts.push(continuity);
-    var post = plainText(macros(char.postHistory, char, s));
+    var post = macros(plainText(char.postHistory), char, s);
     if (post) parts.push(post);
     if (sceneNote && scenePlacement !== 'character' && scenePlacement !== 'memory') parts.push('Scene note: ' + sceneNote);
     return parts.join('\n\n');
@@ -607,6 +643,15 @@
      request. The Horde path is already bounded by hordeMaxWait; this is for
      the streaming providers, where a hung read() used to wait forever. */
   var STREAM_TIMEOUT_MS = 240000;   /* free routes queue well past 2 min */
+  /* D1 (v1.39.71): one answer to "what if maxTokens is missing?". Three places
+     used to disagree (400 in the settings default, 200 in two budget sums, and
+     no fallback at all in the Horde request), so a stored character with a
+     null cap computed its budget against 200 and then asked for undefined. */
+  var DEFAULT_MAX_TOKENS = 400;
+  function maxTokensOf(s) {
+    var n = parseInt(s && s.maxTokens, 10);
+    return n > 0 ? n : DEFAULT_MAX_TOKENS;
+  }
   /* Why the last generation stopped, as the provider reported it:
      'length' means our max-token cap cut the reply, 'stop' means the model
      finished (or a stop sequence fired). Shown on the bubble. */
@@ -1577,14 +1622,14 @@
         /* A continuation round re-sends what we already have on top of the
            prompt, so it has to leave room for two replies, not one. */
         var inContinuation = (idx > 0 || !!o.continueFrom);
-        var budget = HORDE_CTX_TOKENS - (s.maxTokens || 200) * (inContinuation ? 2 : 1) - 64;
+        var budget = HORDE_CTX_TOKENS - maxTokensOf(s) * (inContinuation ? 2 : 1) - 64;
         var base = buildPrompt(char, session, o.history, s, o.note, budget, o.finalNote);
         var prompt = inContinuation ? base + ' ' + full : base;
         return guardModel('text', s.hordeTextModel).then(function () {
           return Horde.generateText({
             prompt: prompt,
             model: s.hordeTextModel || '',
-            maxLength: s.maxTokens,
+            maxLength: maxTokensOf(s),
             temperature: s.temperature,
             topP: s.topP,
             topK: s.topK,
@@ -2317,6 +2362,9 @@
     _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); },
     /* tests call the matcher directly; the app never does */
     _loreHits: loreHits,
+    loreDiagnostics: loreDiagnostics,
+    DEFAULT_MAX_TOKENS: DEFAULT_MAX_TOKENS,
+    maxTokensOf: maxTokensOf,
     _examplesToMessages: examplesToMessages
   };
 })(window);

@@ -4209,7 +4209,7 @@
         if (overrides.maxTokens) settings.maxTokens = overrides.maxTokens;
         var payload;
         if (settings.provider === 'horde') {
-          var promptBudget = API.HORDE_CTX_TOKENS - (settings.maxTokens || 200) - 64;
+          var promptBudget = API.HORDE_CTX_TOKENS - API.maxTokensOf(settings) - 64;
           payload = [{ role: 'prompt', content: API.buildPrompt(char, session, messages, settings, overrides.note || null, promptBudget) }];
         } else {
           payload = API.buildChat(char, session, messages, settings, overrides.note || null);

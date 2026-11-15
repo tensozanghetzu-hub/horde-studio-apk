@@ -563,21 +563,33 @@
     var c = chars.find(function (x) { return x.id === id; }) || chars[0];
     App.state.worldChar = c.id;
 
+    /* D3: what the sheet costs on every single turn. */
+    var sheetTokens = API.estTokens([c.persona, c.scenario, c.greeting, c.examples, c.postHistory]
+      .filter(Boolean).join('\n\n'));
+
     body.innerHTML =
       '<div class="tag-bar">' + chars.map(function (x) {
         return '<button class="tag' + (x.id === c.id ? ' on' : '') + '" data-wc="' + x.id + '">' + esc(x.name || 'Unnamed') + '</button>';
       }).join('') + '</div>' +
 
-      '<div class="group"><div class="group-title">Lorebook · ' + esc(c.name) + '</div>' +
-        '<div id="lore-list">' + (c.lorebook || []).map(function (e, i) {
-          return '<div class="kv" data-lore="' + i + '" style="cursor:pointer">' +
-            '<span style="flex:1">' +
-              '<b style="display:block;color:' + (e.enabled === false ? 'var(--dim)' : 'var(--text)') + '">' +
-                esc((e.keys || []).join(', ') || '(no keys)') + '</b>' +
-              '<span style="font-size:12px">' + esc((e.content || '').slice(0, 70)) + '</span>' +
-            '</span></div>';
-        }).join('') + '</div>' +
-        '<div class="field"><button class="btn ghost block sm" data-act="lore-add">' + icon('plus') + ' Add lore entry</button></div>' +
+      /* C2/D3 (v1.39.71): the sheet size and, per entry, whether it is in the
+         prompt this turn and why not. "Why is my card ignored" becomes a
+         readout instead of guesswork. The sample is the last few messages of
+         the newest conversation with this character — the same text loreHits
+         scans — and it is loaded below, so nothing here guesses at it. */
+      '<div class="group"><div class="group-title">Character sheet · ' + esc(c.name || 'Unnamed') + '</div>' +
+        '<div class="hint" style="margin:0 0 6px">About <b>' + sheetTokens + ' tokens</b> of character text ' +
+        'is sent on every turn (persona, scenario, greeting, examples, post-history note). ' +
+        'It is never trimmed, so a very large sheet costs context on every reply.</div></div>' +
+
+      '<div class="group"><div class="group-title">Lorebook · ' + esc(c.name || 'Unnamed') + '</div>' +
+        '<div class="hint" style="margin:0 0 6px" id="lore-summary">' +
+          ((c.lorebook && c.lorebook.length) ? 'Checking the newest conversation…' : 'No lore entries yet.') +
+        '</div>' +
+        '<div id="lore-list">' + ((c.lorebook && c.lorebook.length)
+          ? '<div class="field"><span class="hint">Loading…</span></div>' : '') + '</div>' +
+        '<div class="field"><button class="btn ghost block sm" data-act="lore-add">' +
+          icon('plus') + ' Add lore entry</button></div>' +
       '</div>' +
 
       '<div class="group"><div class="group-title">Story memory</div>' +
@@ -591,7 +603,41 @@
       Views.world(root);
     });
     on(body, '[data-act=lore-add]', 'click', function () { App.editLore(c, null); });
-    on($('#lore-list'), '[data-lore]', 'click', function (e) {
+
+    /* C2: fill the lorebook readout from the newest conversation's messages. */
+    Store.getSessions(c.id).then(function (sessions) {
+      var list = $('#lore-list'), summary = $('#lore-summary');
+      if (!list || !summary) return;
+      var newest = (sessions || [])[0];
+      if (!newest) {
+        summary.innerHTML = 'Open a conversation with ' + esc(c.name || 'this character') +
+          ' and this list will show which entries are in the prompt.';
+        list.innerHTML = '';
+        return;
+      }
+      return Store.getMessages(newest.id).then(function (msgs) {
+        var sample = (msgs || []).slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+        var stage = newest.continuity && newest.continuity.enabled ? newest.continuity.stage : '';
+        var diag = API.loreDiagnostics(c.lorebook || [], sample, 6, 1536, stage);
+        summary.innerHTML = 'Comparing the last few messages of “' + esc(newest.title || 'New chat') +
+          '”. <b>' + diag.admitted + ' of ' + diag.rows.length + '</b> ' +
+          (diag.rows.length === 1 ? 'entry is' : 'entries are') + ' in the prompt now · ' +
+          diag.used + ' of ' + diag.cap + ' bytes used.';
+        list.innerHTML = diag.rows.length ? diag.rows.map(function (r, i) {
+          return '<div class="kv" data-lore="' + i + '" style="cursor:pointer;align-items:flex-start">' +
+            '<span style="flex:1">' +
+              '<b style="display:block;color:' + (r.matched ? 'var(--text)' : 'var(--dim)') + '">' +
+                esc((r.keys || []).join(', ') || '(no keys)') + '</b>' +
+              '<span style="font-size:12px">' + esc((r.content || '').slice(0, 70)) + '</span>' +
+              '<span style="display:block;font-size:11.5px;margin-top:2px;color:' +
+                (r.matched ? 'var(--ok,#4ade80)' : 'var(--dim)') + '">' +
+                (r.matched ? '✓ ' : '✕ ') + esc(r.reason || '') + '</span>' +
+            '</span></div>';
+        }).join('') : '<div class="field"><span class="hint">No lore entries yet.</span></div>';
+      });
+    });
+
+    on(body, '[data-lore]', 'click', function (e) {
       App.editLore(c, parseInt(e.currentTarget.getAttribute('data-lore'), 10));
     });
 
@@ -1006,7 +1052,7 @@
         '<div class="field"><div class="field-head"><label>Temperature</label><span class="spacer"></span><span class="val" id="v-temp">' + s.temperature + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-temp" min="0" max="2" step="0.05" value="' + s.temperature + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Max reply length</label><span class="spacer"></span><button type="button" class="val val-edit" id="v-max" title="Tap to type an exact token limit" aria-label="Max reply length: ' + s.maxTokens + ' tokens. Tap to enter a number">' + s.maxTokens + '</button></div>' +
-          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens \u00b7 about ' + Math.round((s.maxTokens || 400) * 0.65) + ' words of dialogue</span></div>' +
+          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens \u00b7 about ' + Math.round((s.maxTokens || API.DEFAULT_MAX_TOKENS) * 0.65) + ' words of dialogue</span></div>' +
           '<div class="hint">Tap the number to type an exact value (64–2048 tokens).</div></div>' +
         '<div class="field"><div class="field-head"><label>Top P</label><span class="spacer"></span><span class="val" id="v-topp">' + s.topP + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-topp" min="0.1" max="1" step="0.05" value="' + s.topP + '"></div></div>' +
@@ -1050,7 +1096,7 @@
         input.type = 'number'; input.min = '64'; input.max = '2048'; input.step = '1';
         input.inputMode = 'numeric'; input.className = 'max-token-entry';
         input.setAttribute('aria-label', 'Max reply length in tokens');
-        input.value = String(Store.settings.maxTokens || 400);
+        input.value = String(Store.settings.maxTokens || API.DEFAULT_MAX_TOKENS);
         maxValue.replaceWith(input);
         input.focus(); input.select();
         var done = false;
@@ -1061,7 +1107,7 @@
             n = Math.max(64, Math.min(2048, n));
             var patch = { maxTokens: n }; sc.set(patch); maxSlider.value = String(n);
           }
-          var current = Store.settings.maxTokens || 400;
+          var current = Store.settings.maxTokens || API.DEFAULT_MAX_TOKENS;
           var display = document.createElement('button');
           display.type = 'button'; display.className = 'val val-edit'; display.id = 'v-max';
           display.title = 'Tap to type an exact token limit';

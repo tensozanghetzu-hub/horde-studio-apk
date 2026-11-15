@@ -1,5 +1,37 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.71 — A4, D1, C2, D3 (2026-11-15)
+
+- A4: six prompt-building sites expanded `{{char}}`/`{{user}}` *before* stripping
+  tags. A name interpolated inside an attribute or a `<script>` block was written
+  into markup that was then deleted, so the text the model saw depended on where
+  the tag boundaries fell. Every site now strips first and expands second
+  (`macros(plainText(x))`). A `<span title="{{user}}">` and a `<script>` payload
+  both come out as `Her eyes narrow. Done.`, and a macro in plain prose still
+  expands.
+- D1: the reply length had three different implicit defaults (200 in the API,
+  400 in two UI sites, unset in a fourth). `API.DEFAULT_MAX_TOKENS = 400` and
+  `API.maxTokensOf(settings)` replace all of them, so the budget shown, the
+  budget sent and the number in the settings sheet cannot disagree. The saved
+  600-token setting is untouched; the constant only supplies a default.
+- C2: the Lore screen reports, per entry, whether it is in the prompt this turn
+  and why not — `matched`, `no keyword matched in the recent messages`,
+  `disabled`, `wrong stage (…)`, `matched, but the 6-entry limit was reached`,
+  `matched, but over the 1536-byte budget`. The readout reads the newest
+  conversation's last six messages, the same window `loreHits` scans, and falls
+  back to "open a conversation" rather than guessing. `API.loreDiagnostics` is
+  the implementation, and a test pins it against `loreHits` so the summary can
+  never drift from what is actually sent.
+- D3: the Lore screen shows what the character sheet costs on every single turn
+  ("About N tokens of character text"). The sheet is never trimmed, so this is
+  the number that explains a prompt that grows without the chat growing.
+- The Lore screen's "Add lore entry" button was rebuilt into a plain template.
+  The first pass wrapped the block in an IIFE that assigned two undeclared
+  variables; it parsed but was unverified. `worldview-test` now renders the
+  screen and checks the groups, the token count, tag balance and the button.
+- Tests added: lore-diagnostics-test (32), worldview-test (18).
+  Suite 92 → 94 files, 0 failing; `generic-check` clean.
+
 ## v1.39.70 — A2, C3, C1, B1 (2026-11-15)
 
 - A2: the V3 import branch never set `expressionPortraits`, so a V3 card's
