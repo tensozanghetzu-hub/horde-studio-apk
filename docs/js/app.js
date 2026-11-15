@@ -364,8 +364,60 @@
      the bot's avatar as <img src="…">. Convert it to plain prose now, so
      the sheet, the greeting and the prompt never carry markup a model
      could read and echo back as literal text. */
+  /* G (v1.39.69): say what the import could not carry. Each note is a real
+     loss the player would otherwise only discover as "my card behaves
+     strangely". Computed from the RAW card, before plainText rewrites it. */
+  App.importLossNotes = function (card) {
+    var notes = [];
+    var data = (card && card.data) || card || {};
+    var rawExamples = String(data.mes_example || '');
+    if (/<START>/i.test(rawExamples)) {
+      notes.push('<START> separators were dropped — the example turns merged into one block.');
+    }
+    var book = data.character_book ||
+      (card && card.data && card.data.character_book) ||
+      (card && card.character_book) || null;
+    var entries = (book && Array.isArray(book.entries)) ? book.entries : [];
+    var constant = entries.filter(function (e) { return e && e.constant === true; }).length;
+    if (constant) {
+      notes.push(constant + ' lorebook ' + (constant === 1 ? 'entry relies' : 'entries rely') +
+        ' on "constant" (always in context). That is not supported — ' +
+        (constant === 1 ? 'it' : 'they') + ' only fire' + (constant === 1 ? 's' : '') +
+        ' on a keyword match.');
+    }
+    var secondary = entries.filter(function (e) {
+      return e && ((e.secondary_keys && e.secondary_keys.length) || e.selective);
+    }).length;
+    if (secondary) {
+      notes.push(secondary + ' ' + (secondary === 1 ? 'entry uses' : 'entries use') +
+        ' secondary keys or "selective" filtering — ignored, so ' +
+        (secondary === 1 ? 'it' : 'they') + ' may fire more often than the author intended.');
+    }
+    var ordered = entries.filter(function (e) {
+      return e && typeof e.insertion_order === 'number';
+    }).length;
+    if (ordered) {
+      notes.push(ordered + ' ' + (ordered === 1 ? 'entry sets' : 'entries set') +
+        ' "insertion_order" — ignored, so entries are matched in book order.');
+    }
+    if (data.system_prompt) {
+      notes.push('This card carries its own system prompt; the app uses the global one. ' +
+        'Copy it into Settings → System prompt if you want it honoured.');
+    }
+    if (card && card.spec === 'chara_card_v3') {
+      var portraits = (data.extensions && data.extensions.horde_studio &&
+        data.extensions.horde_studio.expression_portraits) ||
+        (data.data && data.data.extensions) || null;
+      if (portraits) {
+        notes.push('Expression portraits are not carried for V3 cards.');
+      }
+    }
+    return notes;
+  };
+
   App.prepareImportedCharacter = function (card) {
     var c = Store.cardToCharacter(card);
+    c.importNotes = App.importLossNotes(card);
     /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor
        descriptions, <br> line breaks, the bot's avatar as
        <img src="…">. Convert it to plain prose now, so the sheet,
@@ -419,6 +471,12 @@
              alternates become swipes on the opening message */
           (c.alternateGreetings && c.alternateGreetings.length
             ? '<div class="hint">It also brings <b>' + (c.alternateGreetings.length + 1) + ' intros</b> — swipe the first message to step into another one.</div>'
+            : '') +
+          (c.importNotes && c.importNotes.length
+            ? '<div class="hint" style="margin-top:8px"><b>Not carried over:</b></div>' +
+              c.importNotes.map(function (n) {
+                return '<div class="hint" style="margin-top:4px">• ' + esc(n) + '</div>';
+              }).join('')
             : ''),
         actions: [
           { label: 'Cancel', cls: 'ghost', value: null },

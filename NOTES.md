@@ -1,5 +1,29 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.69 — card import review (2026-11-15)
+
+From APK-ISSUES.md, worked §E → CI → §F → §G.
+
+- §E suite green: `btoa` added to three vm sandboxes (card-avatar, pngutf8,
+  cardimages); continuefix's assertion counted the seam note as duplication
+  (the doc blamed the user turn — it was the v1.39.63 note quoting the cut
+  tail); card-avatar's two PNG assertions compared the FileReader placeholder
+  instead of the file bytes; ratelimit's "500s never retry" predates the
+  v1.39.62 retry, so it now asserts retry-then-resolve plus exhausted-rejects;
+  typing/update skip cleanly without playwright-core.
+- §E2 CI: a `tests` job gates the `release` job, so a red suite cannot publish.
+- §F A1: the V3 persona no longer folds in the scenario. Git history shows the
+  fold predates the `scenario` field (v1.11.0 started using it separately and
+  left the fold) — it was never load-bearing; V2 never folded.
+- §F H1: `characterToCard` drops a scenario that duplicates the scenario field
+  as an exact trailing block. Narrow by design — an exact match only, so a
+  persona that merely mentions the scenario keeps its text, and nothing is lost
+  because the scenario is written to its own field.
+- §G: `App.importLossNotes` reports dropped `<START>` separators, lorebook
+  `constant` / `secondary_keys` / `insertion_order`, a card system prompt, and
+  V3 expression portraits — rendered in the import sheet.
+- Tests added: v3-scenario-fold-test (15), import-notes-test (10).
+
 ## Build artefact policy (2026-11-14)
 
 - Exactly one root APK exists at a time: `build.sh` deletes every other

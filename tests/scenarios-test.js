@@ -107,8 +107,15 @@ function v2(name, scenario, list) {
   var c = Store.cardToCharacter(v3('Sera', 'S1', ['S1', 'S2']));
   same('list survives the import', c.scenarioList, ['S1', 'S2']);
   same('the card default is the chosen scenario', c.scenario, 'S1');
-  ok('persona still merges description, personality and scenario (unchanged v3 rule)',
-    c.persona.indexOf('desc') !== -1 && c.persona.indexOf('pers') !== -1 && c.persona.indexOf('S1') !== -1, c.persona);
+  /* v1.39.69 (APK-ISSUES A1): the v3 persona no longer folds the scenario in.
+     It used to, from before `scenario` was imported separately, and it made
+     every v3 card pay for its situation twice per turn. The scenario now lives
+     only in its own field — which this assertion pins. */
+  ok('persona merges description and personality only',
+    c.persona.indexOf('desc') !== -1 && c.persona.indexOf('pers') !== -1, c.persona);
+  ok('…and the scenario is NOT duplicated into the persona',
+    c.persona.indexOf('S1') === -1, c.persona);
+  same('the scenario still reaches its own field', c.scenario, 'S1');
   ok('greeting and examples untouched', c.greeting === 'hi there' && c.examples === 'me: x\nc: y');
 
   c = Store.cardToCharacter(v3('Sera', 'S0', ['S2', 'S3']));

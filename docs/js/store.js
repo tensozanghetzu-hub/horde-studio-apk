@@ -557,7 +557,13 @@
         data = card.data;
         var slist = Store.scenarioList(data);
         var main = (data.scenario || '').trim();
-        var desc = [data.description || '', data.personality || '', data.scenario || ''].filter(Boolean).join('\n\n');
+        /* A1 (v1.39.69): the scenario is NOT folded in. It used to be, back
+           when `scenario` was imported as '' — v1.11.0 started using the field
+           separately and left the fold behind, so a V3 card paid for its
+           scenario twice on every turn (once here, once as
+           "Current situation:"). The V2 branch never folded, which is the
+           proof it is not needed. */
+        var desc = [data.description || '', data.personality || ''].filter(Boolean).join('\n\n');
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
           tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -595,9 +601,35 @@
       };
     },
 
+    /* H1 (v1.39.69): before that fix, every V3 import baked the scenario into
+       the persona, and the exporter wrote that persona into `description`
+       while ALSO writing `scenario` — so the duplication became permanent and
+       survived re-import. Strip a scenario that duplicates the scenario field
+       exactly, as a trailing block.
+
+       Deliberately narrow: an exact trailing match only, never a fuzzy or
+       shape-based strip, so a persona that merely mentions the scenario keeps
+       its text. Nothing is lost either way, because the scenario is written to
+       its own field in the same export. */
+    stripDuplicateScenario: function (persona, scenario) {
+      var p = String(persona == null ? '' : persona);
+      var sc = String(scenario == null ? '' : scenario).trim();
+      if (!p || !sc) return p;
+      var tail = p.replace(/\s+$/, '');
+      if (tail === sc) return '';                       /* pure duplicate */
+      if (tail.length > sc.length + 2 &&
+          tail.slice(-sc.length) === sc &&
+          /\n\n$/.test(tail.slice(0, tail.length - sc.length))) {
+        return tail.slice(0, tail.length - sc.length).replace(/\s+$/, '');
+      }
+      return p;
+    },
+
     characterToCard: function (c) {
       var card = {
-        name: c.name, description: c.persona || '', personality: '',
+        name: c.name,
+        description: Store.stripDuplicateScenario(c.persona || '', c.scenario || ''),
+        personality: '',
         scenario: c.scenario || '', first_mes: c.greeting || '', mes_example: c.examples || '',
         creatorcomment: 'Exported from Horde Studio Mobile',
         tags: c.tags || [], talkativeness: '0.5', fav: false,
