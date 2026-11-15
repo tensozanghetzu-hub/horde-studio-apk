@@ -36,8 +36,9 @@ ok('a clean card says nothing',
   notes({ spec: 'chara_card_v2', data: { name: 'S', mes_example: '{{user}}: hi\n{{char}}: hello' } }).length === 0,
   JSON.stringify(notes({ spec: 'chara_card_v2', data: { name: 'S', mes_example: '{{user}}: hi\n{{char}}: hello' } })));
 
+/* v1.39.70 supports <START> (B1), so it is no longer a loss to report */
 var startNotes = notes({ spec: 'chara_card_v2', data: { name: 'S', mes_example: '<START>\n{{user}}: hi' } });
-ok('<START> separators are reported', /<START>/.test(startNotes.join(' ')), JSON.stringify(startNotes));
+ok('<START> is no longer reported — it now works', startNotes.length === 0, JSON.stringify(startNotes));
 
 var constNotes = notes(v3({
   character_book: { entries: [{ keys: ['a'], content: 'x', constant: true }] }

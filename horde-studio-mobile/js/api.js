@@ -145,13 +145,20 @@
 
   /* Turn a SillyTavern-style example block into alternating messages */
   function examplesToMessages(text, char, s) {
+    /* B1 (v1.39.70): every card-writing guide tells authors to separate example
+       turns with <START>, but plainText() deletes every tag — including that
+       one — before the parser below could ever match it, so the separator
+       vanished and the turns merged into one wall of text with no warning.
+       Hold it behind a sentinel so it survives the plain-text pass. */
+    var START = '@@HS_START@@';
+    text = String(text || '').replace(/<\s*START\s*>/gi, '\n' + START + '\n');
     text = plainText(text);
     var out = [], cur = null;
     String(text || '').split(/\r?\n/).forEach(function (raw) {
       var line = raw.trim();
       if (!line) return;
-      var m = line.match(/^<START>$/i);
-      if (m) { cur = null; return; }
+      /* the recovered separator, plus the other common convention */
+      if (line === START || /^-{3,}$/.test(line)) { cur = null; return; }
       var isUser = /^\{\{user\}\}\s*:/i.test(line);
       var isChar = /^\{\{char\}\}\s*:/i.test(line) ||
         new RegExp('^' + (char && char.name ? char.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : 'char') + '\\s*:', 'i').test(line);
@@ -189,7 +196,11 @@
       if (e.enabled === false) return;
       var requiredStage = String(e.stage || '').trim().toLowerCase();
       if (requiredStage && requiredStage !== '*' && (!activeStage || requiredStage !== activeStage)) return;
-      var hit = (e.keys || []).some(function (k) { return k && keyStands(text, k); });
+      /* C1 (v1.39.70): a `constant` entry is always in play — it does not need
+         a keyword. Still subject to `enabled`, `stage` and the byte budget,
+         so it cannot push a card's whole book into every prompt. */
+      var hit = e.constant === true ||
+        (e.keys || []).some(function (k) { return k && keyStands(text, k); });
       if (!hit) return;
       var cost = String(e.content || '').length;
       if (out.length && bytes + cost > cap) return;
@@ -2303,6 +2314,9 @@
     _unfuseFirstWord: unfuseFirstWord,
     /* tests shorten the stream deadline and the 429 backoff; the app never calls these */
     _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; },
-    _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); }
+    _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); },
+    /* tests call the matcher directly; the app never does */
+    _loreHits: loreHits,
+    _examplesToMessages: examplesToMessages
   };
 })(window);

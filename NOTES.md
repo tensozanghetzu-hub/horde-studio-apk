@@ -1,5 +1,24 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.70 — A2, C3, C1, B1 (2026-11-15)
+
+- A2: the V3 import branch never set `expressionPortraits`, so a V3 card's
+  portraits imported as undefined and re-exported without them — a round trip
+  deleted them. Same line as V2, and the export already handled the rest.
+- C3: checked rather than trusted. The doc called it SUSPECTED and read
+  `enabled: e.enabled !== false` as "always true"; it is a boolean expression,
+  so a disabled entry exports as `enabled: false` and round-trips correctly.
+  No product change; `lorebook-roundtrip-test` pins it.
+- C1: `constant` lorebook entries now always join the prompt (they used to be
+  dropped at import, and matching required a keyword). Still gated by
+  `enabled`, `stage` and the byte budget, so a book cannot flood a prompt.
+  The flag also survives export.
+- B1: `<START>` was deleted by `plainText` before the parser could match it, so
+  conventional example blocks merged into one wall of text. The separator is now
+  held behind a sentinel through the plain-text pass; `---` is accepted too.
+  The §G warning about dropped `<START>` is removed because it no longer happens.
+- Tests added: lorebook-roundtrip-test (25). Suite 91 -> 92 files, 0 failing.
+
 ## v1.39.69 — card import review (2026-11-15)
 
 From APK-ISSUES.md, worked §E → CI → §F → §G.

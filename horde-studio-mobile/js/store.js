@@ -512,7 +512,12 @@
         || card.character_book || null;
       var entries = book && book.entries;
       return Array.isArray(entries) ? entries.map(function (e) {
-        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
+        /* C1 (v1.39.70): `constant` is the field authors rely on most — an
+           entry that must always be in context. It used to be dropped here, so
+           a card relying on it silently got nothing. */
+        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '',
+          enabled: e.enabled !== false, stage: e.stage || '',
+          constant: e.constant === true };
       }) : [];
     },
 
@@ -578,6 +583,10 @@
           examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
           lorebook: Store.bookFromCard(card, data),
+          /* A2 (v1.39.70): the V3 branch never set this, so a V3 card's
+             expression portraits imported as undefined and re-exported
+             without them — a round trip through the app deleted them. */
+          expressionPortraits: Store.expressionPortraitsFromCard(data, card),
           alternateGreetings: Store.altGreetingsFromCard(card, data),
           createdAt: Date.now(), updatedAt: Date.now()
         };
@@ -643,7 +652,9 @@
         card.data.character_book = {
           name: (c.name || 'character') + ' lorebook',
           entries: c.lorebook.map(function (e) {
-            return { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
+            var out = { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
+            if (e.constant) out.constant = true;
+            return out;
           })
         };
       }

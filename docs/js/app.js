@@ -370,10 +370,8 @@
   App.importLossNotes = function (card) {
     var notes = [];
     var data = (card && card.data) || card || {};
-    var rawExamples = String(data.mes_example || '');
-    if (/<START>/i.test(rawExamples)) {
-      notes.push('<START> separators were dropped — the example turns merged into one block.');
-    }
+    /* <START> is no longer a loss: v1.39.70 recovers the separator before the
+       plain-text pass, so it parses the way every card guide intends. */
     var book = data.character_book ||
       (card && card.data && card.data.character_book) ||
       (card && card.character_book) || null;
