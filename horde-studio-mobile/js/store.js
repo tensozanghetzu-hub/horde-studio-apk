@@ -644,6 +644,19 @@
         tags: c.tags || [], talkativeness: '0.5', fav: false,
         spec: 'chara_card_v2', spec_version: '2.0', data: { name: c.name }
       };
+      /* H2 (v1.39.73): the V2 spec asks for the character fields BOTH at the
+         top level and under `data`, and other tools read only one of the two.
+         We used to write them top level and leave `data` with nothing but the
+         name, so a card exported here looked truncated elsewhere. The values
+         are identical, so our own import (which merges with `data` winning)
+         reads the same text it always did. `personality` stays empty on
+         purpose: this app keeps one persona string, and copying it into
+         `personality` too would double the sheet for any tool that joins the
+         two fields. */
+      ['description', 'personality', 'scenario', 'first_mes', 'mes_example',
+       'creatorcomment', 'tags', 'talkativeness', 'fav'].forEach(function (k) {
+        card.data[k] = card[k];
+      });
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
       if (c.postHistory) card.data.post_history_instructions = c.postHistory;
       /* the embedded lorebook rides along: exporting used to drop it, so a

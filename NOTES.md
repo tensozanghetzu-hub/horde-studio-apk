@@ -1,5 +1,20 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.73 — H2, export shape (2026-11-15)
+
+- The export wrote every character field at the top level and left `data` with
+  nothing but the name. The V2 spec asks for both, and tools that read only
+  `data` saw a card with no description, no scenario and no greeting — it looked
+  truncated everywhere except here. Every field is now mirrored into `data` with
+  the same value, so our own import (which merges with `data` winning) is
+  byte-for-byte unaffected and other tools see a complete card.
+- `personality` stays empty on purpose. This app keeps one persona string, so
+  there is no split to write back; copying the same text into `personality` as
+  well would double the sheet for any tool that joins the two fields. The loss
+  is real and unfixable without a second field in the editor — an empty field is
+  the honest representation of it.
+- Tests added: export-shape-test (19). Suite 94 → 95 files, 0 failing.
+
 ## v1.39.72 — stale import notes (2026-11-15)
 
 - Two lines in the import preview described losses that v1.39.70 had already

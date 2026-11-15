@@ -2,7 +2,7 @@
 /* Bumped for v1.39.53 scene cast prompt priority. This worker is
    cache-first (`return hit || net`), so without a new cache name a phone
    keeps running the previous app.js from disk. */
-var CACHE = 'horde-studio-v140';
+var CACHE = 'horde-studio-v141';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',
