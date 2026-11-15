@@ -376,13 +376,9 @@
       (card && card.data && card.data.character_book) ||
       (card && card.character_book) || null;
     var entries = (book && Array.isArray(book.entries)) ? book.entries : [];
-    var constant = entries.filter(function (e) { return e && e.constant === true; }).length;
-    if (constant) {
-      notes.push(constant + ' lorebook ' + (constant === 1 ? 'entry relies' : 'entries rely') +
-        ' on "constant" (always in context). That is not supported — ' +
-        (constant === 1 ? 'it' : 'they') + ' only fire' + (constant === 1 ? 's' : '') +
-        ' on a keyword match.');
-    }
+    /* v1.39.72: `constant` is honoured since v1.39.70, so an entry that uses
+       it was no longer a loss and the note had become a lie. Portraits are
+       carried on both import branches since v1.39.70 for the same reason. */
     var secondary = entries.filter(function (e) {
       return e && ((e.secondary_keys && e.secondary_keys.length) || e.selective);
     }).length;
@@ -402,14 +398,8 @@
       notes.push('This card carries its own system prompt; the app uses the global one. ' +
         'Copy it into Settings → System prompt if you want it honoured.');
     }
-    if (card && card.spec === 'chara_card_v3') {
-      var portraits = (data.extensions && data.extensions.horde_studio &&
-        data.extensions.horde_studio.expression_portraits) ||
-        (data.data && data.data.extensions) || null;
-      if (portraits) {
-        notes.push('Expression portraits are not carried for V3 cards.');
-      }
-    }
+    /* A2 (v1.39.71): portraits import on both branches; the old note was
+       reporting a loss the code no longer makes. */
     return notes;
   };
 

@@ -1,5 +1,17 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.72 — stale import notes (2026-11-15)
+
+- Two lines in the import preview described losses that v1.39.70 had already
+  fixed, so the app was telling authors their card was broken when it was not:
+  lorebook `constant` ("that is not supported — they only fire on a keyword
+  match") and V3 expression portraits ("not carried for V3 cards"). Both notes
+  are gone; `import-notes-test` now asserts the silence, so a note cannot outlive
+  its defect again. Every remaining note (secondary keys / `selective`,
+  `insertion_order`, a card's own system prompt) is still a real, unaddressed
+  loss.
+- Suite unchanged at 94 files, 0 failing.
+
 ## v1.39.71 — A4, D1, C2, D3 (2026-11-15)
 
 - A4: six prompt-building sites expanded `{{char}}`/`{{user}}` *before* stripping

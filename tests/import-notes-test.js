@@ -43,7 +43,16 @@ ok('<START> is no longer reported — it now works', startNotes.length === 0, JS
 var constNotes = notes(v3({
   character_book: { entries: [{ keys: ['a'], content: 'x', constant: true }] }
 }));
-ok('"constant" lorebook entries are reported', /constant/.test(constNotes.join(' ')), JSON.stringify(constNotes));
+/* v1.39.72: `constant` is honoured by loreHits since v1.39.70, so reporting it
+   as a loss would be telling the author their card is broken when it is not. */
+ok('"constant" entries are NOT reported — they work now', constNotes.length === 0, JSON.stringify(constNotes));
+
+var portraitNotes = notes(v3({
+  extensions: { horde_studio: { expression_portraits: [{ label: 'angry', src: 'data:image/png;base64,AA==' }] } }
+}));
+/* v1.39.72: A2 fixed the V3 import branch; the old note described a loss that
+   no longer happens. */
+ok('V3 expression portraits are NOT reported — they import now', portraitNotes.length === 0, JSON.stringify(portraitNotes));
 
 var secNotes = notes(v3({
   character_book: { entries: [{ keys: ['a'], content: 'x', secondary_keys: ['b'], selective: true }] }
@@ -62,12 +71,15 @@ console.log('\nG — notes are per-issue, not noise');
 
 var three = notes(v3({
   system_prompt: 'x',
-  character_book: { entries: [{ keys: ['a'], content: 'c', constant: true, insertion_order: 1 }] }
+  character_book: { entries: [
+    { keys: ['a'], content: 'c', insertion_order: 1, secondary_keys: ['b'], selective: true },
+    { keys: ['d'], content: 'e', insertion_order: 2 }
+  ] }
 }));
 ok('independent problems each get their own line', three.length === 3, JSON.stringify(three));
 ok('plural wording for several entries',
-  /2 lorebook entries rely/.test(notes(v3({
-    character_book: { entries: [{ constant: true }, { constant: true }] }
+  /2 entries set "insertion_order"/.test(notes(v3({
+    character_book: { entries: [{ insertion_order: 1 }, { insertion_order: 2 }] }
   })).join(' ')));
 
 console.log('\nG — the sheet actually renders them');
