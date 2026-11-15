@@ -1,5 +1,29 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.79 — the footer under a reply, and knowing what turn you are on (2026-11-16)
+
+- Reported from a screenshot: a reply with two full paragraphs under it read
+  "**0 words · cut**". The footer was rendered once, when the bubble was
+  created — before the first chunk arrived, so `_stream` was `''` — and every
+  later update patched only `.mtext`. The number under a reply was whatever the
+  streaming render happened to leave behind, and "cut" appeared because an
+  empty string does not end in punctuation.
+- Two changes, because either alone would leave a way to lie:
+  an empty `_stream` now falls back to the stored text (empty means "nothing
+  has streamed yet"), and `Views.refreshMessage` rebuilds the whole bubble from
+  the finished message — text, word count, cut marker, continuation label,
+  swipe row — instead of patching the text and leaving the rest stale. All
+  four completion paths use it: normal, Continue, reroll, and Stop.
+- A continued bubble now says "↳ continued from the reply above". A reply that
+  opens mid-sentence ("around your wrist.") otherwise looks like the app lost
+  text; it is the model resuming where the cut was, and the label says so.
+- Turn indicator: the chat header now ends with `· turn N` (or `· opening`
+  before your first message). A turn is one message you sent — a reply, a
+  reroll and a Continue all belong to the same turn, which is the only reading
+  that survives continuing a cut reply. Recomputed when you send and when a
+  reply lands, not just when the chat opens.
+- Tests: message-footer-test (26). Suite 99 → 100 files, 0 failing.
+
 ## v1.39.78 — the empty bar under the chat (2026-11-15)
 
 - Reported from a screenshot: a purple rounded outline sitting under the

@@ -147,18 +147,8 @@
       var ch = App.state.char;
       var groupMembers = App.state.groupCharacters || [];
       var isGroup = groupMembers.length > 1;
-      var groupNames = isGroup ? groupMembers.map(function (x) { return x.name || 'Unnamed'; }).join(' + ') : '';
       $('#bar-title').textContent = isGroup ? 'Group chat' : ((ch && ch.name) || 'Chat');
-      var sub = App.state.session ? (App.state.session.title || 'New chat') : '';
-      if (isGroup) sub = groupNames + ' · ' + sub;
-      /* Who you are in this thread — worth stating, since switching personas
-         swaps which of a character's conversations you are looking at. */
-      if (Store.settings.activePersona) sub = 'as ' + Store.personaLabel() + ' · ' + sub;
-      if (!isGroup && ch && ch.vh && ch.vh.enabled) {
-        var st = VH.status(ch);
-        sub = st.text + ' · ' + sub;
-      }
-      $('#bar-sub').textContent = sub;
+      $('#bar-sub').textContent = App.chatSubtitle();
       if (isGroup) $('#char-state').hidden = true; else Views.stateStrip(ch);
     } else if (name === 'editor') {
       $('#bar-title').textContent = params.isNew ? 'New character' : 'Edit character';
@@ -1888,6 +1878,40 @@
 
   /** The three dots mean "something is happening right now" — a reply on the way,
    *  or a virtual human mid-burst. Nothing else. */
+  /* v1.39.79: "what turn am I on?" had no answer anywhere on screen. The
+     subtitle now carries it, and it is recomputed whenever the thread
+     changes rather than only when the chat is opened. A turn is one message
+     you sent — a reply, a reroll and a Continue all belong to the same turn,
+     which is the only reading that survives someone continuing a cut reply. */
+  App.chatTurn = function (messages) {
+    var n = 0;
+    (messages || []).forEach(function (m) { if (m.role === 'user' && !m.autonomous) n++; });
+    return n;
+  };
+
+  App.chatSubtitle = function () {
+    var ch = App.state.char, session = App.state.session;
+    var groupMembers = App.state.groupCharacters || [];
+    var isGroup = groupMembers.length > 1;
+    var sub = session ? (session.title || 'New chat') : '';
+    if (isGroup) {
+      sub = groupMembers.map(function (x) { return x.name || 'Unnamed'; }).join(' + ') + ' · ' + sub;
+    }
+    /* Who you are in this thread — worth stating, since switching personas
+       swaps which of a character's conversations you are looking at. */
+    if (Store.settings.activePersona) sub = 'as ' + Store.personaLabel() + ' · ' + sub;
+    if (!isGroup && ch && ch.vh && ch.vh.enabled) sub = VH.status(ch).text + ' · ' + sub;
+    var turn = App.chatTurn(App.state.messages);
+    return sub + ' · ' + (turn ? 'turn ' + turn : 'opening');
+  };
+
+  App.refreshChatHead = function () {
+    var sub = $('#bar-sub');
+    if (!sub || App.state.screen !== 'chat') return;
+    var text = App.chatSubtitle();
+    if (sub.textContent !== text) sub.textContent = text;
+  };
+
   App.renderTyping = function () {
     var t = $('#typing');
     if (!t) return;
@@ -2261,8 +2285,6 @@
         msg.text = newPart || '…';
         if (opts.replaceBubble) { msg.alts = msg.alts || []; msg.alts.push(msg.text); msg.altIdx = msg.alts.length - 1; }
         else { msg.alts = [msg.text]; msg.altIdx = 0; }
-        var mtC = el.querySelector && el.querySelector('.mtext');
-        if (mtC) mtC.innerHTML = UI.md(msg.text);
       } else if (opts.rerollFor) {
         msg.text = text;
         msg.alts = msg.alts || [];
@@ -2274,14 +2296,18 @@
         msg.altIdx = 0;
       }
       el.classList.remove('streaming');
+      /* v1.39.79: everything the bubble shows — text, word count, cut marker,
+         continuation label — is rendered at once from the finished message. */
+      var rebuilt = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+      if (rebuilt) el = rebuilt;
       var parts = App.burstFor(char, text);
       if (parts.length > 1 && !(opts.rerollFor || opts.continueFor)) {
         /* independent short texts arrive as separate bubbles */
         msg.text = parts[0];
         msg.alts = [parts[0]];
         msg.altIdx = 0;
-        var mt2 = el.querySelector('.mtext');
-        if (mt2) mt2.innerHTML = UI.md(parts[0]);
+        var rebuilt2 = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+        if (rebuilt2) el = rebuilt2;
         return retryMarkerWrites.then(function () { return persist(); }).then(function (r) {
           /* if the first bubble could not be saved, the burst parts would
              not be either — keep what is on screen */
@@ -2296,6 +2322,7 @@
          user scrolled up to read it — follow only when they're at the
          bottom. v1.39.22: and when the reply itself is taller than the
          screen, "follow" means landing on its FIRST line, not its last. */
+      App.refreshChatHead();
       var thrF = $('#thread');
       if (Views.followReply) Views.followReply(thrF, el); else Views.stickToBottom(thrF, false);
       App.afterReply();
@@ -2321,8 +2348,8 @@
                Continue has no old text in its new bubble — removal below
                handles it; only a re-spun continuation restores) */
             if (opts.rerollFor || opts.replaceBubble) {
-              var mtA = el.querySelector && el.querySelector('.mtext');
-              if (mtA) mtA.innerHTML = UI.md(msg.text);
+              var rebuilt3 = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+              if (rebuilt3) el = rebuilt3;
             }
             Store.updateMessage(msg).catch(function (e) {
               UI.toast('Partial reply kept on screen, but it could not be saved: ' + (e && e.message), 6000);
@@ -2333,8 +2360,8 @@
           /* the model failed the re-spin, not the story: the bubble and its
              stored text stay exactly as they were */
           el.classList.remove('streaming');
-          var mtE = el.querySelector && el.querySelector('.mtext');
-          if (mtE) mtE.innerHTML = UI.md(msg.text);
+          var rebuilt4 = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+          if (rebuilt4) el = rebuilt4;
           UI.toast((opts.rerollFor || opts.replaceBubble ? 'Reroll' : 'Continue') + ' failed: ' + e.message, 6000);
         } else {
           el.remove();
@@ -3095,6 +3122,7 @@
     Store.addMessage(msg).then(function (m) {
       App.state.messages.push(m);
       Views.appendMessage(char, m);
+      App.refreshChatHead();
       Views.stickToBottom($('#thread'), true);   // your own send: always show it
       return App.afterUserMessage(m);
     }).catch(function (e) {

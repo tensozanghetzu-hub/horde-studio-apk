@@ -2589,7 +2589,13 @@
     var speakerAvatar = !isMe && m.speakerPortrait ? m.speakerPortrait :
       (!isMe && m.speakerId ? (m.speakerAvatar || '') : char.avatar);
     var text = m.text || '';
-    var body = m._stream !== undefined && m._stream !== null ? m._stream : text;
+    /* v1.39.79: a stale EMPTY stream used to win over the finished text — the
+       bubble was built before the first chunk arrived, so `_stream` was '' and
+       the footer under a full reply read "0 words · cut". An empty stream means
+       "nothing has streamed yet", which is exactly when the stored text is the
+       truth. */
+    var body = (m._stream !== undefined && m._stream !== null && m._stream !== '')
+      ? m._stream : text;
     return '<div class="msg' + (isMe ? ' me' : '') + (m.autonomous ? ' auto' : '') + '" data-mid="' + m.id + '">' +
       /* v1.31.0: the player's own bubble shows the active persona's photo
          when the persona has one, initials otherwise. */
@@ -2600,7 +2606,8 @@
         '<div class="bubble">' +
           (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +
           '<div class="mtext">' + md(body) + '</div>' +
-          (!isMe ? '<div class="mstat" style="margin-top:6px;font-size:11px;opacity:.55;letter-spacing:.02em">' +
+          (m.continuationOf ? '<div class="mcont">↳ continued from the reply above</div>' : '') +
+          (!isMe && body.trim() ? '<div class="mstat" style="margin-top:6px;font-size:11px;opacity:.55;letter-spacing:.02em">' +
             altWordCount(body) + ' words' +
             (/[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim())
               ? ''
@@ -2803,6 +2810,22 @@
       }
     }
     return st;
+  };
+
+  /* v1.39.79: a finished reply used to be patched into `.mtext` only. Every
+     other part of the bubble — the word count, the "cut" marker, the
+     continuation label, the swipe row — was whatever the streaming render had
+     left there, which is how "0 words · cut" survived under a full paragraph.
+     Nothing hand-patches a bubble any more: the element is rebuilt from the
+     message, so every part of it agrees with the text. */
+  Views.refreshMessage = function (char, m) {
+    var old = $('#thread [data-mid="' + m.id + '"]');
+    if (!old || !old.parentNode) return null;
+    var wrap = document.createElement('div');
+    wrap.innerHTML = messageHtml(m, char, Store.settings);
+    var el = wrap.firstElementChild;
+    old.parentNode.replaceChild(el, old);
+    return el;
   };
 
   Views.appendMessage = function (char, m) {
