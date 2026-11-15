@@ -1,5 +1,29 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.78 — the empty bar under the chat (2026-11-15)
+
+- Reported from a screenshot: a purple rounded outline sitting under the
+  conversation with nothing in it, which the user could not identify. It is the
+  generating banner (`#gen-banner`) — the "Generating on a volunteer GPU… · 24s"
+  strip — still on screen after the reply finished, emptied and hidden in the
+  DOM but visible anyway.
+- Cause: `hidden` is a USER-AGENT rule (`[hidden]{display:none}`) and every
+  author rule outranks the UA sheet. `.gen-banner{display:flex}` therefore beat
+  `b.hidden = true`, leaving an empty bordered pill behind every reply.
+- It had been found six times before, one symptom at a time: `.typing[hidden]`,
+  `.toast[hidden]`, `.sheet-wrap[hidden]`, `.icon-btn[hidden]`,
+  `.attach-stage[hidden]` and `.wr-hud-*[hidden]` are all patches for the same
+  bug. The banner was the seventh component and had no patch. The general form
+  now sits once at the top of the stylesheet: `[hidden]{display:none !important}`,
+  so the next component cannot repeat it.
+- Two other elements were in the same hole and are fixed by the same rule: the
+  persona bars (`#persona-bar`, `#chat-persona-bar`) and the world HUD
+  (`#wr-hud`), which could each leave an empty strip when hidden.
+- Tests: hidden-attribute-test (10) reads the markup and the stylesheet
+  together — every element marked `hidden` whose component sets its own
+  `display` must be covered by the global guard. Removing the guard fails it.
+  Suite 98 → 99 files, 0 failing.
+
 ## v1.39.77 — Scene cast stops reading field labels as people (2026-11-15)
 
 - Reported from a real card: the Scene strip showed "Main INTRO", "Rose" and
