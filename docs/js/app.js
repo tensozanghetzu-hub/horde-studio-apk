@@ -724,7 +724,12 @@
      addresses; the app then tells the model every turn, so people in
      other rooms stop answering conversations they cannot hear. */
 
-  var CAST_REV = 2;          /* bump when detection rules change */
+  /* v1.39.77: a label is only evidence of a person when the card uses it to
+     SPEAK — with words after the colon, more than once. "Main INTRO:" and
+     "Relationship: Widow, your neighbour" carry a capital letter and a colon,
+     so the old scan could not tell them from "Rose: come in." and put both in
+     the Scene strip as if they were people standing on the porch. */
+  var CAST_REV = 3;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -761,58 +766,84 @@
   };
 
   App.detectCast = function (char) {
-    var found = [], seen = {};
-    function add(name) {
-      name = String(name || '').replace(/\s+/g, ' ').trim();
-      if (name.length < 2 || name.length > 24) return;
-      if (/[{}<>]/.test(name)) return;                       /* {{char}} / {{user}} */
-      var low = name.toLowerCase();
-      if (low === 'user' || low === 'you') return;
-      /* the card's own name, also when written in full ("Firstname
-         Lastname") or with a curly apostrophe */
-      var norm = function (s) { return String(s || '').toLowerCase().replace(/[\u2018\u2019]/g, "'"); };
-      var selfFirst = norm(char.name).split(/[\s,]+/)[0];
-      if (norm(low) === norm(char.name) || (selfFirst && norm(low).split(/[\s,]+/)[0] === selfFirst)) return;
-      if (seen[low] || seen[low.split(' ')[0]]) return;      /* also catches "First" vs "First Last" duplicates */
-      seen[low] = true;
-      seen[low.split(' ')[0]] = true;
-      found.push(name);
+    var blob = [char.persona, char.greeting, char.scenario, char.examples].join('\n');
+    var cands = {}, order = [];
+    function norm(s) { return String(s || '').toLowerCase().replace(/[\u2018\u2019]/g, "'"); }
+    function firstWord(s) { return norm(s).split(/[\s,]+/)[0]; }
+    function isSelf(name) {
+      var low = norm(name), self = norm(char.name);
+      if (!self) return false;
+      return low === self || (firstWord(low) && firstWord(low) === firstWord(self));
     }
+    /* Reject what cannot be a person's name in a dialogue label: too short or
+       too long, a macro, or a SHOUTED heading ("Main INTRO", "BASIC INFO"). */
+    function shaped(name) {
+      var clean = String(name || '').replace(/\s+/g, ' ').trim();
+      if (clean.length < 2 || clean.length > 24) return '';
+      if (/[{}<>]/.test(clean)) return '';
+      if (/[A-Z]{3,}/.test(clean)) return '';
+      var low = norm(clean);
+      if (low === 'user' || low === 'you') return '';
+      return clean;
+    }
+    function slot(name) {
+      var low = norm(name);
+      if (!cands[low]) { cands[low] = { name: name, acts: 0 }; order.push(low); }
+      return cands[low];
+    }
+    function offer(name) { var n = shaped(name); if (n && !isSelf(n)) slot(n); }
+    function act(name) { var n = shaped(name); if (n && !isSelf(n)) slot(n).acts++; }
+
+    /* "Name: words" is someone speaking. A bare "Name:" is a section
+       heading — it is offered so that later prose can still vouch for it,
+       but the line itself proves nothing. */
     function scanLabels(text) {
       String(text || '').split('\n').forEach(function (line) {
         var t = line.replace(/^\s*[^A-Za-z{]+/, '');        /* strip emoji/bullets */
-        var m = /^([A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+)?)\s*:/.exec(t);
-        if (m) add(m[1]);
+        var m = /^([A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+)?)\s*:\s*(.*)$/.exec(t);
+        if (!m) return;
+        if (m[2].trim()) act(m[1]); else offer(m[1]);
       });
     }
     function scanNames(text) {
       var m, re = /^Name:\s*(.+)$/gim;
-      while ((m = re.exec(String(text || '')))) add(m[1]);
-    }
-    /* A bare "Two Words" line is only a person if the card actually uses
-       that name elsewhere — profile headings like "Basic Info" or "Facial
-       Features" appear once and never speak, so they are not cast. */
-    var blob = [char.persona, char.greeting, char.scenario, char.examples].join('\n');
-    function speaks(full) {
-      var q = full.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      var hits = blob.match(new RegExp('\\b' + q + '\\b', 'gi'));
-      if (!hits || hits.length < 3) return false;
-      var act = new RegExp(
-        '(\\b' + q + '\\s+(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added)\\b)' +
-        '|(\\b(?:said|says|asked|replied|answered)\\s+' + q + '\\b)' +
-        '|(^' + q + '\\s*[:\u2014-])', 'im');
-      return act.test(blob);
-    }
-    function scanHeaders(text) {
-      var m, re = /^([A-Z][a-z]+ [A-Z][a-z]+)$/gm;
-      while ((m = re.exec(String(text || '')))) {
-        if (speaks(m[1])) add(m[1]);
-      }
+      while ((m = re.exec(String(text || '')))) offer(m[1]);
     }
     scanLabels(char.examples);
     scanLabels(char.greeting);
+    scanLabels(char.persona);
     scanNames(char.persona);
-    scanHeaders(char.persona);
+
+    /* A two-word proper name right beside a speech verb is a person too —
+       "Bravo Vale said nothing", "asked Bravo Vale". Requiring two
+       capitalised words keeps ordinary prose out ("She said", "The door"). */
+    var verb = '(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added|laughed|sighed)';
+    var after = new RegExp('\\b([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)\\s+' + verb + '\\b', 'g');
+    var before = new RegExp('\\b' + verb + '\\s+([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)\\b', 'g');
+    var m;
+    while ((m = after.exec(blob))) act(m[1]);
+    while ((m = before.exec(blob))) act(m[1]);
+
+    /* Prose vouches for a name the same way a label does: "Rose said",
+       "asked Rose". This is what separates a person from a field name. */
+    order.slice().forEach(function (low) {
+      var name = cands[low].name;
+      var q = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var said = new RegExp(
+        '(\\b' + q + '\\s+(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added|laughed|sighed)\\b)' +
+        '|(\\b(?:said|asked|replied|answered|whispered|murmured|snapped)\\s+' + q + '\\b)', 'gi');
+      cands[low].acts += (blob.match(said) || []).length;
+    });
+
+    /* A person recurs. A heading, a field label and a one-off mention do not. */
+    var found = [], seen = {};
+    order.forEach(function (low) {
+      if (cands[low].acts < 2) return;
+      var name = cands[low].name, key = norm(name);
+      if (seen[key] || seen[firstWord(key)]) return;
+      seen[key] = true; seen[firstWord(key)] = true;
+      found.push(name);
+    });
     return found.slice(0, 6);
   };
 

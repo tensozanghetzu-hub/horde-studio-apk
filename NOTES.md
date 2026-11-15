@@ -1,5 +1,28 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.77 — Scene cast stops reading field labels as people (2026-11-15)
+
+- Reported from a real card: the Scene strip showed "Main INTRO", "Rose" and
+  "Relationship" as if three people were on the porch. They came from the
+  label scan, which treated any `Capitalised words:` line as a speaker — a
+  section heading and a profile field are shaped exactly like `Rose: come in.`
+- A name is now a person only when the card uses it to speak, more than once:
+  words after the colon, or a two-word proper name beside a speech verb
+  ("Bravo Vale said", "asked Bravo Vale"). A bare `Heading:` proves nothing; a
+  single mention does not either. All-caps headings ("Main INTRO") are
+  rejected outright. v1.39.59 fixed the header scan; this is the other half,
+  the label scan it never covered.
+- `sceneCastPrompt` no longer injects for a one-name cast. The strip hides
+  below two names, so a single-character chat was still carrying "SCENE
+  CAST — THIS OVERRIDES THE CARD: Present in this scene: Rose, Blu" on every
+  turn — an instruction the user never asked for, on a card with one person
+  in it. Screen and prompt now agree.
+- `CAST_REV` 2 → 3, so chats that stored the old picks re-detect once on open.
+  Casts edited by hand are still left alone.
+- Tests: scenecast-test (16) reproduces the reported card, checks headings in
+  every shape, checks that real speakers are still found, and pins the
+  one-name prompt rule. Suite 97 → 98 files, 0 failing.
+
 ## v1.39.76 — card containers (§K, APK-ISSUES-2) (2026-11-15)
 
 All five findings confirmed against the code at `b84df09` before anything was

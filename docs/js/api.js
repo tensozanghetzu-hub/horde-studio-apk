@@ -406,7 +406,11 @@
      most recent instruction — and worded to override the card. */
   function sceneCastPrompt(session, userName) {
     var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
-    if (!cast.length) return '';
+    /* v1.39.77: one name is not a cast. The strip hides below two, and the
+       prompt must agree with the screen — otherwise a single-character card
+       silently carries "SCENE CAST — THIS OVERRIDES THE CARD" on every turn,
+       which is both a waste and an instruction the user never asked for. */
+    if (cast.length < 2) return '';
     var presentNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) !== -1; });
     var awayNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) === -1; });
     var lines = [];
