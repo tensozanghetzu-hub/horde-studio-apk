@@ -1,5 +1,27 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.89 — memory that fails says why, and salvages what it can (2026-11-16)
+
+The v1.39.86 guard did its job — it refused to store junk — but it was catching
+more than refusals, and it said nothing about which case it was.
+
+- **A truncated answer is not a refusal.** The summariser asked for up to 900
+  tokens' worth of output while the request ceiling was 500, so on a long chat
+  the JSON was cut mid-object, `JSON.parse` failed, and the whole memory was
+  discarded. The ceiling is now 900, the fact count is trimmed to 8, and
+  `parseMemory` salvages the `"summary"` field from an incomplete object —
+  the summary is written first, so it is usually whole.
+- **One retry, in prose.** If the model will not produce JSON, it will usually
+  write five sentences: the second attempt asks for plain prose with no JSON and
+  no headings, and accepts it.
+- **Every rejection now carries a reason** — "the model returned nothing",
+  "the model refused", "unfinished JSON", "too short to be a summary" — and the
+  raw reply is kept. The toast names the reason and points to the Memory sheet,
+  which shows the reason, what the model actually said, and confirms nothing was
+  overwritten. A silent guard is only half a fix.
+- The world summariser gets the same ceiling.
+- Tests: session-defects 61 → 80. Suite 104/0, generic checks clean.
+
 ## v1.39.88 — the general-purpose rule, enforced (2026-11-16)
 
 The standing rule is now written down and **tested**, not remembered.

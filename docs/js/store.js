@@ -25,7 +25,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.39.88';
+  var VERSION = '1.39.89';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },

@@ -2012,7 +2012,7 @@
       'Read the transcript and return STRICT JSON only, with no commentary:\n' +
       '{"summary":"<3-6 sentences capturing plot, tone and where things stand>",' +
       '"facts":["<short durable fact>","..."]}\n' +
-      'Keep at most 12 facts. Facts must be durable: names, places, relationships, injuries, promises, objects, goals.\n' +
+      'Keep at most 8 facts. Facts must be durable: names, places, relationships, injuries, promises, objects, goals.\n' +
       (session && session.summary ? 'Existing summary to extend:\n' + repairMojibake(session.summary) + '\n' : '') +
       (session && session.facts && session.facts.length ? 'Existing facts:\n' + session.facts.map(repairMojibake).join('\n') + '\n' : '');
     var rules = instruction;
@@ -2036,8 +2036,29 @@
         maxWait: 300
       }).then(function (r) { return parseMemory(r.text); });
     }
-    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 500 })
-      .then(parseMemory);
+    /* v1.39.89: 500 tokens was not enough for a six-sentence summary plus a
+       dozen facts, so on a long chat the answer was cut mid-JSON and the whole
+       memory was discarded. The ceiling is raised, the fact count trimmed, and
+       there is one cheap retry that asks for the summary alone — a model that
+       will not produce JSON will usually still write five sentences. */
+    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 900 })
+      .then(function (raw) {
+        var mem = parseMemory(raw);
+        if (mem.ok) return mem;
+        var retry = [
+          { role: 'system', content: 'You summarise a roleplay for its own memory.' },
+          { role: 'user', content: 'Transcript:\n' + convo +
+            '\n\nWrite 3-6 plain sentences saying what has happened, who is where, and what is unresolved. No JSON, no headings, no commentary.' }
+        ];
+        return streamChat(s, retry, null, null, { stream: false, temperature: 0.3, max_tokens: 400 })
+          .then(function (raw2) {
+            var mem2 = parseMemory(raw2);
+            if (mem2.ok) return mem2;
+            mem.reason = mem.reason || mem2.reason;
+            mem.lastRaw = String(raw2 || raw || '').slice(0, 600);
+            return mem;
+          }, function () { return mem; });
+      });
   }
 
   /* v1.36.0: a world run gets the same memory discipline as a persona
@@ -2082,7 +2103,9 @@
       { role: 'system', content: rules },
       { role: 'user', content: 'Transcript:\n' + convo + '\n\nReturn the JSON now.' }
     ];
-    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 500 })
+    /* v1.39.89: same ceiling as the chat summariser — a world log is longer
+       than a chat transcript, not shorter. */
+    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 900 })
       .then(parseMemory);
   }
 
@@ -2106,9 +2129,9 @@
   }
 
   function parseMemory(text) {
-    var out = { summary: '', facts: [], ok: false };
+    var out = { summary: '', facts: [], ok: false, reason: '' };
     var raw = String(text || '').trim();
-    if (!raw) return out;
+    if (!raw) { out.reason = 'the model returned nothing'; return out; }
     var start = raw.indexOf('{');
     var end = raw.lastIndexOf('}');
     var body = '';
@@ -2120,15 +2143,34 @@
         out.ok = true;
       } catch (e) { body = ''; }
     }
+    /* v1.39.89: a reply cut off by the token ceiling is not a refusal. The
+       summary is the first thing the model writes, so when the JSON is
+       incomplete the summary is usually whole and only the facts are missing.
+       Salvage it rather than lose the whole memory. */
+    if (!body && start !== -1) {
+      var sm = /"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
+      if (sm) {
+        try { body = JSON.parse('"' + sm[1] + '"').trim(); }
+        catch (e2) { body = sm[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').trim(); }
+        var fm = /"facts"\s*:\s*\[([\s\S]*)$/.exec(raw);
+        if (fm) {
+          var items = fm[1].match(/"((?:[^"\\]|\\.)*)"/g) || [];
+          out.facts = items.map(function (q) {
+            try { return JSON.parse(q).trim(); } catch (e3) { return q.replace(/^"|"$/g, '').trim(); }
+          }).filter(Boolean).slice(0, 12);
+        }
+        out.salvaged = true;
+      }
+    }
     /* No usable JSON: only accept plain prose that reads like a summary. */
     if (!body && !out.ok) {
       body = raw.slice(0, 800).trim();
-      if (MEMORY_REFUSAL.test(body)) return out;
-      if (body.length < 40) return out;
-      if (/^[\[{]/.test(body)) return out;      /* broken JSON, not prose */
+      if (MEMORY_REFUSAL.test(body)) { out.reason = 'the model refused'; return out; }
+      if (/^[\[{]/.test(body)) { out.reason = 'the model returned unfinished JSON'; return out; }
+      if (body.length < 40) { out.reason = 'the answer was too short to be a summary'; return out; }
     }
-    if (!body) return out;
-    if (MEMORY_REFUSAL.test(body) && body.length < 400) return out;
+    if (!body) { out.reason = 'the model returned no summary field'; return out; }
+    if (MEMORY_REFUSAL.test(body) && body.length < 400) { out.reason = 'the model refused'; return out; }
     out.summary = body;
     out.ok = true;
     return out;

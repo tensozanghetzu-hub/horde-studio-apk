@@ -2642,7 +2642,19 @@
              refusal — and that text then stood in for the whole past on every
              later prompt. */
           if (!mem || !mem.summary || mem.ok === false) {
-            UI.toast('Memory not updated: the model did not return a usable summary. Your existing memory is unchanged.', 5000);
+            /* v1.39.89: say WHY, and keep the raw reply so it can be inspected
+               in the Memory sheet instead of vanishing into a toast. */
+            App.lastMemoryFailure = {
+              at: Date.now(),
+              reason: (mem && mem.reason) || 'no usable summary came back',
+              raw: (mem && mem.lastRaw) || '',
+              characterName: (c && c.name) || '',
+              sessionId: session.id
+            };
+            if (!silent) {
+              UI.toast('Memory not updated: ' + App.lastMemoryFailure.reason +
+                '. Your existing memory is unchanged. See Memory for details.', 6000);
+            }
             return;
           }
           session.summary = mem.summary;
@@ -4422,7 +4434,13 @@
       }
       UI.sheet({
         title: 'Memory · ' + (s.title || 'New chat'),
-        body: (typeof API !== 'undefined' && API.memoryLooksBroken && API.memoryLooksBroken(s.summary)
+        body: (App.lastMemoryFailure && App.lastMemoryFailure.sessionId === s.id
+          ? '<div class="field"><div class="hint" style="margin:0 0 8px"><b>The last memory attempt failed.</b> ' +
+            esc(App.lastMemoryFailure.reason) + '. Nothing was overwritten' +
+            (App.lastMemoryFailure.raw ? '; the model said: <i>' + esc(App.lastMemoryFailure.raw.slice(0, 220)) + '</i>' : '') +
+            '.</div><div class="hint" style="margin:0">Try Regenerate with AI; if it keeps failing, copy this text and send it on.</div></div>'
+          : '') +
+        (typeof API !== 'undefined' && API.memoryLooksBroken && API.memoryLooksBroken(s.summary)
           ? '<div class="field" style="border-color:#b45309"><div class="hint" style="margin:0 0 8px">' +
             '<b>This memory does not read like a summary.</b> Older versions stored whatever the model ' +
             'replied — including a refusal — as the story so far, and that text has been standing in for ' +

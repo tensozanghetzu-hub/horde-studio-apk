@@ -90,7 +90,7 @@ ok('the JSON request rides with the transcript',
   /Return the JSON now\.' \}/.test(apiSrc));
 ok('the caller writes nothing on failure',
   /if \(!mem \|\| !mem\.summary \|\| mem\.ok === false\)/.test(appSrc));
-ok('…and says so', /Memory not updated: the model did not return a usable summary/.test(appSrc));
+ok('…and says so', /Memory not updated: ' \+ App\.lastMemoryFailure\.reason/.test(appSrc));
 
 /* ------------------------------------------------------------------ */
 console.log('\n2. the OOC answer survives the cleanup');
@@ -179,6 +179,45 @@ same('a stub is flagged', API.memoryLooksBroken('Okay.'), true);
 ok('the Memory sheet offers to clear it', /This memory does not read like a summary\./.test(appSrc));
 ok('…and says why it happened', /Older versions stored whatever the model/.test(appSrc));
 ok('…with a clear button that empties the summary', /#clearbad/.test(appSrc) && /body\.querySelector\('#sum'\)\.value = ''/.test(appSrc));
+
+/* ------------------------------------------------------------------ */
+/* v1.39.89 — the guard works, but a truncated answer is not a refusal. */
+console.log('\na cut-off JSON answer is salvaged, not discarded');
+
+var truncated = '{"summary":"Aston and Sloane have moved into the spare rooms. Mara dislikes the surprise but is coming around, and Sloane has started her job at the mall.","facts":["Aston is Sloane\'s father","Mara is the player\'s wife","Sloane works at Hot Topic","The second guest room is ';
+var t = API.parseMemory(truncated);
+ok('the summary survives a cut-off facts array',
+  t.summary.indexOf('moved into the spare rooms') !== -1, t.summary);
+same('…and the memory is usable', t.ok, true);
+ok('…flagged as salvaged', t.salvaged === true);
+same('only whole facts are kept', t.facts.length, 3);
+
+var noFacts = '{"summary":"Aston and Sloane have moved in, and Mara is slowly thawing toward the idea of them staying."';
+ok('a summary with no closing brace still parses',
+  API.parseMemory(noFacts).summary.indexOf('slowing thawing') !== -1 ||
+  API.parseMemory(noFacts).summary.indexOf('slowly thawing') !== -1);
+
+console.log('\nevery rejection says why');
+same('an empty reply says so', API.parseMemory('').reason, 'the model returned nothing');
+same('a refusal is named', API.parseMemory(refusal).reason, 'the model refused');
+same('unfinished JSON is named', API.parseMemory('{"summary": "some text but no close').reason,
+  'the model returned unfinished JSON');
+same('a stub is named', API.parseMemory('Okay.').reason, 'the answer was too short to be a summary');
+
+console.log('\nthe attempt is retried once, asking for prose');
+ok('the JSON attempt has a higher ceiling than the old 500',
+  /max_tokens: 900/.test(apiSrc) && !/max_tokens: 500/.test(apiSrc));
+ok('the fact count was trimmed to fit it', /Keep at most 8 facts/.test(apiSrc));
+ok('a retry asks for plain sentences', /Write 3-6 plain sentences/.test(apiSrc));
+ok('…with no JSON', /No JSON, no headings, no commentary/.test(apiSrc));
+ok('…only if the first attempt failed', /var mem = parseMemory\(raw\);\s*if \(mem\.ok\) return mem;/.test(apiSrc));
+
+console.log('\nthe failure is visible afterwards');
+ok('the app records why memory failed', /App\.lastMemoryFailure = \{/.test(appSrc));
+ok('…and the raw reply with it', /raw: \(mem && mem\.lastRaw\)/.test(appSrc));
+ok('the toast names the reason', /'Memory not updated: ' \+ App\.lastMemoryFailure\.reason/.test(appSrc));
+ok('the Memory sheet shows it', /The last memory attempt failed\./.test(appSrc));
+ok('…and says nothing was overwritten', /Nothing was overwritten/.test(appSrc));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
