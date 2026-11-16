@@ -4436,9 +4436,14 @@
         title: 'Memory · ' + (s.title || 'New chat'),
         body: (App.lastMemoryFailure && App.lastMemoryFailure.sessionId === s.id
           ? '<div class="field"><div class="hint" style="margin:0 0 8px"><b>The last memory attempt failed.</b> ' +
-            esc(App.lastMemoryFailure.reason) + '. Nothing was overwritten' +
-            (App.lastMemoryFailure.raw ? '; the model said: <i>' + esc(App.lastMemoryFailure.raw.slice(0, 220)) + '</i>' : '') +
-            '.</div><div class="hint" style="margin:0">Try Regenerate with AI; if it keeps failing, copy this text and send it on.</div></div>'
+            esc(App.lastMemoryFailure.reason) + '. Nothing was overwritten.</div>' +
+            '<div class="hint" style="margin:0 0 8px">What the model actually returned' +
+            (App.lastMemoryFailure.raw ? ' (cut to 400 characters):' : ' was empty.') + '</div>' +
+            (App.lastMemoryFailure.raw
+              ? '<textarea readonly rows="6" style="font-size:12px">' + esc(App.lastMemoryFailure.raw.slice(0, 400)) + '</textarea>'
+              : '') +
+            '<div class="hint" style="margin:8px 0 0">Try Regenerate with AI. If it keeps failing, screenshot ' +
+            'this so the failure can be diagnosed instead of guessed at.</div></div>'
           : '') +
         (typeof API !== 'undefined' && API.memoryLooksBroken && API.memoryLooksBroken(s.summary)
           ? '<div class="field" style="border-color:#b45309"><div class="hint" style="margin:0 0 8px">' +

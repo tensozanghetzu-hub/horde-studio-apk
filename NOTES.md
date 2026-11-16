@@ -1,5 +1,32 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.90 — the refusal test was eating honest summaries (2026-11-16)
+
+The toast said "the model refused" twice running, on a chat where the model had
+nothing to refuse. It was the guard, not the model.
+
+- **`MEMORY_REFUSAL` matched anywhere in the text.** Its alternatives included
+  bare fragments — `there is no`, `no (roleplay|content|conversation|history)`,
+  `i can't` — so a real summary of a scene where nobody had agreed on the rent
+  yet ("there is no agreement about it") was classified as a refusal and thrown
+  away, and the prose retry was thrown away for the same reason. The pattern is
+  now anchored to the start of the text and names refusal *openings* only.
+- **Parsed JSON is authoritative.** A summary that came out of valid JSON is the
+  field the model was asked for; it is only rejected if it IS a refusal, first
+  words and all (under 240 characters).
+- **A self-inflicted bug found while fixing it:** the first version of the new
+  pattern was assembled from single-quoted strings, where `\s` and `\b` are
+  not what they look like — the escapes became a literal `s` and a backspace
+  character, so nothing matched. It is a regex literal now, and the tests pin
+  both directions.
+- **Both attempts are reported.** The reason now carries the retry's outcome,
+  including "the retry failed" when the request itself throws, and the first
+  attempt's text is kept even then. The Memory sheet shows what the model
+  actually returned, in a read-only box, instead of only a sentence about it.
+- Tests: session-defects 80 → 102 — honest summaries containing "there is no",
+  "cannot", "no agreement" are kept, and seven refusal shapes are still caught.
+  Suite 104/0, generic checks clean.
+
 ## v1.39.89 — memory that fails says why, and salvages what it can (2026-11-16)
 
 The v1.39.86 guard did its job — it refused to store junk — but it was catching

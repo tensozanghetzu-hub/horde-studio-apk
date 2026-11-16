@@ -2054,10 +2054,18 @@
           .then(function (raw2) {
             var mem2 = parseMemory(raw2);
             if (mem2.ok) return mem2;
-            mem.reason = mem.reason || mem2.reason;
+            /* both attempts are reported: which one failed matters */
+            mem.reason = (mem.reason || 'no usable summary') +
+              (mem2.reason && mem2.reason !== mem.reason ? ' (retry: ' + mem2.reason + ')' : '');
             mem.lastRaw = String(raw2 || raw || '').slice(0, 600);
+            mem.firstRaw = String(raw || '').slice(0, 600);
             return mem;
-          }, function () { return mem; });
+          }, function (err) {
+            mem.reason = (mem.reason || 'no usable summary') + ' (retry: ' +
+              String((err && err.message) || 'the retry failed') + ')';
+            mem.lastRaw = String(raw || '').slice(0, 600);
+            return mem;
+          });
       });
   }
 
@@ -2117,7 +2125,13 @@
      far". Past the history budget that summary is the ONLY record of the past,
      so the chat's memory became a note saying there was nothing to remember.
      A model's silence is now a failure the caller reports, never content. */
-  var MEMORY_REFUSAL = /\b(?:no transcript|not provided|nothing to (?:summari|summarize|extract)|no (?:roleplay|content|conversation|history|text)\b|i (?:can't|cannot|won't|am unable to|'m unable to)|unable to (?:summari|process|comply|extract)|as an ai\b|there is no\b)/i;
+  /* v1.39.90: only a refusal that OPENS the text is a refusal.
+     The old pattern matched anywhere — "there is no", "no conversation",
+     "I can't" — so an honest summary of a scene where nobody had agreed on
+     the rent yet ("there is no agreement about it") was thrown away as a
+     model refusal, twice if the retry said something similar. A refusal is
+     the whole of what the model said, and it starts the answer. */
+  var MEMORY_REFUSAL = /^(?:(?:i\s+)?(?:cannot|can\s*not|can't|won't|will not|am unable to|am not able to|i'm unable to|i'm not able to)\b|as an ai\b|no transcript\b|there (?:is|was) no (?:transcript|conversation|roleplay|content|history|text)\b|the (?:transcript|conversation|content|text|input) (?:was|is) (?:not provided|missing|empty|absent)\b|(?:transcript|conversation|content|text|input) (?:was|were) not provided\b|nothing to (?:summari[sz]e|extract)\b|unable to (?:summari[sz]e|process|comply|extract)\b)/i;
   /* Does a stored summary read like a refusal, or like nothing at all? Used by
      the Memory sheet to flag a chat whose past was quietly replaced by the
      model's excuse. */
@@ -2170,7 +2184,9 @@
       if (body.length < 40) { out.reason = 'the answer was too short to be a summary'; return out; }
     }
     if (!body) { out.reason = 'the model returned no summary field'; return out; }
-    if (MEMORY_REFUSAL.test(body) && body.length < 400) { out.reason = 'the model refused'; return out; }
+    /* A summary that came out of parsed JSON is the field the model was asked
+       for; it is only rejected if it IS a refusal, first words and all. */
+    if (MEMORY_REFUSAL.test(body) && body.length < 240) { out.reason = 'the model refused'; return out; }
     out.summary = body;
     out.ok = true;
     return out;

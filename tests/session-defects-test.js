@@ -219,5 +219,45 @@ ok('the toast names the reason', /'Memory not updated: ' \+ App\.lastMemoryFailu
 ok('the Memory sheet shows it', /The last memory attempt failed\./.test(appSrc));
 ok('…and says nothing was overwritten', /Nothing was overwritten/.test(appSrc));
 
+/* ------------------------------------------------------------------ */
+/* v1.39.90 — the refusal test was eating honest summaries.
+   It matched anywhere in the text: "there is no", "no conversation",
+   "I can't". A perfectly good summary of a scene where nobody had agreed on
+   the rent yet was thrown away as a model refusal — and the retry, saying
+   something similar, was thrown away too. */
+console.log('\nthe refusal test only fires when a refusal opens the answer');
+
+var honest = '{"summary":"Aston and Sloane moved in. There is no agreement about the rent yet, and Mara is watching how long they really stay.","facts":["Aston has no job yet"]}';
+var h = API.parseMemory(honest);
+ok('a summary mentioning "there is no" is kept',
+  h.summary.indexOf('no agreement about the rent') !== -1, h.summary);
+same('…and is usable', h.ok, true);
+
+var honestProse = 'There is no agreement about the rent yet, but Aston and Sloane have settled into the second room and Mara is thawing.';
+ok('the same in prose is kept too', API.parseMemory(honestProse).ok, true);
+
+var withCant = '{"summary":"Sloane cannot ask for anything outright, so she waits until Mara leaves the room. Aston says he cannot take another favour."}';
+ok('"cannot" inside a summary is not a refusal',
+  API.parseMemory(withCant).summary.indexOf('waits until Mara') !== -1);
+
+['No transcript was provided, so there is no roleplay content to summarize.',
+ 'I cannot summarize this without the transcript.',
+ "I'm unable to extract facts from this material.",
+ 'As an AI, I am not able to continue this task.',
+ 'There is no conversation here to summarize.',
+ 'The transcript was not provided.',
+ 'Nothing to summarize.'
+].forEach(function (t) {
+  same('still refused: "' + t.slice(0, 30) + '…"', API.parseMemory(t).summary, '');
+  same('…and named', API.parseMemory(t).reason, 'the model refused');
+});
+
+console.log('\nboth attempts report, and the text is kept');
+ok('the retry reason is appended', /\(retry: '/.test(apiSrc) || /' \(retry: ' \+/.test(apiSrc));
+ok('a failed retry request is named', /the retry failed/.test(apiSrc));
+ok('the first attempt is kept even if the retry throws', /mem\.lastRaw = String\(raw \|\| ''\)/.test(apiSrc));
+ok('parsed JSON is only rejected for a short outright refusal',
+  /MEMORY_REFUSAL\.test\(body\) && body\.length < 240/.test(apiSrc));
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
