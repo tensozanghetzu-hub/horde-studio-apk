@@ -1,5 +1,24 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.80 — Chat health that opens, and a turn you can still read (2026-11-16)
+
+- **Chat health did nothing.** The sheet called `IDB.all('messages')`; the store
+  has `getAll` and `getAllByIndex` and has never had `all`. The throw happened
+  while `Promise.all([...])` was building its argument array — synchronously —
+  so the `.catch()` chained after it never ran: no sheet, no toast, no error.
+  The menu had already called `close()`, so the whole visible result was a menu
+  that vanished. It now reads through `Store.getMessages(sessionId)`, the
+  indexed getter the rest of the app uses, and a missing session says so
+  instead of silently returning.
+- **The turn went off the edge.** v1.39.79 appended `· turn N` to the header
+  line, which is a single ellipsised row: a real chat title ("First Night on
+  Coruscant · t…") pushed the turn out of sight. It is now a prefix —
+  `turn 4 · as Blu · First Night on Coruscant` — where truncation cannot reach
+  it. The title is already in the Chats list; the turn is not.
+- Tests: chat-health-test (14) drives the sheet end to end against a fake IDB
+  and scans every file for calls to IDB methods that do not exist, so this
+  class of bug cannot come back silently. Suite 100 → 101 files, 0 failing.
+
 ## v1.39.79 — the footer under a reply, and knowing what turn you are on (2026-11-16)
 
 - Reported from a screenshot: a reply with two full paragraphs under it read

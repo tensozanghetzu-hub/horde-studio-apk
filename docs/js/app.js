@@ -1010,12 +1010,18 @@
     };
   };
 
+  /* v1.39.80: this sheet called `IDB.all('messages')`, a method that has never
+     existed — the store has `getAll` and `getAllByIndex`. The call threw
+     synchronously while the promise array was being built, so the `.catch()`
+     below never ran and the menu simply closed with nothing happening and no
+     toast. It reads through the same indexed getter the rest of the app uses. */
   App.chatHealthSheet = function (sessionId) {
-    Promise.all([IDB.all('messages').then(function (all) {
-      return all.filter(function (m) { return m.sessionId === sessionId; });
+    Promise.all([Store.getMessages(sessionId).then(function (list) {
+      return (list || []).slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
     }), IDB.get('sessions', sessionId)]).then(function (r) {
-      var msgs = (r[0] || []).sort(function (a, b) { return a.createdAt - b.createdAt; });
+      var msgs = r[0] || [];
       var sess = r[1];
+      if (!sess) { UI.toast('That chat no longer exists'); return; }
       var h = App.chatHealth(sess, msgs, Store.settings);
       UI.sheet({
         title: 'Chat health',
@@ -1901,8 +1907,13 @@
        swaps which of a character's conversations you are looking at. */
     if (Store.settings.activePersona) sub = 'as ' + Store.personaLabel() + ' · ' + sub;
     if (!isGroup && ch && ch.vh && ch.vh.enabled) sub = VH.status(ch).text + ' · ' + sub;
+    /* v1.39.80: the turn used to be appended last, and the header is a single
+       ellipsised line — so a real chat title ("First Night on Coruscant · t…")
+       pushed it off the edge. It now comes first, where truncation cannot
+       reach it: the title is already in the Chats list, the turn is not. */
     var turn = App.chatTurn(App.state.messages);
-    return sub + ' · ' + (turn ? 'turn ' + turn : 'opening');
+    var lead = turn ? 'turn ' + turn : 'opening';
+    return lead + ' · ' + sub;
   };
 
   App.refreshChatHead = function () {
