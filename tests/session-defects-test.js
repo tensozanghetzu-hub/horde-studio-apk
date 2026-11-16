@@ -1,0 +1,184 @@
+#!/usr/bin/env node
+/* The four defects reported from an 11-turn session on a three-speaker card.
+ *
+ * 1. A model refusal was stored as the memory summary — and past the history
+ *    budget that summary is the only record of the past.
+ * 2. The OOC rule asked for a line the cleanup then deleted as "thinking".
+ * 3. `castRev` never invalidated when the CARD changed.
+ * 4. Every reply was labelled with the card's name, in the prompt, the export
+ *    and the summariser — so Aston's dialogue reached the model as Sloane's.
+ */
+'use strict';
+var fs = require('fs');
+var vm = require('vm');
+var path = require('path');
+var ROOT = path.join(__dirname, '..');
+var JS = path.join(ROOT, 'horde-studio-mobile', 'js');
+var apiSrc = fs.readFileSync(path.join(JS, 'api.js'), 'utf8');
+var appSrc = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
+
+var pass = 0, fail = 0;
+function ok(name, cond, detail) {
+  if (cond) { pass++; console.log('  ok   ' + name); }
+  else { fail++; console.log('  FAIL ' + name + (detail !== undefined ? '  -> ' + detail : '')); }
+}
+function same(name, got, want) {
+  ok(name, String(got) === String(want), JSON.stringify(got) + ' != ' + JSON.stringify(want));
+}
+function loadApi() {
+  var mem = {};
+  var sb = {
+    Promise: Promise, JSON: JSON, Object: Object, Date: Date, Array: Array, Math: Math,
+    String: String, Number: Number, RegExp: RegExp, Error: Error, console: console,
+    Uint8Array: Uint8Array, DataView: DataView, TextEncoder: TextEncoder, TextDecoder: TextDecoder,
+    atob: function (s) { return Buffer.from(String(s), 'base64').toString('binary'); },
+    btoa: function (s) { return Buffer.from(String(s), 'binary').toString('base64'); },
+    setTimeout: function () { },
+    localStorage: { getItem: function (k) { return mem[k] || null; }, setItem: function (k, v) { mem[k] = String(v); } },
+    location: { hostname: 'localhost', origin: 'http://localhost' },
+    navigator: { userAgent: 'node' },
+    fetch: function () { return Promise.reject(new Error('offline')); }
+  };
+  sb.window = sb;
+  vm.runInNewContext(apiSrc, sb, { filename: 'api.js' });
+  return sb.API;
+}
+var API = loadApi();
+
+var char = { id: 'c1', name: 'Sloane', persona: 'p', greeting: 'g', scenario: '', examples: '' };
+var session = { sceneCast: ['Sloane', 'Aston', 'Mara'], scenePresent: ['Sloane', 'Aston', 'Mara'] };
+
+/* ------------------------------------------------------------------ */
+console.log('1. a refusal is not a summary');
+
+var refusal = 'No transcript was provided, so there is no roleplay content to summarize or extract facts from.';
+var r = API.parseMemory(refusal);
+same('the refusal is rejected', r.summary, '');
+same('…and the caller is told it failed', r.ok, false);
+
+['I cannot summarize this without the transcript.',
+ "I'm unable to extract facts from the material provided.",
+ 'There is no conversation here to summarize.',
+ 'As an AI, I am not able to continue this task.'
+].forEach(function (t) {
+  same('refused: "' + t.slice(0, 28) + '…"', API.parseMemory(t).summary, '');
+});
+
+var good = '{"summary":"Aston and Sloane move in. Mara resents the decision but concedes the second guest room. Sloane is quiet and grateful.","facts":["Aston is Sloane\'s father","Sloane works at Hot Topic"]}';
+var g = API.parseMemory(good);
+ok('a real JSON answer is kept', g.summary.indexOf('second guest room') !== -1, g.summary);
+same('…and marked usable', g.ok, true);
+same('…with its facts', g.facts.length, 2);
+
+var fenced = '```json\n' + good + '\n```';
+ok('markdown fences are tolerated', API.parseMemory(fenced).summary.indexOf('second guest room') !== -1);
+
+var prose = 'Aston and Sloane have moved into the spare rooms after his shop closed. Mara dislikes the surprise but is coming around. Sloane has a job at the mall.';
+same('a plain prose summary is still accepted', API.parseMemory(prose).summary.length > 40, true);
+same('…and marked usable', API.parseMemory(prose).ok, true);
+same('a stub of a summary is rejected', API.parseMemory('Okay.').summary, '');
+same('broken JSON is not stored as prose', API.parseMemory('{"summary": "unfinished').summary, '');
+
+console.log('\nthe transcript travels in the user turn');
+ok('the summariser builds a system message of rules',
+  /var rules = instruction;/.test(apiSrc));
+ok('…and a user message holding the transcript',
+  /content: 'Transcript:\\n' \+ convo/.test(apiSrc));
+ok('the old "Return the JSON now." to nobody is gone',
+  !/content: 'Return the JSON now\.' \}/.test(apiSrc));
+ok('the JSON request rides with the transcript',
+  /Return the JSON now\.' \}/.test(apiSrc));
+ok('the caller writes nothing on failure',
+  /if \(!mem \|\| !mem\.summary \|\| mem\.ok === false\)/.test(appSrc));
+ok('…and says so', /Memory not updated: the model did not return a usable summary/.test(appSrc));
+
+/* ------------------------------------------------------------------ */
+console.log('\n2. the OOC answer survives the cleanup');
+same('an [ooc] line is not planning', API.isMetaLine('[ooc] She is asking you, not Mara.'), false);
+same('…nor a (ooc) line', API.isMetaLine('(OOC) She means you.'), false);
+same('…nor a plain OOC: line', API.isMetaLine('OOC: she is asking you.'), false);
+same('[note] is still planning', API.isMetaLine('[note] keep the tone light'), true);
+same('[meta] is still planning', API.isMetaLine('[meta] check the card'), true);
+
+var oocReply = '[ooc] She is asking you, not Mara.\n\n*Sloane glances at the doorway, then back at you.*\n\n"Dad does not know it."';
+var kept = API.stripThinking(oocReply, true);
+ok('a reply that opens with an OOC answer keeps that answer',
+  kept.indexOf('She is asking you, not Mara') !== -1, kept);
+
+console.log('\na character can still leave a note');
+var noteReply = 'Note: I fed the cat.\n\n*Mara sets the paper on the counter and leaves.*\n\n"She will find it when she gets home tonight."';
+ok('a bare "Note:" scene beat is not planning',
+  API.isMetaLine('Note: I fed the cat.') === false);
+ok('…and survives stripping', API.stripThinking(noteReply, true).indexOf('I fed the cat') !== -1);
+
+ok('the rule asks for the answer first', /step out of \{\{char\}\} and answer it first/.test(apiSrc));
+ok('…prefixed so it can be seen as an aside', /begins with "OOC:"/.test(apiSrc));
+ok('…and forbids answering only through the fiction',
+  /Never answer an OOC question only through the fiction/.test(
+    API.buildChat(char, session, [], { userName: 'Blu', systemPrompt: 'x', maxTokens: 600 })[0].content));
+
+/* ------------------------------------------------------------------ */
+console.log('\n3. editing the card invalidates the cast');
+var fpStart = appSrc.indexOf('  App.castFingerprint = function (char) {');
+var fpEnd = appSrc.indexOf('\n  };', fpStart) + 4;
+ok('a fingerprint function exists', fpStart > 0 && fpEnd > fpStart);
+var sbApp = { App: {}, console: console };
+vm.runInNewContext(appSrc.slice(fpStart, fpEnd) + '\nthis.App = App;', sbApp, { filename: 'castFingerprint.js' });
+var fp = sbApp.App.castFingerprint;
+var cardA = { name: 'Sloane', persona: 'Name: Aston\nAge: 42', greeting: 'Hi.', scenario: '', examples: '' };
+var cardB = { name: 'Sloane', persona: 'Name: Aston\nAge: 43', greeting: 'Hi.', scenario: '', examples: '' };
+ok('the same card gives the same fingerprint', fp(cardA) === fp(cardA));
+ok('a renamed character changes it', fp(cardA) !== fp(cardB));
+ok('adding a Cast section changes it',
+  fp(cardA) !== fp({ name: 'Sloane', persona: cardA.persona + '\nCast\n- **Mara** — wife', greeting: 'Hi.', scenario: '', examples: '' }));
+ok('an empty card does not throw', fp(null) === '');
+ok('the re-detect compares the fingerprint', /session\.castFp !== fp/.test(appSrc));
+ok('…and stores it', /session\.castFp = fp;/.test(appSrc));
+
+/* ------------------------------------------------------------------ */
+console.log('\n4. the reply is attributed to whoever spoke');
+same('an Aston reply is Aston', API.splitSpeaker(char, session, 'Aston Ashworth: *He sets the box down.*').name, 'Aston');
+ok('…and the redundant label is removed',
+  API.splitSpeaker(char, session, 'Aston Ashworth: *He sets the box down.*').text.indexOf('Aston') === -1);
+same('a cast name that is not the card name works', API.splitSpeaker(char, session, 'Mara: "Fine."').name, 'Mara');
+same('the card\'s own reply falls back to the card', API.splitSpeaker(char, session, '*She nods.*').name, 'Sloane');
+same('a doubled label is unwound', API.splitSpeaker(char, session, 'Sloane: Aston Ashworth: *He grins.*').name, 'Aston');
+ok('…and both labels are gone',
+  API.splitSpeaker(char, session, 'Sloane: Aston Ashworth: *He grins.*').text.indexOf('Sloane') === -1);
+same('a non-cast label is not invented as a speaker',
+  API.splitSpeaker(char, session, 'The Narrator: once upon a time.').name, 'Sloane');
+same('with no cast, the card name is used', API.splitSpeaker(char, { sceneCast: [] }, 'Aston: hi').name, 'Sloane');
+
+var single = { sceneCast: ['Sloane'] };
+same('a redundant self-label is stripped on a one-name card',
+  API.splitSpeaker(char, single, 'Sloane: *She nods.*').text, '*She nods.*');
+
+var built = API.buildChat(char, session, [
+  { role: 'user', text: 'Come in.' },
+  { role: 'assistant', text: 'Aston Ashworth: *He grins.* "Thanks, buddy."' },
+  { role: 'assistant', text: '*She nods.*' }
+], { userName: 'Blu', systemPrompt: 'x', maxTokens: 600 });
+var hist = built.filter(function (m) { return m.role !== 'system'; }).map(function (m) { return m.content; }).join('\n');
+ok('the prompt labels Aston\'s line Aston', /Aston: \*He grins/.test(hist), hist.slice(0, 300));
+ok('…and does not call the card Sloane twice', hist.indexOf('Sloane: Aston') === -1);
+ok('the card\'s own unlabelled reply is still Sloane', /Sloane: \*She nods/.test(hist));
+ok('the user\'s own line is never given a character name', /^Come in\.$/m.test(hist) && hist.indexOf('Aston: Come in') === -1);
+
+var exportStart = appSrc.indexOf('App.exportTranscript = function');
+var exportSrc = appSrc.slice(exportStart, appSrc.indexOf('\n  };', exportStart));
+ok('the export uses the same speaker resolution', /API\.splitSpeaker\(c, s, m\.text/.test(exportSrc));
+ok('the world log gets the transcript in the user turn too', /Transcript:\\n' \+ convo \+ '\\n\\nReturn the JSON now/.test(apiSrc));
+ok('the summariser does too', /splitSpeaker\(char, session, body\)/.test(apiSrc));
+
+/* ------------------------------------------------------------------ */
+console.log('\na damaged memory is visible and can be cleared');
+same('the refusal already stored is flagged', API.memoryLooksBroken(refusal), true);
+same('an ordinary summary is not', API.memoryLooksBroken(prose), false);
+same('an empty memory is not flagged', API.memoryLooksBroken(''), false);
+same('a stub is flagged', API.memoryLooksBroken('Okay.'), true);
+ok('the Memory sheet offers to clear it', /This memory does not read like a summary\./.test(appSrc));
+ok('…and says why it happened', /Older versions stored whatever the model/.test(appSrc));
+ok('…with a clear button that empties the summary', /#clearbad/.test(appSrc) && /body\.querySelector\('#sum'\)\.value = ''/.test(appSrc));
+
+console.log('\n' + pass + ' passed, ' + fail + ' failed');
+process.exit(fail ? 1 : 0);

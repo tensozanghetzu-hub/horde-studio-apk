@@ -1,5 +1,41 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.86 — the memory that remembered nothing, and four quieter defects (2026-11-16)
+
+All five from a real 11-turn transcript on a three-speaker card. Two were silent:
+they damaged the chat without ever showing an error.
+
+- **A refusal was stored as the memory summary** — the worst of them. The
+  summariser put the transcript in the *system* message and sent a user turn
+  whose whole content was "Return the JSON now." A model reading the user turn
+  as the request saw an instruction with no data and refused. `parseMemory` then
+  stored that refusal, up to 800 characters, as the story so far — and past the
+  history budget that summary is the only record of the past. The transcript now
+  travels in the user turn and the rules in the system turn (the world
+  summariser too); a reply that reads like a refusal is rejected rather than
+  stored, a summary under 40 characters is rejected, and the caller leaves the
+  existing memory untouched and says so. The Memory sheet flags a chat whose
+  stored summary already reads like a refusal, with one button to clear it.
+- **The OOC rule asked for a line the cleanup deleted.** `[ooc] …` was classified
+  as planning and stripped, so the answer the rule asked for could vanish. OOC
+  tags are now exempt; `[note]`/`[meta]`/`[aside]` are still planning, and a bare
+  `Note:` is no longer a meta line at all — that is how a character leaves a note
+  on the table.
+- **The cast never invalidated when the card changed.** `CAST_REV` only moves
+  when the app ships a rule, so editing a card kept the old chips forever.
+  Sessions now carry a fingerprint of everything detection reads (name, persona,
+  greeting, scenario, examples) and re-detect when it differs, unless the player
+  has edited the cast by hand.
+- **Every reply was labelled with the card's own name.** In a chat-format prompt
+  the turns were unattributed; in the string prompt and the export, Aston's
+  dialogue was labelled with the card's name — and the summariser fed it to the
+  model that way, so the memory recorded everyone's lines as one person's.
+  `splitSpeaker` reads a leading label against the scene cast, keeps the one
+  nearest the prose, strips the redundant stack, and falls back to the card name.
+  Applied to the prompt, the export and the summariser.
+- Tests: new `session-defects-test` (61). Suite 102 → 103 files, 0 failing;
+  generic checks clean.
+
 ## v1.39.85 — read the card's own rota (2026-11-16)
 
 A card that lists its people under a "Cast" heading had one of them invisible:

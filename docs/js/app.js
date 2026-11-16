@@ -719,7 +719,7 @@
      "Relationship: Widow, your neighbour" carry a capital letter and a colon,
      so the old scan could not tell them from "Rose: come in." and put both in
      the Scene strip as if they were people standing on the porch. */
-  var CAST_REV = 6;          /* bump when detection rules change */
+  var CAST_REV = 7;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -728,9 +728,15 @@
       if (!session.castChecked) { session.castChecked = true; Store.putSession(session); }
       return;
     }
-    /* Older chats may hold headings the loose scan mistook for people.
-       Re-detect once, unless the player has edited the cast by hand. */
-    if (session.castRev !== CAST_REV && !session.castEdited) {
+    /* v1.39.86: a revision number only moves when the app ships a new rule, so
+       editing the card — renaming someone, adding a Cast section — left the old
+       cast in place indefinitely. The card's own content is the thing that
+       changed; that is what this watches. */
+    var fp = App.castFingerprint(char);
+    /* Older chats may hold headings the loose scan mistook for people, and
+       older cards may name people the current scan can see. Re-detect once per
+       card version, unless the player has edited the cast by hand. */
+    if ((session.castRev !== CAST_REV || session.castFp !== fp) && !session.castEdited) {
       var fresh = App.detectCast(char);
       var wasPresent = Array.isArray(session.scenePresent) ? session.scenePresent : [];
       var wasCast = Array.isArray(session.sceneCast) ? session.sceneCast : [];
@@ -753,6 +759,7 @@
       session.scenePresent = present;
       if (session.addressedTo && fresh.indexOf(session.addressedTo) === -1) session.addressedTo = '';
       session.castRev = CAST_REV;
+      session.castFp = fp;
       session.castChecked = true;
       Store.putSession(session);
       return;
@@ -766,7 +773,17 @@
       session.addressedTo = '';
     }
     session.castRev = CAST_REV;
+    session.castFp = fp;
     Store.putSession(session);
+  };
+
+  /* A stable, cheap fingerprint of everything detectCast reads. */
+  App.castFingerprint = function (char) {
+    if (!char) return '';
+    var src = [char.name, char.persona, char.greeting, char.scenario, char.examples].join('\u0001');
+    var h = 5381;
+    for (var i = 0; i < src.length; i++) h = (((h * 33) >>> 0) ^ src.charCodeAt(i)) >>> 0;
+    return h.toString(36) + '.' + src.length.toString(36);
   };
 
   App.detectCast = function (char) {
@@ -2007,8 +2024,11 @@
         var text = '# ' + (c ? c.name : 'Character') + ' — ' + (s.title || 'New chat') + '\n' +
           '# ' + new Date(s.createdAt).toLocaleString() + '\n\n' +
           msgs.map(function (m) {
-            return (m.role === 'user' ? Store.settings.userName : (c ? c.name : 'Assistant')) + ': ' + (m.text || '') +
-              (m.image ? '\n[image: ' + m.image + ']' : '');
+            if (m.role === 'user') return Store.settings.userName + ': ' + (m.text || '');
+            /* v1.39.86: on a multi-person card every reply used to be labelled
+               with the card's own name, whoever had actually spoken. */
+            var sp = API.splitSpeaker(c, s, m.text || '');
+            return sp.name + ': ' + sp.text + (m.image ? '\n[image: ' + m.image + ']' : '');
           }).join('\n\n') +
           (s.summary ? '\n\n---\nMemory: ' + s.summary + '\n' + (s.facts || []).map(function (f) { return '- ' + f; }).join('\n') : '');
         UI.download((c ? c.name : 'chat') + '-' + (s.title || 'chat') + '.txt', text, 'text/plain');
@@ -2617,6 +2637,14 @@
         return Store.getMessages(session.id).then(function (msgs) {
           return API.summarize({ settings: Store.settings, character: c, session: session, history: msgs });
         }).then(function (mem) {
+          /* v1.39.86: nothing is written unless the model actually produced a
+             summary. The old code stored whatever came back — including a
+             refusal — and that text then stood in for the whole past on every
+             later prompt. */
+          if (!mem || !mem.summary || mem.ok === false) {
+            UI.toast('Memory not updated: the model did not return a usable summary. Your existing memory is unchanged.', 5000);
+            return;
+          }
           session.summary = mem.summary;
           session.facts = mem.facts;
           session.memAt = session.messageCount || 0;
@@ -4394,7 +4422,14 @@
       }
       UI.sheet({
         title: 'Memory · ' + (s.title || 'New chat'),
-        body: '<div class="field"><div class="field-head"><label>Summary</label></div>' +
+        body: (typeof API !== 'undefined' && API.memoryLooksBroken && API.memoryLooksBroken(s.summary)
+          ? '<div class="field" style="border-color:#b45309"><div class="hint" style="margin:0 0 8px">' +
+            '<b>This memory does not read like a summary.</b> Older versions stored whatever the model ' +
+            'replied — including a refusal — as the story so far, and that text has been standing in for ' +
+            'the whole past on every prompt since. Clearing it costs you nothing you do not still have in ' +
+            'the chat above.</div><button type="button" class="btn ghost sm" id="clearbad">Clear it</button></div>'
+          : '') +
+          '<div class="field"><div class="field-head"><label>Summary</label></div>' +
           '<textarea id="sum" class="tall">' + esc(s.summary || '') + '</textarea></div>' +
           '<div class="field"><div class="field-head"><label>Facts</label>' +
           '<span class="spacer"></span><button class="chip" id="addfact">' + icon('plus') + ' Add</button></div>' +
@@ -4417,6 +4452,12 @@
         ],
         onMount: function (body, close) {
           render(body);
+          var clearBad = body.querySelector('#clearbad');
+          if (clearBad) clearBad.onclick = function () {
+            body.querySelector('#sum').value = '';
+            facts.length = 0; render(body);
+            UI.toast('Cleared — tap Save to keep it');
+          };
           body.querySelector('#addfact').onclick = function () {
             addingFact = true; editingFact = -1; deletingFact = -1; render(body);
             var input = body.querySelector('[data-new-fact]');

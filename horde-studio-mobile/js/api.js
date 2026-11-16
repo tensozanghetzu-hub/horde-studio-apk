@@ -57,9 +57,11 @@
      standing rule most models ignore "OOC: ..." lines entirely. */
   var OOC_RULE =
     'Out of character: if {{user}} writes an OOC note (OOC:, [ooc], (ooc)), ' +
-    'step out of {{char}} and answer it in one short plain line, then return ' +
-    'to the scene exactly where it left off. {{char}} never comments on OOC ' +
-    'inside the fiction.';
+    'step out of {{char}} and answer it first, in one short plain line that ' +
+    'begins with "OOC:" and answers the question they actually asked, then return ' +
+    'to the scene exactly where it left off. Never answer an OOC question only ' +
+    'through the fiction - if you are unsure what they are asking, say so in ' +
+    'that line. {{char}} never comments on OOC inside the fiction.';
 
   /* ------------------------------------------------------------------
    * v1.13.1 — HTML in card text.
@@ -775,11 +777,20 @@
     /* v1.13.2: repair double-encoded text in stored messages (the card's
        greeting, a model reply that imitated the card's mojibake) so the
        model stops reading — and imitating — it. */
+    var castNow = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
     var hist = history.map(function (m) {
       var content = repairMojibake(m.text || '');
       /* v1.39.0: a player's photo degrades to the caption they wrote for
          it - text models never see pixels, so the caption IS the photo. */
       if (m.imageCaption && m.role === 'user') content += '\n[photo: ' + m.imageCaption + ']';
+      if (m.role !== 'user' && castNow.length >= 2) {
+        /* v1.39.86: a chat-format provider sends bare turns, so a card with
+           three speakers reached the model as an unattributed wall — and every
+           reply looked like it belonged to the card's own name. The speaker is
+           named, the way the examples do it. */
+        var sp = splitSpeaker(character, session, content);
+        content = sp.name + ': ' + sp.text;
+      }
       return { role: m.role === 'user' ? 'user' : 'assistant', content: content };
     }).filter(function (m) { return m.content.trim(); });
 
@@ -802,6 +813,53 @@
   }
 
   /** Build a plain-text prompt for AI Horde / non-chat backends. */
+  /* v1.39.86: who is actually talking.
+     On a multi-person card the app labelled every reply with the card's own
+     name, so a second character's dialogue reached the model stacked behind
+     it — two labels for one line. The model then copied that shape back, and
+     the export and the memory summariser both recorded everyone's lines under
+     the card's name. A reply usually opens with its own speaker label; when it
+     names someone in the scene cast, that is the speaker: it wins, and the
+     label is removed so it is not sent back twice. */
+  function splitSpeaker(character, session, text) {
+    var fallback = (character && character.name) || 'Assistant';
+    var body = String(text == null ? '' : text);
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    function key(v) { return String(v || '').toLowerCase().replace(/[\u2018\u2019]/g, "'").split(/[\s,]+/)[0]; }
+    function find(label) {
+      var low = String(label || '').toLowerCase().trim();
+      var hit = null;
+      cast.forEach(function (n) {
+        var nl = String(n || '').toLowerCase().trim();
+        if (!nl || hit) return;
+        if (nl === low || key(nl) === key(low) || nl.indexOf(low + ' ') === 0 || low.indexOf(nl + ' ') === 0) hit = n;
+      });
+      return hit;
+    }
+    if (cast.length < 2) {
+      /* still strip a redundant copy of the card's own name */
+      var one = find(fallback);
+      if (one) {
+        var m1 = /^[\s>*_#]*([^\n:()\[\]]{1,40}):\s/.exec(body);
+        if (m1 && String(m1[1]).toLowerCase().trim() === String(fallback).toLowerCase().trim()) {
+          return { name: fallback, text: body.slice(m1[0].length) };
+        }
+      }
+      return { name: fallback, text: body };
+    }
+    var name = '', t = body;
+    for (var pass = 0; pass < 2; pass++) {
+      var m = /^[\s>*_#]*([^\n:()\[\]]{1,40}):\s/.exec(t);
+      if (!m) break;
+      var who = find(m[1]);
+      if (!who) break;
+      /* the label nearest the prose is the one the writer meant */
+      name = who;
+      t = t.slice(m[0].length);
+    }
+    return { name: name || fallback, text: name ? t : body };
+  }
+
   function buildPrompt(character, session, history, s, note, budgetTokens, finalNote) {
     var recent = loreSample(history);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
@@ -817,9 +875,13 @@
       return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
     }).join('\n');
     var hist = history.map(function (m) {
-      var content = repairMojibake(m.text || '');
-      if (m.imageCaption && m.role === 'user') content += '\n[photo: ' + m.imageCaption + ']';
-      return (m.role === 'user' ? s.userName : character.name) + ': ' + content;
+      if (m.role === 'user') {
+        var mine = repairMojibake(m.text || '');
+        if (m.imageCaption) mine += '\n[photo: ' + m.imageCaption + ']';
+        return s.userName + ': ' + mine;
+      }
+      var sp = splitSpeaker(character, session, repairMojibake(m.text || ''));
+      return sp.name + ': ' + sp.text;
     });
     var join = function (h) {
       return [head.trim(), ex ? 'Example dialogue:\n' + ex : '', 'Chat history:\n' + h.join('\n'),
@@ -1386,11 +1448,19 @@
     var l = String(L || '').trim();
     if (!l) return false;
     if (/\?$/.test(l) && l.length < 70) return true;                 // "How do they react?"
-    if (/^(?:let's|lets|let me|wait|okay|ok[,.]|hmm|so,|now,|first,|firstly|then,|after that|actually,|maybe|perhaps|alright|right,|yes,|no,|i should|i'll|i will|i'd|i need|i can|i could|i must|i want to|we should|we need|the prompt|the instruction|the system|the card|note:|notes?:|step \d|finally,|also,|importantly,?|keep in mind|remember,?|one more|to sum|in summary,?)/i.test(l)) return true;
+    /* A bare "Note:" is how a character leaves a note on the table, and this
+       test runs over every line of a reply — treating that as planning is what
+       deletes a scene beat. Only the bracketed forms stay, further down. */
+    if (/^(?:let's|lets|let me|wait|okay|ok[,.]|hmm|so,|now,|first,|firstly|then,|after that|actually,|maybe|perhaps|alright|right,|yes,|no,|i should|i'll|i will|i'd|i need|i can|i could|i must|i want to|we should|we need|the prompt|the instruction|the system|the card|step \d|finally,|also,|importantly,?|keep in mind|remember,?|one more|to sum|in summary,?)/i.test(l)) return true;
     if (/\b(?:the\s+)?(?:prompt|instruction|system prompt|card|scenario)\s+(?:says?|asks?|tells?|wants?|instructs?|requires?|mentions?)\b/i.test(l)) return true;
     if (/\b(?:refine|rework|rewrite|adjust|revise|tighten|trim)\s+(?:the\s+)?(?:response|reply|answer|draft|this)\b/i.test(l)) return true;
     if (/\b(?:i|we)\s+(?:should|need to|could|can|will|must|might)\s+(?:probably\s+)?\b/i.test(l) && l.length < 90) return true;
-    if (/^(?:\[|\()\s*(?:ooc|note|meta|aside)/i.test(l)) return true;
+    /* v1.39.86: [ooc] is not planning. The OOC rule above asks the model to
+       answer in a tagged line, and this test then classified that very line as
+       reasoning and stripped it — the player's question went unanswered and
+       the answer, when it came, was deleted. OOC is an aside for the player;
+       [note]/[meta]/[aside] are still treated as planning. */
+    if (/^(?:\[|\()\s*(?:note|meta|aside)/i.test(l)) return true;
     return false;
   }
 
@@ -1904,7 +1974,9 @@
   function summarize(o) {
     var s = o.settings, char = o.character, session = o.session, history = o.history;
     var convo = history.slice(-o.maxMessages || 40).map(function (m) {
-      return (m.role === 'user' ? s.userName : char.name) + ': ' + repairMojibake(m.text || '');
+      var body = repairMojibake(m.text || '');
+      var who = m.role === 'user' ? s.userName : splitSpeaker(char, session, body).name;
+      return who + ': ' + (m.role === 'user' ? body : splitSpeaker(char, session, body).text);
     }).join('\n');
 
     var instruction =
@@ -1914,10 +1986,19 @@
       '"facts":["<short durable fact>","..."]}\n' +
       'Keep at most 12 facts. Facts must be durable: names, places, relationships, injuries, promises, objects, goals.\n' +
       (session && session.summary ? 'Existing summary to extend:\n' + repairMojibake(session.summary) + '\n' : '') +
-      (session && session.facts && session.facts.length ? 'Existing facts:\n' + session.facts.map(repairMojibake).join('\n') + '\n' : '') +
-      '\nTranscript:\n' + convo;
+      (session && session.facts && session.facts.length ? 'Existing facts:\n' + session.facts.map(repairMojibake).join('\n') + '\n' : '');
+    var rules = instruction;
+    instruction = rules + '\nTranscript:\n' + convo;
 
-    var msgs = [{ role: 'system', content: instruction }, { role: 'user', content: 'Return the JSON now.' }];
+    /* v1.39.86: the transcript was only ever inside the SYSTEM message, and the
+       one user turn said "Return the JSON now." to nobody. A model that reads
+       the user turn as the request saw an instruction with no data in front of
+       it and refused — and the refusal was then stored as the story so far,
+       which is the only record of the past once the history budget is full. */
+    var msgs = [
+      { role: 'system', content: rules },
+      { role: 'user', content: 'Transcript:\n' + convo + '\n\nReturn the JSON now.' }
+    ];
 
     if (s.provider === 'horde') {
       return Horde.generateText({
@@ -1955,8 +2036,9 @@
       'the world tracks those itself.\n' +
       (run.memory && run.memory.summary ? 'Existing summary to extend:\n' + run.memory.summary + '\n' : '') +
       (run.memory && run.memory.facts && run.memory.facts.length
-        ? 'Existing facts:\n' + run.memory.facts.join('\n') + '\n' : '') +
-      '\nTranscript:\n' + convo;
+        ? 'Existing facts:\n' + run.memory.facts.join('\n') + '\n' : '');
+    var rules = instruction;
+    instruction = rules + '\nTranscript:\n' + convo;
 
     if (s.provider === 'horde') {
       return Horde.generateText({
@@ -1966,24 +2048,61 @@
         maxWait: 300
       }).then(function (r) { return parseMemory(r.text); });
     }
-    var msgs = [{ role: 'system', content: instruction }, { role: 'user', content: 'Return the JSON now.' }];
+    /* v1.39.86: the world log gets the same treatment as the chat transcript —
+       data in the user turn, rules in the system turn. */
+    var msgs = [
+      { role: 'system', content: rules },
+      { role: 'user', content: 'Transcript:\n' + convo + '\n\nReturn the JSON now.' }
+    ];
     return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 500 })
       .then(parseMemory);
   }
 
+  /* v1.39.86: a refusal is not a summary.
+     This used to store whatever came back, up to 800 characters, when it held
+     no JSON — so a model that answered "No transcript was provided, so there
+     is no roleplay content to summarize" had that sentence written into
+     `session.summary`, which is appended to every later prompt as "Story so
+     far". Past the history budget that summary is the ONLY record of the past,
+     so the chat's memory became a note saying there was nothing to remember.
+     A model's silence is now a failure the caller reports, never content. */
+  var MEMORY_REFUSAL = /\b(?:no transcript|not provided|nothing to (?:summari|summarize|extract)|no (?:roleplay|content|conversation|history|text)\b|i (?:can't|cannot|won't|am unable to|'m unable to)|unable to (?:summari|process|comply|extract)|as an ai\b|there is no\b)/i;
+  /* Does a stored summary read like a refusal, or like nothing at all? Used by
+     the Memory sheet to flag a chat whose past was quietly replaced by the
+     model's excuse. */
+  function memoryLooksBroken(text) {
+    var t = String(text || '').trim();
+    if (!t) return false;
+    if (t.length < 24) return true;
+    return MEMORY_REFUSAL.test(t) && t.length < 400;
+  }
+
   function parseMemory(text) {
-    var out = { summary: '', facts: [] };
-    if (!text) return out;
-    var start = text.indexOf('{');
-    var end = text.lastIndexOf('}');
-    if (start === -1 || end <= start) { out.summary = text.trim().slice(0, 800); return out; }
-    try {
-      var j = JSON.parse(text.slice(start, end + 1));
-      out.summary = String(j.summary || '').trim();
-      out.facts = (j.facts || []).map(function (f) { return String(f).trim(); }).filter(Boolean).slice(0, 12);
-    } catch (e) {
-      out.summary = text.trim().slice(0, 800);
+    var out = { summary: '', facts: [], ok: false };
+    var raw = String(text || '').trim();
+    if (!raw) return out;
+    var start = raw.indexOf('{');
+    var end = raw.lastIndexOf('}');
+    var body = '';
+    if (start !== -1 && end > start) {
+      try {
+        var j = JSON.parse(raw.slice(start, end + 1));
+        body = String(j.summary || '').trim();
+        out.facts = (j.facts || []).map(function (f) { return String(f).trim(); }).filter(Boolean).slice(0, 12);
+        out.ok = true;
+      } catch (e) { body = ''; }
     }
+    /* No usable JSON: only accept plain prose that reads like a summary. */
+    if (!body && !out.ok) {
+      body = raw.slice(0, 800).trim();
+      if (MEMORY_REFUSAL.test(body)) return out;
+      if (body.length < 40) return out;
+      if (/^[\[{]/.test(body)) return out;      /* broken JSON, not prose */
+    }
+    if (!body) return out;
+    if (MEMORY_REFUSAL.test(body) && body.length < 400) return out;
+    out.summary = body;
+    out.ok = true;
     return out;
   }
 
@@ -2422,6 +2541,7 @@
     openRouterErrorDiagnosis: openRouterErrorDiagnosis, openRouterResetAt: openRouterResetAt,
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
+    splitSpeaker: splitSpeaker, parseMemory: parseMemory, memoryLooksBroken: memoryLooksBroken,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
     parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,
     parseLorebookFile: parseLorebookFile, aiJson: aiJson,
