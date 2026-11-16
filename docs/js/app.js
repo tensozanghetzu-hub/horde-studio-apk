@@ -2495,6 +2495,16 @@
         msg.alts = [text];
         msg.altIdx = 0;
       }
+      /* v1.39.93: on a card with a cast, the header says who ACTUALLY spoke.
+         It used to say the card's name whoever it was — so another speaker's
+         line sat under the card's own name — and a reply in which the card's
+         character spoke lost her name entirely, because the cleanup treated
+         that label as the start of a turn she should not have written. */
+      var scene = App.state.session;
+      var spoken = (scene && Array.isArray(scene.sceneCast) && scene.sceneCast.length >= 2 && API.splitSpeaker)
+        ? API.splitSpeaker(char, scene, msg.text || '') : null;
+      if (spoken && spoken.name && spoken.name !== char.name) msg.speakerName = spoken.name;
+      else delete msg.speakerName;
       el.classList.remove('streaming');
       /* v1.39.79: everything the bubble shows — text, word count, cut marker,
          continuation label — is rendered at once from the finished message. */
@@ -2634,7 +2644,9 @@
     var char = App.state.char && App.state.char.id === session.charId ? App.state.char : null;
     return (char ? Promise.resolve(char) : Promise.resolve(Store.getCharacter(session.charId)))
       .then(function (c) {
+        var usedMessages = [];
         return Store.getMessages(session.id).then(function (msgs) {
+          usedMessages = (msgs || []).slice().sort(function (x, y) { return x.createdAt - y.createdAt; });
           return API.summarize({ settings: Store.settings, character: c, session: session, history: msgs });
         }).then(function (mem) {
           /* v1.39.86: nothing is written unless the model actually produced a
@@ -2675,6 +2687,12 @@
           session.summary = mem.summary;
           session.facts = mem.facts;
           session.memAt = session.messageCount || 0;
+          /* v1.39.93: remember exactly which turns this memory describes, so a
+             reroll of one of them can be recognised as "the basis changed"
+             instead of leaving a summary of a reply that no longer exists. */
+          session.memAnchorCount = usedMessages.length;
+          session.memAnchorHash = App.transcriptHash(usedMessages);
+          session.memManual = false;
           return Store.putSession(session).then(function () {
             if (App.state && App.state.session && App.state.session.id === session.id) App.state.session = session;
             if (!silent) UI.toast('Memory updated');
@@ -2682,6 +2700,44 @@
           });
         }).catch(function (e) { if (!silent) UI.toast('Memory failed: ' + e.message, 4000); });
       });
+  };
+
+  /* A cheap digest of a run of messages: id + the alt that is showing. Two
+     different replies in the same slot hash differently, which is exactly the
+     question a reroll asks. */
+  App.transcriptHash = function (msgs) {
+    var h = 5381;
+    (msgs || []).forEach(function (m) {
+      var s = String(m.id || '') + '\u0001' + String(m.text || '');
+      for (var i = 0; i < s.length; i++) h = (((h * 33) >>> 0) ^ s.charCodeAt(i)) >>> 0;
+    });
+    return h.toString(36);
+  };
+
+  /* v1.39.93: memory describes a story. If the replies it was built on are
+     rerolled, edited or deleted, it describes a story that did not happen —
+     so once the conversation CONTINUES past that point (the player sends the
+     next message), the stale memory is dropped and will be rebuilt from the
+     story that is actually there. Swiping back to the original reply restores
+     the match and nothing is lost. Hand-written memory is left alone. */
+  App.checkMemoryBasis = function (session) {
+    if (!session || !session.memAnchorHash || session.memManual) return Promise.resolve(false);
+    if (!session.summary && !(session.facts && session.facts.length)) return Promise.resolve(false);
+    return Store.getMessages(session.id).then(function (list) {
+      var msgs = (list || []).slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+      var covered = msgs.slice(0, session.memAnchorCount || 0);
+      if (App.transcriptHash(covered) === session.memAnchorHash) return false;
+      session.summary = '';
+      session.facts = [];
+      session.memAt = 0;
+      session.memAnchorHash = '';
+      session.memAnchorCount = 0;
+      if (App.state && App.state.session && App.state.session.id === session.id) App.state.session = session;
+      return Store.putSession(session).then(function () {
+        UI.toast('Memory cleared: it was built on a reply that has since been rerolled or edited. It will be rebuilt from the current story.', 6000);
+        return true;
+      });
+    }).catch(function () { return false; });
   };
 
   App.setStop = function (on) {
@@ -3352,6 +3408,12 @@
     input.value = ''; input.style.height = 'auto';
     if (stage) { App.state.attach = null; App.renderAttach(); }
     var char = App.state.char, session = App.state.session;
+    /* v1.39.93: sending the next message is "continuing the conversation", and
+       that is when a memory built on a rerolled reply stops describing the
+       story. Checked here, not at the reroll itself, so a player who rerolls
+       and then swipes back to the original keeps the memory. Runs in the
+       background — it never delays the send. */
+    App.checkMemoryBasis(session).catch(function () {});
     var msg = { sessionId: session.id, role: 'user', text: text, createdAt: Date.now() };
     if (stage) { msg.image = stage.image; msg.imageCaption = stage.caption; }
     Store.addMessage(msg).then(function (m) {
@@ -4487,6 +4549,7 @@
           { label: 'Save', cls: 'primary', onClick: function (b) {
               s.summary = b.querySelector('#sum').value.trim();
               s.facts = facts.slice();
+              s.memManual = true;   /* written by the player: never auto-cleared */
               return Store.putSession(s).then(function () {
                 if (App.state && App.state.session && App.state.session.id === s.id) App.state.session = s;
                 UI.toast('Memory saved');

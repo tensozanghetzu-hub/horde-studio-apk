@@ -1599,14 +1599,22 @@
     return tl.join('\n');
   }
 
-  function cleanReply(text, charName, userName) {
+  function cleanReply(text, charName, userName, opts) {
     if (!text) return '';
+    /* v1.39.93: on a card with more than one character in the scene, the card's
+       own name is a SPEAKER LABEL, not the start of a new turn. The old rules
+       cut the reply at the first line beginning with it and stripped it off the
+       front, so whenever the loaded character spoke first her name vanished and
+       nothing on screen said who was talking. Those two rules stay for a
+       single-character card, where "CharName:" really is the model starting a
+       turn it should not have written. */
+    var casted = !!(opts && opts.cast && opts.cast.length >= 2);
     var lines = String(text).split('\n');
     var out = [];
     var userRe = new RegExp('^\\s*' + escapeRe(userName) + '\\s*:', 'i');
     var charRe = new RegExp('^\\s*' + escapeRe(charName) + '\\s*:', 'i');
     for (var i = 0; i < lines.length; i++) {
-      if (i > 0 && (userRe.test(lines[i]) || charRe.test(lines[i]))) break;
+      if (i > 0 && (userRe.test(lines[i]) || (!casted && charRe.test(lines[i])))) break;
       out.push(lines[i]);
     }
 
@@ -1637,7 +1645,7 @@
     }
 
     var t = out.join('\n').replace(/\s+$/, '');
-    if (charName) t = t.replace(new RegExp('^\\s*' + escapeRe(charName) + '\\s*:\\s*', 'i'), '');
+    if (charName && !casted) t = t.replace(new RegExp('^\\s*' + escapeRe(charName) + '\\s*:\\s*', 'i'), '');
     return t.trim();
   }
 
@@ -1891,7 +1899,7 @@
            space away, which once tight-glued "Crabbe" + "and"; hold it in a
            flag and hand it back after cleaning, before the glue rules run. */
         var leadSpace = /^\s/.test(raw);
-        var piece = cleanReply(raw, char && char.name, s.userName);
+        var piece = cleanReply(raw, char && char.name, s.userName, { cast: session && session.sceneCast });
         if (!piece) return full;
 
         /* Stitch without mangling. The hard part: when the previous pass ends with a
@@ -1973,7 +1981,7 @@
         full = before ? before + glue + piece : piece;
         /* Clean the ASSEMBLED text too: a speaker label can land across a pass
            boundary ("...out here.\n\nMi" + "ira: ..."), which per-pass cleaning misses. */
-        var joined = cleanReply(stripThinking(full, s.stripThinking !== false), char && char.name, s.userName);
+        var joined = cleanReply(stripThinking(full, s.stripThinking !== false), char && char.name, s.userName, { cast: session && session.sceneCast });
         if (joined) full = joined;
 
         if (s.provider === 'horde' && o.onDelta) {

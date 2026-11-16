@@ -1,5 +1,33 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.93 — who is speaking, and memory that remembers what it described (2026-11-16)
+
+Two reports from real use.
+
+- **The card's own name is a speaker label on a cast card.** `cleanReply` cut a
+  reply at the first line beginning with the character's name and stripped that
+  name off the front — rules for a single-character card, where `Name:` means
+  the model started a turn it should not have written. On a card with a cast it
+  is how the story says who is talking, so whenever the loaded character spoke
+  her name vanished. Those two rules now apply only when the scene cast has
+  fewer than two names; the player's own name still ends the reply either way.
+- **The bubble header follows the speaker.** It showed the card's name whoever
+  had spoken, so another character's line sat under the card's name. On a cast
+  card the resolved speaker is stored with the message and the bubble uses it.
+- **Memory knows what it described.** Generating a memory now records a digest
+  of the turns it covered (`memAnchorHash`, `memAnchorCount`). When the
+  conversation continues — the next message the player sends — the digest is
+  compared; if a covered reply was rerolled, edited or deleted, the memory is
+  dropped with an explanation and rebuilt from the story that is actually
+  there. Checking on send rather than at the reroll means a player who rerolls
+  and then swipes back keeps their memory. Memory written by hand in the Memory
+  sheet is marked and never auto-cleared.
+- Tests: new `speaker-and-memory-test` (29) — her label kept at the start and
+  mid-reply, the player's fake turn still cut, a one-character card unchanged,
+  and the digest behaving for reroll, append, delete and empty. Suite 104 → 105
+  files, 0 failing; generic checks clean (the gate caught a card name in one of
+  my own comments — rewritten).
+
 ## v1.39.92 — a failed automatic run says so (2026-11-16)
 
 Reported: memory had generated itself, by itself, on an earlier turn — so the
