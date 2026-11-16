@@ -175,6 +175,49 @@ var bareOnce = {
 };
 same('a bare two-word line still does not', detectCast(bareOnce), []);
 
+/* v1.39.84 — the same card shape, one layer deeper. A block can end with an
+   "Overall:" line: a full sentence, but a sentence *about* somebody. The
+   "one real sentence is speech" rule let it through twice, which was enough
+   to outrank the people who speak. */
+console.log('\na sentence about somebody is not a line of dialogue');
+var blocksWithOverall =
+  'Name: Aston\nAge: 42\nRole: The father\nLikes: Cooking\n' +
+  'Overall: A loyal, easygoing father and longtime best friend who is trying to get his life back together.\n\n' +
+  'Name: Sloane\nAge: 18\nRole: The daughter\nLikes: Reading\n' +
+  'Overall: A quiet, watchful daughter who says the true thing nobody else will say.\n';
+var overallCard = {
+  name: 'Sloane', persona: blocksWithOverall, scenario: '', examples: '',
+  greeting: 'Sloane: \u201cHi... sorry if we\u2019re interrupting anything.\u201d\n\n' +
+    'Aston: \u201cDon\u2019t mind her. Where should we start unloading?\u201d'
+};
+var oc = detectCast(overallCard);
+same('the described field is not a person', oc, ['Sloane', 'Aston']);
+ok('"Overall" never reaches the cast', oc.indexOf('Overall') === -1, JSON.stringify(oc));
+
+var describedOnly = {
+  name: 'Nobody', persona: 'Overall: A loyal father who is trying his best every day.\n' +
+    'Overall: A patient mother who holds the whole house together.', scenario: '', greeting: '', examples: ''
+};
+same('even twice over, a description is not a speaker', detectCast(describedOnly), []);
+
+console.log('\ndialogue still wins on its own evidence');
+var quotedSpeaker = {
+  name: 'Nobody', persona: '', scenario: '', examples: '',
+  greeting: 'Mara: \u201cYou are late. The door was unlocked all evening.\u201d'
+};
+same('one quoted line names its speaker', detectCast(quotedSpeaker), ['Mara']);
+var describedPlusSpoken = {
+  name: 'Nobody', persona: '', scenario: '', examples: '',
+  greeting: 'Mara: A patient mother who holds the whole house together.\n' +
+    'Mara: \u201cTake your shoes off. You are tracking mud through my kitchen.\u201d'
+};
+same('a described label that also speaks is kept', detectCast(describedPlusSpoken), ['Mara']);
+var fieldWordQuoted = {
+  name: 'Nobody', persona: '', scenario: '', examples: '',
+  greeting: 'Overall: \u201cTake your shoes off. You are tracking mud through my kitchen.\u201d'
+};
+same('a field header is never a person, even mid-sentence', detectCast(fieldWordQuoted), []);
+
 console.log('\nthe revision bump makes stored chats re-detect');
 var appAll = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
 var rev = parseInt((appAll.match(/var CAST_REV = (\d+);/) || [])[1], 10);

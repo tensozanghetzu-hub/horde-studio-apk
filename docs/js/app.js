@@ -719,7 +719,7 @@
      "Relationship: Widow, your neighbour" carry a capital letter and a colon,
      so the old scan could not tell them from "Rose: come in." and put both in
      the Scene strip as if they were people standing on the porch. */
-  var CAST_REV = 4;          /* bump when detection rules change */
+  var CAST_REV = 5;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -785,6 +785,8 @@
         'role roles occupation job jobs work class archetype title titles rank status ' +
         'appearance looks look build height weight hair eyes skin face body clothing clothes outfit ' +
         'personality traits trait temperament quirks quirk habits likes dislikes fears fear goals goal ' +
+        'overall summary overview general note notes about current currently details info information ' +
+        'extra additional misc other stats stat physical mental emotional behaviour behavior demeanor ' +
         'motivation motivations desire desires hobbies hobby skills skill abilities ability powers ' +
         'relationship relationships family relatives friends friend occupation backstory history ' +
         'background bio profile description summary notes note tags tag scenario setting location ' +
@@ -831,12 +833,26 @@
        a far stronger signal than the repetition the count was asking for, and
        it is what lets a card that writes each character once still get a
        cast. */
+    /* v1.39.83+: a value that reads *about* someone is a field description,
+       not a line of dialogue — "Overall: A loyal, easygoing father who's
+       trying to get his life back together." Three tells, all general: it
+       opens with an article, it runs on, and it never addresses or refers to
+       anyone in the first or second person. Real speech does at least one of
+       those. */
+    var PERSON_MARKERS = /\b(you|your|yours|yourself|i|i'm|i've|i'll|i'd|me|my|mine|we|us|our|ours)\b/i;
+    function describes(v) {
+      if (!/^(?:a|an|the)\s/i.test(v)) return false;
+      if (v.split(/\s+/).length < 6) return false;
+      return !PERSON_MARKERS.test(v);
+    }
     function speaks(name, value) {
       var n = shaped(name);
       if (!n) return;
       var c = slot(n), v = String(value || '').trim();
       c.acts++;
-      if (/^["'\u201c\u2018]/.test(v) || v.split(/\s+/).length >= 3) c.strong++;
+      /* quotation marks are the one unambiguous sign of a spoken line */
+      if (/^["\u201c\u2018\u2014\u2013-]/.test(v)) c.strong++;
+      if (describes(v)) c.desc = (c.desc || 0) + 1;
     }
 
     /* "Name: words" is someone speaking. A bare "Name:" is a section
@@ -888,7 +904,14 @@
         selfActs += (cands[low].acts >= 2 || cands[low].strong) ? 1 : 0;
         return;
       }
-      if (cands[low].acts < 2 && !cands[low].strong) return;
+      var c = cands[low];
+      /* Quoted speech anywhere is enough. Otherwise a label needs to recur —
+         and if every occurrence reads as a description of somebody rather
+         than something they said, recurrence proves nothing. */
+      if (!c.strong) {
+        if (c.acts < 2) return;
+        if ((c.desc || 0) >= c.acts) return;
+      }
       var name = cands[low].name, key = norm(name);
       if (seen[key] || seen[firstWord(key)]) return;
       seen[key] = true; seen[firstWord(key)] = true;

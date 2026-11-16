@@ -1,5 +1,24 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.84 — a description is not dialogue (2026-11-16)
+
+Same card, one layer deeper: the chips read Sloane, Aston and **Overall**.
+
+- **Cause.** The block-written card ends each character with an `Overall:` line
+  ("A loyal, easygoing father who is trying to get his life back together.").
+  v1.39.83 had just taught the detector that one full sentence after a label is
+  speech — a good rule, and the reason this got through: the sentence was real,
+  it just was not dialogue. Two of them were enough to outrank the speakers.
+- **Fix.** Two general tests replace the word-count shortcut. Quotation marks
+  are now the only single-line proof of speech. Failing that, a label must
+  recur, and its values must not all read as description — a description opens
+  with an article, runs on, and never uses the first or second person. Heading
+  nouns (Overall, Summary, Notes, Details, …) join the field vocabulary and can
+  never become a person, even inside quotes.
+- Verified against the reported card itself: `detectCast` returns Sloane,
+  Aston. Stored chats re-detect through `CAST_REV` 5.
+- Tests: scenecast 27 → 33. Suite 102/0, generic checks clean.
+
 ## v1.39.83 — field headers are not people (2026-11-16)
 
 Reported from a three-person card: the Scene bar showed Aston, Name, Age, Role,
