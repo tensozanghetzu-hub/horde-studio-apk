@@ -56,12 +56,22 @@
      "stay in character at all times" and forbids commentary, so without a
      standing rule most models ignore "OOC: ..." lines entirely. */
   var OOC_RULE =
-    'Out of character: if {{user}} writes an OOC note (OOC:, [ooc], (ooc)), ' +
-    'step out of {{char}} and answer it first, in one short plain line that ' +
+    'Out of character: if, and only if, {{user}} writes an OOC note (OOC:, [ooc], ' +
+    '(ooc)), step out of the character and answer it first, in one short plain line that ' +
     'begins with "OOC:" and answers the question they actually asked, then return ' +
     'to the scene exactly where it left off. Never answer an OOC question only ' +
     'through the fiction - if you are unsure what they are asking, say so in ' +
-    'that line. {{char}} never comments on OOC inside the fiction.';
+    'that line. ' +
+    /* v1.39.87: the escape hatch was being used without an invitation. A model
+       that noticed anything it could not reconcile - a sample that looked out
+       of order, a contradiction it imagined - would open the reply with an
+       OOC question and write no story at all. */
+    'Otherwise write the scene and never speak out of character: do not open a ' +
+    'reply with "OOC:", do not ask the player which version of events to ' +
+    'continue, and do not comment on the prompt, the examples or the order of ' +
+    'the story. If something seems inconsistent, treat the opening message and ' +
+    'the most recent turns as the truth and carry on from there. ' +
+    '{{char}} never comments on OOC inside the fiction.';
 
   /* ------------------------------------------------------------------
    * v1.13.1 — HTML in card text.
@@ -770,9 +780,25 @@
     var sceneCast = sceneCastPrompt(session, s.userName);
     if (sceneCast) system += '\n\n' + sceneCast;
 
-    var msgs = [{ role: 'system', content: system.trim() }];
+    /* v1.39.87: the example dialogue was pushed as REAL turns, before the
+       history — so the model read the card's samples as the oldest part of
+       this conversation. A card whose examples show a later moment (moving
+       boxes already inside, the wife in the doorway) then reads as a story
+       that happened first and then restarted at its own opening line, and the
+       model stops to ask which version to continue. Examples are a sample of
+       voice and format; they are labelled as such and kept out of the
+       transcript. */
     var ex = examplesToMessages(character.examples, character, s);
-    ex.forEach(function (m) { msgs.push(m); });
+    var exText = ex.map(function (m) {
+      return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
+    }).join('\n');
+    if (exText) {
+      system += '\n\nExample dialogue — a sample of the intended voice, length and format. ' +
+        'These are NOT events that have already happened, they are not part of this story, ' +
+        'and nothing in them overrides the opening message below where the chat actually begins.\n' +
+        exText;
+    }
+    var msgs = [{ role: 'system', content: system.trim() }];
 
     /* v1.13.2: repair double-encoded text in stored messages (the card's
        greeting, a model reply that imitated the card's mojibake) so the
@@ -884,7 +910,9 @@
       return sp.name + ': ' + sp.text;
     });
     var join = function (h) {
-      return [head.trim(), ex ? 'Example dialogue:\n' + ex : '', 'Chat history:\n' + h.join('\n'),
+      return [head.trim(), ex ? 'Example dialogue — a sample of the intended voice, length and format. ' +
+        'These are NOT events that have already happened and are not part of this story:\n' + ex : '',
+        'Chat history:\n' + h.join('\n'),
         finalNote || '', character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */

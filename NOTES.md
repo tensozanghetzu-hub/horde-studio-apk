@@ -1,5 +1,34 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.87 — why the reply was pure OOC (2026-11-16)
+
+On turn 1 of a fresh chat the model answered with nothing but:
+
+> OOC: This appears to be a scene reset or alternate opening. The previous scene
+> had boxes already inside, Mara in the doorway … Which version would you like
+> to continue?
+
+It was right about what it had been given, and the app had given it that.
+
+- **The example dialogue was being sent as prior turns.** `buildChat` pushed
+  `mes_example` messages into the request *before* the history, so the model
+  read the card's samples as the oldest part of this conversation. This card's
+  examples show a later moment — boxes inside, the wife in the doorway — so the
+  story appeared to have advanced and then restarted at its own opening line.
+  Examples are now a labelled block in the system message ("a sample of the
+  intended voice … NOT events that have already happened"), and the transcript
+  begins at the opening message. The same label goes on the continuation format.
+- **The OOC rule invited it.** v1.39.86 widened the rule with "if you are unsure
+  what they are asking, say so in that line" — an escape hatch offered with no
+  invitation, which a model can use for any inconsistency it thinks it sees. The
+  rule now applies only to an actual OOC note, and says plainly: otherwise write
+  the scene, do not open with "OOC:", do not ask which version of events to
+  continue, do not comment on the prompt or the examples, and treat the opening
+  message plus the most recent turns as the truth.
+- Tests: new `ooc-and-examples-test` (22) builds a request from this card shape
+  and asserts the request opens with the greeting, not an example. Suite 103 →
+  104 files, 0 failing; generic checks clean.
+
 ## v1.39.86 — the memory that remembered nothing, and four quieter defects (2026-11-16)
 
 All five from a real 11-turn transcript on a three-speaker card. Two were silent:

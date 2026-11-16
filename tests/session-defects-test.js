@@ -111,7 +111,7 @@ ok('a bare "Note:" scene beat is not planning',
   API.isMetaLine('Note: I fed the cat.') === false);
 ok('…and survives stripping', API.stripThinking(noteReply, true).indexOf('I fed the cat') !== -1);
 
-ok('the rule asks for the answer first', /step out of \{\{char\}\} and answer it first/.test(apiSrc));
+ok('the rule asks for the answer first', /step out of the character and answer it first/.test(apiSrc));
 ok('…prefixed so it can be seen as an aside', /begins with "OOC:"/.test(apiSrc));
 ok('…and forbids answering only through the fiction',
   /Never answer an OOC question only through the fiction/.test(
