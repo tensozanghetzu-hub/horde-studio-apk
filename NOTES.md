@@ -1,5 +1,38 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.82 — the history budget, and a scene cast with rules (2026-11-16)
+
+Both from a review of multi-character cards. Both confirmed in the code first.
+
+- **The history cap was invisible and outranked the slider.** `maxContextChars`
+  appeared exactly once in the whole app — as the literal `26000` in the one
+  call that trims history. No setting, no UI, and it beat "Messages in context"
+  silently: at 250-word replies the slider reads 40 and 17 messages are sent.
+  It is now `historyTokens`, a real setting in Settings → Generation with a
+  slider, a tappable exact value, and a hint that says what it does and does
+  not cover.
+- **It is not raised blindly.** The review suggested 100k characters as "free on
+  a 25.6k-token window", which holds only for models that have one. On
+  OpenRouter's free routes 8 192-token windows are common, and a prompt bigger
+  than the window is not more memory: the provider truncates it and the
+  character answers the start of the conversation forever — the failure the
+  Horde budget code already documents. The default is 6 000 tokens, which
+  leaves 1 080 tokens of room in an 8 192-token window for a card and a reply.
+  Above that, the app fits itself to the model: `listModels` now keeps each
+  catalogue entry's `context_length` (no extra request — the picker already
+  fetched it), and `historyBudgetTokens` shrinks the budget to what the window
+  leaves once the sheet and the reply are paid for.
+- **`sceneCastPrompt` was a roster with no rules.** It said who was present and
+  who was elsewhere, and forbade the absent from acting — and nothing else, so
+  a model given three names either blends them into one un-attributed narrator
+  or writes a round-robin where everyone gets a paragraph. It now also asks for
+  attributed speech, says not to give each present character a turn, and
+  forbids writing the player's words — which is exactly where multi-person
+  prompts go wrong, and `OOC_RULE` was far away in the system block.
+- Tests: history-budget-test (33) covers the maths, the storage round trip, the
+  UI being wired, and the cast rules appearing in the built prompt. Suite
+  101 → 102 files, 0 failing.
+
 ## v1.39.81 — the reply footer says what it means (2026-11-16)
 
 - The line under a bubble read "116 words · cut", which can be read two ways:

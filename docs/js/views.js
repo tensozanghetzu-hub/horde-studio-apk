@@ -804,6 +804,24 @@
 
   /* Version / update-channel facts shared by the hub (About) and the
      App-updates screen. */
+  /* v1.39.82: the history budget, and what the model's own window does to it. */
+  function historyTokens(s) {
+    var n = parseInt(s && s.historyTokens, 10);
+    return n > 0 ? n : (API.DEFAULT_HISTORY_TOKENS || 6000);
+  }
+  function historyWindowNote(s) {
+    var win = API.modelContextTokens ? API.modelContextTokens(s && s.model) : 0;
+    if (win) {
+      return 'Your model (' + esc(s.model) + ') takes <b>' + win.toLocaleString() + ' tokens</b> in total. ' +
+        'If the sheet and the reply leave less room than the budget above, the app shrinks the budget to fit — ' +
+        'a prompt bigger than the window gets truncated by the provider, and then the character answers the ' +
+        'start of the conversation forever.';
+    }
+    return 'The app does not know this model\'s window yet. Open Choose model once while online and it will ' +
+      'learn it, then fit this budget inside it automatically.';
+  }
+  Views.historyWindowNote = historyWindowNote;
+
   function settingsUpdateInfo() {
     var U = global.Updates;
     var upInfo = (U && U.supported()) ? U.info() : { apk: '?', apkCode: 0, overlay: false, rev: '' };
@@ -1060,11 +1078,21 @@
           '<div class="range-row"><input type="range" id="set-topp" min="0.1" max="1" step="0.05" value="' + s.topP + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Messages in context</label><span class="spacer"></span><span class="val" id="v-ctx">' + s.contextMessages + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-ctx" min="6" max="120" step="2" value="' + s.contextMessages + '"></div>' +
-          '<div class="hint">Higher = longer memory per request, but slower and more expensive. ' +
-          'This is also how far back the lorebook looks for its keywords.</div>' +
-          '<div class="hint">Context is measured in <b>bytes</b>, about four per Latin character. ' +
-          'Emoji cost four bytes each; Chinese, Japanese, Korean and Cyrillic text cost two or three, ' +
-          'so the same setting holds noticeably less of it before the oldest turns are dropped.</div></div>' +
+          '<div class="hint">A ceiling on how many messages are considered. The <b>history budget</b> below is the ' +
+          'one that usually decides, so raising this alone may change nothing. This is also how far back the ' +
+          'lorebook looks for its keywords.</div></div>' +
+        /* v1.39.82: the real limit, finally visible. It was a 26 000-character
+           literal inside the prompt builder. */
+        '<div class="field"><div class="field-head"><label>History budget</label><span class="spacer"></span>' +
+          '<button type="button" class="val val-edit" id="v-hist" title="Tap to type an exact token budget" aria-label="History budget: ' + historyTokens(s) + ' tokens. Tap to enter a number">' +
+          historyTokens(s) + '</button></div>' +
+          '<div class="range-row"><input type="range" id="set-hist" min="1000" max="32000" step="500" value="' + historyTokens(s) + '">' +
+          '<span class="hint">tokens of transcript</span></div>' +
+          '<div class="hint">How much of the conversation is sent on each reply — the transcript only. The character ' +
+          'sheet, the examples and the reply itself sit on top of it. Text is measured in characters and converted ' +
+          'at four to a token; that is right for English, but emoji, Chinese, Japanese, Korean and Cyrillic cost ' +
+          'more per character, so the same budget holds noticeably less of them.</div>' +
+          '<div class="hint">' + historyWindowNote(s) + '</div></div>' +
         '<div class="field"><div class="field-head"><label>Repetition guard</label><span class="spacer"></span><span class="val" id="v-freqp">' + ((s.frequencyPenalty || 0).toFixed(2)) + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-freqp" min="0" max="1" step="0.05" value="' + (s.frequencyPenalty || 0) + '"></div>' +
           '<div class="hint">Makes the model shy away from words it already used — the fix for signature phrases repeating ' +
@@ -1092,6 +1120,50 @@
     var sc = settingsScope(body);
     sc.range('#set-temp', '#v-temp', 'temperature', function (v) { return v.toFixed(2); });
     sc.range('#set-max', '#v-max', 'maxTokens');
+    /* v1.39.82: the history budget gets the same slider + exact-entry pair as
+       the reply length, because a slider that stops at 32 000 with a 500 step
+       cannot express "give me everything this model holds". */
+    sc.range('#set-hist', '#v-hist', 'historyTokens');
+    /* v1.39.82: same slider + exact-entry pair as the reply length. A slider
+       that stops at 32 000 cannot express "everything this model holds". */
+    (function () {
+      var value = $('#v-hist', body), slider = $('#set-hist', body);
+      if (!value || !slider) return;
+      function openEditor() {
+        var input = document.createElement('input');
+        input.type = 'number'; input.min = '500'; input.max = '200000'; input.step = '100';
+        input.inputMode = 'numeric'; input.className = 'max-token-entry';
+        input.setAttribute('aria-label', 'History budget in tokens');
+        input.value = String(historyTokens(Store.settings));
+        value.replaceWith(input);
+        input.focus(); input.select();
+        var done = false;
+        function finish(save) {
+          if (done) return; done = true;
+          var n = Math.round(Number(input.value));
+          if (save && input.value.trim() !== '' && isFinite(n)) {
+            n = Math.max(500, Math.min(200000, n));
+            var patch = { historyTokens: n }; sc.set(patch);
+            slider.value = String(Math.min(32000, n));
+          }
+          var current = historyTokens(Store.settings);
+          var display = document.createElement('button');
+          display.type = 'button'; display.className = 'val val-edit'; display.id = 'v-hist';
+          display.title = 'Tap to type an exact token budget';
+          display.setAttribute('aria-label', 'History budget: ' + current + ' tokens. Tap to enter a number');
+          display.textContent = String(current);
+          input.replaceWith(display);
+          display.addEventListener('click', openEditor);
+        }
+        input.addEventListener('change', function () { finish(true); });
+        input.addEventListener('blur', function () { finish(true); });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+          if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        });
+      }
+      value.addEventListener('click', openEditor);
+    })();
     /* The slider is fiddly for an exact token count on a phone. Tap the
        displayed value to edit it directly; commit on Enter/change/blur,
        Escape cancels. Keep the slider and saved setting in sync. */

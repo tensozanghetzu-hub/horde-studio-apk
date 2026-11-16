@@ -417,8 +417,16 @@
     if (presentNow.length) lines.push('Present in this scene: ' + presentNow.join(', ') + ', ' + userName);
     if (awayNow.length) lines.push('Elsewhere and out of the scene: ' + awayNow.join(', '));
     if (!lines.length) return '';
+    /* v1.39.82: the block used to be a roster and nothing else — who is here,
+       who is not, and one prohibition. A model handed three names and no
+       rules either blends them into one narrator or writes a round-robin in
+       which everyone gets a paragraph. These four sentences are the
+       difference between a scene and a list. */
     return 'SCENE CAST — THIS OVERRIDES THE CARD: ' + lines.join('. ') +
-      '. Characters listed as elsewhere never speak, react, act, or get narrated in this reply, even if the card or examples show them speaking.';
+      '. Characters listed as elsewhere never speak, react, act, or get narrated in this reply, even if the card or examples show them speaking.' +
+      ' When someone present speaks or acts, name them in the prose so it is never ambiguous who did it.' +
+      ' More than one present character may act in a reply, but do not give each of them a turn: write the beat that the moment calls for and let the others stay quiet.' +
+      ' Never write ' + userName + "'s words, thoughts or actions — leave them to the player.";
   }
 
   function charSheet(char, s, session, recent, assistantTurns) {
@@ -635,6 +643,59 @@
    * ------------------------------------------------------------------ */
   var CONTEXT_CAP = 128000;   // bytes, provider-bound messages
 
+  /* v1.39.82: the history had a hard 26 000-character cap written into the
+     one call that used it — no setting, no UI, and it silently outranked the
+     "Messages in context" slider (which says 40 and delivers 17 at 250 words
+     a reply). It is now a real budget in tokens, and when the app knows the
+     model's window (OpenRouter publishes context_length) it shrinks to fit
+     inside it, because a prompt larger than the window is not "more memory":
+     the provider truncates it and the character answers the start of the
+     conversation forever. */
+  var DEFAULT_HISTORY_TOKENS = 6000;
+  /* room for the sheet, the examples, the reply and a little slack, so the
+     budget never claims the whole window */
+  var WINDOW_MARGIN_TOKENS = 512;
+
+  /* { model name -> context window in tokens }, filled from whatever model
+     catalogue the app has already fetched and cached in localStorage. No
+     extra request: the picker's own payload carries it. */
+  function modelContextTokens(model) {
+    var name = String(model || '').trim();
+    if (!name) return 0;
+    try {
+      var map = JSON.parse(global.localStorage.getItem('hs-model-windows') || '{}') || {};
+      var n = parseInt(map[name], 10);
+      return n > 0 ? n : 0;
+    } catch (e) { return 0; }
+  }
+
+  function rememberModelWindows(rows) {
+    try {
+      var map = JSON.parse(global.localStorage.getItem('hs-model-windows') || '{}') || {};
+      var seen = 0;
+      (rows || []).forEach(function (m) {
+        var id = m && (m.id || m.name);
+        var ctx = m && (m.context_length || m.context_window || (m.top_provider && m.top_provider.context_length));
+        if (id && parseInt(ctx, 10) > 0) { map[id] = parseInt(ctx, 10); seen++; }
+      });
+      if (seen) global.localStorage.setItem('hs-model-windows', JSON.stringify(map));
+    } catch (e) { /* storage can be unavailable in private WebViews */ }
+  }
+
+  /* How many tokens of transcript to send. The user's number, unless the
+     model's window is known and smaller than what the rest of the prompt
+     leaves room for. `cardTokens` is the sheet + examples + system block,
+     already measured by the caller. */
+  function historyBudgetTokens(s, cardTokens, replyTokens) {
+    var want = parseInt(s && s.historyTokens, 10);
+    if (!(want > 0)) want = DEFAULT_HISTORY_TOKENS;
+    var window = modelContextTokens(s && s.model);
+    if (!window) return want;
+    var room = window - (cardTokens || 0) - (replyTokens || 0) - WINDOW_MARGIN_TOKENS;
+    if (!(room > 0)) return Math.min(want, 1000);      /* a huge card leaves almost nothing */
+    return Math.min(want, room);
+  }
+
   /* The Horde is the tight one. horde.js asks for a context of
      min(HORDE_CTX_TOKENS, prompt + reply + 64) and the worker window really is
      that size, so a prompt that is comfortable for a chat provider can still be
@@ -722,7 +783,9 @@
       return { role: m.role === 'user' ? 'user' : 'assistant', content: content };
     }).filter(function (m) { return m.content.trim(); });
 
-    hist = trimHistory(hist, s.contextMessages || 40, s.maxContextChars || 26000);
+    var histBudget = historyBudgetTokens(s,
+      Math.ceil(String(system).length / 4), maxTokensOf(s));
+    hist = trimHistory(hist, s.contextMessages || 40, Math.max(2000, histBudget * 4));
     hist.forEach(function (m) { msgs.push(m); });
 
     /* A reroll instruction rides LAST, after the card, the examples and the
@@ -926,6 +989,10 @@
         var arr = Array.isArray(d) ? d
           : (Array.isArray(d && d.data) ? d.data
             : (Array.isArray(d && d.models) ? d.models : []));
+        /* v1.39.82: keep each model's context window while we are here, so
+           the history budget can fit itself to the model instead of guessing
+           a character count. No extra request — the catalogue already has it. */
+        rememberModelWindows(arr);
         return arr.map(function (m) {
           return typeof m === 'string' ? m : (m && (m.id || m.name));
         }).filter(Boolean);
@@ -2383,6 +2450,10 @@
     _loreHits: loreHits,
     loreDiagnostics: loreDiagnostics,
     loreSample: loreSample,
+    historyBudgetTokens: historyBudgetTokens,
+    modelContextTokens: modelContextTokens,
+    rememberModelWindows: rememberModelWindows,
+    DEFAULT_HISTORY_TOKENS: DEFAULT_HISTORY_TOKENS,
     DEFAULT_MAX_TOKENS: DEFAULT_MAX_TOKENS,
     maxTokensOf: maxTokensOf,
     _examplesToMessages: examplesToMessages

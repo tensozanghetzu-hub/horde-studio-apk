@@ -161,9 +161,9 @@ same('a missing history is tolerated', API.loreSample(undefined), '');
 
 console.log('\nD2 — the settings screen says how context is measured');
 var setSrc = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
-ok('the byte-vs-token assumption is stated', /measured in <b>bytes<\/b>/.test(setSrc));
+ok('the character-to-token assumption is stated', /four to a token/.test(setSrc));
 ok('…and names the non-Latin cost', /Cyrillic/.test(setSrc));
-ok('…and the lorebook window is explained', /how far back the lorebook looks/.test(setSrc));
+ok('…and the lorebook window is explained', /how far back the\s*' \+\s*'lorebook looks/.test(setSrc));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

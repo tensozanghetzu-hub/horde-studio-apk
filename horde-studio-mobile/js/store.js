@@ -25,7 +25,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.39.81';
+  var VERSION = '1.39.82';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -51,6 +51,10 @@
     topK: 0,
     repPen: 1.1,
     contextMessages: 40,
+    /* v1.39.82: how many tokens of transcript to send. Visible and editable
+       now — it used to be a 26 000-character literal inside api.js that
+       silently outranked the message-count slider above. */
+    historyTokens: 6000,
     systemPrompt: DEFAULT_SYSTEM,
     userName: 'You',
     userPersona: '',
