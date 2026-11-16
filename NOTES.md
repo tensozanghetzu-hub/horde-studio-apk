@@ -1,5 +1,30 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.85 — read the card's own rota (2026-11-16)
+
+A card that lists its people under a "Cast" heading had one of them invisible:
+she never speaks in the greeting, so the dialogue scan could not see her, and
+she could not be sent away, addressed, or kept out of a reply.
+
+- `detectCast` now reads a rota too: a heading line that is a cast heading —
+  Cast, Cast list, Characters, Main/Supporting/Other characters, NPCs, People,
+  "Who's here", "In this scene" — followed by bullets. The bullet's bold name,
+  or the text before a dash or colon, is a person. General by construction:
+  the heading vocabulary and the bullet shape, no names anywhere.
+- A rota cannot invent people out of an unrelated list: the heading must be a
+  cast heading, a non-bullet line ends the rota, and field words are still
+  rejected (`- **Overall** — …` stays a field).
+- A declared name is proof, so it can rescue a card whose only speakers were
+  labelled once — but dialogue keeps the order, so the rota only appends.
+- The loaded character is listed under her own name in the header; a rota entry
+  for her marks her as present rather than adding a second chip.
+- Re-detection treats newly learned names as present. Sending someone away was
+  a choice about a name the player could see; it says nothing about a name that
+  was invisible until now.
+- Tests: scenecast 33 → 48, covering eight heading spellings, four bullet
+  styles, the field-word guard, the prose-instead-of-bullets case and the cap.
+  Suite 102/0, generic checks clean.
+
 ## v1.39.84 — a description is not dialogue (2026-11-16)
 
 Same card, one layer deeper: the chips read Sloane, Aston and **Overall**.

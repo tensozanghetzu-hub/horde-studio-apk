@@ -218,6 +218,46 @@ var fieldWordQuoted = {
 };
 same('a field header is never a person, even mid-sentence', detectCast(fieldWordQuoted), []);
 
+/* v1.39.85 — a card may simply say who is in it. A rota line under "Cast",
+   "Characters", "Who's here" and the like declares people the dialogue scan
+   cannot see: someone who has not spoken yet is still in the room. */
+console.log('\na declared rota is cast too');
+var rota = 'Sloane is quiet.\n\nCast\n' +
+  '- **Aston Ashworth** \u2014 42, her father. Warm and over-apologetic.\n' +
+  '- **Mara** \u2014 34, the player\u2019s wife. Dry and controlled.\n' +
+  '- **Sloane Ashworth** \u2014 18, quiet, watches the adults.\n' +
+  'Write at most two of them speaking in one reply.\n';
+
+var rotaOnly = { name: 'Sloane', persona: rota, scenario: '', greeting: '', examples: '' };
+same('the rota supplies the people nobody saw speak',
+  detectCast(rotaOnly), ['Sloane', 'Aston Ashworth', 'Mara']);
+
+['Cast:', 'CAST', '**Cast**', 'Characters', 'Main Characters:', 'NPCs', "Who\u2019s here", 'In this scene:']
+  .forEach(function (heading) {
+    var c = { name: 'Sloane', persona: heading + '\n- **Aston** \u2014 father\n- **Mara** \u2014 wife\n', scenario: '', greeting: '', examples: '' };
+    var got = detectCast(c);
+    ok('"' + heading + '" is read as a rota heading', got.length === 2 && got[0] === 'Aston', JSON.stringify(got));
+  });
+
+console.log('\nthe rota is read for people, not for anything else');
+same('a field-word bullet stays a field',
+  detectCast({ name: 'X', persona: 'Cast\n- **Name** \u2014 label\n- **Overall** \u2014 summary\n', scenario: '', greeting: '', examples: '' }), []);
+same('a heading with prose and no bullets declares nobody',
+  detectCast({ name: 'Sloane', persona: 'Characters\nThis card has several people in it, written out in the prose above.\n', scenario: '', greeting: '', examples: '' }), []);
+same('a rota entry cannot duplicate the loaded character by full name',
+  detectCast({ name: 'Sloane', persona: 'Cast\n- **Sloane Ashworth** \u2014 18, quiet.\n- **Aston** \u2014 father.\n', scenario: '', greeting: '', examples: '' }),
+  ['Sloane', 'Aston']);
+same('the rota is capped like any other cast',
+  detectCast({ name: 'X', persona: 'Cast\n- **Anna** one\n- **Bella** two\n- **Cara** three\n' +
+    '- **Dana** four\n- **Elin** five\n- **Faye** six\n- **Gwen** seven\n', scenario: '', greeting: '', examples: '' }).length, 6);
+same('bullet styles: dash, star, numbered, plain name',
+  detectCast({ name: 'X', persona: 'Cast\n- **Aston** \u2014 one\n* Mara: two\n1. Joss \u2013 three\n', scenario: '', greeting: '', examples: '' }),
+  ['Aston', 'Mara', 'Joss']);
+
+console.log('\na rota cannot invent people from prose that merely lists something');
+same('a bullet under an unrelated heading is ignored',
+  detectCast({ name: 'X', persona: 'Likes\n- Cooking\n- Sports\n- Music\n', scenario: '', greeting: '', examples: '' }), []);
+
 console.log('\nthe revision bump makes stored chats re-detect');
 var appAll = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
 var rev = parseInt((appAll.match(/var CAST_REV = (\d+);/) || [])[1], 10);

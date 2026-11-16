@@ -719,7 +719,7 @@
      "Relationship: Widow, your neighbour" carry a capital letter and a colon,
      so the old scan could not tell them from "Rose: come in." and put both in
      the Scene strip as if they were people standing on the porch. */
-  var CAST_REV = 5;          /* bump when detection rules change */
+  var CAST_REV = 6;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -733,8 +733,16 @@
     if (session.castRev !== CAST_REV && !session.castEdited) {
       var fresh = App.detectCast(char);
       var wasPresent = Array.isArray(session.scenePresent) ? session.scenePresent : [];
+      var wasCast = Array.isArray(session.sceneCast) ? session.sceneCast : [];
       var present = fresh.filter(function (n) { return wasPresent.indexOf(n) !== -1; });
       if (!present.length) present = fresh.slice();
+      /* v1.39.85: a name the re-detect has only just learned about (a rota the
+         old scan could not read) starts in the room. Sending someone away is a
+         choice the player made about a name they could see; it says nothing
+         about a name that was invisible until now. */
+      fresh.forEach(function (n) {
+        if (wasCast.indexOf(n) === -1 && present.indexOf(n) === -1) present.push(n);
+      });
       /* the chat's own character is in the room unless the player says otherwise */
       var selfKey = String(char.name || '').toLowerCase().split(/[\s,]+/)[0];
       var selfInFresh = selfKey && fresh.filter(function (n) {
@@ -896,12 +904,66 @@
       cands[low].acts += (blob.match(said) || []).length;
     });
 
+    /* v1.39.85: a card may simply say who is in it.
+       Multi-person cards often end with their own rota — a heading like
+       "Cast", "Characters" or "Who's here", then one bullet per person:
+       "- **Name** — who they are". Those people are declared, not inferred,
+       so the dialogue scan above is the wrong instrument: a character listed
+       there who has not spoken yet is still in the room, and leaving her out
+       means she cannot be sent away, addressed, or kept from narrating.
+       General by construction — no names, only the heading vocabulary and the
+       shape of a bullet. */
+    var CAST_HEADING = /^(?:the\s+)?(?:cast(?:\s+list|\s+of\s+characters)?|characters?|main\s+characters?|supporting\s+characters?|other\s+characters?|side\s+characters?|npcs?|people|persons|who(?:'s|\u2019s)?\s+(?:here|present|in\s+(?:this\s+)?(?:scene|room))|present|in\s+this\s+scene|characters?\s+in\s+(?:this\s+)?(?:scene|room))\s*:?\s*$/i;
+    /* a bullet, in the shapes cards write them */
+    var BULLET = /^\s*(?:[-*\u2022\u2013\u2014]|\d+[.)])\s+(.+)$/;
+    function castSectionNames(text) {
+      var out = [];
+      var lines = String(text || '').split('\n');
+      var inside = false, budget = 0;
+      for (var i = 0; i < lines.length; i++) {
+        var line = String(lines[i] || '').replace(/\s+$/, '');
+        var bare = line.replace(/^[#*_\s]+/, '').replace(/[*_\s]+$/, '').trim();
+        if (!inside) {
+          if (CAST_HEADING.test(bare)) { inside = true; budget = 40; }
+          continue;
+        }
+        if (!budget--) { inside = false; continue; }
+        if (!line.trim()) continue;
+        var b = BULLET.exec(line);
+        if (!b) {
+          /* any non-bullet line ends the rota: prose, a new field block, a rule */
+          if (/^[A-Z][A-Za-z '\/]{1,24}\s*:/.test(line.trim())) { inside = false; }
+          continue;
+        }
+        var body = b[1].trim();
+        var bold = /^\*\*(.+?)\*\*/.exec(body);
+        var name;
+        if (bold) name = bold[1];
+        else {
+          name = body.split(/\s+[\u2013\u2014]\s+|\s+-\s+/)[0];
+          if (/\s*:\s/.test(name)) name = name.split(/\s*:\s*/)[0];
+        }
+        name = String(name || '').replace(/[*_`]/g, ' ').replace(/\s+/g, ' ').trim();
+        name = name.replace(/^[-\u2022\s]+|[-.,;:!\s]+$/g, '');
+        if (!name || name.length > 32) continue;
+        out.push(name);
+      }
+      return out;
+    }
+
     /* A person recurs. A heading, a field label and a one-off mention do not. */
+    /* the loaded character's own name, usable even if she never appears in a
+       dialogue label — a rota can declare her without her ever speaking */
     var found = [], seen = {}, selfName = '', selfActs = 0;
+    var selfLabel = shaped(String(char.name || '').trim());
     order.forEach(function (low) {
       if (isSelf(cands[low].name)) {
         selfName = cands[low].name;
         selfActs += (cands[low].acts >= 2 || cands[low].strong) ? 1 : 0;
+        /* remember her under both her full and her short name, so a rota that
+           lists "First Last" does not add a second copy of the same person */
+        var sk = norm(cands[low].name);
+        seen[sk] = true; seen[firstWord(sk)] = true;
         return;
       }
       var c = cands[low];
@@ -922,7 +984,25 @@
        bar could not list her at all before, so a two-person card produced a
        cast of one and the whole strip hid itself. A single-person card still
        yields nothing, because there is no one else in `found`. */
-    if (selfName && selfActs >= 1 && found.length >= 1) found.unshift(selfName);
+    /* People the card declares, after the ones it shows speaking. A declared
+       name doubles as proof, so it can rescue a card whose only speakers were
+       labelled once, but it never displaces dialogue — the order stays the
+       card's own. */
+    var declared = castSectionNames(blob).map(shaped).filter(Boolean);
+    var selfDeclared = false;
+    declared.forEach(function (name) {
+      var key = norm(name);
+      /* the loaded character is listed under her own name, which the header
+         already carries — that is proof she is here, not a second person */
+      if (isSelf(name)) { selfDeclared = true; return; }
+      if (found.some(function (f) { return norm(f) === key || firstWord(norm(f)) === firstWord(key); })) return;
+      if (seen[key] || seen[firstWord(key)]) return;
+      if (isField(name)) return;
+      seen[key] = true; seen[firstWord(key)] = true;
+      found.push(name);
+    });
+    var selfAdd = selfDeclared ? selfLabel : (selfActs >= 1 ? (selfName || selfLabel) : '');
+    if (selfAdd && found.length >= 1) found.unshift(selfAdd);
     return found.slice(0, 6);
   };
 
