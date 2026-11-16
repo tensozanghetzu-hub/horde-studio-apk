@@ -1,5 +1,24 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.94 — a 503 says what it is, and offers a way out (2026-11-16)
+
+Reported: a free route worked, then every request was 503 from 8 PM onward.
+
+- **The diagnosis was already right, the advice was missing.** `providerError`
+  returned the bare provider message for any 5xx. It now says: the provider
+  behind this model is unavailable; on a `:free` route that means the shared
+  pool is full and no availability is guaranteed; the app already retried twice;
+  nothing was lost. A 429 and a 401 keep their own, different advice — this is
+  the distinction that matters, because a 503 is not quota and not the key.
+- **A failed send now offers `Later` / `Try again` / `Choose model`** instead of
+  a toast that scrolls away. Only for provider outages; every other error keeps
+  the toast it had.
+- `providerError` is exported so the wording can be tested directly — the old
+  path could only be reached through a real failing request.
+- Tests: new `route-outage-test` (31) — 502/503/504 flagged, free versus paid
+  wording, 429 and 401 unchanged, and the sheet's three actions. Suite 105 → 106
+  files, 0 failing; generic checks clean.
+
 ## v1.39.93 — who is speaking, and memory that remembers what it described (2026-11-16)
 
 Two reports from real use.

@@ -2592,7 +2592,12 @@
               Views.thread(char, session, generationMessages);
             }
           }
-          UI.toast('Error: ' + e.message, 6000);
+          /* v1.39.94: a provider outage gets an offer, not just a sentence. */
+          if (e && (e.providerDown || e.status >= 500)) {
+            App.routeFailureSheet(e);
+          } else {
+            UI.toast('Error: ' + e.message, 6000);
+          }
           console.error(e);
         }
       } catch (inner) {
@@ -2738,6 +2743,37 @@
         return true;
       });
     }).catch(function () { return false; });
+  };
+
+  /* v1.39.94: when the model's provider is down, the two things a player can
+     actually do are "try again in a minute" and "use a different model". This
+     offers both, and says plainly that the chat is intact. */
+  App.routeFailureSheet = function (err) {
+    var s = Store.settings || {};
+    var free = /:free\s*$/i.test(s.model || '');
+    UI.sheet({
+      title: 'The model is unavailable',
+      body: '<div class="hint" style="margin:0 0 10px">' + esc(String(err && err.message || 'The provider returned an error.')) + '</div>' +
+        '<div class="hint" style="margin:0 0 10px">' +
+        (free ? 'This is a <b>free route</b>. Free routes share a pool: at busy times every request ' +
+          'is refused for a while, then it works again with nothing changed. It is not your key, ' +
+          'your quota, or this app.' : 'This is the provider\'s server, not your settings.') +
+        '</div>' +
+        '<div class="hint" style="margin:0">Your message and the chat are untouched.</div>',
+      actions: [
+        { label: 'Later', cls: 'ghost', value: null },
+        { label: 'Try again', cls: 'ghost', onClick: function () {
+            UI.closeSheet();
+            App.generateReply();
+            return true;
+          } },
+        { label: 'Choose model', cls: 'primary', onClick: function () {
+            UI.closeSheet();
+            App.chooseModel(true);
+            return true;
+          } }
+      ]
+    });
   };
 
   App.setStop = function (on) {

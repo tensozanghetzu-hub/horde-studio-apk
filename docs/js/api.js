@@ -1226,6 +1226,19 @@
         'On OpenRouter even free models reject when the balance goes negative.');
     } else if (status === 401 || status === 403) {
       e = new Error(base + ' — the API key was rejected; check Settings and the connection.');
+    } else if (status >= 500) {
+      /* v1.39.94: a 5xx is not the player's account, key or quota, and it is
+         not something a retry in the same minute usually fixes on a free
+         route. Say which of those it is, plainly. */
+      var freeRoute = /:free\s*$/i.test(modelName || '');
+      e = new Error(base + ' — the provider behind this model is unavailable. ' +
+        (freeRoute
+          ? 'Free routes carry no availability guarantee: when the shared pool is full, ' +
+            'every request is refused like this for a while and then recovers on its own. '
+          : '') +
+        'Nothing was lost — your message is still in the chat. The app already retried it ' +
+        'twice; wait a few minutes, or switch model for now.');
+      e.providerDown = true;
     } else {
       e = new Error(base);
     }
@@ -2693,6 +2706,7 @@
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     splitSpeaker: splitSpeaker, parseMemory: parseMemory, memoryLooksBroken: memoryLooksBroken,
+    providerError: providerError,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
     parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,
     parseLorebookFile: parseLorebookFile, aiJson: aiJson,
