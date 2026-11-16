@@ -2571,6 +2571,28 @@
   }
   Views.altWordCount = altWordCount;
 
+  /* v1.39.81: the footer used to read "116 words · cut", which could be read
+     two ways — how long this reply is, or how much the app withheld because it
+     hit a limit. It was the first, and the second reading is impossible: a cut
+     reply is short, not truncated for display; the model simply stopped
+     mid-thought. The line now says which number it is, and, when a reply did
+     stop early, says so in words and points at the button that fixes it. */
+  function replyFooter(body, m, s) {
+    var words = altWordCount(body) + ' words in this reply';
+    var ends = /[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim());
+    if (ends) return words + ' \u00b7 complete';
+    if (m.finishReason === 'length') {
+      var cap = (s && s.maxTokens) || API.DEFAULT_MAX_TOKENS;
+      return words + ' \u00b7 the model hit your ' + cap + '-token limit, so it stopped mid-thought ' +
+        '\u00b7 Continue finishes it';
+    }
+    if (m.finishReason === 'stop') {
+      return words + ' \u00b7 the model chose to stop before finishing';
+    }
+    return words + ' \u00b7 it stopped mid-sentence; Continue finishes it';
+  }
+  Views.replyFooter = replyFooter;
+
   /* what the listener hears: markdown and directions stripped, just prose */
   function speechText(t) {
     return String(t || '')
@@ -2608,12 +2630,7 @@
           '<div class="mtext">' + md(body) + '</div>' +
           (m.continuationOf ? '<div class="mcont">↳ continued from the reply above</div>' : '') +
           (!isMe && body.trim() ? '<div class="mstat" style="margin-top:6px;font-size:11px;opacity:.55;letter-spacing:.02em">' +
-            altWordCount(body) + ' words' +
-            (/[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim())
-              ? ''
-              : ' \u00b7 cut' + (m.finishReason === 'length' ? ' at the length limit'
-                  : (m.finishReason === 'stop' ? ' (the model chose to stop)' : ''))) +
-            '</div>' : '') +
+            replyFooter(body, m, s) + '</div>' : '') +
           (m.image ? '<img class="gen" src="' + esc(m.image) + '" alt="' + esc(m.imageCaption || 'image') + '" data-lightbox="' + esc(m.image) + '">' : '') +
           (m.imageCaption ? '<div class="imgcap">' + esc(m.imageCaption) + '</div>' : '') +
           (m.autonomous ? '<div class="auto-tag">· sent on their own</div>' : '') +

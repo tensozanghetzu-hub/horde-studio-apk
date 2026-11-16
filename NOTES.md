@@ -1,5 +1,24 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.81 — the reply footer says what it means (2026-11-16)
+
+- The line under a bubble read "116 words · cut", which can be read two ways:
+  how long this reply is, or how much the app withheld because the reply ran
+  long. It was the first — and the second is not a thing this app does. A cut
+  reply is short, not trimmed; the model simply hit its token budget and
+  stopped mid-thought.
+- The footer now names its own subject and its own state:
+  - `116 words in this reply · complete`
+  - `116 words in this reply · the model hit your 600-token limit, so it
+    stopped mid-thought · Continue finishes it`
+  - `… · the model chose to stop before finishing` (provider said `stop`)
+  - `… · it stopped mid-sentence; Continue finishes it` (no reason reported)
+- The token limit named is the one actually in settings, so the sentence and
+  the slider cannot disagree.
+- Tests: message-footer-test grew 26 → 37, including "nothing suggests text was
+  withheld" and "a complete reply has no Continue nudge". Suite 101 files,
+  0 failing.
+
 ## v1.39.80 — Chat health that opens, and a turn you can still read (2026-11-16)
 
 - **Chat health did nothing.** The sheet called `IDB.all('messages')`; the store

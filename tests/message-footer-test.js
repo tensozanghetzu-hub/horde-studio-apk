@@ -83,11 +83,38 @@ ok('an empty _stream falls back to the stored text', !/(^|[^0-9])0 words/.test(s
   staleHtml.match(/mstat[^>]*>[^<]*/));
 ok('…and the count comes from the text', /\b\d+ words/.test(staleHtml));
 
-console.log('\na genuinely cut reply still says so');
+console.log('\nthe footer says which number it is');
+ok('a complete reply says the count is of the reply',
+  /20 words in this reply/.test(html), (html.match(/mstat[^>]*>[^<]*/) || [''])[0]);
+ok('…and calls it complete', /in this reply \u00b7 complete/.test(html));
+ok('the bare ambiguous "words · cut" wording is gone',
+  !/\d+ words \u00b7 cut/.test(html));
+
+console.log('\na reply that stopped early explains itself');
 var cut = { id: 'm3', role: 'assistant', text: 'The salle is silent. The ventilation', alts: [], finishReason: 'length' };
+ctx.Store.settings.maxTokens = 600;
 var cutHtml = Views.messageHtml(cut, char, ctx.Store.settings);
-ok('the cut marker survives', /\u00b7 cut/.test(cutHtml));
-ok('…and names the reason', /length limit/.test(cutHtml));
+ok('it names the reply-length number, not an omission', /6 words in this reply/.test(cutHtml),
+  (cutHtml.match(/mstat[^>]*>[^<]*/) || [''])[0]);
+ok('it says the model hit the limit', /the model hit your 600-token limit/.test(cutHtml));
+ok('…that it stopped mid-thought', /stopped mid-thought/.test(cutHtml));
+ok('…and points at Continue', /Continue finishes it/.test(cutHtml));
+ok('nothing suggests text was withheld', !/\b(thrown away|discarded|omitted|hidden)\b/i.test(cutHtml));
+
+var stopped = { id: 'm5', role: 'assistant', text: 'She began to', alts: [], finishReason: 'stop' };
+ok('a model that chose to stop says that',
+  /the model chose to stop before finishing/.test(Views.messageHtml(stopped, char, ctx.Store.settings)));
+
+var unknown = { id: 'm6', role: 'assistant', text: 'She began to', alts: [] };
+ok('an unknown stop says it stopped mid-sentence',
+  /stopped mid-sentence/.test(Views.messageHtml(unknown, char, ctx.Store.settings)));
+
+console.log('\nthe label never claims the wrong thing');
+ok('the footer exports for direct testing', typeof Views.replyFooter === 'function');
+ok('a complete reply has no "Continue" nudge',
+  Views.replyFooter('All done here.', {}, ctx.Store.settings).indexOf('Continue') === -1);
+ok('a cut reply always does',
+  Views.replyFooter('Half a thought', { finishReason: 'length' }, ctx.Store.settings).indexOf('Continue') !== -1);
 
 console.log('\na continuation says it continues');
 var cont = { id: 'm4', role: 'assistant', text: 'around your wrist. The contact is light.', alts: [], continuationOf: 'm1' };
