@@ -1,5 +1,30 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.88 — the general-purpose rule, enforced (2026-11-16)
+
+The standing rule is now written down and **tested**, not remembered.
+
+- **`POLICY.md`** states it: a fix targets a class of problem, never a card. It
+  names no card; it fixes the cause; it leaves every other card — present or
+  future — exactly as it was; and it helps anyone, not only the reporter. Corollaries: import problems are fixed for all imports, chat problems for all
+  chats.
+- **`tests/generic-check.js` now derives the forbidden names from the cards
+  themselves.** It reads every `.json`, `.png` and `.charx` on disk — the PNG
+  `chara`/`ccv3` chunks included, so an attached card counts — and takes the
+  character name, the author, and the names in the card's own cast rota. Any of
+  those words in shipped code fails the release. Dropping a new card in for
+  testing forbids its names from that moment; the hand-maintained list is kept
+  only as a second net.
+- **Card words that are app vocabulary are excluded automatically.** "Your Wife
+  (Mara)" must not forbid the word "your": the shipped code is its own
+  dictionary, and a word it uses constantly cannot be a detection signal.
+- **Three real leaks surfaced on the first run** and were fixed: `npc_mara` /
+  "Mara Vess" in the world-generation JSON shape, "Mara" in two continuity
+  placeholders, and "Dr. Mara" in a sentence-splitting comment. All now use role
+  words. Nothing about behaviour changed.
+- README points at the policy; the release checklist gains the step.
+- Suite 104/0, generic checks clean.
+
 ## v1.39.87 — why the reply was pure OOC (2026-11-16)
 
 On turn 1 of a fresh chat the model answered with nothing but:

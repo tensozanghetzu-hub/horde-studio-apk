@@ -1700,10 +1700,10 @@
             '<div class="field"><label>Present characters <span class="hint">one per line</span></label><textarea class="tall" id="cont-participants">' + esc(c.participants.join('\n')) + '</textarea></div>' +
           '</div>' +
           '<div class="group"><div class="group-title">Knowledge & truth</div>' +
-            '<div class="field"><label>Knowledge records <span class="hint">who | fact | basis</span></label><textarea class="tall" id="cont-knowledge" placeholder="Mara | the gate is sealed | witnessed it\n{{user}} | the letter is forged | was told by Mara\nNarrator only | the key is cursed | hidden world truth">' + esc(continuityRows(c.knowledge, ['who', 'fact', 'basis'])) + '</textarea><div class="hint">Use each NPC’s name separately. Basis records provenance (witnessed, told by whom, inferred). Use {{user}} for player knowledge, Everyone for shared knowledge, or Narrator only for hidden world truth. NPC knowledge is injected only for present NPCs.</div></div>' +
+            '<div class="field"><label>Knowledge records <span class="hint">who | fact | basis</span></label><textarea class="tall" id="cont-knowledge" placeholder="Warden | the gate is sealed | witnessed it\n{{user}} | the letter is forged | was told by Warden\nNarrator only | the key is cursed | hidden world truth">' + esc(continuityRows(c.knowledge, ['who', 'fact', 'basis'])) + '</textarea><div class="hint">Use each NPC’s name separately. Basis records provenance (witnessed, told by whom, inferred). Use {{user}} for player knowledge, Everyone for shared knowledge, or Narrator only for hidden world truth. NPC knowledge is injected only for present NPCs.</div></div>' +
           '</div>' +
           '<div class="group"><div class="group-title">Important objects</div>' +
-            '<div class="field"><label>Object state <span class="hint">name | state | holder | basis</span></label><textarea class="tall" id="cont-objects" placeholder="Brass key | bent, still usable | Mara | picked up from the floor">' + esc(continuityRows(c.objects, ['name', 'state', 'holder', 'basis'])) + '</textarea></div>' +
+            '<div class="field"><label>Object state <span class="hint">name | state | holder | basis</span></label><textarea class="tall" id="cont-objects" placeholder="Brass key | bent, still usable | Warden | picked up from the floor">' + esc(continuityRows(c.objects, ['name', 'state', 'holder', 'basis'])) + '</textarea></div>' +
           '</div>' +
           '<div class="group"><div class="group-title">Open and resolved events</div>' +
             '<div class="field"><label>Events <span class="hint">open/resolved | name | detail</span></label><textarea class="tall" id="cont-events" placeholder="open | Find the missing ledger | Last seen in the archive\nresolved | The alarm was disabled | Confirmed by the group">' + esc(continuityRows(c.events, ['name', 'detail'], 'status')) + '</textarea></div>' +
@@ -2726,7 +2726,7 @@
             status(stage + '…');
             var placeIds = places.locations.map(function (l) { return l.id; }).join(', ');
             var peopleShape = JSON.stringify({
-              entities: [{ id: 'npc_mara', name: 'Mara Vess', type: 'npc', isMajor: true,
+              entities: [{ id: 'npc_warden', name: 'Tide Warden', type: 'npc', isMajor: true,
                 description: 'Hollow-eyed tide warden',
                 persona: 'Patient and watchful, but she pockets what is not nailed down.',
                 goal: 'To keep the toll honest', secrets: 'She takes a cut of every crossing',

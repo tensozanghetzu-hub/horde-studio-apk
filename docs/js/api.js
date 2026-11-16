@@ -1683,7 +1683,7 @@
 
   /**
    * Break a one-line reply into its sentences. Returns null unless every piece
-   * looks like a text someone would actually send — that keeps "Dr. Mara is
+   * looks like a text someone would actually send — that keeps "Dr. Warden is
    * here" and long prose from being torn apart.
    */
   var ABBREV = /^(?:mr|mrs|ms|dr|st|jr|sr|prof|vs|etc|eg|ie|approx|no|al|fig|figs|vol|ch|pp|inc|ltd|co|mt|ft|sq|ave|rd|blvd)$/i;
