@@ -2649,7 +2649,11 @@
               reason: (mem && mem.reason) || 'no usable summary came back',
               raw: (mem && mem.lastRaw) || '',
               characterName: (c && c.name) || '',
-              sessionId: session.id
+              sessionId: session.id,
+              /* v1.39.91: what was asked, of which model, and how big it was */
+              sent: mem && mem.sentMessages ? mem.sentMessages + ' messages, ~' + mem.sentTokens + ' tokens' : '',
+              model: (mem && mem.model) || '',
+              window: (mem && mem.window) || 0
             };
             if (!silent) {
               UI.toast('Memory not updated: ' + App.lastMemoryFailure.reason +
@@ -4437,6 +4441,12 @@
         body: (App.lastMemoryFailure && App.lastMemoryFailure.sessionId === s.id
           ? '<div class="field"><div class="hint" style="margin:0 0 8px"><b>The last memory attempt failed.</b> ' +
             esc(App.lastMemoryFailure.reason) + '. Nothing was overwritten.</div>' +
+            (App.lastMemoryFailure.sent || App.lastMemoryFailure.model
+              ? '<div class="hint" style="margin:0 0 8px">Asked: ' +
+                esc(App.lastMemoryFailure.sent || 'unknown size') +
+                (App.lastMemoryFailure.model ? ' · model ' + esc(App.lastMemoryFailure.model) : '') +
+                (App.lastMemoryFailure.window ? ' · window ' + App.lastMemoryFailure.window + ' tokens' : '') + '</div>'
+              : '') +
             '<div class="hint" style="margin:0 0 8px">What the model actually returned' +
             (App.lastMemoryFailure.raw ? ' (cut to 400 characters):' : ' was empty.') + '</div>' +
             (App.lastMemoryFailure.raw

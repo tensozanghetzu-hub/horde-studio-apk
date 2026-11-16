@@ -1,5 +1,29 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.91 — the summariser sent the whole chat and got nothing back (2026-11-16)
+
+Two regenerates, both "the model refused", with the sheet reporting an **empty**
+reply. That combination pointed at the request, not the model.
+
+- **The summariser ignored the history budget.** It sent `history.slice(-40)` —
+  forty whole messages, however long. On turn 16 of a long chat that is a prompt
+  larger than a free route's window, and a provider that cannot fit it answers
+  with an empty completion. It now caps its transcript to the same
+  `historyBudgetTokens` the chat uses, halving the message count until the text
+  fits.
+- **Three attempts, each cheaper than the last:** JSON → plain prose on the same
+  transcript → a hard-capped 3 500-character slice of the newest turns with
+  `reasoning: {enabled:false}` on OpenRouter (a reasoning route can spend the
+  entire output budget thinking and return nothing visible).
+- **The failure record now says what was asked:** message count, approximate
+  tokens, the model, and its context window, alongside the raw reply — shown in
+  the Memory sheet. Empty from an oversized request and empty from a model that
+  simply said nothing were indistinguishable before.
+- Tests: session-defects 102 → 116, driving the real `summarize()` against a fake
+  transport: capped request, three attempts, shrinking sizes, reasoning disabled
+  only on the third, and each attempt's outcome accepted where it should be.
+  Suite 104/0, generic checks clean.
+
 ## v1.39.90 — the refusal test was eating honest summaries (2026-11-16)
 
 The toast said "the model refused" twice running, on a chat where the model had

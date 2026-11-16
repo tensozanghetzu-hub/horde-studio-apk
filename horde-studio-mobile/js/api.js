@@ -2001,11 +2001,27 @@
   /** Ask the model to compress the story so far into a summary + facts. */
   function summarize(o) {
     var s = o.settings, char = o.character, session = o.session, history = o.history;
-    var convo = history.slice(-o.maxMessages || 40).map(function (m) {
-      var body = repairMojibake(m.text || '');
-      var who = m.role === 'user' ? s.userName : splitSpeaker(char, session, body).name;
-      return who + ': ' + (m.role === 'user' ? body : splitSpeaker(char, session, body).text);
-    }).join('\n');
+    /* v1.39.91: the summariser ignored the history budget completely and sent
+       up to 40 whole messages. On a long chat that is a request bigger than a
+       free route's window, and a provider that cannot fit it answers with
+       nothing at all — which then reads, wrongly, as "the model refused".
+       The transcript is capped to the same budget the chat itself uses, newest
+       turns kept, so the request always fits the model that has to answer it. */
+    function transcriptOf(list) {
+      return list.map(function (m) {
+        var body = repairMojibake(m.text || '');
+        var who = m.role === 'user' ? s.userName : splitSpeaker(char, session, body).name;
+        return who + ': ' + (m.role === 'user' ? body : splitSpeaker(char, session, body).text);
+      }).join('\n');
+    }
+    var maxMessages = o.maxMessages || 40;
+    var budgetChars = Math.max(4000, historyBudgetTokens(s, 900, 500) * 4);
+    var convo = transcriptOf(history.slice(-maxMessages));
+    while (convo.length > budgetChars && maxMessages > 6) {
+      maxMessages = Math.floor(maxMessages / 2);
+      convo = transcriptOf(history.slice(-maxMessages));
+    }
+    var sentMessages = Math.min(maxMessages, history.length);
 
     var instruction =
       'You are a memory manager for a roleplay between ' + s.userName + ' and ' + char.name + '.\n' +
@@ -2065,7 +2081,48 @@
               String((err && err.message) || 'the retry failed') + ')';
             mem.lastRaw = String(raw || '').slice(0, 600);
             return mem;
+          }).then(function (mem) {
+            if (mem && mem.ok) return mem;
+            /* A third, deliberately tiny attempt. Some routes answer with
+               nothing at all when a reasoning model spends the whole output
+               budget thinking - the visible content is empty and the tokens
+               are gone. A short prompt with reasoning switched off (OpenRouter
+               only; the parameter is ignored elsewhere) is the cheap way out,
+               and it costs one request on an already-failing path. */
+            /* six of the newest turns, then a hard character cap: six long
+               replies can still be most of the chat, and the point of this
+               attempt is that nothing about it can be too big. */
+            var tiny = transcriptOf(history.slice(-6));
+            if (tiny.length > 3500) tiny = tiny.slice(-3500);
+            var tinyMsgs = [
+              { role: 'system', content: 'You summarise a roleplay for its own memory. Answer with plain sentences only.' },
+              { role: 'user', content: 'A few recent lines:\n' + tiny +
+                '\n\nIn 2-4 plain sentences, say what has happened and what is unresolved. No JSON, no headings.' }
+            ];
+            var tinyOpt = { stream: false, temperature: 0.3, max_tokens: 300 };
+            if (endpoint(s).toLowerCase().indexOf('openrouter.ai') !== -1) tinyOpt.reasoning = { enabled: false };
+            return streamChat(s, tinyMsgs, null, null, tinyOpt).then(function (raw3) {
+              var mem3 = parseMemory(raw3);
+              if (mem3.ok) { mem3.shortOf = true; return mem3; }
+              var lm = mem3.reason && mem3.reason !== mem.reason ? ' (third: ' + mem3.reason + ')' : '';
+              mem.reason = mem.reason + lm;
+              if (String(raw3 || '').trim() && !mem.lastRaw) mem.lastRaw = String(raw3).slice(0, 600);
+              return mem;
+            }, function (err3) {
+              mem.reason = mem.reason + ' (third: ' + String((err3 && err3.message) || 'failed') + ')';
+              return mem;
+            });
           });
+        }).then(function (mem) {
+          /* Whatever happened, the record says what was asked and of whom:
+             an empty answer from an oversized request and an empty answer
+             from a model that simply said nothing look identical without it. */
+          mem.sentMessages = sentMessages;
+          mem.sentChars = convo.length;
+          mem.sentTokens = Math.ceil(convo.length / 4);
+          mem.model = String(s.model || (s.provider === 'horde' ? 'horde' : ''));
+          mem.window = modelContextTokens(s.model) || 0;
+          return mem;
       });
   }
 

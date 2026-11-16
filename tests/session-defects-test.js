@@ -259,5 +259,85 @@ ok('the first attempt is kept even if the retry throws', /mem\.lastRaw = String\
 ok('parsed JSON is only rejected for a short outright refusal',
   /MEMORY_REFUSAL\.test\(body\) && body\.length < 240/.test(apiSrc));
 
-console.log('\n' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+/* ------------------------------------------------------------------ */
+/* v1.39.91 — the summariser sent the whole chat and got nothing back.
+   It ignored the history budget entirely: up to 40 entire messages, which on
+   a long chat is a request larger than a free route's window. A provider that
+   cannot fit the prompt answers with an empty completion. */
+console.log('\nthe summariser fits its request to the model');
+
+function fakeEngine(replies) {
+  var calls = [];
+  var mem = {};
+  var sb = {
+    Promise: Promise, JSON: JSON, Object: Object, Date: Date, Array: Array, Math: Math,
+    String: String, Number: Number, RegExp: RegExp, Error: Error, console: console,
+    Uint8Array: Uint8Array, DataView: DataView, TextEncoder: TextEncoder, TextDecoder: TextDecoder,
+    atob: function (x) { return Buffer.from(String(x), 'base64').toString('binary'); },
+    btoa: function (x) { return Buffer.from(String(x), 'binary').toString('base64'); },
+    setTimeout: setTimeout, clearTimeout: clearTimeout,
+    localStorage: { getItem: function (k) { return mem[k] || null; }, setItem: function (k, v) { mem[k] = String(v); } },
+    location: { hostname: 'localhost', origin: 'http://localhost' },
+    navigator: { userAgent: 'node' },
+    fetch: function (url, opt) {
+      calls.push(JSON.parse(opt.body));
+      var text = replies[Math.min(calls.length - 1, replies.length - 1)];
+      return Promise.resolve({
+        ok: true, status: 200,
+        headers: { get: function () { return 'application/json'; } },
+        json: function () { return Promise.resolve({ choices: [{ message: { content: text } }] }); },
+        text: function () { return Promise.resolve(JSON.stringify({ choices: [{ message: { content: text } }] })); }
+      });
+    }
+  };
+  sb.window = sb;
+  vm.runInNewContext(apiSrc, sb, { filename: 'api.js' });
+  return { API: sb.API, calls: calls };
+}
+
+var longHistory = [];
+for (var hi = 0; hi < 60; hi++) {
+  longHistory.push({ role: hi % 2 ? 'assistant' : 'user', text: 'Line ' + hi + ': ' + new Array(60).join('some ordinary words here ') });
+}
+var settings = {
+  provider: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'test/free-model',
+  userName: 'Blu', maxTokens: 600
+};
+
+(async function () {
+  var e1 = fakeEngine(['{"summary":"Things happened and everyone is in the kitchen now."}']);
+  var r1 = await e1.API.summarize({ settings: settings, character: { name: 'Sloane', persona: 'p' },
+    session: { id: 's1', sceneCast: [] }, history: longHistory });
+  same('a working model still produces a summary', r1.ok, true);
+  ok('the request was capped, not sent whole', r1.sentMessages < 60, String(r1.sentMessages));
+  ok('…and the cap is reported', r1.sentTokens > 0);
+  same('the model is recorded with the result', r1.model, 'test/free-model');
+
+  var e2 = fakeEngine(['', '', '']);
+  var r2 = await e2.API.summarize({ settings: settings, character: { name: 'Sloane', persona: 'p' },
+    session: { id: 's2', sceneCast: [] }, history: longHistory });
+  same('an empty model is a failure, not a stored summary', r2.ok, false);
+  same('…and is named as empty', r2.reason, 'the model returned nothing');
+  same('three attempts were made', e2.calls.length, 3);
+  ok('the third is much smaller than the first',
+    JSON.stringify(e2.calls[2].messages).length < JSON.stringify(e2.calls[0].messages).length / 2);
+  ok('the third turns reasoning off on OpenRouter',
+    e2.calls[2].reasoning && e2.calls[2].reasoning.enabled === false);
+  ok('every attempt keeps the JSON request out of the system turn',
+    e2.calls.every(function (c) { return c.messages[0].role === 'system'; }));
+
+  var e3 = fakeEngine(['', 'Aston and Sloane settled in; Mara is still deciding how she feels about it.']);
+  var r3 = await e3.API.summarize({ settings: settings, character: { name: 'Sloane', persona: 'p' },
+    session: { id: 's3', sceneCast: [] }, history: longHistory });
+  same('a prose retry is accepted', r3.ok, true);
+  ok('…and its text is the summary', r3.summary.indexOf('Mara is still deciding') !== -1);
+
+  var e4 = fakeEngine(['', '', 'Sloane carried boxes; the treadmill is still on the landing.']);
+  var r4 = await e4.API.summarize({ settings: settings, character: { name: 'Sloane', persona: 'p' },
+    session: { id: 's4', sceneCast: [] }, history: longHistory });
+  same('the tiny third attempt can rescue it', r4.ok, true);
+  ok('…and is marked as the short path', r4.shortOf === true);
+
+  console.log('\n' + pass + ' passed, ' + fail + ' failed');
+  process.exit(fail ? 1 : 0);
+})().catch(function (e) { console.error(e); process.exit(1); });
