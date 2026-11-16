@@ -1,5 +1,28 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.83 — field headers are not people (2026-11-16)
+
+Reported from a three-person card: the Scene bar showed Aston, Name, Age, Role,
+Appearance and Likes.
+
+- **Cause.** A card written as blocks — Name, Age, Role, Appearance, Likes, once
+  per character — repeats every field header three times. The detector counted
+  each colon-line as an act of speech and required two to be a person, so the
+  headers scored three each while the people who actually spoke scored one and
+  were dropped. The more characters a card listed, the more certainly its field
+  names outranked its cast.
+- **Fix, in three parts.** Card field vocabulary is rejected outright; a label
+  followed by a quoted line or a full sentence counts as speech on its own,
+  because that is a far stronger signal than repetition; and the loaded
+  character is allowed into the cast on a multi-person card — she could never
+  appear in it before, which left two-person cards with a cast of one and hid
+  the whole strip.
+- Nothing in the detector is card-specific. Stored chats re-detect through
+  `CAST_REV` 4 unless the player has edited the cast by hand, and the chat's own
+  character stays present through the re-detect.
+- Tests: scenecast 16 → 27, including the exact block-written shape that was
+  reported and the one-quoted-line rule in both directions. Suite 102/0.
+
 ## v1.39.82 — the history budget, and a scene cast with rules (2026-11-16)
 
 Both from a review of multi-character cards. Both confirmed in the code first.

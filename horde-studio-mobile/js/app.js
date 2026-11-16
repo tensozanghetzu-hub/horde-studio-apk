@@ -719,7 +719,7 @@
      "Relationship: Widow, your neighbour" carry a capital letter and a colon,
      so the old scan could not tell them from "Rose: come in." and put both in
      the Scene strip as if they were people standing on the porch. */
-  var CAST_REV = 3;          /* bump when detection rules change */
+  var CAST_REV = 4;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -735,6 +735,12 @@
       var wasPresent = Array.isArray(session.scenePresent) ? session.scenePresent : [];
       var present = fresh.filter(function (n) { return wasPresent.indexOf(n) !== -1; });
       if (!present.length) present = fresh.slice();
+      /* the chat's own character is in the room unless the player says otherwise */
+      var selfKey = String(char.name || '').toLowerCase().split(/[\s,]+/)[0];
+      var selfInFresh = selfKey && fresh.filter(function (n) {
+        return String(n).toLowerCase().split(/[\s,]+/)[0] === selfKey;
+      })[0];
+      if (selfInFresh && present.indexOf(selfInFresh) === -1) present.unshift(selfInFresh);
       session.sceneCast = fresh;
       session.scenePresent = present;
       if (session.addressedTo && fresh.indexOf(session.addressedTo) === -1) session.addressedTo = '';
@@ -765,6 +771,39 @@
       if (!self) return false;
       return low === self || (firstWord(low) && firstWord(low) === firstWord(self));
     }
+    /* v1.39.83: a card's field headers are not people.
+       A multi-person card written as blocks — a Name field, then Age, Role,
+       Appearance, Likes, and so on once per character — repeats those headers
+       as many times as it has people, and the scan below counted each
+       repetition as an act of speech. The headers then outranked the
+       characters who actually speak, and the Scene bar filled with field
+       names instead of people. Nothing here is card-specific: this is the
+       standard character-card vocabulary, and the same leak hits every card
+       of this shape. */
+    var FIELD_WORDS = (function () {
+      var w = ('name names fullname nickname alias age birthday gender sex species pronouns ' +
+        'role roles occupation job jobs work class archetype title titles rank status ' +
+        'appearance looks look build height weight hair eyes skin face body clothing clothes outfit ' +
+        'personality traits trait temperament quirks quirk habits likes dislikes fears fear goals goal ' +
+        'motivation motivations desire desires hobbies hobby skills skill abilities ability powers ' +
+        'relationship relationships family relatives friends friend occupation backstory history ' +
+        'background bio profile description summary notes note tags tag scenario setting location ' +
+        'world lore rules rule instructions system greeting speech voice accent language languages ' +
+        'nationality ethnicity affiliation alignment mood emotion emotions secrets secret kinks limits ' +
+        'style example examples dialogue first message summary appearance').split(/\s+/);
+      var m = {};
+      w.forEach(function (k) { if (k) m[k] = 1; });
+      return m;
+    })();
+    function isField(name) {
+      var low = norm(name).replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!low) return false;
+      if (FIELD_WORDS[low] || FIELD_WORDS[firstWord(low)]) return true;
+      /* two-word headers: "hair color", "eye color", "body type", … */
+      var parts = low.split(' ');
+      if (parts.length === 2 && FIELD_WORDS[parts[0]] && FIELD_WORDS[parts[1]]) return true;
+      return false;
+    }
     /* Reject what cannot be a person's name in a dialogue label: too short or
        too long, a macro, or a SHOUTED heading ("Main INTRO", "BASIC INFO"). */
     function shaped(name) {
@@ -774,15 +813,31 @@
       if (/[A-Z]{3,}/.test(clean)) return '';
       var low = norm(clean);
       if (low === 'user' || low === 'you') return '';
+      if (isField(clean)) return '';
       return clean;
     }
     function slot(name) {
       var low = norm(name);
-      if (!cands[low]) { cands[low] = { name: name, acts: 0 }; order.push(low); }
+      if (!cands[low]) { cands[low] = { name: name, acts: 0, strong: 0 }; order.push(low); }
       return cands[low];
     }
-    function offer(name) { var n = shaped(name); if (n && !isSelf(n)) slot(n); }
-    function act(name) { var n = shaped(name); if (n && !isSelf(n)) slot(n).acts++; }
+    /* The card's own name is no longer dropped here — a multi-person card is
+       allowed to list its own character in the scene. It is filtered at the
+       end instead, where the rest of the cast is known. */
+    function offer(name) { var n = shaped(name); if (n) slot(n); }
+    function act(name) { var n = shaped(name); if (n) slot(n).acts++; }
+    /* v1.39.83: a label followed by an actual quoted line — or by a sentence
+       rather than one word — is someone speaking, and one is enough. That is
+       a far stronger signal than the repetition the count was asking for, and
+       it is what lets a card that writes each character once still get a
+       cast. */
+    function speaks(name, value) {
+      var n = shaped(name);
+      if (!n) return;
+      var c = slot(n), v = String(value || '').trim();
+      c.acts++;
+      if (/^["'\u201c\u2018]/.test(v) || v.split(/\s+/).length >= 3) c.strong++;
+    }
 
     /* "Name: words" is someone speaking. A bare "Name:" is a section
        heading — it is offered so that later prose can still vouch for it,
@@ -792,7 +847,7 @@
         var t = line.replace(/^\s*[^A-Za-z{]+/, '');        /* strip emoji/bullets */
         var m = /^([A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+)?)\s*:\s*(.*)$/.exec(t);
         if (!m) return;
-        if (m[2].trim()) act(m[1]); else offer(m[1]);
+        if (m[2].trim()) speaks(m[1], m[2]); else offer(m[1]);
       });
     }
     function scanNames(text) {
@@ -826,14 +881,25 @@
     });
 
     /* A person recurs. A heading, a field label and a one-off mention do not. */
-    var found = [], seen = {};
+    var found = [], seen = {}, selfName = '', selfActs = 0;
     order.forEach(function (low) {
-      if (cands[low].acts < 2) return;
+      if (isSelf(cands[low].name)) {
+        selfName = cands[low].name;
+        selfActs += (cands[low].acts >= 2 || cands[low].strong) ? 1 : 0;
+        return;
+      }
+      if (cands[low].acts < 2 && !cands[low].strong) return;
       var name = cands[low].name, key = norm(name);
       if (seen[key] || seen[firstWord(key)]) return;
       seen[key] = true; seen[firstWord(key)] = true;
       found.push(name);
     });
+    /* v1.39.83: on a card that writes more than one person speaking, the
+       loaded character is one of the speakers and belongs in the scene — the
+       bar could not list her at all before, so a two-person card produced a
+       cast of one and the whole strip hid itself. A single-person card still
+       yields nothing, because there is no one else in `found`. */
+    if (selfName && selfActs >= 1 && found.length >= 1) found.unshift(selfName);
     return found.slice(0, 6);
   };
 

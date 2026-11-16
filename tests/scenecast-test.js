@@ -130,6 +130,51 @@ var firstOnly = {
 };
 same('first name excluded', detectCast(firstOnly), []);
 
+/* ------------------------------------------------------------------ */
+/* v1.39.83 — the reported card: three people written as field blocks.
+   "Name: Aston / Age: 32 / Role: ... / Appearance: ... / Likes: ..." once per
+   character means every field header recurs three times, and the scan counted
+   each recurrence as an act. The headers outranked the speakers and the Scene
+   bar filled with Name, Age, Role, Appearance, Likes. */
+console.log('\nfield blocks are not a cast');
+var blocks =
+  'Name: Aston\nAge: 32\nRole: Older brother\nAppearance: Tall, dark hair\nLikes: Cooking\n\n' +
+  'Name: Sloane\nAge: 29\nRole: Sister\nAppearance: Red hair\nLikes: Reading\n\n' +
+  'Name: Aky\nAge: 30\nRole: Wife\nAppearance: Blonde\nLikes: Music\n';
+var blockCard = { name: 'Sloane', persona: blocks, greeting: '', scenario: '', examples: '' };
+same('a card made only of fields yields no cast', detectCast(blockCard), []);
+['Name', 'Age', 'Role', 'Appearance', 'Likes'].forEach(function (w) {
+  ok('"' + w + '" is not a person', detectCast(blockCard).indexOf(w) === -1);
+});
+
+var spokenBlocks = {
+  name: 'Sloane', persona: blocks, scenario: '', examples: '',
+  greeting: 'Sloane: \u201cHi... sorry if we\u2019re interrupting anything.\u201d\n\n' +
+    'Aston: \u201cDon\u2019t mind her. She\u2019s always been a little shy around new people.\u201d'
+};
+same('the people in those blocks are found, and only the people',
+  detectCast(spokenBlocks), ['Sloane', 'Aston']);
+
+console.log('\nthe loaded character may be in her own scene');
+same('she leads the cast on a multi-person card',
+  detectCast(spokenBlocks)[0], 'Sloane');
+var stillAlone = {
+  name: 'Rosalind', persona: '', scenario: '', examples: '',
+  greeting: 'Rosalind: \u201cCome in, it\u2019s cold out there.\u201d'
+};
+same('…but a card with nobody else still has no cast', detectCast(stillAlone), []);
+
+console.log('\none speaking line is enough when it is really speech');
+var quotedOnce = {
+  name: 'Nobody', persona: '', scenario: '', examples: '',
+  greeting: 'Mara: \u201cSit down. You look like you have been walking all day.\u201d'
+};
+same('a quoted line names its speaker once', detectCast(quotedOnce), ['Mara']);
+var bareOnce = {
+  name: 'Nobody', persona: '', scenario: '', examples: 'Joss: Out.'
+};
+same('a bare two-word line still does not', detectCast(bareOnce), []);
+
 console.log('\nthe revision bump makes stored chats re-detect');
 var appAll = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
 var rev = parseInt((appAll.match(/var CAST_REV = (\d+);/) || [])[1], 10);
