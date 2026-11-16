@@ -338,6 +338,11 @@ var settings = {
   same('the tiny third attempt can rescue it', r4.ok, true);
   ok('…and is marked as the short path', r4.shortOf === true);
 
+  console.log('\na failed automatic run is not silent');
+  ok('an automatic failure now speaks', /else if \(!recent\) \{[\s\S]*?Memory not updated/.test(appSrc));
+  ok('…and then stays quiet for five minutes', /5 \* 60 \* 1000/.test(appSrc));
+  ok('…per chat', /prev\[session\.id\]/.test(appSrc));
+
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch(function (e) { console.error(e); process.exit(1); });

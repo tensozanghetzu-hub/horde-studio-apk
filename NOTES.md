@@ -1,5 +1,19 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.92 — a failed automatic run says so (2026-11-16)
+
+Reported: memory had generated itself, by itself, on an earlier turn — so the
+pipeline works, and the failure is intermittent rather than absolute. That fits
+v1.39.91's diagnosis (a request that grows past the route's window as the chat
+grows) and rules out a broken path.
+
+What was wrong from the user's side is that an **automatic** attempt failed in
+total silence: memory simply stopped advancing and nothing said so. It now
+reports, once, and then stays quiet for five minutes per chat so a persistent
+failure does not toast after every reply.
+
+- session-defects 116 → 119. Suite 104/0, generic checks clean.
+
 ## v1.39.91 — the summariser sent the whole chat and got nothing back (2026-11-16)
 
 Two regenerates, both "the model refused", with the sheet reporting an **empty**

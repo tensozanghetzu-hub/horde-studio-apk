@@ -2655,9 +2655,20 @@
               model: (mem && mem.model) || '',
               window: (mem && mem.window) || 0
             };
+            /* v1.39.92: an automatic attempt used to fail in total silence — the
+               chat simply never remembered, and nothing said so. It now says so
+               once, and then stays quiet for five minutes so a persistent
+               failure does not toast after every single reply. */
+            var prev = App._memToastAt || {};
+            var now = Date.now();
+            var recent = prev[session.id] && (now - prev[session.id]) < 5 * 60 * 1000;
             if (!silent) {
               UI.toast('Memory not updated: ' + App.lastMemoryFailure.reason +
                 '. Your existing memory is unchanged. See Memory for details.', 6000);
+              prev[session.id] = now; App._memToastAt = prev;
+            } else if (!recent) {
+              UI.toast('Memory not updated: ' + App.lastMemoryFailure.reason + '. See Memory for details.', 4500);
+              prev[session.id] = now; App._memToastAt = prev;
             }
             return;
           }
