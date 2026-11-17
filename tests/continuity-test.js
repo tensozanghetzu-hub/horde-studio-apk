@@ -118,5 +118,44 @@ ok('scene field ceilings match the ledger\'s own',
   longApplied.stage.length === 120 && longApplied.location.length === 160,
   longApplied.stage.length + '/' + longApplied.location.length);
 
+/* ---- v1.39.105: an empty ledger says nothing, and never says anything wrong */
+console.log('\nan empty ledger is silent, and a partial one is not a trap');
+function blankLedger(over) {
+  var c = { enabled: true, stage: '', location: '', time: '', participants: [], knowledge: [], objects: [], events: [] };
+  Object.keys(over || {}).forEach(function (k) { c[k] = over[k]; });
+  return { continuity: c };
+}
+if (API.continuityHasState) {
+  ok('disabled says nothing', API.continuityPrompt({ continuity: { enabled: false } }) === '');
+  ok('enabled with nothing approved says nothing', API.continuityPrompt(blankLedger()) === '');
+  ok('...and whitespace is still nothing',
+    API.continuityPrompt(blankLedger({ stage: '   ' })) === '');
+  ok('one fact is enough to speak', API.continuityPrompt(blankLedger({ location: 'The Mill' })) !== '');
+
+  /* the deadlock: a cast-less ledger used to order that nobody present may act */
+  var lonely = API.continuityPrompt(blankLedger({ location: 'The Mill' }));
+  ok('a ledger with no cast does not forbid everyone from speaking',
+    lonely.indexOf('Only characters listed as present may speak') === -1, lonely);
+  ok('...and does not claim a state it was never given',
+    lonely.indexOf('(not set)') === -1, lonely);
+  ok('...but still keeps the player character safe',
+    /Never put words, actions, thoughts/.test(lonely));
+  ok('...and still asks for proposals it can act on',
+    /<continuity_update>/.test(lonely));
+
+  /* the protocol is a fixed cost, so it must not be paid twice */
+  var full = API.continuityPrompt({ continuity: sceneApplied });
+  ok('the protocol appears once', full.split('<continuity_update>').length === 2, full.split('<continuity_update>').length - 1);
+  ok('a full ledger keeps the cast rule',
+    /Only characters listed as present may speak/.test(full), full.slice(0, 400));
+  ok('...and still says who is present', full.indexOf('Present in scene: ') >= 0);
+  /* the prompt grows with what it is given, no more */
+  var oneFact = API.continuityPrompt(blankLedger({ location: 'The Mill' })).length;
+  var twoFacts = API.continuityPrompt(blankLedger({ location: 'The Mill', time: 'Night' })).length;
+  ok('a second approved fact costs only its own line', twoFacts - oneFact < 40, twoFacts - oneFact);
+  var emptyCost = oneFact;
+  ok('a nearly empty ledger costs as little as it can', emptyCost < 1500, emptyCost);
+}
+
 console.log('\ncontinuity-test: ' + (fail ? fail + ' failed, ' : '') + pass + ' ok');
 process.exit(fail ? 1 : 0);

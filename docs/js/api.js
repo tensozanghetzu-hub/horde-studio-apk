@@ -307,18 +307,46 @@
     };
   }
 
+  /* v1.39.105: does this ledger actually hold anything approved?
+     A ledger with the switch on and nothing in it used to inject ~1,500
+     characters of protocol that stated nothing, and one of its lines was
+     actively harmful: with no cast listed it still said "only characters
+     listed as present may speak or act", so a chat whose ledger had a
+     location and nothing else was told that nobody present could speak.
+     Nothing approved means nothing to say. */
+  function continuityHasState(c) {
+    if (!c) return false;
+    return !!(c.stage || c.location || c.time ||
+      c.participants.length || c.knowledge.length || c.objects.length || c.events.length);
+  }
+
   function continuityPrompt(session) {
     var raw = session && session.continuity;
     if (!raw || raw.enabled !== true) return '';
-    var c = normalizeContinuity(raw), lines = [
+    var c = normalizeContinuity(raw);
+    /* Enabled but blank is worth less than disabled: it costs tokens and says
+       nothing. The switch stays on, so the moment there is something approved
+       this starts appearing - it just does not pretend to a state it has not
+       been given. */
+    if (!continuityHasState(c)) return '';
+    var scene = [];
+    if (c.stage) scene.push('Stage: ' + c.stage);
+    if (c.location) scene.push('Location: ' + c.location);
+    if (c.time) scene.push('Time: ' + c.time);
+    /* Only fields that were actually approved. "(not set)" is not a fact, and
+       printing it invites the model to write the placeholder into the story. */
+    var lines = [
       'CHAT CONTINUITY LEDGER — USER-APPROVED STATE',
-      'This state belongs only to this chat. Treat it as authoritative over model-invented details. It is not automatically public knowledge to every character.',
-      'Stage: ' + (c.stage || '(not set)'),
-      'Location: ' + (c.location || '(not set)'),
-      'Time: ' + (c.time || '(not set)'),
-      'Present in scene: ' + (c.participants.length ? c.participants.join(', ') : '(not set; do not invent who is present)'),
-      'Never put words, actions, thoughts, memories, or unrecorded knowledge into the user character. Only characters listed as present may speak or act in this scene; show a transition before anyone enters, leaves, or changes location.'
-    ];
+      'This state belongs only to this chat. Treat it as authoritative over model-invented details. It is not automatically public knowledge to every character.'
+    ].concat(scene);
+    lines.push('Present in scene: ' + (c.participants.length
+      ? c.participants.join(', ')
+      : '(not listed; keep the cast you already have and do not introduce anyone new)'));
+    lines.push('Never put words, actions, thoughts, memories, or unrecorded knowledge into the user character.' +
+      (c.participants.length
+        /* the cast rule only bites when there is a cast - see above */
+        ? ' Only characters listed as present may speak or act in this scene; show a transition before anyone enters, leaves, or changes location.'
+        : ' Do not invent a new character into the scene without showing a transition; anyone already present may continue to act.'));
     var present = {};
     c.participants.forEach(function (n) { present[n.toLowerCase()] = true; });
     var gm = [], shared = [], user = [], npc = [];
@@ -2429,6 +2457,27 @@
     return MEMORY_REFUSAL.test(t) && t.length < 400;
   }
 
+  /* v1.39.105: this summary is prose, and it is going straight back into the
+     next prompt where it will be read as remembered fact. Cutting it at a
+     byte count used to leave "...the town wakes on the following morning",
+     a sentence that stops mid-thought with nothing to show it was cut - the
+     next prompt reads that as a memory that simply ends there. Prefer the
+     last real sentence end inside the budget; if a single sentence is longer
+     than the whole budget, cut on a word and mark it. Either way the model
+     is told, out loud, that there is more it is not seeing. */
+  function clipProse(text, max) {
+    var t = String(text || '').trim();
+    if (t.length <= max) return t;
+    var body = t.slice(0, max);
+    var lastEnd = -1, m, re = /[.!?][\"'\u201d\u2019)\]]*(?=\s|$)/g;
+    while ((m = re.exec(body))) lastEnd = m.index + m[0].length;
+    if (lastEnd > max * 0.4) return body.slice(0, lastEnd).replace(/\s+$/, '') + ' \u2026';
+    /* no usable sentence end: cut on the last word boundary, not mid-word */
+    var sp = body.search(/\s\S*$/);
+    if (sp > 0) body = body.slice(0, sp);
+    return body.replace(/[\s,;:\-]+$/, '') + ' \u2026';
+  }
+
   function parseMemory(text) {
     var out = { summary: '', facts: [], changed: [], ok: false, reason: '' };
     var raw = String(text || '').trim();
@@ -2473,7 +2522,7 @@
     }
     /* No usable JSON: only accept plain prose that reads like a summary. */
     if (!body && !out.ok) {
-      body = raw.slice(0, 800).trim();
+      body = clipProse(raw, 800);
       if (MEMORY_REFUSAL.test(body)) { out.reason = 'the model refused'; return out; }
       if (/^[\[{]/.test(body)) { out.reason = 'the model returned unfinished JSON'; return out; }
       if (body.length < 40) { out.reason = 'the answer was too short to be a summary'; return out; }
@@ -2923,6 +2972,7 @@
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     splitSpeaker: splitSpeaker, parseMemory: parseMemory, memoryLooksBroken: memoryLooksBroken,
+    clipProse: clipProse, continuityHasState: continuityHasState,
     providerError: providerError,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
     parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,

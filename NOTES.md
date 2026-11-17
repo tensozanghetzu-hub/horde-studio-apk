@@ -1,5 +1,45 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.105 — an empty ledger keeps quiet, a cut summary says so (2026-11-17)
+
+Two more reports, both app bugs rather than card bugs. Both held up; one was
+worse than reported.
+
+- **An empty continuity ledger used to say a great deal.** With the switch on
+  and nothing approved, the prompt carried ~1,500 characters of protocol that
+  stated nothing — and `Stage: (not set)`, `Location: (not set)`, `Time: (not
+  set)` invited the model to write the placeholder into the story as though it
+  were a place. **Worse, a partly-filled ledger could freeze the scene:** the
+  cast rule — "only characters listed as present may speak or act" — was
+  printed even when no cast was listed, so a chat whose ledger had a location
+  and nothing else was told that nobody present could act. Nothing approved now
+  means nothing said (`API.continuityHasState`), the switch stays on so it
+  starts appearing the moment there is something to say, unapproved fields are
+  omitted rather than filled with "(not set)", and the cast rule only appears
+  when there is a cast to obey. A ledger with no cast is told to keep the cast
+  it already has instead of being forbidden one.
+- **A truncated summary stopped mid-sentence with no sign it was cut.** When a
+  memory pass answers in prose instead of JSON, the answer was cut at 800
+  characters — straight through a word if that is where 800 landed — and stored
+  as the summary, which then went back into the next prompt as remembered fact.
+  The next prompt read a sentence that simply stops; nothing told it there was
+  more. The cut now lands on the last real sentence end inside the budget and
+  marks itself with an ellipsis the model can see, falls back to a word boundary
+  (never mid-word) when a single sentence is longer than the whole budget, and
+  never touches a JSON summary. Abbreviations, closing quotes and parenthetical
+  endings are handled.
+- **Still standing: the protocol is a fixed cost.** A ledger holding one fact
+  still pays ~960 characters of instructions to report it. That is the price of
+  the proposal loop, it is charged once per turn, and it is only paid when
+  continuity is on and the ledger holds something.
+- `tests/continuity-test.js` grows to 47 checks (silence when blank, no
+  placeholder state, no cast rule without a cast, the player-protection line
+  survives, one protocol per prompt, cost grows only with approved facts).
+  `tests/summary-cut-test.js` is new — 28 checks over sentence-boundary cuts,
+  the word-boundary fallback, short answers left untouched, JSON summaries never
+  truncated, and the marker being visible. Suite 112 files / 0 failing; generic
+  gate clean.
+
 ## v1.39.104 — a chat remembers like a world does (2026-11-17)
 
 Asked whether the memory work had reached chats or only worlds. Checked: **only
