@@ -545,19 +545,232 @@
     return t > 0 && t % e === 0 && (run.memAt || 0) !== t;
   }
 
+  /* ---------------- facts with a history (v1.39.100) ----------------
+
+     Memory used to be {summary, facts:[str]}, and every pass replaced it
+     wholesale. Two problems came out of that, and both look like the story
+     forgetting itself:
+
+       - A fact from turn 3 and its replacement from turn 40 sat side by side
+         in one flat list with no ordering signal at all, so the model chose,
+         and sometimes chose the stale one. That is how a quest objective or a
+         level "changes back".
+       - When the list overflowed, the oldest facts were dropped silently -
+         and the oldest is often the one the whole run rests on.
+
+     A fact now carries an id, the turn it was learned on, the turn it stopped
+     being true (null while it is current), and the id of the fact that
+     replaced it. Nothing is deleted: a stale fact is superseded, so the run
+     can still answer "was that ever true" while the prompt shows only what is
+     true now.
+
+     Supersession is decided here, in code, not by the model: the model is
+     asked to re-state a fact it already reported when that fact changes, and
+     the two are the same fact if they are worded the same way but for what
+     changed. See sameFact(). */
+
+  function factWords(text) {
+    return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  }
+
+  /* The words that make two statements about the same thing: a shared subject.
+     Deliberately crude - a named pair of entities plus an object is enough to
+     say "these are the same fact, restated", and too-clever matching would
+     supersede facts that only look alike. */
+  function factTokens(text) {
+    var STOP = {};
+    ('a an the is was were are be been being has have had do does did will would ' +
+     'can could may might must shall should to of in on at for with by from as ' +
+     'that this these those it its he she they them his her their you your ' +
+     'and or but not no yes now still then there here about into over after ' +
+     'before again also just only very too more most some any all one two ' +
+     'player they\'ve they\'re i we us our my me').split(' ').forEach(function (w) { STOP[w] = true; });
+    var out = [];
+    factWords(text).forEach(function (w) {
+      if (w.length < 3 || STOP[w]) return;
+      if (out.indexOf(w) === -1) out.push(w);
+    });
+    return out;
+  }
+
+  /** Do two statements describe the same fact, restated?
+   *  Returns 'same' (a restatement with the same words - nothing changed),
+   *  'supersede' (the same subject, but a different claim - the old one has
+   *  stopped being true) or '' (unrelated). */
+  function sameFact(aText, bText) {
+    var a = factWords(aText), b = factWords(bText);
+    if (!a.length || !b.length) return '';
+    if (a.join(' ') === b.join(' ')) return 'same';
+    var ta = factTokens(aText), tb = factTokens(bText);
+    if (!ta.length || !tb.length) return '';
+    var shared = 0;
+    ta.forEach(function (w) { if (tb.indexOf(w) !== -1) shared++; });
+    var min = Math.min(ta.length, tb.length), max = Math.max(ta.length, tb.length);
+    /* Two of the same subject words, three fifths of the SHORTER statement in
+       common, and the two claims about the same size. The length guard is the
+       important one: two long sentences that merely share a phrasing ("how it
+       stands with the lamp" / "how it stands with the gate") must not look
+       like one fact changing, or a run quietly supersedes its own vocabulary.
+       A near miss costs nothing - the model can still report the change by
+       name, which is the path that matters. */
+    /* Three shared subject words, three quarters of the shorter statement,
+       and claims of a similar size. Erring towards a miss on purpose: a miss
+       leaves the old fact and the new one on the record with dates, which the
+       referee can read, while a false hit would retire something still true
+       and the run would have no way back. */
+    if (shared >= 3 && shared / min >= 0.75 && (max - min) <= Math.max(2, max * 0.5)) return 'supersede';
+    return '';
+  }
+
+  function nextFactId(facts) {
+    var n = 0;
+    (facts || []).forEach(function (f) {
+      var m = /^f(\d+)$/.exec(String((f && f.id) || ''));
+      if (m) n = Math.max(n, parseInt(m[1], 10));
+    });
+    return 'f' + (n + 1);
+  }
+
+  /* v1.39.100: runs written before facts had ids carried plain strings.
+     They become facts stamped with the turn the memory was last written,
+     which is the best date the run still has. Read-only migration: it
+     happens in normalize, so nothing on disk has to be rewritten twice. */
+  function factObjects(run) {
+    var mem = (run && run.memory) || {};
+    var list = Array.isArray(mem.facts) ? mem.facts : [];
+    var from = typeof mem.memTurn === 'number' ? mem.memTurn : 0;
+    return list.map(function (f, i) {
+      if (f && typeof f === 'object') return f;
+      return { id: 'f' + (i + 1), text: String(f || ''), from: from, to: null, by: null };
+    });
+  }
+
+  /** The facts that are true now, newest last. */
+  function currentFacts(run) {
+    return factObjects(run).filter(function (f) { return (f.to === null || f.to === undefined) && f.text; });
+  }
+
+  /** The facts that have stopped being true, newest first - for the record
+      and for the memory sheet, never for the prompt. */
+  function pastFacts(run) {
+    return factObjects(run)
+      .filter(function (f) { return f.to !== null && f.to !== undefined && f.text; })
+      .sort(function (a, b) { return (b.to || 0) - (a.to || 0); });
+  }
+
+  /** How many facts are kept. Current and past share the ceiling; when a
+      current fact cannot be kept it is superseded, not deleted, so the run
+      still knows it was once true. */
+  var FACT_CAP = 24;
+  var FACT_CAP_CURRENT = 12;
+
+  function applyFacts(run, incoming, changed) {
+    var turn = run.turn || 0;
+    var all = factObjects(run).map(function (f) {
+      return { id: f.id, text: f.text, from: f.from, to: (f.to === undefined ? null : f.to), by: f.by || null };
+    });
+    var kept = [];
+
+    /* v1.39.100: the model may also REPORT that a stored fact stopped being
+       true. It is an accusation, not an instruction: a fact is retired only
+       when the report actually points at it - an exact restatement, or
+       enough of its own words to name it. A report that matches nothing is
+       dropped, so a vague "things changed" cannot empty the memory. */
+    (changed || []).forEach(function (raw) {
+      var said = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!said) return;
+      var target = null;
+      all.forEach(function (f) {
+        if (target || (f.to !== null && f.to !== undefined)) return;
+        if (!f.text) return;
+        if (factWords(f.text).join(' ') === factWords(said).join(' ')) { target = f; return; }
+        if (sameFact(f.text, said) === 'supersede') target = f;
+      });
+      if (!target) {
+        var saidTokens = factTokens(said);
+        if (saidTokens.length < 3) return;
+        all.forEach(function (f) {
+          if (target || (f.to !== null && f.to !== undefined) || !f.text) return;
+          var ft = factTokens(f.text);
+          if (!ft.length) return;
+          var shared = 0;
+          ft.forEach(function (w) { if (saidTokens.indexOf(w) !== -1) shared++; });
+          /* most of the stored fact's own subject words, quoted back at it */
+          if (shared >= 3 && shared / ft.length >= 0.6) target = f;
+        });
+      }
+      if (target) { target.to = turn; target.retired = true; }
+    });
+
+    (incoming || []).forEach(function (raw) {
+      var text = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (!text) return;
+      var current = all.filter(function (f) { return f.to === null || f.to === undefined; });
+      var match = null, how = '';
+      for (var i = 0; i < current.length && !match; i++) {
+        var v = sameFact(current[i].text, text);
+        if (v) { match = current[i]; how = v; }
+      }
+      if (match && how === 'same') return;              /* nothing changed */
+      if (match && how === 'supersede') {
+        var nf = { id: nextFactId(all), text: text, from: turn, to: null, by: null };
+        match.to = turn;
+        match.by = nf.id;
+        all.push(nf);
+        kept.push(nf);
+        return;
+      }
+      /* Nothing it restates: a second identical line already kept this pass
+         is a duplicate, not a new fact. */
+      var dup = all.some(function (f) {
+        return (f.to === null || f.to === undefined) && factWords(f.text).join(' ') === factWords(text).join(' ');
+      });
+      if (dup) return;
+      var fresh = { id: nextFactId(all), text: text, from: turn, to: null, by: null };
+      all.push(fresh);
+      kept.push(fresh);
+    });
+
+    /* Over the ceiling: the least load-bearing CURRENT fact is retired. Age
+       decides, oldest first - but a fact the run has cited since is younger
+       than its learning turn says, so "from" is refreshed whenever it is
+       shown. What is retired is marked, never dropped. */
+    var current = all.filter(function (f) { return f.to === null || f.to === undefined; });
+    if (current.length > FACT_CAP_CURRENT) {
+      current.slice().sort(function (a, b) { return (a.from || 0) - (b.from || 0); })
+        .slice(0, current.length - FACT_CAP_CURRENT)
+        .forEach(function (f) { f.to = turn; f.retired = true; });
+    }
+    /* ...and the total is bounded so a very long run cannot grow a memory
+       without limit. Past facts go first, oldest first. */
+    if (all.length > FACT_CAP) {
+      var past = all.filter(function (f) { return f.to !== null && f.to !== undefined; })
+        .sort(function (a, b) { return (a.to || 0) - (b.to || 0); });
+      var drop = all.length - FACT_CAP;
+      var doomed = {};
+      past.slice(0, drop).forEach(function (f) { doomed[f.id] = true; });
+      all = all.filter(function (f) { return !doomed[f.id]; });
+    }
+    return { facts: all, kept: kept };
+  }
+
   /** Write the memory the model handed back: bounded, deduped, and only
    *  stamped when something actually arrived - an empty pass must not
    *  burn the cadence marker, or the next due turn never happens. */
   function applyMemory(run, mem) {
     var summary = String((mem && mem.summary) || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
-    var facts = [], seen = {};
+    var incoming = [];
     ((mem && mem.facts) || []).forEach(function (f) {
-      var t = String(f || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-      var k = t.toLowerCase();
-      if (t && !seen[k] && facts.length < 12) { seen[k] = true; facts.push(t); }
+      var t = String(f || '').replace(/\s+/g, ' ').trim();
+      if (t) incoming.push(t);
     });
-    if (!summary && !facts.length) return run;
-    run.memory = { summary: summary, facts: facts };
+    var res = applyFacts(run, incoming, (mem && (mem.changed || mem.superseded)) || []);
+    if (!summary && !res.kept.length) return run;
+    run.memory = {
+      summary: summary || (run.memory && run.memory.summary) || '',
+      facts: res.facts,
+      memTurn: run.turn || 0
+    };
     run.memAt = run.turn || 0;
     return run;
   }
@@ -898,6 +1111,116 @@
     });
     if (eff.clock) run.extraMinutes = (run.extraMinutes || 0) + eff.clock;
     return effectSummary(world, eff);
+  }
+
+  /* ---------------- rolling before the prose (v1.39.101) ----------------
+
+     A check used to be requested and resolved inside the same reply: the
+     referee wrote the scene it wanted, then asked for a roll, and the die
+     answered afterwards. The die was never fake - it came from the run's own
+     seeded generator - but the referee chose the moment, and a model that has
+     already written the outcome will keep writing toward it.
+
+     A turn now has two phases. First the referee is asked what the player is
+     attempting and which check settles it - no scene, just the intent. The
+     engine rolls that check before a word of prose exists, and the verdict
+     (number, DC, modifiers, outcome, and what success or failure changed) is
+     handed back inside the second prompt as fact. The scene is written from
+     the result instead of being reconciled with it.
+
+     None of this touches a world that names no checks: phase one is skipped
+     and the turn is exactly what it was. */
+
+  var MAX_CHECK_REQUESTS = 3;
+
+  /** The part of the prompt that asks a referee only for the attempt and the
+   *  check it turns on. Appended after the normal system prompt so the world's
+   *  own voice, cast and rules are all still in front of it. */
+  var INTENT_RULES =
+    'BEFORE THIS TURN IS NARRATED - answer in this shape and nothing else:\n' +
+    '{\"intent\":\"<one line: what the player is attempting, as a referee would state it>\",' +
+    '\"checks\":[\"<check name>\",\"...\"]}\n' +
+    'Name only checks this world defines. Ask for a check only when the attempt ' +
+    'could genuinely fail and the failure would change what happens next; an ' +
+    'ordinary action that simply works needs no check. At most three names. If ' +
+    'nothing here is uncertain, answer with an empty list. Do not write any of ' +
+    'the scene yet.';
+
+  /** Ask the model what the attempt is and which check settles it. Returns
+   *  { intent, checks:[name], unrecognised:[name] }. Never throws into the
+   *  turn: a model that answers nothing simply means no pre-rolled check. */
+  function parseIntent(text, world) {
+    var out = { intent: '', checks: [], unrecognised: [] };
+    var raw = String(text || '');
+    var start = raw.indexOf('{'), end = raw.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      try {
+        var j = JSON.parse(raw.slice(start, end + 1));
+        out.intent = String(j.intent || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+        var list = j.checks || j.check || [];
+        if (typeof list === 'string') list = [list];
+        (Array.isArray(list) ? list : []).forEach(function (c) {
+          var name = String((c && (c.name || c.check)) || c || '').trim();
+          if (!name || out.checks.length >= MAX_CHECK_REQUESTS) return;
+          if (out.checks.some(function (x) { return x.toLowerCase() === name.toLowerCase(); })) return;
+          if (checkDef(world, name)) out.checks.push(name);
+          else out.unrecognised.push(name);
+        });
+      } catch (e) { /* a model that will not answer JSON asks for nothing */ }
+    }
+    return out;
+  }
+
+  /** Roll one named check now, before any prose, and mutate the run with its
+   *  consequences. One resolution per check per turn. A name the world does not
+   *  define is reported, not rolled - the same rule the tag path uses. */
+  function resolveCheckNow(world, run, name) {
+    var tag = '[[roll:check:' + name + ']]';
+    var def = checkDef(world, name);
+    if (!def) {
+      return { rejection: { tag: tag, reason: 'the world has no check named \u201C' + name + '\u201D', at: Date.now() } };
+    }
+    var spec = String(def.roll || ('1d' + (((world.gameRules || {}).dice || {}).sides || 20)));
+    var r = roll(spec, ((world.gameRules || {}).dice || {}).sides || 20,
+      function () { return nextRand(run); });
+    if (!r) return { rejection: { tag: tag, reason: 'malformed roll \u201C' + spec + '\u201D', at: Date.now() } };
+
+    run.checksThisTurn = (run.checksThisTurn || []).concat([name]);
+    var dc = (typeof def.dc === 'number') ? def.dc : defaultDifficulty(world);
+    var mod = statRollMod(world, run, def);
+    var skill = def.skill ? skillDef(world, def.skill) : null;
+    var skLv = skill ? (((run.skills || {})[skill.id]) || 0) : 0;
+    var total = r.total + mod + skLv;
+    var crit = criticalOutcome(world, r);
+    var success = crit === 'crit' ? true : (crit === 'fumble' ? false : total >= dc);
+    var eff = applyCheckEffects(run, world, success ? def.on_success : def.on_failure);
+    syncDowned(world, run, []);
+    var modTxt = mod ? (mod >= 0 ? ' +' : ' ') + mod + ' (' + def.stat + ')' : '';
+    modTxt += skLv ? ' +' + skLv + ' (' + skill.name + ')' : '';
+    var critTxt = crit === 'crit' ? ' natural ' + r.sides + ' \u2014 critical!'
+      : (crit === 'fumble' ? ' natural 1 \u2014 critical fumble' : '');
+    var label = String(def.name || def.stat || name);
+    var line = label + ' check: ' + r.text + modTxt + ' vs DC ' + dc + critTxt +
+      (success ? ' \u2014 success' : ' \u2014 failure') + (eff.length ? ' (' + eff.join('; ') + ')' : '');
+    var entry = {
+      name: label, text: line, chip: label + ' ' + total + ' vs ' + dc + (success ? ' \u2713' : ' \u2717'),
+      success: success, total: total, dc: dc, effects: eff, spec: spec,
+      preRolled: true, crit: crit || ''
+    };
+    return { entry: entry };
+  }
+
+  /** Everything a phase-two prompt needs to know about rolls that have already
+   *  happened. Phrased as fact, because it is one: the engine rolled. */
+  function settledChecksBrief(entries) {
+    if (!entries || !entries.length) return '';
+    var lines = entries.map(function (e) {
+      return '- ' + e.text + '\n  The die is cast: the outcome above is what ' +
+        'happened. Narrate the attempt and this result; never re-roll it, never ' +
+        'call for ' + e.name + ' again, and never describe the opposite outcome.';
+    });
+    return 'Checks already settled before this scene - the world rolled them:\n' +
+      lines.join('\n');
   }
 
   /** Resolve the checks the final reply of a turn requested. Runs once per
@@ -2180,13 +2503,92 @@
     return out.join('\n');
   }
 
+  /* Short enough to name the player by, long enough to still mean something. */
+  function clip(text, n) {
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n - 1).replace(/[\s,;:.\u2013-]+$/, '') + '\u2026' : t;
+  }
+
+  /* The headline numbers only: the vital stat with its mark, and the purse.
+       Everything else is in the ledger above; repeating it here would be the
+       echo the briefing ban exists to stop. */
+  function nowNumbers(world, run) {
+    var hud = world.hudConfig || {}, gr = world.gameRules || {};
+    var out = [];
+    var vital = vitalStat(world);
+    if (vital) {
+      var s = null;
+      (hud.stats || []).forEach(function (x) { if (x.id === vital) s = x; });
+      if (s && run.stats && run.stats[vital] !== undefined) {
+        out.push('Vital: ' + s.name + ' ' + run.stats[vital] + (s.max !== undefined ? '/' + s.max : ''));
+      }
+    }
+    if ((gr.modules || {}).commerce !== false && run.cashId && run.stats && run.stats[run.cashId] !== undefined) {
+      out.push('Money: ' + run.stats[run.cashId] + ' ' + (gr.currencyName || 'cash'));
+    }
+    return out;
+  }
+
+  function nowObjectives(world, run) {
+    if (((world.gameRules || {}).modules || {}).quests === false) return [];
+    return (run.quests || []).filter(function (q) { return !q.done; })
+      .map(function (q) { return clip(q.text, 90); }).filter(Boolean).slice(0, 3);
+  }
+
+  /**
+   * v1.39.99: the NOW anchor.
+   *
+   * The briefing sits at the top of the system prompt. On a long run the
+   * history in between is thousands of tokens of prose, and a model reads
+   * the ends of its context far better than the middle — so the numbers and
+   * the open task that the chronicle above depends on ended up in exactly
+   * the place attention is weakest. That is how a ledger that says twelve
+   * coins still produces a scene where the purse is suddenly empty.
+   *
+   * This is the same state, from the same run, restated in five short lines
+   * immediately before the player's newest turn: where, when, who, the
+   * headline numbers, and what is still open. Nothing new is invented and it
+   * costs no model call. Deliberately terse — it is a reminder, not a second
+   * briefing, and the echo ban applies to it as much as to the fields above.
+   */
+  function buildNowBrief(world, run) {
+    var lines = [];
+    var l = location(world, run.locationId);
+    var clock = clockOf(run, (world.hudConfig || {}));
+    var where = [];
+    if (l) where.push('at ' + l.name);
+    if ((world.hudConfig || {}).showClock !== false) {
+      where.push(clock.text + (seasonText(world, run) ? ', ' + seasonText(world, run) : ''));
+    }
+    if (where.length) lines.push('Where: ' + where.join(' \u2014 '));
+
+    var withWho = (run.companions || []).map(function (c) { return c.name; });
+    if (l) {
+      npcsAt(world, l.id, clock).forEach(function (n) {
+        if (withWho.indexOf(n.name) === -1) withWho.push(n.name);
+      });
+    }
+    if (withWho.length) lines.push('Who is here: ' + clip(withWho.join(', '), 160));
+
+    var numbers = nowNumbers(world, run);
+    if (numbers.length) lines.push(numbers.join(' \u2014 '));
+
+    var open = nowObjectives(world, run);
+    if (open.length) lines.push('Open: ' + open.join('; '));
+
+    return lines.length ? lines.join('\n') : '';
+  }
+
   /**
    * Build the messages for one turn.
    * Returns { system, messages }.
    */
-  function buildPrompt(world, run, input) {
+  function buildPrompt(world, run, input, opts) {
     var gr = world.gameRules || {};
     var sb = world.sandboxConfig || {};
+    /* v1.39.101: rolls the engine has already made for this turn. They are
+       facts by the time the scene is written, so they are stated as facts. */
+    var settled = (opts && opts.settled) || null;
 
     var parts = [];
     if (world.dmPrompt) parts.push(world.dmPrompt);
@@ -2246,12 +2648,23 @@
       var memPart = 'Story memory - what the past scenes established in prose ' +
         '(the ledger above outranks it):\n';
       if (run.memory.summary) memPart += 'Story so far: ' + run.memory.summary + '\n';
-      if ((run.memory.facts || []).length) {
-        memPart += 'Established facts:\n' +
-          run.memory.facts.map(function (f) { return '- ' + f; }).join('\n');
+      /* v1.39.100: only what is true now, newest first, each dated with the
+         turn it was learned on. A superseded fact is kept on the run but is
+         never offered as current - that is what used to put a stale level or
+         a finished objective in front of the referee. */
+      var now = currentFacts(run).slice().sort(function (a, b) { return (b.from || 0) - (a.from || 0); });
+      if (now.length) {
+        memPart += 'Established facts (each still true; the turn it was learned on in brackets):\n' +
+          now.map(function (f) { return '- ' + f.text + ' [' + (f.from || 0) + ']'; }).join('\n');
+        /* a fact that is shown is a fact the run is still citing: its age
+           starts from here, so a load-bearing fact never looks oldest. */
+        var t = run.turn || 0;
+        now.forEach(function (f) { if ((f.from || 0) < t) f.from = t; });
       }
       parts.push(memPart);
     }
+
+    if (settled && settled.length) parts.push(settledChecksBrief(settled));
 
     /* v1.36.0: lore surfaces when it comes up - and "coming up" includes
        what the referee just said, not only what the player types this
@@ -2380,6 +2793,13 @@
         rules += '\n  Request one with [[roll:SPEC:check:NAME]]. The world rolls it ' +
           'and applies the outcome itself - never narrate or guess a check ' +
           'outcome, and request each check at most once per reply.' +
+          /* v1.39.101: a check the engine settled before this scene began is
+             done. Asking for it again is refused by the world. */
+          (settled && settled.length
+            ? ' Already rolled for this turn: ' +
+              settled.map(function (e) { return e.name; }).join(', ') +
+              ' - narrate those results, never request them again.'
+            : '') +
           /* v1.34.0: the table's own fallback difficulty, told once */
           ' A check that declares no DC runs at ' + defaultDifficulty(world) + '.';
       }
@@ -2393,6 +2813,7 @@
     /* v1.30.4: a reply stored before the cleanup still carries the copied
        note - keep the model from reading it as a pattern to repeat. The
        player's own lines are never touched. */
+    var note = '';
     log.forEach(function (m) {
       messages.push({
         role: m.role,
@@ -2401,9 +2822,26 @@
         content: m.role === 'assistant' ? stripBriefingEcho(stripTagArtifacts(m.content)) : m.content
       });
     });
+    /* v1.39.99: the state the turn is answered from, as the last thing read
+       before the player's words (see buildNowBrief). */
+    var nowBrief = buildNowBrief(world, run);
+    if (nowBrief) {
+      note = 'Where things stand right now - bookkeeping, already applied:\n' + nowBrief;
+      if (settled && settled.length) {
+        note += '\nRolled for this turn: ' + settled.map(function (e) { return e.chip; }).join('; ') +
+          '.\nThe die is cast - narrate that outcome; do not roll it again.';
+      }
+      note += '\nContinue from this, not from an earlier moment.';
+    } else if (settled && settled.length) {
+      note = 'Rolled for this turn: ' + settled.map(function (e) { return e.chip; }).join('; ') +
+        '.\nThe die is cast - narrate that outcome; do not roll it again.';
+    }
     messages.push({ role: 'user', content: input });
 
-    return { system: parts.join('\n\n'), messages: messages };
+    /* A chat provider carries this as a trailing system turn so it reaches
+       the model after the newest user line. A prompt provider gets it after
+       the transcript and before the answer cue, which is the same place. */
+    return { system: parts.join('\n\n'), messages: messages, note: note };
   }
 
   /** Advance the turn counter and record the exchange.
@@ -2413,6 +2851,7 @@
    *  the run (capped) so the HUD can show what the world refused. */
   function commit(run, userText, reply, applied) {
     var last = (run.log || [])[run.log.length - 1];
+    run.checksThisTurn = [];   /* v1.39.101: one turn's rolls, not a run's */
     if (!last || last.role !== 'user' || last.content !== userText) {
       run.log.push({ role: 'user', content: userText, at: Date.now() });
     }
@@ -2639,6 +3078,13 @@
     /* v1.36.0: the memory cadence and its write-side, testable without
        a model in the room */
     memoryDue: memoryDue, applyMemory: applyMemory,
+    /* v1.39.100: facts keep their history - superseded, never deleted */
+    currentFacts: currentFacts, pastFacts: pastFacts, sameFact: sameFact,
+    factObjects: factObjects,
+    /* v1.39.101: the die is rolled before the scene is written */
+    parseIntent: parseIntent, resolveCheckNow: resolveCheckNow,
+    settledChecksBrief: settledChecksBrief, intentRules: function () { return INTENT_RULES; },
+    maxCheckRequests: MAX_CHECK_REQUESTS,
     /* v1.37.0: the dead-key hint, for the open book */
     deadKey: deadKey,
     /* tests inject a store; the app uses IDB directly */

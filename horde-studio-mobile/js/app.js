@@ -147,18 +147,8 @@
       var ch = App.state.char;
       var groupMembers = App.state.groupCharacters || [];
       var isGroup = groupMembers.length > 1;
-      var groupNames = isGroup ? groupMembers.map(function (x) { return x.name || 'Unnamed'; }).join(' + ') : '';
       $('#bar-title').textContent = isGroup ? 'Group chat' : ((ch && ch.name) || 'Chat');
-      var sub = App.state.session ? (App.state.session.title || 'New chat') : '';
-      if (isGroup) sub = groupNames + ' · ' + sub;
-      /* Who you are in this thread — worth stating, since switching personas
-         swaps which of a character's conversations you are looking at. */
-      if (Store.settings.activePersona) sub = 'as ' + Store.personaLabel() + ' · ' + sub;
-      if (!isGroup && ch && ch.vh && ch.vh.enabled) {
-        var st = VH.status(ch);
-        sub = st.text + ' · ' + sub;
-      }
-      $('#bar-sub').textContent = sub;
+      $('#bar-sub').textContent = App.chatSubtitle();
       if (isGroup) $('#char-state').hidden = true; else Views.stateStrip(ch);
     } else if (name === 'editor') {
       $('#bar-title').textContent = params.isNew ? 'New character' : 'Edit character';
@@ -364,8 +354,75 @@
      the bot's avatar as <img src="…">. Convert it to plain prose now, so
      the sheet, the greeting and the prompt never carry markup a model
      could read and echo back as literal text. */
+  /* G (v1.39.69): say what the import could not carry. Each note is a real
+     loss the player would otherwise only discover as "my card behaves
+     strangely". Computed from the RAW card, before plainText rewrites it. */
+  /* K4 (v1.39.76): a `chara_card_v3` whose fields sit at the top level instead
+     of under `data` used to import as a character with no name, no sheet and
+     no greeting — silently, because cardToCharacter reads `data` alone for V3.
+     The card is still importable (see Store.cardToCharacter), but the person
+     needs to know the file is malformed, not that the app ate it. */
+  App.v3ShapeNote = function (card) {
+    if (!card || card.spec !== 'chara_card_v3') return null;
+    var data = card.data && typeof card.data === 'object' ? card.data : null;
+    var hasData = !!(data && (data.first_mes || data.description || data.name));
+    var hasTop = !!(card.first_mes || card.description || card.name);
+    if (hasData) {
+      if (hasTop && !data.first_mes && card.first_mes) {
+        return 'This V3 card keeps its fields both at the top level and under "data", and the two disagree. ' +
+          'The "data" copy is the one used — that is what the spec says to prefer.';
+      }
+      return null;
+    }
+    if (hasTop) {
+      return 'This V3 card puts its fields at the top level instead of under "data", which is not what the spec ' +
+        'asks for. They were read from the top level so nothing is lost, but other apps may show an empty character.';
+    }
+    return 'This card claims to be V3 but carries no character fields in either place. ' +
+      'The file is probably damaged or a stub.';
+  };
+
+  App.importLossNotes = function (card) {
+    var notes = [];
+    var data = (card && card.data) || card || {};
+    /* <START> is no longer a loss: v1.39.70 recovers the separator before the
+       plain-text pass, so it parses the way every card guide intends. */
+    var book = data.character_book ||
+      (card && card.data && card.data.character_book) ||
+      (card && card.character_book) || null;
+    var entries = (book && Array.isArray(book.entries)) ? book.entries : [];
+    /* v1.39.72: `constant` is honoured since v1.39.70, so an entry that uses
+       it was no longer a loss and the note had become a lie. Portraits are
+       carried on both import branches since v1.39.70 for the same reason. */
+    var secondary = entries.filter(function (e) {
+      return e && ((e.secondary_keys && e.secondary_keys.length) || e.selective);
+    }).length;
+    if (secondary) {
+      notes.push(secondary + ' ' + (secondary === 1 ? 'entry uses' : 'entries use') +
+        ' secondary keys or "selective" filtering — ignored, so ' +
+        (secondary === 1 ? 'it' : 'they') + ' may fire more often than the author intended.');
+    }
+    var ordered = entries.filter(function (e) {
+      return e && typeof e.insertion_order === 'number';
+    }).length;
+    if (ordered) {
+      notes.push(ordered + ' ' + (ordered === 1 ? 'entry sets' : 'entries set') +
+        ' "insertion_order" — ignored, so entries are matched in book order.');
+    }
+    if (data.system_prompt) {
+      notes.push('This card carries its own system prompt; the app uses the global one. ' +
+        'Copy it into Settings → System prompt if you want it honoured.');
+    }
+    /* A2 (v1.39.71): portraits import on both branches; the old note was
+       reporting a loss the code no longer makes. */
+    return notes;
+  };
+
   App.prepareImportedCharacter = function (card) {
     var c = Store.cardToCharacter(card);
+    c.importNotes = App.importLossNotes(card);
+    var shapeNote = App.v3ShapeNote(card);
+    if (shapeNote) c.importNotes.unshift(shapeNote);
     /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor
        descriptions, <br> line breaks, the bot's avatar as
        <img src="…">. Convert it to plain prose now, so the sheet,
@@ -419,6 +476,12 @@
              alternates become swipes on the opening message */
           (c.alternateGreetings && c.alternateGreetings.length
             ? '<div class="hint">It also brings <b>' + (c.alternateGreetings.length + 1) + ' intros</b> — swipe the first message to step into another one.</div>'
+            : '') +
+          (c.importNotes && c.importNotes.length
+            ? '<div class="hint" style="margin-top:8px"><b>Not carried over:</b></div>' +
+              c.importNotes.map(function (n) {
+                return '<div class="hint" style="margin-top:4px">• ' + esc(n) + '</div>';
+              }).join('')
             : ''),
         actions: [
           { label: 'Cancel', cls: 'ghost', value: null },
@@ -651,7 +714,12 @@
      addresses; the app then tells the model every turn, so people in
      other rooms stop answering conversations they cannot hear. */
 
-  var CAST_REV = 2;          /* bump when detection rules change */
+  /* v1.39.77: a label is only evidence of a person when the card uses it to
+     SPEAK — with words after the colon, more than once. A section heading
+     ending in a colon, and a field whose value describes the character, both
+     look exactly like a spoken line to a naive scan; it put them in the Scene
+     strip as if they were people standing on the porch. */
+  var CAST_REV = 9;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -660,17 +728,54 @@
       if (!session.castChecked) { session.castChecked = true; Store.putSession(session); }
       return;
     }
-    /* Older chats may hold headings the loose scan mistook for people.
-       Re-detect once, unless the player has edited the cast by hand. */
-    if (session.castRev !== CAST_REV && !session.castEdited) {
+    /* v1.39.86: a revision number only moves when the app ships a new rule, so
+       editing the card — renaming someone, adding a Cast section — left the old
+       cast in place indefinitely. The card's own content is the thing that
+       changed; that is what this watches. */
+    var fp = App.castFingerprint(char);
+    /* v1.39.95: a one-person card has no scene to keep. Whatever a chat is
+       carrying — a cast from an older version of the card, or a scan that
+       mistook a mood for a person — is dropped here, and the bar hides. */
+    if (session.sceneCast && session.sceneCast.length) {
+      var one = App.detectCast(char);
+      if (one.length < 2) {
+        session.sceneCast = [];
+        session.scenePresent = [];
+        session.addressedTo = '';
+        session.castChecked = true;
+        session.castRev = CAST_REV;
+        session.castFp = fp;
+        Store.putSession(session);
+        return;
+      }
+    }
+    /* Older chats may hold headings the loose scan mistook for people, and
+       older cards may name people the current scan can see. Re-detect once per
+       card version, unless the player has edited the cast by hand. */
+    if ((session.castRev !== CAST_REV || session.castFp !== fp) && !session.castEdited) {
       var fresh = App.detectCast(char);
       var wasPresent = Array.isArray(session.scenePresent) ? session.scenePresent : [];
+      var wasCast = Array.isArray(session.sceneCast) ? session.sceneCast : [];
       var present = fresh.filter(function (n) { return wasPresent.indexOf(n) !== -1; });
       if (!present.length) present = fresh.slice();
+      /* v1.39.85: a name the re-detect has only just learned about (a rota the
+         old scan could not read) starts in the room. Sending someone away is a
+         choice the player made about a name they could see; it says nothing
+         about a name that was invisible until now. */
+      fresh.forEach(function (n) {
+        if (wasCast.indexOf(n) === -1 && present.indexOf(n) === -1) present.push(n);
+      });
+      /* the chat's own character is in the room unless the player says otherwise */
+      var selfKey = String(char.name || '').toLowerCase().split(/[\s,]+/)[0];
+      var selfInFresh = selfKey && fresh.filter(function (n) {
+        return String(n).toLowerCase().split(/[\s,]+/)[0] === selfKey;
+      })[0];
+      if (selfInFresh && present.indexOf(selfInFresh) === -1) present.unshift(selfInFresh);
       session.sceneCast = fresh;
       session.scenePresent = present;
       if (session.addressedTo && fresh.indexOf(session.addressedTo) === -1) session.addressedTo = '';
       session.castRev = CAST_REV;
+      session.castFp = fp;
       session.castChecked = true;
       Store.putSession(session);
       return;
@@ -684,62 +789,320 @@
       session.addressedTo = '';
     }
     session.castRev = CAST_REV;
+    session.castFp = fp;
     Store.putSession(session);
   };
 
+  /* A stable, cheap fingerprint of everything detectCast reads. */
+  App.castFingerprint = function (char) {
+    if (!char) return '';
+    var src = [char.name, char.persona, char.greeting, char.scenario, char.examples].join('\u0001');
+    var h = 5381;
+    for (var i = 0; i < src.length; i++) h = (((h * 33) >>> 0) ^ src.charCodeAt(i)) >>> 0;
+    return h.toString(36) + '.' + src.length.toString(36);
+  };
+
   App.detectCast = function (char) {
-    var found = [], seen = {};
-    function add(name) {
-      name = String(name || '').replace(/\s+/g, ' ').trim();
-      if (name.length < 2 || name.length > 24) return;
-      if (/[{}<>]/.test(name)) return;                       /* {{char}} / {{user}} */
-      var low = name.toLowerCase();
-      if (low === 'user' || low === 'you') return;
-      /* the card's own name, also when written in full ("Firstname
-         Lastname") or with a curly apostrophe */
-      var norm = function (s) { return String(s || '').toLowerCase().replace(/[\u2018\u2019]/g, "'"); };
-      var selfFirst = norm(char.name).split(/[\s,]+/)[0];
-      if (norm(low) === norm(char.name) || (selfFirst && norm(low).split(/[\s,]+/)[0] === selfFirst)) return;
-      if (seen[low] || seen[low.split(' ')[0]]) return;      /* also catches "First" vs "First Last" duplicates */
-      seen[low] = true;
-      seen[low.split(' ')[0]] = true;
-      found.push(name);
+    var blob = [char.persona, char.greeting, char.scenario, char.examples].join('\n');
+    var cands = {}, order = [];
+    function norm(s) { return String(s || '').toLowerCase().replace(/[\u2018\u2019]/g, "'"); }
+    function firstWord(s) { return norm(s).split(/[\s,]+/)[0]; }
+    function isSelf(name) {
+      var low = norm(name), self = norm(char.name);
+      if (!self) return false;
+      return low === self || (firstWord(low) && firstWord(low) === firstWord(self));
     }
+    /* v1.39.83: a card's field headers are not people.
+       A multi-person card written as blocks — a Name field, then Age, Role,
+       Appearance, Likes, and so on once per character — repeats those headers
+       as many times as it has people, and the scan below counted each
+       repetition as an act of speech. The headers then outranked the
+       characters who actually speak, and the Scene bar filled with field
+       names instead of people. Nothing here is card-specific: this is the
+       standard character-card vocabulary, and the same leak hits every card
+       of this shape. */
+    var FIELD_WORDS = (function () {
+      var w = ('name names fullname nickname alias age birthday gender sex species pronouns ' +
+        'role roles occupation job jobs work class archetype title titles rank status ' +
+        'appearance looks look build height weight hair eyes skin face body clothing clothes outfit ' +
+        'personality traits trait temperament quirks quirk habits likes dislikes fears fear goals goal ' +
+        'overall summary overview general note notes about current currently details info information ' +
+        'extra additional misc other stats stat physical mental emotional behaviour behavior demeanor ' +
+        'motivation motivations desire desires hobbies hobby skills skill abilities ability powers ' +
+        'relationship relationships family relatives friends friend occupation backstory history ' +
+        'background bio profile description summary notes note tags tag scenario setting location ' +
+        'world lore rules rule instructions system greeting speech voice accent language languages ' +
+        'nationality ethnicity affiliation alignment mood emotion emotions secrets secret kinks limits ' +
+        'style example examples dialogue first message summary appearance').split(/\s+/);
+      var m = {};
+      w.forEach(function (k) { if (k) m[k] = 1; });
+      return m;
+    })();
+    function isField(name) {
+      var low = norm(name).replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!low) return false;
+      if (FIELD_WORDS[low] || FIELD_WORDS[firstWord(low)]) return true;
+      /* two-word headers: "hair color", "eye color", "body type", … */
+      var parts = low.split(' ');
+      if (parts.length === 2 && FIELD_WORDS[parts[0]] && FIELD_WORDS[parts[1]]) return true;
+      return false;
+    }
+    /* Reject what cannot be a person's name in a dialogue label: too short or
+       too long, a macro, or a SHOUTED heading ("Main INTRO", "BASIC INFO"). */
+    function shaped(name) {
+      var clean = String(name || '').replace(/\s+/g, ' ').trim();
+      if (clean.length < 2 || clean.length > 24) return '';
+      if (/[{}<>]/.test(clean)) return '';
+      if (/[A-Z]{3,}/.test(clean)) return '';
+      var low = norm(clean);
+      if (low === 'user' || low === 'you') return '';
+      if (isField(clean)) return '';
+      return clean;
+    }
+    function slot(name) {
+      var low = norm(name);
+      if (!cands[low]) { cands[low] = { name: name, acts: 0, strong: 0 }; order.push(low); }
+      return cands[low];
+    }
+    /* The card's own name is no longer dropped here — a multi-person card is
+       allowed to list its own character in the scene. It is filtered at the
+       end instead, where the rest of the cast is known. */
+    function offer(name) { var n = shaped(name); if (n) slot(n); }
+    function act(name) { var n = shaped(name); if (n) slot(n).acts++; }
+    /* v1.39.83: a label followed by an actual quoted line — or by a sentence
+       rather than one word — is someone speaking, and one is enough. That is
+       a far stronger signal than the repetition the count was asking for, and
+       it is what lets a card that writes each character once still get a
+       cast. */
+    /* v1.39.83+: a value that reads *about* someone is a field description,
+       not a line of dialogue — "Overall: A loyal, easygoing father who's
+       trying to get his life back together." Three tells, all general: it
+       opens with an article, it runs on, and it never addresses or refers to
+       anyone in the first or second person. Real speech does at least one of
+       those. */
+    var PERSON_MARKERS = /\b(you|your|yours|yourself|i|i'm|i've|i'll|i'd|me|my|mine|we|us|our|ours)\b/i;
+    function describes(v) {
+      if (!/^(?:a|an|the)\s/i.test(v)) return false;
+      if (v.split(/\s+/).length < 6) return false;
+      return !PERSON_MARKERS.test(v);
+    }
+    function speaks(name, value) {
+      var n = shaped(name);
+      if (!n) return;
+      var c = slot(n), v = String(value || '').trim();
+      c.acts++;
+      /* quotation marks are the one unambiguous sign of a spoken line */
+      if (/^["\u201c\u2018\u2014\u2013-]/.test(v)) c.strong++;
+      if (describes(v)) c.desc = (c.desc || 0) + 1;
+    }
+
+    /* "Name: words" is someone speaking. A bare "Name:" is a section
+       heading — it is offered so that later prose can still vouch for it,
+       but the line itself proves nothing. */
     function scanLabels(text) {
       String(text || '').split('\n').forEach(function (line) {
         var t = line.replace(/^\s*[^A-Za-z{]+/, '');        /* strip emoji/bullets */
-        var m = /^([A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+)?)\s*:/.exec(t);
-        if (m) add(m[1]);
+        var m = /^([A-Z][A-Za-z'’.-]+(?: [A-Z][A-Za-z'’.-]+)?)\s*:\s*(.*)$/.exec(t);
+        if (!m) return;
+        if (m[2].trim()) speaks(m[1], m[2]); else offer(m[1]);
       });
     }
     function scanNames(text) {
       var m, re = /^Name:\s*(.+)$/gim;
-      while ((m = re.exec(String(text || '')))) add(m[1]);
-    }
-    /* A bare "Two Words" line is only a person if the card actually uses
-       that name elsewhere — profile headings like "Basic Info" or "Facial
-       Features" appear once and never speak, so they are not cast. */
-    var blob = [char.persona, char.greeting, char.scenario, char.examples].join('\n');
-    function speaks(full) {
-      var q = full.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      var hits = blob.match(new RegExp('\\b' + q + '\\b', 'gi'));
-      if (!hits || hits.length < 3) return false;
-      var act = new RegExp(
-        '(\\b' + q + '\\s+(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added)\\b)' +
-        '|(\\b(?:said|says|asked|replied|answered)\\s+' + q + '\\b)' +
-        '|(^' + q + '\\s*[:\u2014-])', 'im');
-      return act.test(blob);
-    }
-    function scanHeaders(text) {
-      var m, re = /^([A-Z][a-z]+ [A-Z][a-z]+)$/gm;
-      while ((m = re.exec(String(text || '')))) {
-        if (speaks(m[1])) add(m[1]);
-      }
+      while ((m = re.exec(String(text || '')))) offer(m[1]);
     }
     scanLabels(char.examples);
     scanLabels(char.greeting);
+    scanLabels(char.persona);
     scanNames(char.persona);
-    scanHeaders(char.persona);
+
+    /* A two-word proper name right beside a speech verb is a person too —
+       "Cora Vane said nothing", "asked Cora Vane". Requiring two capitalised
+       words keeps ordinary prose out ("She said", "The door"). */
+    var verb = '(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added|laughed|sighed)';
+    var after = new RegExp('\\b([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)\\s+' + verb + '\\b', 'g');
+    var before = new RegExp('\\b' + verb + '\\s+([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)\\b', 'g');
+    var m;
+    while ((m = after.exec(blob))) act(m[1]);
+    while ((m = before.exec(blob))) act(m[1]);
+
+    /* Prose vouches for a name the same way a label does: "Rose said",
+       "asked Rose". This is what separates a person from a field name. */
+    order.slice().forEach(function (low) {
+      var name = cands[low].name;
+      var q = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      var said = new RegExp(
+        '(\\b' + q + '\\s+(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added|laughed|sighed)\\b)' +
+        '|(\\b(?:said|asked|replied|answered|whispered|murmured|snapped)\\s+' + q + '\\b)', 'gi');
+      cands[low].acts += (blob.match(said) || []).length;
+    });
+
+    /* v1.39.85: a card may simply say who is in it.
+       Multi-person cards often end with their own rota — a heading like
+       "Cast", "Characters" or "Who's here", then one bullet per person:
+       "- **Name** — who they are". Those people are declared, not inferred,
+       so the dialogue scan above is the wrong instrument: a character listed
+       there who has not spoken yet is still in the room, and leaving her out
+       means she cannot be sent away, addressed, or kept from narrating.
+       General by construction — no names, only the heading vocabulary and the
+       shape of a bullet. */
+    var CAST_HEADING = /^(?:the\s+)?(?:cast(?:\s+list|\s+of\s+characters)?|characters?|main\s+characters?|supporting\s+characters?|other\s+characters?|side\s+characters?|npcs?|people|persons|who(?:'s|\u2019s)?\s+(?:here|present|in\s+(?:this\s+)?(?:scene|room))|present|in\s+this\s+scene|characters?\s+in\s+(?:this\s+)?(?:scene|room))\s*:?\s*$/i;
+    /* a bullet, in the shapes cards write them */
+    var BULLET = /^\s*(?:[-*\u2022\u2013\u2014]|\d+[.)])\s+(.+)$/;
+    function castSectionNames(text) {
+      var out = [];
+      var lines = String(text || '').split('\n');
+      var inside = false, budget = 0;
+      for (var i = 0; i < lines.length; i++) {
+        var line = String(lines[i] || '').replace(/\s+$/, '');
+        var bare = line.replace(/^[#*_\s]+/, '').replace(/[*_\s]+$/, '').trim();
+        if (!inside) {
+          if (CAST_HEADING.test(bare)) { inside = true; budget = 40; }
+          continue;
+        }
+        if (!budget--) { inside = false; continue; }
+        if (!line.trim()) continue;
+        var b = BULLET.exec(line);
+        if (!b) {
+          /* any non-bullet line ends the rota: prose, a new field block, a rule */
+          if (/^[A-Z][A-Za-z '\/]{1,24}\s*:/.test(line.trim())) { inside = false; }
+          continue;
+        }
+        var body = b[1].trim();
+        var bold = /^\*\*(.+?)\*\*/.exec(body);
+        var name;
+        if (bold) name = bold[1];
+        else {
+          name = body.split(/\s+[\u2013\u2014]\s+|\s+-\s+/)[0];
+          if (/\s*:\s/.test(name)) name = name.split(/\s*:\s*/)[0];
+        }
+        name = String(name || '').replace(/[*_`]/g, ' ').replace(/\s+/g, ' ').trim();
+        name = name.replace(/^[-\u2022\s]+|[-.,;:!\s]+$/g, '');
+        if (!name || name.length > 32) continue;
+        out.push(name);
+      }
+      return out;
+    }
+
+    /* A person recurs. A heading, a field label and a one-off mention do not. */
+    /* the loaded character's own name, usable even if she never appears in a
+       dialogue label — a rota can declare her without her ever speaking */
+    /* v1.39.95: how often the name appears anywhere, and the words right after
+       it. A person's name recurs throughout a card; a mood word appears only in
+       the label that gives it a value — "Warm: she likes company", "Upset: she
+       hates being ignored". Once blank lines are ignored, that distinction
+       decides whether a label is a speaker or a state.
+       Nothing here is card vocabulary: the test is how the card USES the word,
+       which is what keeps it general. */
+    function bareLines(text) {
+      var out = [];
+      String(text || '').split('\n').forEach(function (line) {
+        var t = line.replace(/^\s*[^A-Za-z{]+/, '');
+        var m = /^([A-Z][A-Za-z'\u2019.-]+(?: [A-Z][A-Za-z'\u2019.-]+)?)\s*:\s*(\S.*)$/.exec(t);
+        if (m) out.push({ name: m[1], value: m[2] });
+      });
+      return out;
+    }
+    /* v1.39.96: a mood word is used all through the card as an ordinary
+       adjective — "Humor: Warm, dry, self-deprecating", "Speech: warm, soft" —
+       so counting occurrences cannot tell it from a person's name, which really
+       does recur as itself. What a mood does NOT do is appear as a label more
+       than once, or outside the block its labels live in. */
+    var personaLines = String(char.persona || '').split('\n');
+    function labelIndexes(word) {
+      var re = new RegExp('^\\s*' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:', 'i');
+      var out = [];
+      for (var i = 0; i < personaLines.length; i++) if (re.test(personaLines[i])) out.push(i);
+      return out;
+    }
+    /* the run of labels a word belongs to: walk backwards over the previous
+       label lines, whatever they are called */
+    function inLabelBlock(word) {
+      var at = labelIndexes(word);
+      if (at.length !== 1) return false;
+      var i = at[0], steps = 0, gaps = 0;
+      while (i > 0 && steps < 60) {
+        i--; steps++;
+        var line = String(personaLines[i] || '').trim();
+        if (!line) { gaps++; if (gaps > 3) break; continue; }
+        if (/^[A-Z][A-Za-z'\u2019 .-]{0,28}:\s*\S/.test(line)) { return true; }
+        gaps = 0;
+      }
+      return false;
+    }
+    var labelLines = bareLines(char.persona).concat(bareLines(char.greeting)).concat(bareLines(char.examples));
+    function valueSays(word) {
+      var re = new RegExp('(^|[^A-Za-z])' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z])', 'i');
+      return labelLines.some(function (l) { return re.test(l.value); });
+    }
+    function occurrences(word) {
+      try {
+        var re = new RegExp('(^|[^A-Za-z])' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z])', 'gi');
+        return (String(blob).match(re) || []).length;
+      } catch (e) { return 0; }
+    }
+
+    var found = [], seen = {}, selfName = '', selfActs = 0;
+    var selfLabel = shaped(String(char.name || '').trim());
+    order.forEach(function (low) {
+      if (isSelf(cands[low].name)) {
+        selfName = cands[low].name;
+        selfActs += (cands[low].acts >= 2 || cands[low].strong) ? 1 : 0;
+        /* remember her under both her full and her short name, so a rota that
+           lists "First Last" does not add a second copy of the same person */
+        var sk = norm(cands[low].name);
+        seen[sk] = true; seen[firstWord(sk)] = true;
+        return;
+      }
+      var c = cands[low];
+      /* v1.39.96: these two vetoes run BEFORE the evidence test, because a mood
+         written as a quoted line ("Upset: 'I'm sorry…'") qualifies as speech by
+         every other measure. What it cannot do is behave like a person. */
+      /* a label that appears once and sits inside a run of other labels —
+         "Humor:", "Speech:", "Greeting:", then "Warm:", "Teasing:" — is one
+         value in a list, not a speaker; a person speaks more than once */
+      if (inLabelBlock(c.name)) return;
+      /* a word that appears only as a label, beside a sentence that describes
+         somebody rather than being spoken by them */
+      if (occurrences(c.name) <= c.acts && valueSays(c.name)) return;
+      /* Quoted speech anywhere is enough. Otherwise a label needs to recur —
+         and if every occurrence reads as a description of somebody rather
+         than something they said, recurrence proves nothing. */
+      if (!c.strong) {
+        if (c.acts < 2) return;
+        if ((c.desc || 0) >= c.acts) return;
+      }
+      var name = cands[low].name, key = norm(name);
+      if (seen[key] || seen[firstWord(key)]) return;
+      seen[key] = true; seen[firstWord(key)] = true;
+      found.push(name);
+    });
+    /* v1.39.83: on a card that writes more than one person speaking, the
+       loaded character is one of the speakers and belongs in the scene — the
+       bar could not list her at all before, so a two-person card produced a
+       cast of one and the whole strip hid itself. A single-person card still
+       yields nothing, because there is no one else in `found`. */
+    /* People the card declares, after the ones it shows speaking. A declared
+       name doubles as proof, so it can rescue a card whose only speakers were
+       labelled once, but it never displaces dialogue — the order stays the
+       card's own. */
+    var declared = castSectionNames(blob).map(shaped).filter(Boolean);
+    var selfDeclared = false;
+    declared.forEach(function (name) {
+      var key = norm(name);
+      /* the loaded character is listed under her own name, which the header
+         already carries — that is proof she is here, not a second person */
+      if (isSelf(name)) { selfDeclared = true; return; }
+      if (found.some(function (f) { return norm(f) === key || firstWord(norm(f)) === firstWord(key); })) return;
+      if (seen[key] || seen[firstWord(key)]) return;
+      if (isField(name)) return;
+      if (valueSays(name)) return;
+      if (inLabelBlock(name)) return;
+      seen[key] = true; seen[firstWord(key)] = true;
+      found.push(name);
+    });
+    var selfAdd = selfDeclared ? selfLabel : (selfActs >= 1 ? (selfName || selfLabel) : '');
+    if (selfAdd && found.length >= 1) found.unshift(selfAdd);
     return found.slice(0, 6);
   };
 
@@ -916,12 +1279,18 @@
     };
   };
 
+  /* v1.39.80: this sheet called `IDB.all('messages')`, a method that has never
+     existed — the store has `getAll` and `getAllByIndex`. The call threw
+     synchronously while the promise array was being built, so the `.catch()`
+     below never ran and the menu simply closed with nothing happening and no
+     toast. It reads through the same indexed getter the rest of the app uses. */
   App.chatHealthSheet = function (sessionId) {
-    Promise.all([IDB.all('messages').then(function (all) {
-      return all.filter(function (m) { return m.sessionId === sessionId; });
+    Promise.all([Store.getMessages(sessionId).then(function (list) {
+      return (list || []).slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
     }), IDB.get('sessions', sessionId)]).then(function (r) {
-      var msgs = (r[0] || []).sort(function (a, b) { return a.createdAt - b.createdAt; });
+      var msgs = r[0] || [];
       var sess = r[1];
+      if (!sess) { UI.toast('That chat no longer exists'); return; }
       var h = App.chatHealth(sess, msgs, Store.settings);
       UI.sheet({
         title: 'Chat health',
@@ -1414,10 +1783,10 @@
             '<div class="field"><label>Present characters <span class="hint">one per line</span></label><textarea class="tall" id="cont-participants">' + esc(c.participants.join('\n')) + '</textarea></div>' +
           '</div>' +
           '<div class="group"><div class="group-title">Knowledge & truth</div>' +
-            '<div class="field"><label>Knowledge records <span class="hint">who | fact | basis</span></label><textarea class="tall" id="cont-knowledge" placeholder="Mara | the gate is sealed | witnessed it\n{{user}} | the letter is forged | was told by Mara\nNarrator only | the key is cursed | hidden world truth">' + esc(continuityRows(c.knowledge, ['who', 'fact', 'basis'])) + '</textarea><div class="hint">Use each NPC’s name separately. Basis records provenance (witnessed, told by whom, inferred). Use {{user}} for player knowledge, Everyone for shared knowledge, or Narrator only for hidden world truth. NPC knowledge is injected only for present NPCs.</div></div>' +
+            '<div class="field"><label>Knowledge records <span class="hint">who | fact | basis</span></label><textarea class="tall" id="cont-knowledge" placeholder="Warden | the gate is sealed | witnessed it\n{{user}} | the letter is forged | was told by Warden\nNarrator only | the key is cursed | hidden world truth">' + esc(continuityRows(c.knowledge, ['who', 'fact', 'basis'])) + '</textarea><div class="hint">Use each NPC’s name separately. Basis records provenance (witnessed, told by whom, inferred). Use {{user}} for player knowledge, Everyone for shared knowledge, or Narrator only for hidden world truth. NPC knowledge is injected only for present NPCs.</div></div>' +
           '</div>' +
           '<div class="group"><div class="group-title">Important objects</div>' +
-            '<div class="field"><label>Object state <span class="hint">name | state | holder | basis</span></label><textarea class="tall" id="cont-objects" placeholder="Brass key | bent, still usable | Mara | picked up from the floor">' + esc(continuityRows(c.objects, ['name', 'state', 'holder', 'basis'])) + '</textarea></div>' +
+            '<div class="field"><label>Object state <span class="hint">name | state | holder | basis</span></label><textarea class="tall" id="cont-objects" placeholder="Brass key | bent, still usable | Warden | picked up from the floor">' + esc(continuityRows(c.objects, ['name', 'state', 'holder', 'basis'])) + '</textarea></div>' +
           '</div>' +
           '<div class="group"><div class="group-title">Open and resolved events</div>' +
             '<div class="field"><label>Events <span class="hint">open/resolved | name | detail</span></label><textarea class="tall" id="cont-events" placeholder="open | Find the missing ledger | Last seen in the archive\nresolved | The alarm was disabled | Confirmed by the group">' + esc(continuityRows(c.events, ['name', 'detail'], 'status')) + '</textarea></div>' +
@@ -1738,8 +2107,11 @@
         var text = '# ' + (c ? c.name : 'Character') + ' — ' + (s.title || 'New chat') + '\n' +
           '# ' + new Date(s.createdAt).toLocaleString() + '\n\n' +
           msgs.map(function (m) {
-            return (m.role === 'user' ? Store.settings.userName : (c ? c.name : 'Assistant')) + ': ' + (m.text || '') +
-              (m.image ? '\n[image: ' + m.image + ']' : '');
+            if (m.role === 'user') return Store.settings.userName + ': ' + (m.text || '');
+            /* v1.39.86: on a multi-person card every reply used to be labelled
+               with the card's own name, whoever had actually spoken. */
+            var sp = API.splitSpeaker(c, s, m.text || '');
+            return sp.name + ': ' + sp.text + (m.image ? '\n[image: ' + m.image + ']' : '');
           }).join('\n\n') +
           (s.summary ? '\n\n---\nMemory: ' + s.summary + '\n' + (s.facts || []).map(function (f) { return '- ' + f; }).join('\n') : '');
         UI.download((c ? c.name : 'chat') + '-' + (s.title || 'chat') + '.txt', text, 'text/plain');
@@ -1784,6 +2156,45 @@
 
   /** The three dots mean "something is happening right now" — a reply on the way,
    *  or a virtual human mid-burst. Nothing else. */
+  /* v1.39.79: "what turn am I on?" had no answer anywhere on screen. The
+     subtitle now carries it, and it is recomputed whenever the thread
+     changes rather than only when the chat is opened. A turn is one message
+     you sent — a reply, a reroll and a Continue all belong to the same turn,
+     which is the only reading that survives someone continuing a cut reply. */
+  App.chatTurn = function (messages) {
+    var n = 0;
+    (messages || []).forEach(function (m) { if (m.role === 'user' && !m.autonomous) n++; });
+    return n;
+  };
+
+  App.chatSubtitle = function () {
+    var ch = App.state.char, session = App.state.session;
+    var groupMembers = App.state.groupCharacters || [];
+    var isGroup = groupMembers.length > 1;
+    var sub = session ? (session.title || 'New chat') : '';
+    if (isGroup) {
+      sub = groupMembers.map(function (x) { return x.name || 'Unnamed'; }).join(' + ') + ' · ' + sub;
+    }
+    /* Who you are in this thread — worth stating, since switching personas
+       swaps which of a character's conversations you are looking at. */
+    if (Store.settings.activePersona) sub = 'as ' + Store.personaLabel() + ' · ' + sub;
+    if (!isGroup && ch && ch.vh && ch.vh.enabled) sub = VH.status(ch).text + ' · ' + sub;
+    /* v1.39.80: the turn used to be appended last, and the header is a single
+       ellipsised line — so a real chat title ("First Night on Coruscant · t…")
+       pushed it off the edge. It now comes first, where truncation cannot
+       reach it: the title is already in the Chats list, the turn is not. */
+    var turn = App.chatTurn(App.state.messages);
+    var lead = turn ? 'turn ' + turn : 'opening';
+    return lead + ' · ' + sub;
+  };
+
+  App.refreshChatHead = function () {
+    var sub = $('#bar-sub');
+    if (!sub || App.state.screen !== 'chat') return;
+    var text = App.chatSubtitle();
+    if (sub.textContent !== text) sub.textContent = text;
+  };
+
   App.renderTyping = function () {
     var t = $('#typing');
     if (!t) return;
@@ -2157,8 +2568,6 @@
         msg.text = newPart || '…';
         if (opts.replaceBubble) { msg.alts = msg.alts || []; msg.alts.push(msg.text); msg.altIdx = msg.alts.length - 1; }
         else { msg.alts = [msg.text]; msg.altIdx = 0; }
-        var mtC = el.querySelector && el.querySelector('.mtext');
-        if (mtC) mtC.innerHTML = UI.md(msg.text);
       } else if (opts.rerollFor) {
         msg.text = text;
         msg.alts = msg.alts || [];
@@ -2169,15 +2578,29 @@
         msg.alts = [text];
         msg.altIdx = 0;
       }
+      /* v1.39.93: on a card with a cast, the header says who ACTUALLY spoke.
+         It used to say the card's name whoever it was — so another speaker's
+         line sat under the card's own name — and a reply in which the card's
+         character spoke lost her name entirely, because the cleanup treated
+         that label as the start of a turn she should not have written. */
+      var scene = App.state.session;
+      var spoken = (scene && Array.isArray(scene.sceneCast) && scene.sceneCast.length >= 2 && API.splitSpeaker)
+        ? API.splitSpeaker(char, scene, msg.text || '') : null;
+      if (spoken && spoken.name && spoken.name !== char.name) msg.speakerName = spoken.name;
+      else delete msg.speakerName;
       el.classList.remove('streaming');
+      /* v1.39.79: everything the bubble shows — text, word count, cut marker,
+         continuation label — is rendered at once from the finished message. */
+      var rebuilt = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+      if (rebuilt) el = rebuilt;
       var parts = App.burstFor(char, text);
       if (parts.length > 1 && !(opts.rerollFor || opts.continueFor)) {
         /* independent short texts arrive as separate bubbles */
         msg.text = parts[0];
         msg.alts = [parts[0]];
         msg.altIdx = 0;
-        var mt2 = el.querySelector('.mtext');
-        if (mt2) mt2.innerHTML = UI.md(parts[0]);
+        var rebuilt2 = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+        if (rebuilt2) el = rebuilt2;
         return retryMarkerWrites.then(function () { return persist(); }).then(function (r) {
           /* if the first bubble could not be saved, the burst parts would
              not be either — keep what is on screen */
@@ -2192,6 +2615,7 @@
          user scrolled up to read it — follow only when they're at the
          bottom. v1.39.22: and when the reply itself is taller than the
          screen, "follow" means landing on its FIRST line, not its last. */
+      App.refreshChatHead();
       var thrF = $('#thread');
       if (Views.followReply) Views.followReply(thrF, el); else Views.stickToBottom(thrF, false);
       App.afterReply();
@@ -2217,8 +2641,8 @@
                Continue has no old text in its new bubble — removal below
                handles it; only a re-spun continuation restores) */
             if (opts.rerollFor || opts.replaceBubble) {
-              var mtA = el.querySelector && el.querySelector('.mtext');
-              if (mtA) mtA.innerHTML = UI.md(msg.text);
+              var rebuilt3 = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+              if (rebuilt3) el = rebuilt3;
             }
             Store.updateMessage(msg).catch(function (e) {
               UI.toast('Partial reply kept on screen, but it could not be saved: ' + (e && e.message), 6000);
@@ -2229,8 +2653,8 @@
           /* the model failed the re-spin, not the story: the bubble and its
              stored text stay exactly as they were */
           el.classList.remove('streaming');
-          var mtE = el.querySelector && el.querySelector('.mtext');
-          if (mtE) mtE.innerHTML = UI.md(msg.text);
+          var rebuilt4 = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
+          if (rebuilt4) el = rebuilt4;
           UI.toast((opts.rerollFor || opts.replaceBubble ? 'Reroll' : 'Continue') + ' failed: ' + e.message, 6000);
         } else {
           el.remove();
@@ -2251,7 +2675,12 @@
               Views.thread(char, session, generationMessages);
             }
           }
-          UI.toast('Error: ' + e.message, 6000);
+          /* v1.39.94: a provider outage gets an offer, not just a sentence. */
+          if (e && (e.providerDown || e.status >= 500)) {
+            App.routeFailureSheet(e);
+          } else {
+            UI.toast('Error: ' + e.message, 6000);
+          }
           console.error(e);
         }
       } catch (inner) {
@@ -2303,12 +2732,55 @@
     var char = App.state.char && App.state.char.id === session.charId ? App.state.char : null;
     return (char ? Promise.resolve(char) : Promise.resolve(Store.getCharacter(session.charId)))
       .then(function (c) {
+        var usedMessages = [];
         return Store.getMessages(session.id).then(function (msgs) {
+          usedMessages = (msgs || []).slice().sort(function (x, y) { return x.createdAt - y.createdAt; });
           return API.summarize({ settings: Store.settings, character: c, session: session, history: msgs });
         }).then(function (mem) {
+          /* v1.39.86: nothing is written unless the model actually produced a
+             summary. The old code stored whatever came back — including a
+             refusal — and that text then stood in for the whole past on every
+             later prompt. */
+          if (!mem || !mem.summary || mem.ok === false) {
+            /* v1.39.89: say WHY, and keep the raw reply so it can be inspected
+               in the Memory sheet instead of vanishing into a toast. */
+            App.lastMemoryFailure = {
+              at: Date.now(),
+              reason: (mem && mem.reason) || 'no usable summary came back',
+              raw: (mem && mem.lastRaw) || '',
+              characterName: (c && c.name) || '',
+              sessionId: session.id,
+              /* v1.39.91: what was asked, of which model, and how big it was */
+              sent: mem && mem.sentMessages ? mem.sentMessages + ' messages, ~' + mem.sentTokens + ' tokens' : '',
+              model: (mem && mem.model) || '',
+              window: (mem && mem.window) || 0
+            };
+            /* v1.39.92: an automatic attempt used to fail in total silence — the
+               chat simply never remembered, and nothing said so. It now says so
+               once, and then stays quiet for five minutes so a persistent
+               failure does not toast after every single reply. */
+            var prev = App._memToastAt || {};
+            var now = Date.now();
+            var recent = prev[session.id] && (now - prev[session.id]) < 5 * 60 * 1000;
+            if (!silent) {
+              UI.toast('Memory not updated: ' + App.lastMemoryFailure.reason +
+                '. Your existing memory is unchanged. See Memory for details.', 6000);
+              prev[session.id] = now; App._memToastAt = prev;
+            } else if (!recent) {
+              UI.toast('Memory not updated: ' + App.lastMemoryFailure.reason + '. See Memory for details.', 4500);
+              prev[session.id] = now; App._memToastAt = prev;
+            }
+            return;
+          }
           session.summary = mem.summary;
           session.facts = mem.facts;
           session.memAt = session.messageCount || 0;
+          /* v1.39.93: remember exactly which turns this memory describes, so a
+             reroll of one of them can be recognised as "the basis changed"
+             instead of leaving a summary of a reply that no longer exists. */
+          session.memAnchorCount = usedMessages.length;
+          session.memAnchorHash = App.transcriptHash(usedMessages);
+          session.memManual = false;
           return Store.putSession(session).then(function () {
             if (App.state && App.state.session && App.state.session.id === session.id) App.state.session = session;
             if (!silent) UI.toast('Memory updated');
@@ -2316,6 +2788,75 @@
           });
         }).catch(function (e) { if (!silent) UI.toast('Memory failed: ' + e.message, 4000); });
       });
+  };
+
+  /* A cheap digest of a run of messages: id + the alt that is showing. Two
+     different replies in the same slot hash differently, which is exactly the
+     question a reroll asks. */
+  App.transcriptHash = function (msgs) {
+    var h = 5381;
+    (msgs || []).forEach(function (m) {
+      var s = String(m.id || '') + '\u0001' + String(m.text || '');
+      for (var i = 0; i < s.length; i++) h = (((h * 33) >>> 0) ^ s.charCodeAt(i)) >>> 0;
+    });
+    return h.toString(36);
+  };
+
+  /* v1.39.93: memory describes a story. If the replies it was built on are
+     rerolled, edited or deleted, it describes a story that did not happen —
+     so once the conversation CONTINUES past that point (the player sends the
+     next message), the stale memory is dropped and will be rebuilt from the
+     story that is actually there. Swiping back to the original reply restores
+     the match and nothing is lost. Hand-written memory is left alone. */
+  App.checkMemoryBasis = function (session) {
+    if (!session || !session.memAnchorHash || session.memManual) return Promise.resolve(false);
+    if (!session.summary && !(session.facts && session.facts.length)) return Promise.resolve(false);
+    return Store.getMessages(session.id).then(function (list) {
+      var msgs = (list || []).slice().sort(function (a, b) { return a.createdAt - b.createdAt; });
+      var covered = msgs.slice(0, session.memAnchorCount || 0);
+      if (App.transcriptHash(covered) === session.memAnchorHash) return false;
+      session.summary = '';
+      session.facts = [];
+      session.memAt = 0;
+      session.memAnchorHash = '';
+      session.memAnchorCount = 0;
+      if (App.state && App.state.session && App.state.session.id === session.id) App.state.session = session;
+      return Store.putSession(session).then(function () {
+        UI.toast('Memory cleared: it was built on a reply that has since been rerolled or edited. It will be rebuilt from the current story.', 6000);
+        return true;
+      });
+    }).catch(function () { return false; });
+  };
+
+  /* v1.39.94: when the model's provider is down, the two things a player can
+     actually do are "try again in a minute" and "use a different model". This
+     offers both, and says plainly that the chat is intact. */
+  App.routeFailureSheet = function (err) {
+    var s = Store.settings || {};
+    var free = /:free\s*$/i.test(s.model || '');
+    UI.sheet({
+      title: 'The model is unavailable',
+      body: '<div class="hint" style="margin:0 0 10px">' + esc(String(err && err.message || 'The provider returned an error.')) + '</div>' +
+        '<div class="hint" style="margin:0 0 10px">' +
+        (free ? 'This is a <b>free route</b>. Free routes share a pool: at busy times every request ' +
+          'is refused for a while, then it works again with nothing changed. It is not your key, ' +
+          'your quota, or this app.' : 'This is the provider\'s server, not your settings.') +
+        '</div>' +
+        '<div class="hint" style="margin:0">Your message and the chat are untouched.</div>',
+      actions: [
+        { label: 'Later', cls: 'ghost', value: null },
+        { label: 'Try again', cls: 'ghost', onClick: function () {
+            UI.closeSheet();
+            App.generateReply();
+            return true;
+          } },
+        { label: 'Choose model', cls: 'primary', onClick: function () {
+            UI.closeSheet();
+            App.chooseModel(true);
+            return true;
+          } }
+      ]
+    });
   };
 
   App.setStop = function (on) {
@@ -2387,7 +2928,7 @@
             status(stage + '…');
             var placeIds = places.locations.map(function (l) { return l.id; }).join(', ');
             var peopleShape = JSON.stringify({
-              entities: [{ id: 'npc_mara', name: 'Mara Vess', type: 'npc', isMajor: true,
+              entities: [{ id: 'npc_warden', name: 'Tide Warden', type: 'npc', isMajor: true,
                 description: 'Hollow-eyed tide warden',
                 persona: 'Patient and watchful, but she pockets what is not nailed down.',
                 goal: 'To keep the toll honest', secrets: 'She takes a cut of every crossing',
@@ -2767,7 +3308,28 @@
       /* v1.18.0: the world resolves the checks the final reply requested -
          in the transaction, so the verdict lands in the log right after
          the referee's line, and exactly once per turn even when repaired */
-      var res = HW.resolveChecks(world, a.stage, a.applied);
+      /* v1.39.101: a check the engine settled before the scene began was
+         already applied to this stage by phase one - resolving it a second
+         time would roll twice for one action. Its verdict is carried into
+         the turn's receipt instead. */
+      var already = {};
+      (settled || []).forEach(function (e) { already[String(e.name).toLowerCase()] = e; });
+      var pending = {
+        checkRequests: ((a.applied && a.applied.checkRequests) || []).filter(function (req) {
+          return !already[String(req.name).toLowerCase()];
+        })
+      };
+      var res = HW.resolveChecks(world, a.stage, pending);
+      var settledHere = (settled || []).filter(function (e) {
+        return !res.list.some(function (x) { return x.name === e.name; });
+      });
+      res.list = settledHere.map(function (e) {
+        return { name: e.name, text: e.text, chip: e.chip, success: e.success, total: e.total, dc: e.dc, preRolled: true };
+      }).concat(res.list);
+      res.changes = settledHere.map(function (e) { return e.chip; }).concat(res.changes);
+      /* the engine already logged and applied these; the receipt only
+         needs to carry them, never to repeat the effects */
+      res.changes = res.changes.filter(function (c, i) { return res.changes.indexOf(c) === i; });
       if (res.rejections.length) {
         a.stage.rejections = (a.stage.rejections || []).concat(res.rejections.map(function (r) {
           return { turn: a.stage.turn, tag: r.tag, reason: r.reason, at: r.at };
@@ -2821,7 +3383,9 @@
       /* a candidate that failed validation has no stage; judge the repair
          against the pre-turn state in that case */
       var from = first.stage || base;
-      var prompt2 = HW.buildPrompt(world, from, text);
+      /* v1.39.101: a repair re-writes the scene, it does not re-roll the
+         dice. The rolls that settled this turn are still settled. */
+      var prompt2 = HW.buildPrompt(world, from, text, { settled: settled });
       /* the log alternates user/assistant (it may open with the world's
          intro), so keep each entry's real role; drop any old repair
          instructions that reached the log */
@@ -2845,6 +3409,8 @@
           examples: '', lorebook: [], systemPrompt: prompt2.system
         },
         session: { id: run.id },
+        /* v1.39.99: a repaired turn is answered from the same NOW state */
+        finalNote: prompt2.note || null,
         history: msgs.map(function (m) {
           return { id: 'w' + Math.random().toString(36).slice(2),
                    role: m.role, text: m.text, createdAt: Date.now() };
@@ -2873,20 +3439,95 @@
       });
     }
 
-    var built = HW.buildPrompt(world, base, text);
-    API.generate({
-      settings: s,
-      /* the world is the referee: its own prompt is the whole system prompt */
-      character: {
-        id: world.id, name: world.name, persona: '', scenario: '',
-        examples: '', lorebook: [], systemPrompt: built.system
-      },
-      session: { id: run.id },
-      history: built.messages.map(function (m) {
-        return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
-      }),
-      signal: wrAbort.signal,
-      onProgress: wrProgress
+    /* v1.39.101: the two phases share one ladder of attempts, so a repair
+       of the narration re-asks for the scene, never for a new roll. `settled`
+       is null until phase one has run, and stays null for a world that names
+       no checks - that turn is exactly what it always was. */
+    var settled = null;
+
+    function announceRolls(entries) {
+      if (!entries || !entries.length) return;
+      entries.forEach(function (e) {
+        run.log.push({ role: 'check', content: e.text, at: Date.now() });
+      });
+      if (run.log.length > 200) run.log = run.log.slice(-200);
+      /* the roll is part of the turn the moment it happens: a player
+         waiting on the prose already sees the die, exactly as Isekai Zero
+         puts the roll bar beside the scene rather than inside it */
+      Views.worldRun(world, run, { changes: entries.map(function (e) { return e.chip; }), checks: entries });
+    }
+
+    /* Ask for the attempt and the check, long enough before the prose that
+       the die cannot be written to fit. A world that names no checks, or a
+       model that answers nothing, simply has no pre-rolled check. */
+    function phaseOne() {
+      var checks = (world.gameRules || {}).checks;
+      if (!Array.isArray(checks) || !checks.length) return Promise.resolve(null);
+      var built = HW.buildPrompt(world, base, text, null);
+      return API.generate({
+        settings: s,
+        character: {
+          id: world.id, name: world.name, persona: '', scenario: '',
+          examples: '', lorebook: [],
+          systemPrompt: built.system + '\n\n' + HW.intentRules()
+        },
+        session: { id: run.id },
+        finalNote: built.note || null,
+        history: built.messages.map(function (m) {
+          return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
+        }),
+        signal: wrAbort.signal,
+        onProgress: function (info) {
+          worldStatus('Reading the attempt — ' + String(App.worldProgressText(info)).toLowerCase(), info.waitTime);
+        }
+      }).then(function (answer) {
+        var asked = HW.parseIntent(answer, world);
+        asked.unrecognised.forEach(function (name) {
+          base.rejections = (base.rejections || []).concat([{
+            tag: '[[roll:check:' + name + ']]',
+            reason: 'the world has no check named \u201C' + name + '\u201D',
+            at: Date.now()
+          }]).slice(-50);
+        });
+        if (!asked.checks.length) return null;
+        var stage = HW.cloneRun(base);
+        var entries = [], rejections = [];
+        asked.checks.forEach(function (name) {
+          var res = HW.resolveCheckNow(world, stage, name);
+          if (res.entry) entries.push(res.entry);
+          if (res.rejection) rejections.push(res.rejection);
+        });
+        base = stage;   /* the rolls happened; phase two starts from them */
+        if (rejections.length) base.rejections = (base.rejections || []).concat(rejections).slice(-50);
+        if (entries.length) announceRolls(entries);
+        return entries.length ? entries : null;
+      }).catch(function () {
+        /* phase one is an aid, not a gate: a provider hiccup here must not
+           cost the player their turn - the scene is written without a
+           pre-rolled check, exactly as before this release */
+        return null;
+      });
+    }
+
+    phaseOne().then(function (entries) {
+      settled = entries;
+      var built = HW.buildPrompt(world, base, text, { settled: settled });
+      return API.generate({
+        settings: s,
+        /* the world is the referee: its own prompt is the whole system prompt */
+        character: {
+          id: world.id, name: world.name, persona: '', scenario: '',
+          examples: '', lorebook: [], systemPrompt: built.system
+        },
+        session: { id: run.id },
+        /* v1.39.99: the state restated immediately before the newest turn */
+        finalNote: built.note || null,
+        history: built.messages.map(function (m) {
+          return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
+        }),
+        signal: wrAbort.signal,
+        onProgress: wrProgress
+      });
     }).then(function (reply) {
       /* v1 (opted-out) worlds: assess only refuses here for a broken
          answer (empty, code, planning, echo) - ledger rejections stay
@@ -2986,11 +3627,18 @@
     input.value = ''; input.style.height = 'auto';
     if (stage) { App.state.attach = null; App.renderAttach(); }
     var char = App.state.char, session = App.state.session;
+    /* v1.39.93: sending the next message is "continuing the conversation", and
+       that is when a memory built on a rerolled reply stops describing the
+       story. Checked here, not at the reroll itself, so a player who rerolls
+       and then swipes back to the original keeps the memory. Runs in the
+       background — it never delays the send. */
+    App.checkMemoryBasis(session).catch(function () {});
     var msg = { sessionId: session.id, role: 'user', text: text, createdAt: Date.now() };
     if (stage) { msg.image = stage.image; msg.imageCaption = stage.caption; }
     Store.addMessage(msg).then(function (m) {
       App.state.messages.push(m);
       Views.appendMessage(char, m);
+      App.refreshChatHead();
       Views.stickToBottom($('#thread'), true);   // your own send: always show it
       return App.afterUserMessage(m);
     }).catch(function (e) {
@@ -4082,7 +4730,31 @@
       }
       UI.sheet({
         title: 'Memory · ' + (s.title || 'New chat'),
-        body: '<div class="field"><div class="field-head"><label>Summary</label></div>' +
+        body: (App.lastMemoryFailure && App.lastMemoryFailure.sessionId === s.id
+          ? '<div class="field"><div class="hint" style="margin:0 0 8px"><b>The last memory attempt failed.</b> ' +
+            esc(App.lastMemoryFailure.reason) + '. Nothing was overwritten.</div>' +
+            (App.lastMemoryFailure.sent || App.lastMemoryFailure.model
+              ? '<div class="hint" style="margin:0 0 8px">Asked: ' +
+                esc(App.lastMemoryFailure.sent || 'unknown size') +
+                (App.lastMemoryFailure.model ? ' · model ' + esc(App.lastMemoryFailure.model) : '') +
+                (App.lastMemoryFailure.window ? ' · window ' + App.lastMemoryFailure.window + ' tokens' : '') + '</div>'
+              : '') +
+            '<div class="hint" style="margin:0 0 8px">What the model actually returned' +
+            (App.lastMemoryFailure.raw ? ' (cut to 400 characters):' : ' was empty.') + '</div>' +
+            (App.lastMemoryFailure.raw
+              ? '<textarea readonly rows="6" style="font-size:12px">' + esc(App.lastMemoryFailure.raw.slice(0, 400)) + '</textarea>'
+              : '') +
+            '<div class="hint" style="margin:8px 0 0">Try Regenerate with AI. If it keeps failing, screenshot ' +
+            'this so the failure can be diagnosed instead of guessed at.</div></div>'
+          : '') +
+        (typeof API !== 'undefined' && API.memoryLooksBroken && API.memoryLooksBroken(s.summary)
+          ? '<div class="field" style="border-color:#b45309"><div class="hint" style="margin:0 0 8px">' +
+            '<b>This memory does not read like a summary.</b> Older versions stored whatever the model ' +
+            'replied — including a refusal — as the story so far, and that text has been standing in for ' +
+            'the whole past on every prompt since. Clearing it costs you nothing you do not still have in ' +
+            'the chat above.</div><button type="button" class="btn ghost sm" id="clearbad">Clear it</button></div>'
+          : '') +
+          '<div class="field"><div class="field-head"><label>Summary</label></div>' +
           '<textarea id="sum" class="tall">' + esc(s.summary || '') + '</textarea></div>' +
           '<div class="field"><div class="field-head"><label>Facts</label>' +
           '<span class="spacer"></span><button class="chip" id="addfact">' + icon('plus') + ' Add</button></div>' +
@@ -4096,6 +4768,7 @@
           { label: 'Save', cls: 'primary', onClick: function (b) {
               s.summary = b.querySelector('#sum').value.trim();
               s.facts = facts.slice();
+              s.memManual = true;   /* written by the player: never auto-cleared */
               return Store.putSession(s).then(function () {
                 if (App.state && App.state.session && App.state.session.id === s.id) App.state.session = s;
                 UI.toast('Memory saved');
@@ -4105,6 +4778,12 @@
         ],
         onMount: function (body, close) {
           render(body);
+          var clearBad = body.querySelector('#clearbad');
+          if (clearBad) clearBad.onclick = function () {
+            body.querySelector('#sum').value = '';
+            facts.length = 0; render(body);
+            UI.toast('Cleared — tap Save to keep it');
+          };
           body.querySelector('#addfact').onclick = function () {
             addingFact = true; editingFact = -1; deletingFact = -1; render(body);
             var input = body.querySelector('[data-new-fact]');
@@ -4153,7 +4832,7 @@
         if (overrides.maxTokens) settings.maxTokens = overrides.maxTokens;
         var payload;
         if (settings.provider === 'horde') {
-          var promptBudget = API.HORDE_CTX_TOKENS - (settings.maxTokens || 200) - 64;
+          var promptBudget = API.HORDE_CTX_TOKENS - API.maxTokensOf(settings) - 64;
           payload = [{ role: 'prompt', content: API.buildPrompt(char, session, messages, settings, overrides.note || null, promptBudget) }];
         } else {
           payload = API.buildChat(char, session, messages, settings, overrides.note || null);

@@ -563,21 +563,33 @@
     var c = chars.find(function (x) { return x.id === id; }) || chars[0];
     App.state.worldChar = c.id;
 
+    /* D3: what the sheet costs on every single turn. */
+    var sheetTokens = API.estTokens([c.persona, c.scenario, c.greeting, c.examples, c.postHistory]
+      .filter(Boolean).join('\n\n'));
+
     body.innerHTML =
       '<div class="tag-bar">' + chars.map(function (x) {
         return '<button class="tag' + (x.id === c.id ? ' on' : '') + '" data-wc="' + x.id + '">' + esc(x.name || 'Unnamed') + '</button>';
       }).join('') + '</div>' +
 
-      '<div class="group"><div class="group-title">Lorebook · ' + esc(c.name) + '</div>' +
-        '<div id="lore-list">' + (c.lorebook || []).map(function (e, i) {
-          return '<div class="kv" data-lore="' + i + '" style="cursor:pointer">' +
-            '<span style="flex:1">' +
-              '<b style="display:block;color:' + (e.enabled === false ? 'var(--dim)' : 'var(--text)') + '">' +
-                esc((e.keys || []).join(', ') || '(no keys)') + '</b>' +
-              '<span style="font-size:12px">' + esc((e.content || '').slice(0, 70)) + '</span>' +
-            '</span></div>';
-        }).join('') + '</div>' +
-        '<div class="field"><button class="btn ghost block sm" data-act="lore-add">' + icon('plus') + ' Add lore entry</button></div>' +
+      /* C2/D3 (v1.39.71): the sheet size and, per entry, whether it is in the
+         prompt this turn and why not. "Why is my card ignored" becomes a
+         readout instead of guesswork. The sample is the last few messages of
+         the newest conversation with this character — the same text loreHits
+         scans — and it is loaded below, so nothing here guesses at it. */
+      '<div class="group"><div class="group-title">Character sheet · ' + esc(c.name || 'Unnamed') + '</div>' +
+        '<div class="hint" style="margin:0 0 6px">About <b>' + sheetTokens + ' tokens</b> of character text ' +
+        'is sent on every turn (persona, scenario, greeting, examples, post-history note). ' +
+        'It is never trimmed, so a very large sheet costs context on every reply.</div></div>' +
+
+      '<div class="group"><div class="group-title">Lorebook · ' + esc(c.name || 'Unnamed') + '</div>' +
+        '<div class="hint" style="margin:0 0 6px" id="lore-summary">' +
+          ((c.lorebook && c.lorebook.length) ? 'Checking the newest conversation…' : 'No lore entries yet.') +
+        '</div>' +
+        '<div id="lore-list">' + ((c.lorebook && c.lorebook.length)
+          ? '<div class="field"><span class="hint">Loading…</span></div>' : '') + '</div>' +
+        '<div class="field"><button class="btn ghost block sm" data-act="lore-add">' +
+          icon('plus') + ' Add lore entry</button></div>' +
       '</div>' +
 
       '<div class="group"><div class="group-title">Story memory</div>' +
@@ -591,7 +603,43 @@
       Views.world(root);
     });
     on(body, '[data-act=lore-add]', 'click', function () { App.editLore(c, null); });
-    on($('#lore-list'), '[data-lore]', 'click', function (e) {
+
+    /* C2: fill the lorebook readout from the newest conversation's messages. */
+    Store.getSessions(c.id).then(function (sessions) {
+      var list = $('#lore-list'), summary = $('#lore-summary');
+      if (!list || !summary) return;
+      var newest = (sessions || [])[0];
+      if (!newest) {
+        summary.innerHTML = 'Open a conversation with ' + esc(c.name || 'this character') +
+          ' and this list will show which entries are in the prompt.';
+        list.innerHTML = '';
+        return;
+      }
+      return Store.getMessages(newest.id).then(function (msgs) {
+        /* v1.39.74: the same window the request uses — loreSample over the
+           stored history — so the readout and the prompt cannot disagree. */
+        var sample = API.loreSample(msgs || []);
+        var stage = newest.continuity && newest.continuity.enabled ? newest.continuity.stage : '';
+        var diag = API.loreDiagnostics(c.lorebook || [], sample, 6, 1536, stage);
+        summary.innerHTML = 'Checking the conversation “' + esc(newest.title || 'New chat') +
+          '”. <b>' + diag.admitted + ' of ' + diag.rows.length + '</b> ' +
+          (diag.rows.length === 1 ? 'entry is' : 'entries are') + ' in the prompt now · ' +
+          diag.used + ' of ' + diag.cap + ' bytes used.';
+        list.innerHTML = diag.rows.length ? diag.rows.map(function (r, i) {
+          return '<div class="kv" data-lore="' + i + '" style="cursor:pointer;align-items:flex-start">' +
+            '<span style="flex:1">' +
+              '<b style="display:block;color:' + (r.matched ? 'var(--text)' : 'var(--dim)') + '">' +
+                esc((r.keys || []).join(', ') || '(no keys)') + '</b>' +
+              '<span style="font-size:12px">' + esc((r.content || '').slice(0, 70)) + '</span>' +
+              '<span style="display:block;font-size:11.5px;margin-top:2px;color:' +
+                (r.matched ? 'var(--ok,#4ade80)' : 'var(--dim)') + '">' +
+                (r.matched ? '✓ ' : '✕ ') + esc(r.reason || '') + '</span>' +
+            '</span></div>';
+        }).join('') : '<div class="field"><span class="hint">No lore entries yet.</span></div>';
+      });
+    });
+
+    on(body, '[data-lore]', 'click', function (e) {
       App.editLore(c, parseInt(e.currentTarget.getAttribute('data-lore'), 10));
     });
 
@@ -756,6 +804,24 @@
 
   /* Version / update-channel facts shared by the hub (About) and the
      App-updates screen. */
+  /* v1.39.82: the history budget, and what the model's own window does to it. */
+  function historyTokens(s) {
+    var n = parseInt(s && s.historyTokens, 10);
+    return n > 0 ? n : (API.DEFAULT_HISTORY_TOKENS || 6000);
+  }
+  function historyWindowNote(s) {
+    var win = API.modelContextTokens ? API.modelContextTokens(s && s.model) : 0;
+    if (win) {
+      return 'Your model (' + esc(s.model) + ') takes <b>' + win.toLocaleString() + ' tokens</b> in total. ' +
+        'If the sheet and the reply leave less room than the budget above, the app shrinks the budget to fit — ' +
+        'a prompt bigger than the window gets truncated by the provider, and then the character answers the ' +
+        'start of the conversation forever.';
+    }
+    return 'The app does not know this model\'s window yet. Open Choose model once while online and it will ' +
+      'learn it, then fit this budget inside it automatically.';
+  }
+  Views.historyWindowNote = historyWindowNote;
+
   function settingsUpdateInfo() {
     var U = global.Updates;
     var upInfo = (U && U.supported()) ? U.info() : { apk: '?', apkCode: 0, overlay: false, rev: '' };
@@ -1006,13 +1072,27 @@
         '<div class="field"><div class="field-head"><label>Temperature</label><span class="spacer"></span><span class="val" id="v-temp">' + s.temperature + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-temp" min="0" max="2" step="0.05" value="' + s.temperature + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Max reply length</label><span class="spacer"></span><button type="button" class="val val-edit" id="v-max" title="Tap to type an exact token limit" aria-label="Max reply length: ' + s.maxTokens + ' tokens. Tap to enter a number">' + s.maxTokens + '</button></div>' +
-          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens \u00b7 about ' + Math.round((s.maxTokens || 400) * 0.65) + ' words of dialogue</span></div>' +
+          '<div class="range-row"><input type="range" id="set-max" min="64" max="2048" step="32" value="' + s.maxTokens + '"><span class="hint">tokens \u00b7 about ' + Math.round((s.maxTokens || API.DEFAULT_MAX_TOKENS) * 0.65) + ' words of dialogue</span></div>' +
           '<div class="hint">Tap the number to type an exact value (64–2048 tokens).</div></div>' +
         '<div class="field"><div class="field-head"><label>Top P</label><span class="spacer"></span><span class="val" id="v-topp">' + s.topP + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-topp" min="0.1" max="1" step="0.05" value="' + s.topP + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Messages in context</label><span class="spacer"></span><span class="val" id="v-ctx">' + s.contextMessages + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-ctx" min="6" max="120" step="2" value="' + s.contextMessages + '"></div>' +
-          '<div class="hint">Higher = longer memory per request, but slower and more expensive.</div></div>' +
+          '<div class="hint">A ceiling on how many messages are considered. The <b>history budget</b> below is the ' +
+          'one that usually decides, so raising this alone may change nothing. This is also how far back the ' +
+          'lorebook looks for its keywords.</div></div>' +
+        /* v1.39.82: the real limit, finally visible. It was a 26 000-character
+           literal inside the prompt builder. */
+        '<div class="field"><div class="field-head"><label>History budget</label><span class="spacer"></span>' +
+          '<button type="button" class="val val-edit" id="v-hist" title="Tap to type an exact token budget" aria-label="History budget: ' + historyTokens(s) + ' tokens. Tap to enter a number">' +
+          historyTokens(s) + '</button></div>' +
+          '<div class="range-row"><input type="range" id="set-hist" min="1000" max="32000" step="500" value="' + historyTokens(s) + '">' +
+          '<span class="hint">tokens of transcript</span></div>' +
+          '<div class="hint">How much of the conversation is sent on each reply — the transcript only. The character ' +
+          'sheet, the examples and the reply itself sit on top of it. Text is measured in characters and converted ' +
+          'at four to a token; that is right for English, but emoji, Chinese, Japanese, Korean and Cyrillic cost ' +
+          'more per character, so the same budget holds noticeably less of them.</div>' +
+          '<div class="hint">' + historyWindowNote(s) + '</div></div>' +
         '<div class="field"><div class="field-head"><label>Repetition guard</label><span class="spacer"></span><span class="val" id="v-freqp">' + ((s.frequencyPenalty || 0).toFixed(2)) + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-freqp" min="0" max="1" step="0.05" value="' + (s.frequencyPenalty || 0) + '"></div>' +
           '<div class="hint">Makes the model shy away from words it already used — the fix for signature phrases repeating ' +
@@ -1040,6 +1120,50 @@
     var sc = settingsScope(body);
     sc.range('#set-temp', '#v-temp', 'temperature', function (v) { return v.toFixed(2); });
     sc.range('#set-max', '#v-max', 'maxTokens');
+    /* v1.39.82: the history budget gets the same slider + exact-entry pair as
+       the reply length, because a slider that stops at 32 000 with a 500 step
+       cannot express "give me everything this model holds". */
+    sc.range('#set-hist', '#v-hist', 'historyTokens');
+    /* v1.39.82: same slider + exact-entry pair as the reply length. A slider
+       that stops at 32 000 cannot express "everything this model holds". */
+    (function () {
+      var value = $('#v-hist', body), slider = $('#set-hist', body);
+      if (!value || !slider) return;
+      function openEditor() {
+        var input = document.createElement('input');
+        input.type = 'number'; input.min = '500'; input.max = '200000'; input.step = '100';
+        input.inputMode = 'numeric'; input.className = 'max-token-entry';
+        input.setAttribute('aria-label', 'History budget in tokens');
+        input.value = String(historyTokens(Store.settings));
+        value.replaceWith(input);
+        input.focus(); input.select();
+        var done = false;
+        function finish(save) {
+          if (done) return; done = true;
+          var n = Math.round(Number(input.value));
+          if (save && input.value.trim() !== '' && isFinite(n)) {
+            n = Math.max(500, Math.min(200000, n));
+            var patch = { historyTokens: n }; sc.set(patch);
+            slider.value = String(Math.min(32000, n));
+          }
+          var current = historyTokens(Store.settings);
+          var display = document.createElement('button');
+          display.type = 'button'; display.className = 'val val-edit'; display.id = 'v-hist';
+          display.title = 'Tap to type an exact token budget';
+          display.setAttribute('aria-label', 'History budget: ' + current + ' tokens. Tap to enter a number');
+          display.textContent = String(current);
+          input.replaceWith(display);
+          display.addEventListener('click', openEditor);
+        }
+        input.addEventListener('change', function () { finish(true); });
+        input.addEventListener('blur', function () { finish(true); });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+          if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        });
+      }
+      value.addEventListener('click', openEditor);
+    })();
     /* The slider is fiddly for an exact token count on a phone. Tap the
        displayed value to edit it directly; commit on Enter/change/blur,
        Escape cancels. Keep the slider and saved setting in sync. */
@@ -1050,7 +1174,7 @@
         input.type = 'number'; input.min = '64'; input.max = '2048'; input.step = '1';
         input.inputMode = 'numeric'; input.className = 'max-token-entry';
         input.setAttribute('aria-label', 'Max reply length in tokens');
-        input.value = String(Store.settings.maxTokens || 400);
+        input.value = String(Store.settings.maxTokens || API.DEFAULT_MAX_TOKENS);
         maxValue.replaceWith(input);
         input.focus(); input.select();
         var done = false;
@@ -1061,7 +1185,7 @@
             n = Math.max(64, Math.min(2048, n));
             var patch = { maxTokens: n }; sc.set(patch); maxSlider.value = String(n);
           }
-          var current = Store.settings.maxTokens || 400;
+          var current = Store.settings.maxTokens || API.DEFAULT_MAX_TOKENS;
           var display = document.createElement('button');
           display.type = 'button'; display.className = 'val val-edit'; display.id = 'v-max';
           display.title = 'Tap to type an exact token limit';
@@ -2519,6 +2643,28 @@
   }
   Views.altWordCount = altWordCount;
 
+  /* v1.39.81: the footer used to read "116 words · cut", which could be read
+     two ways — how long this reply is, or how much the app withheld because it
+     hit a limit. It was the first, and the second reading is impossible: a cut
+     reply is short, not truncated for display; the model simply stopped
+     mid-thought. The line now says which number it is, and, when a reply did
+     stop early, says so in words and points at the button that fixes it. */
+  function replyFooter(body, m, s) {
+    var words = altWordCount(body) + ' words in this reply';
+    var ends = /[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim());
+    if (ends) return words + ' \u00b7 complete';
+    if (m.finishReason === 'length') {
+      var cap = (s && s.maxTokens) || API.DEFAULT_MAX_TOKENS;
+      return words + ' \u00b7 the model hit your ' + cap + '-token limit, so it stopped mid-thought ' +
+        '\u00b7 Continue finishes it';
+    }
+    if (m.finishReason === 'stop') {
+      return words + ' \u00b7 the model chose to stop before finishing';
+    }
+    return words + ' \u00b7 it stopped mid-sentence; Continue finishes it';
+  }
+  Views.replyFooter = replyFooter;
+
   /* what the listener hears: markdown and directions stripped, just prose */
   function speechText(t) {
     return String(t || '')
@@ -2537,7 +2683,13 @@
     var speakerAvatar = !isMe && m.speakerPortrait ? m.speakerPortrait :
       (!isMe && m.speakerId ? (m.speakerAvatar || '') : char.avatar);
     var text = m.text || '';
-    var body = m._stream !== undefined && m._stream !== null ? m._stream : text;
+    /* v1.39.79: a stale EMPTY stream used to win over the finished text — the
+       bubble was built before the first chunk arrived, so `_stream` was '' and
+       the footer under a full reply read "0 words · cut". An empty stream means
+       "nothing has streamed yet", which is exactly when the stored text is the
+       truth. */
+    var body = (m._stream !== undefined && m._stream !== null && m._stream !== '')
+      ? m._stream : text;
     return '<div class="msg' + (isMe ? ' me' : '') + (m.autonomous ? ' auto' : '') + '" data-mid="' + m.id + '">' +
       /* v1.31.0: the player's own bubble shows the active persona's photo
          when the persona has one, initials otherwise. */
@@ -2548,13 +2700,9 @@
         '<div class="bubble">' +
           (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +
           '<div class="mtext">' + md(body) + '</div>' +
-          (!isMe ? '<div class="mstat" style="margin-top:6px;font-size:11px;opacity:.55;letter-spacing:.02em">' +
-            altWordCount(body) + ' words' +
-            (/[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim())
-              ? ''
-              : ' \u00b7 cut' + (m.finishReason === 'length' ? ' at the length limit'
-                  : (m.finishReason === 'stop' ? ' (the model chose to stop)' : ''))) +
-            '</div>' : '') +
+          (m.continuationOf ? '<div class="mcont">↳ continued from the reply above</div>' : '') +
+          (!isMe && body.trim() ? '<div class="mstat" style="margin-top:6px;font-size:11px;opacity:.55;letter-spacing:.02em">' +
+            replyFooter(body, m, s) + '</div>' : '') +
           (m.image ? '<img class="gen" src="' + esc(m.image) + '" alt="' + esc(m.imageCaption || 'image') + '" data-lightbox="' + esc(m.image) + '">' : '') +
           (m.imageCaption ? '<div class="imgcap">' + esc(m.imageCaption) + '</div>' : '') +
           (m.autonomous ? '<div class="auto-tag">· sent on their own</div>' : '') +
@@ -2751,6 +2899,22 @@
       }
     }
     return st;
+  };
+
+  /* v1.39.79: a finished reply used to be patched into `.mtext` only. Every
+     other part of the bubble — the word count, the "cut" marker, the
+     continuation label, the swipe row — was whatever the streaming render had
+     left there, which is how "0 words · cut" survived under a full paragraph.
+     Nothing hand-patches a bubble any more: the element is rebuilt from the
+     message, so every part of it agrees with the text. */
+  Views.refreshMessage = function (char, m) {
+    var old = $('#thread [data-mid="' + m.id + '"]');
+    if (!old || !old.parentNode) return null;
+    var wrap = document.createElement('div');
+    wrap.innerHTML = messageHtml(m, char, Store.settings);
+    var el = wrap.firstElementChild;
+    old.parentNode.replaceChild(el, old);
+    return el;
   };
 
   Views.appendMessage = function (char, m) {
@@ -3239,6 +3403,36 @@
                  '</div>';
         }).join('')
       : '<div class="hint">No one is with you right now.</div>';
+
+    /* v1.39.100: what the run believes, and what it used to believe. A fact
+       that has been superseded is still on the record - this is where the
+       player can see that the old level or the finished task did not just
+       vanish, it was replaced, on a turn. */
+    var nowFacts = (HW.currentFacts && HW.currentFacts(run)) || [];
+    var oldFacts = (HW.pastFacts && HW.pastFacts(run)) || [];
+    if (run.memory && (run.memory.summary || nowFacts.length || oldFacts.length)) {
+      if (run.memory.summary) {
+        h += '<h3>Story so far</h3>';
+        h += '<div class="hint">' + esc(run.memory.summary) + '</div>';
+      }
+      if (nowFacts.length) {
+        h += '<h3>What the world holds true</h3>';
+        h += nowFacts.slice().sort(function (a, b) { return (b.from || 0) - (a.from || 0); })
+          .map(function (f) {
+            return '<div class="ws-item">' + esc(f.text) +
+              ' <span class="hint">(turn ' + (f.from || 0) + ')</span></div>';
+          }).join('');
+      }
+      if (oldFacts.length) {
+        h += '<h3>No longer true</h3>';
+        h += '<div class="hint">Kept for the record. The referee is not shown these as current.</div>';
+        h += oldFacts.slice(0, 8).map(function (f) {
+          return '<div class="ws-item"><span class="hint">' + esc(f.text) +
+            ' — until turn ' + (f.to || 0) + '</span></div>';
+        }).join('');
+        if (oldFacts.length > 8) h += '<div class="hint">…and ' + (oldFacts.length - 8) + ' more.</div>';
+      }
+    }
 
     return h;
   };

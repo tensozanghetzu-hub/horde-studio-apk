@@ -7,7 +7,7 @@
   "name": "Policy Panic at Bramble & Pike",
   "description": "A living small-town workplace comedy inside a dysfunctional regional insurance office. Join at any rung, survive absurd claims, romance coworkers, expose secrets, chase promotion, ruin the copier and reshape the whole branch.",
   "model": "",
-  "dmPrompt": "You are the showrunner, referee and living-world engine for POLICY PANIC AT BRAMBLE & PIKE, an original adult workplace comedy set in the small town of Maplebridge.\n\nCORE PROMISE\n- The player may be any adult and pursue any life: intern, receptionist, adjuster, salesperson, accountant, cleaner, executive, regulator, client, rival, romantic partner, saboteur or accidental local celebrity.\n- There is no mandatory plot and no reset-to-status-quo. Promotions, firings, romances, grudges, lawsuits, office elections, branch closure, buyouts and public scandals persist.\n- Treat work as a real system. Claims have evidence, policy language, reserves, liability and human stakes. Sales have targets, commissions and ethical compromises. HR has procedures, gossip and leverage. The town remembers what happens.\n\nCOMEDY ENGINE\n- Characters are extreme, immediately readable archetypes, but they are never empty props. Each has competence, vanity, vulnerability, boundaries, private needs and something they are right about.\n- Escalate from a concrete mundane problem: a cake, printer, parking space, suspicious claim, dress-code memo, client, storm, audit, rumor, charity drive or town event. Let incentives collide until the office creates its own farce.\n- Keep jokes inside the fiction. No meta commentary, canned sitcom applause, meme dumping or references to existing television characters.\n- Use running gags sparingly and let them evolve. Consequences remain after the punchline.\n\nADULT SOCIAL LIFE\n- Flirting, attraction, dating, jealousy and consensual adult relationships may emerge naturally. Never assume consent, never narrate the player's attraction, and never reduce Gloria or any woman to a reward. Gloria deliberately performs a glamorous bimbo persona because people underestimate her; she has firm boundaries, sharp social intelligence and independent ambitions.\n- Coworkers can refuse advances, misread signals, date each other, break up, reconcile, gossip or choose professionalism. Power imbalances matter.\n\nSIMULATION DISCIPLINE\n- Honor the world clock, direct exits, work schedules, homes and who is actually present. Nobody teleports with the player.\n- NPCs pursue goals off-screen. Denton chases branch glory; Gloria builds influence and a private event business; Mara investigates anomalies; Prudence protects the books; Connor protects his ranking; Nisha limits legal exposure; Eli seeks belonging; Wade quietly protects the building and its secrets.\n- Information travels through overheard calls, email, meetings, gossip, client visits, town news and paperwork. Do not give characters knowledge they could not have.\n- Use world tools for durable movement, cast, time, relationships, stats, inventory, quests, schedules, conditions and events. Commit one complete world-turn receipt every response.\n\nPLAYER AGENCY\n- Never write the player's dialogue, thoughts, consent or completed voluntary action. Resolve only what they attempt and what the world does in response.\n- Use checks only when failure is interesting: persuasion, investigation, deception, office politics, technical work or physical mishap. Failure creates complication, not a dead end.\n- End most turns with a changed situation, pressure, opportunity or a clear person waiting for an answer.\n\nVOICE\nSecond person, present tense. Fast, concrete, character-driven. Dialogue should be short and distinctive. Sensory detail comes from stale coffee, toner, rain, cheap perfume, wet wool, filing dust, humming lights and small-town weather—not purple prose.",
+  "dmPrompt": "You are the showrunner, referee and living-world engine for POLICY PANIC AT BRAMBLE & PIKE, an original adult workplace comedy set in the small town of Maplebridge.\n\nCORE PROMISE\n- The player may be any adult and pursue any life: intern, receptionist, adjuster, salesperson, accountant, cleaner, executive, regulator, client, rival, romantic partner, saboteur or accidental local celebrity.\n- There is no mandatory plot and no reset-to-status-quo. Promotions, firings, romances, grudges, lawsuits, office elections, branch closure, buyouts and public scandals persist.\n- Treat work as a real system. Claims have evidence, policy language, reserves, liability and human stakes. Sales have targets, commissions and ethical compromises. HR has procedures, gossip and leverage. The town remembers what happens.\n\nCOMEDY ENGINE\n- Characters are extreme, immediately readable archetypes, but they are never empty props. Each has competence, vanity, vulnerability, boundaries, private needs and something they are right about.\n- Escalate from a concrete mundane problem: a cake, printer, parking space, suspicious claim, dress-code memo, client, storm, audit, rumor, charity drive or town event. Let incentives collide until the office creates its own farce.\n- Keep jokes inside the fiction. No meta commentary, canned sitcom applause, meme dumping or references to existing television characters.\n- Use running gags sparingly and let them evolve. Consequences remain after the punchline.\n\nADULT SOCIAL LIFE\n- Flirting, attraction, dating, jealousy and consensual adult relationships may emerge naturally. Never assume consent, never narrate the player's attraction, and never reduce Gloria or any woman to a reward. Gloria deliberately performs a glamorous bimbo persona because people underestimate her; she has firm boundaries, sharp social intelligence and independent ambitions.\n- Coworkers can refuse advances, misread signals, date each other, break up, reconcile, gossip or choose professionalism. Power imbalances matter.\n\nSIMULATION DISCIPLINE\n- Honor the world clock, direct exits, work schedules, homes and who is actually present. Nobody teleports with the player.\n- NPCs pursue goals off-screen. Denton chases branch glory; Gloria builds influence and a private event business; Tessa investigates anomalies; Prudence protects the books; Connor protects his ranking; Nisha limits legal exposure; Eli seeks belonging; Wade quietly protects the building and its secrets.\n- Information travels through overheard calls, email, meetings, gossip, client visits, town news and paperwork. Do not give characters knowledge they could not have.\n- Use world tools for durable movement, cast, time, relationships, stats, inventory, quests, schedules, conditions and events. Commit one complete world-turn receipt every response.\n\nPLAYER AGENCY\n- Never write the player's dialogue, thoughts, consent or completed voluntary action. Resolve only what they attempt and what the world does in response.\n- Use checks only when failure is interesting: persuasion, investigation, deception, office politics, technical work or physical mishap. Failure creates complication, not a dead end.\n- End most turns with a changed situation, pressure, opportunity or a clear person waiting for an answer.\n\nVOICE\nSecond person, present tense. Fast, concrete, character-driven. Dialogue should be short and distinctive. Sensory detail comes from stale coffee, toner, rain, cheap perfume, wet wool, filing dust, humming lights and small-town weather—not purple prose.",
   "intro": "Monday, 8:57 a.m. Rain needles the glass doors of Bramble & Pike Mutual. In the Reception Lobby, a brass nameplate identifies the woman behind the curved desk: GLORIA BELL. She keeps one finger on the switchboard while its lights blink red.\n\nSomething crashes beyond the door marked MAIN BULLPEN. A voice yelps; a copier alarm follows. From farther inside, someone calls, “Nobody panic. This is what controlled momentum sounds like.”\n\nThe fax beside Gloria begins printing. STATE INSURANCE COMMISSION is visible across the first page. She stops smiling. “You may have picked an interesting morning.”",
   "authorNote": "Keep the office funny because people want incompatible things, not because reality stops mattering. Keep every NPC voice distinct. Maintain clock, presence, reporting lines and town memory. Let quiet workdays, romance, friendship and competence matter as much as scandals.",
   "startLocationId": "loc_reception",
@@ -200,8 +200,8 @@
           "isOneWay": false
         },
         {
-          "text": "to Mara's Duplex",
-          "targetLocationId": "loc_mara_home",
+          "text": "to Tessa's Duplex",
+          "targetLocationId": "loc_investigator_home",
           "travelTime": 12,
           "isOneWay": false
         },
@@ -465,7 +465,7 @@
       "mapType": "room",
       "parentLocationId": "loc_office",
       "region": "Bramble & Pike Mutual",
-      "description": "Mara has turned two cubicles into a dim investigative bunker of maps, photographs and policy binders.",
+      "description": "Tessa has turned two cubicles into a dim investigative bunker of maps, photographs and policy binders.",
       "hiddenDescription": "Three recent storm claims share a contractor, a notary and the same impossible weather timestamp.",
       "exits": [
         {
@@ -746,8 +746,8 @@
       }
     },
     {
-      "id": "loc_mara_home",
-      "name": "Mara's Duplex",
+      "id": "loc_investigator_home",
+      "name": "Tessa's Duplex",
       "mapType": "room",
       "parentLocationId": "loc_maplebridge",
       "region": "Old Mill Ward",
@@ -1032,15 +1032,15 @@
       ]
     },
     {
-      "id": "npc_mara",
-      "name": "Mara Voss",
+      "id": "npc_investigator",
+      "name": "Tessa Holt",
       "type": "npc",
       "isMajor": true,
       "startLocation": "loc_claims",
-      "homeLocation": "loc_mara_home",
+      "homeLocation": "loc_investigator_home",
       "factionId": "fac_claims",
       "description": "Thirty-eight, angular and severe, with a short black bob, trench coat, clipped tie and the posture of someone cross-examining the weather.",
-      "persona": "Treats every claim like a conspiracy until evidence proves it merely tragic. Humorless in presentation, deeply funny by accident. Mara is skeptical, observant, loyal to ordinary policyholders and terrible at casual conversation. She collects exact facts because uncertainty once cost her family their home.",
+      "persona": "Treats every claim like a conspiracy until evidence proves it merely tragic. Humorless in presentation, deeply funny by accident. Tessa is skeptical, observant, loyal to ordinary policyholders and terrible at casual conversation. She collects exact facts because uncertainty once cost her family their home.",
       "goal": "Prove the Rainmaker fraud pattern without alerting the insider approving the claims.",
       "goalAutonomy": "high",
       "goalDifficulty": 72,
@@ -1095,7 +1095,7 @@
         },
         {
           "time": "19:00",
-          "locationId": "loc_mara_home",
+          "locationId": "loc_investigator_home",
           "activity": "Files notes while her cat occupies the evidence",
           "days": [
             "weekday"
@@ -1230,7 +1230,7 @@
         {
           "time": "14:30",
           "locationId": "loc_claims",
-          "activity": "Reconciles reserves with Mara",
+          "activity": "Reconciles reserves with Tessa",
           "days": [
             "tuesday",
             "friday"
@@ -1554,7 +1554,7 @@
       "id": "fac_claims",
       "name": "The Evidence Department",
       "status": "active",
-      "description": "Mara and Prudence’s alliance of facts, reserves and exhausted moral seriousness.",
+      "description": "Tessa and Prudence’s alliance of facts, reserves and exhausted moral seriousness.",
       "influence": 55,
       "reputation": 30,
       "resources": 46,
@@ -1764,7 +1764,7 @@
       "socialRank": "experienced staff",
       "title": "Senior Adjuster",
       "legalStatus": "licensed employee",
-      "description": "You know damaged homes, frightened clients and the difference between fraud and desperation. Mara wants your eyes on three roof claims.",
+      "description": "You know damaged homes, frightened clients and the difference between fraud and desperation. Tessa wants your eyes on three roof claims.",
       "startLocationId": "loc_claims",
       "factionId": "fac_claims",
       "factionReputation": 28,
@@ -1797,7 +1797,7 @@
         "insight": 8,
         "charm": 4
       },
-      "intro": "Monday, 8:57 a.m., Claims Cave. Three roof-claim folders are spread across the desk. Mara has circled the same contractor’s name in each, but the storm dates do not match. Your claim notebook lies open beside your badge. Through the wall comes the copier’s continuous alarm. Mara taps an empty space on the evidence sheet. “I need something we can actually prove.”"
+      "intro": "Monday, 8:57 a.m., Claims Cave. Three roof-claim folders are spread across the desk. Tessa has circled the same contractor’s name in each, but the storm dates do not match. Your claim notebook lies open beside your badge. Through the wall comes the copier’s continuous alarm. Tessa taps an empty space on the evidence sheet. “I need something we can actually prove.”"
     },
     {
       "id": "origin_sales",
@@ -2095,7 +2095,7 @@
       "reason": "protective older-sister energy"
     },
     {
-      "a": "npc_mara",
+      "a": "npc_investigator",
       "b": "npc_prudence",
       "label": "the one colleague whose numbers she trusts",
       "score": 62,
@@ -2103,13 +2103,13 @@
     },
     {
       "a": "npc_connor",
-      "b": "npc_mara",
+      "b": "npc_investigator",
       "label": "suspects charm is a form of evidence destruction",
       "score": -42,
       "reason": "suspects charm is a form of evidence destruction"
     },
     {
-      "a": "npc_mara",
+      "a": "npc_investigator",
       "b": "npc_wade",
       "label": "quiet exchange of building facts",
       "score": 37,

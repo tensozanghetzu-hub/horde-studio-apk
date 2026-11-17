@@ -19,7 +19,7 @@ ok('portrait definitions round-trip in a private card extension',/expressionPort
 var apiCtx={console:console,JSON:JSON,Math:Math,Date:Date,Promise:Promise,Object:Object,Array:Array,String:String,Number:Number,RegExp:RegExp,Error:Error,isNaN:isNaN,parseFloat:parseFloat,parseInt:parseInt,TextEncoder:TextEncoder,TextDecoder:TextDecoder,fetch:function(){return Promise.resolve({ok:false,text:function(){return Promise.resolve('')}});}};
 apiCtx.window=apiCtx; apiCtx.global=apiCtx;
 vm.runInNewContext(fs.readFileSync(path.join(root,'horde-studio-mobile/js/api.js'),'utf8'),apiCtx,{filename:'api.js'});
-var payload=apiCtx.API.buildChat({id:'c',name:'Mara',persona:'Archivist.',scenario:'',greeting:'',examples:'',postHistory:'',lorebook:[],expressionPortraits:char.expressionPortraits},{id:'s',summary:'',facts:[]},[{role:'user',text:'Hello'}],{systemPrompt:'Stay in character.',userName:'You',maxTokens:600},null);
+var payload=apiCtx.API.buildChat({id:'c',name:'Olive',persona:'Archivist.',scenario:'',greeting:'',examples:'',postHistory:'',lorebook:[],expressionPortraits:char.expressionPortraits},{id:'s',summary:'',facts:[]},[{role:'user',text:'Hello'}],{systemPrompt:'Stay in character.',userName:'You',maxTokens:600},null);
 var serialized=JSON.stringify(payload);
 ok('portrait images and mapping rules never enter the model prompt',serialized.indexOf('data:image/png;base64,portrait-a')<0&&serialized.indexOf('worried.jpg')<0&&serialized.indexOf('expressionPortraits')<0);
 console.log('\nexpression-portrait-test: '+(fail?fail+' failed, ':'')+pass+' ok');

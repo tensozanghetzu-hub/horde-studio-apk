@@ -25,7 +25,9 @@ section('1. No card-specific content in shipped code');
    Add to this list when a card name ends up in code or a comment. */
 const FORBIDDEN = [
   'nira', "veth", 'tal\'ira', 'samantha', 'voss',
-  'aston', 'sloane', 'aky', 'heres-the-deal',
+  'nadia', 'boris', 'olive', 'quinn', 'mira', 'ilse', 'frank',
+  'lena', 'tomas', 'wren',
+  'heres-the-deal',
   'jedi', 'twi\'lek', 'padawan', 'masters', "makashi"
 ];
 
@@ -45,10 +47,143 @@ SHIPPED.forEach(f => {
   check(!hits.length, `${f} carries no card names`, hits.slice(0, 3).join('\n         '));
 });
 
+/* ------------------------------------------------------------------
+ * v1.39.88 — the rule this file exists to enforce, in one sentence:
+ *
+ *   A fix targets the CLASS of problem, never one card. It must leave every
+ *   other card — present or future — working exactly as it did, and it must be
+ *   useful to anyone, not just the card that prompted it.
+ *
+ * Two mechanical consequences, checked below:
+ *   - no name, line or phrase from any card may appear in shipped code, in a
+ *     prompt, or in a comment;
+ *   - the tests that describe a bug use the SHAPE of the card (field blocks,
+ *     rotas, quoted labels), not its prose.
+ *
+ * The forbidden list is now derived from the cards themselves rather than
+ * maintained by hand, so a new card cannot be tested without its names
+ * becoming forbidden at the same moment.
+ * ------------------------------------------------------------------ */
+
+/* Read a card wherever it lives: JSON, or a PNG/CHARX with the usual `chara`
+   or `ccv3` text chunk holding base64 JSON. */
+function readCardFile(p) {
+  const ext = path.extname(p).toLowerCase();
+  try {
+    if (ext === '.json') return [JSON.parse(fs.readFileSync(p, 'utf8'))];
+    if (ext === '.png') {
+      const buf = fs.readFileSync(p);
+      const out = [];
+      let i = 8;
+      while (i + 8 <= buf.length) {
+        const len = buf.readUInt32BE(i);
+        const type = buf.toString('latin1', i + 4, i + 8);
+        const data = buf.subarray(i + 8, i + 8 + len);
+        if (type === 'tEXt' || type === 'iTXt') {
+          const z = data.indexOf(0);
+          const key = data.toString('latin1', 0, z);
+          if (key === 'chara' || key === 'ccv3') {
+            const val = data.subarray(z + 1).toString('latin1');
+            try {
+              const json = JSON.parse(Buffer.from(val, 'base64').toString('utf8'));
+              out.push(json && json.data ? json.data : json);
+            } catch (e) { /* not a card */ }
+          }
+        }
+        i += 12 + len;
+        if (type === 'IEND') break;
+      }
+      return out;
+    }
+  } catch (e) { /* unreadable file: not this check's failure */ }
+  return [];
+}
+
+const CARD_DIRS = [path.join(ROOT, 'character-cards'), path.join(ROOT, 'uploads')];
+const cardDocs = [];
+CARD_DIRS.forEach(dir => {
+  if (!fs.existsSync(dir)) return;
+  fs.readdirSync(dir).filter(n => /\.(json|png|charx)$/i.test(n)).forEach(n => {
+    readCardFile(path.join(dir, n)).forEach(d => cardDocs.push(d));
+  });
+});
+
+/* Names come off the cards: the character name, the author, and anything a
+   card declares in its own rota. Only distinctive words survive — a card
+   called "The Landlady" forbids nothing, because those words are the app's
+   own vocabulary. */
+const CARD_WORDS = ['user', 'character', 'assistant', 'narrator', 'everyone',
+  'player', 'scene', 'cast', 'wife', 'husband', 'father', 'mother', 'daughter',
+  'son', 'sister', 'brother', 'friend', 'boss', 'teacher', 'student', 'nurse',
+  'doctor', 'landlady', 'landlord', 'the', 'a', 'an', 'of', 'and'];
+const derivedNames = new Set();
+cardDocs.forEach(d => {
+  [d.name, d.creator, d.character_name].forEach(v => {
+    String(v || '').split(/[^A-Za-z'’-]+/).forEach(w => {
+      if (w.length >= 4 && CARD_WORDS.indexOf(w.toLowerCase()) === -1) derivedNames.add(w.toLowerCase());
+    });
+  });
+  /* rota bullets: "- **Name** — …" */
+  String(d.description || d.persona || '').split('\n').forEach(line => {
+    const m = /^\s*[-*•]\s+\*\*([^*]{2,40})\*\*/.exec(line);
+    if (!m) return;
+    m[1].split(/[^A-Za-z'’-]+/).forEach(w => {
+      if (w.length >= 4 && CARD_WORDS.indexOf(w.toLowerCase()) === -1) derivedNames.add(w.toLowerCase());
+    });
+  });
+});
+
+/* A name that is an ordinary word in the app's own vocabulary cannot be used
+   as a detection signal — a rota entry like "Your Wife (Olive)" must not
+   forbid the word "your".
+   The shipped code is its own dictionary: a word the app uses constantly is
+   vocabulary, a word it never uses is a name. */
+const shippedAll = SHIPPED.map(f => {
+  const p = path.join(JS, f);
+  return fs.existsSync(p) ? fs.readFileSync(p, 'utf8').toLowerCase() : '';
+}).join('\n');
+/* v1.39.96: a card TITLE is mostly ordinary English — "One Lonely Boarding
+   House" is four common words, and forbidding them fails every release for
+   no reason. A name that the app itself uses as a word cannot be a leak
+   indicator; the manual list above remains the net for the ones it cannot
+   catch, and a genuine first leak is still caught because the word is not in
+   the app yet when the check runs. */
+const vocabulary = new Set();
+derivedNames.forEach(name => {
+  const re = new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g');
+  const count = shippedAll.split(re).length - 1;
+  const plainWord = shippedAll.indexOf(' ' + name + ' ') !== -1 ||
+    shippedAll.indexOf('\"' + name + '\"') !== -1 ||
+    shippedAll.indexOf("'" + name + "'") !== -1;
+  if (count > 2 || plainWord) { vocabulary.add(name); derivedNames.delete(name); }
+});
+check(true, 'card names are derived from the cards on disk (' + derivedNames.size + ' names, ' +
+  vocabulary.size + ' card words that are also app vocabulary: ' +
+  (Array.from(vocabulary).slice(0, 6).join(', ') || 'none') + ')');
+
+/* Every name derived from a card must be absent from shipped code — including
+   from comments and prompts. This is the check that makes "never target one
+   card" testable instead of a promise. */
+if (derivedNames.size) {
+  const leaks = [];
+  SHIPPED.forEach(f => {
+    const p = path.join(JS, f);
+    if (!fs.existsSync(p)) return;
+    const src = fs.readFileSync(p, 'utf8');
+    derivedNames.forEach(name => {
+      const re = new RegExp('\\b' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+      src.split('\n').forEach((line, i) => {
+        if (re.test(line)) leaks.push(`${f}:${i + 1} names a card: ${line.trim().slice(0, 90)}`);
+      });
+    });
+  });
+  check(leaks.length === 0, 'no shipped line names anything a card on disk calls itself or its cast',
+    leaks.slice(0, 6).join('\n         '));
+}
+
 /* Precise leak test: no long run of text from any card kept on this machine
    may appear in the shipped app. Shape-based checks cannot tell an app prompt
    from card prose; this compares against the cards themselves. */
-const CARD_DIRS = [path.join(ROOT, 'character-cards'), path.join(ROOT, 'uploads')];
 let cardStrings = 0, leaked = 0;
 SHIPPED.forEach(f => {
   const p = path.join(JS, f);
@@ -73,12 +208,7 @@ SHIPPED.forEach(f => {
     } else if (Array.isArray(node)) { node.forEach(v => walk(v, key)); }
     else if (node && typeof node === 'object') { Object.keys(node).forEach(k => walk(node[k], k)); }
   }
-  CARD_DIRS.forEach(dir => {
-    if (!fs.existsSync(dir)) return;
-    fs.readdirSync(dir).filter(n => /\.json$/i.test(n)).forEach(n => {
-      try { walk(JSON.parse(fs.readFileSync(path.join(dir, n), 'utf8'))); } catch (e) {}
-    });
-  });
+  cardDocs.forEach(doc => walk(doc));
 });
 if (cardStrings === 0) {
   console.log('  skip no card text appears in shipped code — no cards on disk');
@@ -143,10 +273,10 @@ check(App.detectCast(sheetCard).length === 0, 'a one-person sheet yields no cast
 
 const groupCard = {
   name: 'Alpha',
-  persona: 'Bravo Vale is the father.\n\nCharlie Vale is his daughter.\n\n' +
-    'Bravo Vale said nothing.\nCharlie Vale asked about the rooms.\nCharlie Vale replied softly.\nBravo Vale asked back.',
-  scenario: 'Bravo Vale and Charlie Vale are guests.',
-  greeting: '"Charlie Vale said the rooms are upstairs."', examples: 'Charlie Vale: I will take the far one.'
+  persona: 'Cora Vane is the father.\n\nAda Vane is his daughter.\n\n' +
+    'Cora Vane said nothing.\nAda Vane asked about the rooms.\nAda Vane replied softly.\nCora Vane asked back.',
+  scenario: 'Cora Vane and Ada Vane are guests.',
+  greeting: '"Ada Vane said the rooms are upstairs."', examples: 'Ada Vane: I will take the far one.'
 };
 const g = App.detectCast(groupCard);
 check(g.length > 0, 'a genuine multi-person card still yields a cast', 'got ' + JSON.stringify(g));

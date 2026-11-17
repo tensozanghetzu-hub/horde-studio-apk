@@ -7,7 +7,7 @@ sb.window=sb; sb.global=sb;
 vm.runInNewContext(fs.readFileSync(path.join(root,'horde-studio-mobile/js/api.js'),'utf8'),sb,{filename:'api.js'});
 var API=sb.API, pass=0,fail=0;
 function ok(label,cond){if(cond){pass++;console.log('  ok   '+label);}else{fail++;console.log('  FAIL '+label);}}
-var char={id:'c1',name:'Mara',persona:'A careful archivist.',scenario:'In the old library.',examples:'',postHistory:'Card-wide ending instruction.',lorebook:[]};
+var char={id:'c1',name:'Olive',persona:'A careful archivist.',scenario:'In the old library.',examples:'',postHistory:'Card-wide ending instruction.',lorebook:[]};
 var settings={systemPrompt:'Stay in character.',userName:'You',userPersona:'',temperature:0.8,maxTokens:600,contextMessages:40,maxContextChars:26000};
 function prompt(session,history){return API.buildChat(char,session,history,settings,null)[0].content;}
 var session={id:'a',summary:'The archive is locked.',facts:['The clock is broken.'],sceneNote:'Rain keeps tapping at the west window.',sceneNotePlacement:'character',sceneNoteFrequency:2};

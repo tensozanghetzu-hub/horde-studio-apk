@@ -24,8 +24,8 @@ function ok(label, cond, extra) {
 }
 
 var char = {
-  id: 'c1', name: 'Mara',
-  persona: 'Mara keeps a small greenhouse and talks about plants constantly. ' +
+  id: 'c1', name: 'Olive',
+  persona: 'Olive keeps a small greenhouse and talks about plants constantly. ' +
     'She is patient, dry-humoured, and notices small changes in people.',
   scenario: 'Evening in the greenhouse.',
   examples: '', lorebook: []

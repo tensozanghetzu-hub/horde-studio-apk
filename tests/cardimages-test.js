@@ -60,7 +60,7 @@ function loadStore() {
     Promise: Promise, JSON: JSON, Object: Object, Date: Date, Array: Array,
     Math: Math, String: String, Error: Error, console: console,
     Uint8Array: Uint8Array, DataView: DataView, TextEncoder: TextEncoder,
-    TextDecoder: TextDecoder, atob: atob,
+    TextDecoder: TextDecoder, atob: atob, btoa: btoa,
     FileReader: function () { throw new Error('no FileReader'); },
     localStorage: { getItem: function () { return null; }, setItem: function () { }, removeItem: function () { } },
     IDB: makeDb(),
@@ -218,11 +218,19 @@ Views.normalizeCardImages([
 });
 
 function glue() {
-  /* the app's import flow must actually run it (source contract) */
+  /* The app's import flow must actually run it (source contract).
+     v1.39.54 split App.importCard into prepareImportedCharacter (parse +
+     normalise) / previewImport / importMany, so the normaliser moved. Check
+     the function that owns it now, and that its promise resolves with the
+     SAME object it mutated — otherwise a caller can persist un-downscaled
+     images before the chain settles. */
   var src = fs.readFileSync(APP_SRC, 'utf8');
-  var at = src.indexOf('App.importCard = function');
+  var at = src.indexOf('App.prepareImportedCharacter = function');
+  ok('prepareImportedCharacter exists', at !== -1);
   var body = src.slice(at, at + 3000);
-  ok('importCard runs normalizeCardImages', /normalizeCardImages/.test(body));
+  ok('prepareImportedCharacter runs normalizeCardImages', /normalizeCardImages/.test(body));
+  ok('…and resolves with the character it mutated',
+    /\.then\(function \(\) \{ return c; \}\)/.test(body));
   finish();
 }
 
