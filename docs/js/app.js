@@ -3308,7 +3308,28 @@
       /* v1.18.0: the world resolves the checks the final reply requested -
          in the transaction, so the verdict lands in the log right after
          the referee's line, and exactly once per turn even when repaired */
-      var res = HW.resolveChecks(world, a.stage, a.applied);
+      /* v1.39.101: a check the engine settled before the scene began was
+         already applied to this stage by phase one - resolving it a second
+         time would roll twice for one action. Its verdict is carried into
+         the turn's receipt instead. */
+      var already = {};
+      (settled || []).forEach(function (e) { already[String(e.name).toLowerCase()] = e; });
+      var pending = {
+        checkRequests: ((a.applied && a.applied.checkRequests) || []).filter(function (req) {
+          return !already[String(req.name).toLowerCase()];
+        })
+      };
+      var res = HW.resolveChecks(world, a.stage, pending);
+      var settledHere = (settled || []).filter(function (e) {
+        return !res.list.some(function (x) { return x.name === e.name; });
+      });
+      res.list = settledHere.map(function (e) {
+        return { name: e.name, text: e.text, chip: e.chip, success: e.success, total: e.total, dc: e.dc, preRolled: true };
+      }).concat(res.list);
+      res.changes = settledHere.map(function (e) { return e.chip; }).concat(res.changes);
+      /* the engine already logged and applied these; the receipt only
+         needs to carry them, never to repeat the effects */
+      res.changes = res.changes.filter(function (c, i) { return res.changes.indexOf(c) === i; });
       if (res.rejections.length) {
         a.stage.rejections = (a.stage.rejections || []).concat(res.rejections.map(function (r) {
           return { turn: a.stage.turn, tag: r.tag, reason: r.reason, at: r.at };
@@ -3362,7 +3383,9 @@
       /* a candidate that failed validation has no stage; judge the repair
          against the pre-turn state in that case */
       var from = first.stage || base;
-      var prompt2 = HW.buildPrompt(world, from, text);
+      /* v1.39.101: a repair re-writes the scene, it does not re-roll the
+         dice. The rolls that settled this turn are still settled. */
+      var prompt2 = HW.buildPrompt(world, from, text, { settled: settled });
       /* the log alternates user/assistant (it may open with the world's
          intro), so keep each entry's real role; drop any old repair
          instructions that reached the log */
@@ -3416,22 +3439,95 @@
       });
     }
 
-    var built = HW.buildPrompt(world, base, text);
-    API.generate({
-      settings: s,
-      /* the world is the referee: its own prompt is the whole system prompt */
-      character: {
-        id: world.id, name: world.name, persona: '', scenario: '',
-        examples: '', lorebook: [], systemPrompt: built.system
-      },
-      session: { id: run.id },
-      /* v1.39.99: the state restated immediately before the newest turn */
-      finalNote: built.note || null,
-      history: built.messages.map(function (m) {
-        return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
-      }),
-      signal: wrAbort.signal,
-      onProgress: wrProgress
+    /* v1.39.101: the two phases share one ladder of attempts, so a repair
+       of the narration re-asks for the scene, never for a new roll. `settled`
+       is null until phase one has run, and stays null for a world that names
+       no checks - that turn is exactly what it always was. */
+    var settled = null;
+
+    function announceRolls(entries) {
+      if (!entries || !entries.length) return;
+      entries.forEach(function (e) {
+        run.log.push({ role: 'check', content: e.text, at: Date.now() });
+      });
+      if (run.log.length > 200) run.log = run.log.slice(-200);
+      /* the roll is part of the turn the moment it happens: a player
+         waiting on the prose already sees the die, exactly as Isekai Zero
+         puts the roll bar beside the scene rather than inside it */
+      Views.worldRun(world, run, { changes: entries.map(function (e) { return e.chip; }), checks: entries });
+    }
+
+    /* Ask for the attempt and the check, long enough before the prose that
+       the die cannot be written to fit. A world that names no checks, or a
+       model that answers nothing, simply has no pre-rolled check. */
+    function phaseOne() {
+      var checks = (world.gameRules || {}).checks;
+      if (!Array.isArray(checks) || !checks.length) return Promise.resolve(null);
+      var built = HW.buildPrompt(world, base, text, null);
+      return API.generate({
+        settings: s,
+        character: {
+          id: world.id, name: world.name, persona: '', scenario: '',
+          examples: '', lorebook: [],
+          systemPrompt: built.system + '\n\n' + HW.intentRules()
+        },
+        session: { id: run.id },
+        finalNote: built.note || null,
+        history: built.messages.map(function (m) {
+          return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
+        }),
+        signal: wrAbort.signal,
+        onProgress: function (info) {
+          worldStatus('Reading the attempt — ' + String(App.worldProgressText(info)).toLowerCase(), info.waitTime);
+        }
+      }).then(function (answer) {
+        var asked = HW.parseIntent(answer, world);
+        asked.unrecognised.forEach(function (name) {
+          base.rejections = (base.rejections || []).concat([{
+            tag: '[[roll:check:' + name + ']]',
+            reason: 'the world has no check named \u201C' + name + '\u201D',
+            at: Date.now()
+          }]).slice(-50);
+        });
+        if (!asked.checks.length) return null;
+        var stage = HW.cloneRun(base);
+        var entries = [], rejections = [];
+        asked.checks.forEach(function (name) {
+          var res = HW.resolveCheckNow(world, stage, name);
+          if (res.entry) entries.push(res.entry);
+          if (res.rejection) rejections.push(res.rejection);
+        });
+        base = stage;   /* the rolls happened; phase two starts from them */
+        if (rejections.length) base.rejections = (base.rejections || []).concat(rejections).slice(-50);
+        if (entries.length) announceRolls(entries);
+        return entries.length ? entries : null;
+      }).catch(function () {
+        /* phase one is an aid, not a gate: a provider hiccup here must not
+           cost the player their turn - the scene is written without a
+           pre-rolled check, exactly as before this release */
+        return null;
+      });
+    }
+
+    phaseOne().then(function (entries) {
+      settled = entries;
+      var built = HW.buildPrompt(world, base, text, { settled: settled });
+      return API.generate({
+        settings: s,
+        /* the world is the referee: its own prompt is the whole system prompt */
+        character: {
+          id: world.id, name: world.name, persona: '', scenario: '',
+          examples: '', lorebook: [], systemPrompt: built.system
+        },
+        session: { id: run.id },
+        /* v1.39.99: the state restated immediately before the newest turn */
+        finalNote: built.note || null,
+        history: built.messages.map(function (m) {
+          return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
+        }),
+        signal: wrAbort.signal,
+        onProgress: wrProgress
+      });
     }).then(function (reply) {
       /* v1 (opted-out) worlds: assess only refuses here for a broken
          answer (empty, code, planning, echo) - ledger rejections stay

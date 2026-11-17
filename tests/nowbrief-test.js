@@ -157,7 +157,9 @@ ok('the anchor does not leak into the transcript',
 console.log('\nthe app passes it to the model as the last thing read');
 
 var app = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
-eq('the turn sends it', (app.match(/finalNote: built\.note \|\| null/g) || []).length, 1);
+/* v1.39.101: the anchor rides both passes of a turn - the attempt pass and
+   the narration pass - because both are answered by the same referee. */
+eq('the turn sends it', (app.match(/finalNote: built\.note \|\| null/g) || []).length, 2);
 eq('so does a repaired turn', (app.match(/finalNote: prompt2\.note \|\| null/g) || []).length, 1);
 
 var api = fs.readFileSync(path.join(ROOT, 'js', 'api.js'), 'utf8');

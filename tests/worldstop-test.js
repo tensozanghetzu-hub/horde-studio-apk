@@ -25,7 +25,9 @@ const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
        final cleanup that hides the typing row */
     const at = appSrc.indexOf('var pre = HW.cloneRun(run);');
     ok('the world send exists', at !== -1);
-    const body = at === -1 ? '' : appSrc.slice(at, at + 16000);
+    /* v1.39.101: the turn body grew a phase in front of the narration, so the
+       window has to reach past it to the stop/cleanup code it audits. */
+    const body = at === -1 ? '' : appSrc.slice(at, at + 24000);
 
     console.log('A — the stop button exists where the wait lives');
     ok('a stop control sits inside the typing row', /<button[^>]*id="wr-stop"[^>]*>/.test(idx) &&

@@ -1,5 +1,35 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.101 — the die is rolled before the scene is written (2026-11-17)
+
+The third and last change from `MEMORY-AND-STATE-RESEARCH.md`. The die was
+never fake — it came from the run's own seeded generator — but the referee
+requested the check inside the reply it was already writing, so it chose the
+moment, and a model that has written the outcome keeps writing toward it.
+
+- **A turn is two phases for a world that names checks.** First the referee is
+  asked only what the player is attempting and which check settles it — no
+  scene. The engine rolls that check then, before a word of prose exists.
+  Second, the scene is written *from* the verdict, which the prompt states as
+  fact: number, DC, modifiers, outcome, and what success or failure changed.
+- **The result cancels the roll.** The settled check's effects are applied and
+  its line logged before the prose arrives (so the die is on screen while you
+  wait, as a roll bar beside the scene rather than inside it), and the second
+  prompt is told it may not request that check again. The commit path refuses
+  to resolve it a second time — one action, one roll.
+- **A repair re-writes the scene, it does not re-roll the dice.** The rolls
+  that settled this turn are still settled through the repair, and they ride
+  the turn's receipt marked `preRolled`.
+- **Nothing changes for a world that names no checks**: phase one is skipped
+  entirely and the turn is exactly what it was. Phase one is also an aid, not
+  a gate — if it fails, the turn is narrated without a pre-rolled check rather
+  than costing the player their turn. Unknown check names it hallucinates are
+  reported as rejections; it cannot invent a rule.
+- The per-turn check marker is cleared at commit, so a run cannot accumulate
+  one turn's rolls into the next.
+- New `tests/preroll-test.js` (50 checks). Suite 110 files / 0 failing; generic
+  gate clean.
+
 ## v1.39.100 — facts keep a history (2026-11-17)
 
 The second of the three changes from `MEMORY-AND-STATE-RESEARCH.md`. The first

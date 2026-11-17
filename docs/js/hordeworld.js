@@ -1113,6 +1113,116 @@
     return effectSummary(world, eff);
   }
 
+  /* ---------------- rolling before the prose (v1.39.101) ----------------
+
+     A check used to be requested and resolved inside the same reply: the
+     referee wrote the scene it wanted, then asked for a roll, and the die
+     answered afterwards. The die was never fake - it came from the run's own
+     seeded generator - but the referee chose the moment, and a model that has
+     already written the outcome will keep writing toward it.
+
+     A turn now has two phases. First the referee is asked what the player is
+     attempting and which check settles it - no scene, just the intent. The
+     engine rolls that check before a word of prose exists, and the verdict
+     (number, DC, modifiers, outcome, and what success or failure changed) is
+     handed back inside the second prompt as fact. The scene is written from
+     the result instead of being reconciled with it.
+
+     None of this touches a world that names no checks: phase one is skipped
+     and the turn is exactly what it was. */
+
+  var MAX_CHECK_REQUESTS = 3;
+
+  /** The part of the prompt that asks a referee only for the attempt and the
+   *  check it turns on. Appended after the normal system prompt so the world's
+   *  own voice, cast and rules are all still in front of it. */
+  var INTENT_RULES =
+    'BEFORE THIS TURN IS NARRATED - answer in this shape and nothing else:\n' +
+    '{\"intent\":\"<one line: what the player is attempting, as a referee would state it>\",' +
+    '\"checks\":[\"<check name>\",\"...\"]}\n' +
+    'Name only checks this world defines. Ask for a check only when the attempt ' +
+    'could genuinely fail and the failure would change what happens next; an ' +
+    'ordinary action that simply works needs no check. At most three names. If ' +
+    'nothing here is uncertain, answer with an empty list. Do not write any of ' +
+    'the scene yet.';
+
+  /** Ask the model what the attempt is and which check settles it. Returns
+   *  { intent, checks:[name], unrecognised:[name] }. Never throws into the
+   *  turn: a model that answers nothing simply means no pre-rolled check. */
+  function parseIntent(text, world) {
+    var out = { intent: '', checks: [], unrecognised: [] };
+    var raw = String(text || '');
+    var start = raw.indexOf('{'), end = raw.lastIndexOf('}');
+    if (start !== -1 && end > start) {
+      try {
+        var j = JSON.parse(raw.slice(start, end + 1));
+        out.intent = String(j.intent || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+        var list = j.checks || j.check || [];
+        if (typeof list === 'string') list = [list];
+        (Array.isArray(list) ? list : []).forEach(function (c) {
+          var name = String((c && (c.name || c.check)) || c || '').trim();
+          if (!name || out.checks.length >= MAX_CHECK_REQUESTS) return;
+          if (out.checks.some(function (x) { return x.toLowerCase() === name.toLowerCase(); })) return;
+          if (checkDef(world, name)) out.checks.push(name);
+          else out.unrecognised.push(name);
+        });
+      } catch (e) { /* a model that will not answer JSON asks for nothing */ }
+    }
+    return out;
+  }
+
+  /** Roll one named check now, before any prose, and mutate the run with its
+   *  consequences. One resolution per check per turn. A name the world does not
+   *  define is reported, not rolled - the same rule the tag path uses. */
+  function resolveCheckNow(world, run, name) {
+    var tag = '[[roll:check:' + name + ']]';
+    var def = checkDef(world, name);
+    if (!def) {
+      return { rejection: { tag: tag, reason: 'the world has no check named \u201C' + name + '\u201D', at: Date.now() } };
+    }
+    var spec = String(def.roll || ('1d' + (((world.gameRules || {}).dice || {}).sides || 20)));
+    var r = roll(spec, ((world.gameRules || {}).dice || {}).sides || 20,
+      function () { return nextRand(run); });
+    if (!r) return { rejection: { tag: tag, reason: 'malformed roll \u201C' + spec + '\u201D', at: Date.now() } };
+
+    run.checksThisTurn = (run.checksThisTurn || []).concat([name]);
+    var dc = (typeof def.dc === 'number') ? def.dc : defaultDifficulty(world);
+    var mod = statRollMod(world, run, def);
+    var skill = def.skill ? skillDef(world, def.skill) : null;
+    var skLv = skill ? (((run.skills || {})[skill.id]) || 0) : 0;
+    var total = r.total + mod + skLv;
+    var crit = criticalOutcome(world, r);
+    var success = crit === 'crit' ? true : (crit === 'fumble' ? false : total >= dc);
+    var eff = applyCheckEffects(run, world, success ? def.on_success : def.on_failure);
+    syncDowned(world, run, []);
+    var modTxt = mod ? (mod >= 0 ? ' +' : ' ') + mod + ' (' + def.stat + ')' : '';
+    modTxt += skLv ? ' +' + skLv + ' (' + skill.name + ')' : '';
+    var critTxt = crit === 'crit' ? ' natural ' + r.sides + ' \u2014 critical!'
+      : (crit === 'fumble' ? ' natural 1 \u2014 critical fumble' : '');
+    var label = String(def.name || def.stat || name);
+    var line = label + ' check: ' + r.text + modTxt + ' vs DC ' + dc + critTxt +
+      (success ? ' \u2014 success' : ' \u2014 failure') + (eff.length ? ' (' + eff.join('; ') + ')' : '');
+    var entry = {
+      name: label, text: line, chip: label + ' ' + total + ' vs ' + dc + (success ? ' \u2713' : ' \u2717'),
+      success: success, total: total, dc: dc, effects: eff, spec: spec,
+      preRolled: true, crit: crit || ''
+    };
+    return { entry: entry };
+  }
+
+  /** Everything a phase-two prompt needs to know about rolls that have already
+   *  happened. Phrased as fact, because it is one: the engine rolled. */
+  function settledChecksBrief(entries) {
+    if (!entries || !entries.length) return '';
+    var lines = entries.map(function (e) {
+      return '- ' + e.text + '\n  The die is cast: the outcome above is what ' +
+        'happened. Narrate the attempt and this result; never re-roll it, never ' +
+        'call for ' + e.name + ' again, and never describe the opposite outcome.';
+    });
+    return 'Checks already settled before this scene - the world rolled them:\n' +
+      lines.join('\n');
+  }
+
   /** Resolve the checks the final reply of a turn requested. Runs once per
    *  turn, AFTER commit, so a repaired turn rolls its checks exactly once
    *  and the verdict lands in the log right after the referee's reply.
@@ -2473,9 +2583,12 @@
    * Build the messages for one turn.
    * Returns { system, messages }.
    */
-  function buildPrompt(world, run, input) {
+  function buildPrompt(world, run, input, opts) {
     var gr = world.gameRules || {};
     var sb = world.sandboxConfig || {};
+    /* v1.39.101: rolls the engine has already made for this turn. They are
+       facts by the time the scene is written, so they are stated as facts. */
+    var settled = (opts && opts.settled) || null;
 
     var parts = [];
     if (world.dmPrompt) parts.push(world.dmPrompt);
@@ -2550,6 +2663,8 @@
       }
       parts.push(memPart);
     }
+
+    if (settled && settled.length) parts.push(settledChecksBrief(settled));
 
     /* v1.36.0: lore surfaces when it comes up - and "coming up" includes
        what the referee just said, not only what the player types this
@@ -2678,6 +2793,13 @@
         rules += '\n  Request one with [[roll:SPEC:check:NAME]]. The world rolls it ' +
           'and applies the outcome itself - never narrate or guess a check ' +
           'outcome, and request each check at most once per reply.' +
+          /* v1.39.101: a check the engine settled before this scene began is
+             done. Asking for it again is refused by the world. */
+          (settled && settled.length
+            ? ' Already rolled for this turn: ' +
+              settled.map(function (e) { return e.name; }).join(', ') +
+              ' - narrate those results, never request them again.'
+            : '') +
           /* v1.34.0: the table's own fallback difficulty, told once */
           ' A check that declares no DC runs at ' + defaultDifficulty(world) + '.';
       }
@@ -2704,8 +2826,15 @@
        before the player's words (see buildNowBrief). */
     var nowBrief = buildNowBrief(world, run);
     if (nowBrief) {
-      note = 'Where things stand right now - bookkeeping, already applied:\n' + nowBrief +
-        '\nContinue from this, not from an earlier moment.';
+      note = 'Where things stand right now - bookkeeping, already applied:\n' + nowBrief;
+      if (settled && settled.length) {
+        note += '\nRolled for this turn: ' + settled.map(function (e) { return e.chip; }).join('; ') +
+          '.\nThe die is cast - narrate that outcome; do not roll it again.';
+      }
+      note += '\nContinue from this, not from an earlier moment.';
+    } else if (settled && settled.length) {
+      note = 'Rolled for this turn: ' + settled.map(function (e) { return e.chip; }).join('; ') +
+        '.\nThe die is cast - narrate that outcome; do not roll it again.';
     }
     messages.push({ role: 'user', content: input });
 
@@ -2722,6 +2851,7 @@
    *  the run (capped) so the HUD can show what the world refused. */
   function commit(run, userText, reply, applied) {
     var last = (run.log || [])[run.log.length - 1];
+    run.checksThisTurn = [];   /* v1.39.101: one turn's rolls, not a run's */
     if (!last || last.role !== 'user' || last.content !== userText) {
       run.log.push({ role: 'user', content: userText, at: Date.now() });
     }
@@ -2951,6 +3081,10 @@
     /* v1.39.100: facts keep their history - superseded, never deleted */
     currentFacts: currentFacts, pastFacts: pastFacts, sameFact: sameFact,
     factObjects: factObjects,
+    /* v1.39.101: the die is rolled before the scene is written */
+    parseIntent: parseIntent, resolveCheckNow: resolveCheckNow,
+    settledChecksBrief: settledChecksBrief, intentRules: function () { return INTENT_RULES; },
+    maxCheckRequests: MAX_CHECK_REQUESTS,
     /* v1.37.0: the dead-key hint, for the open book */
     deadKey: deadKey,
     /* tests inject a store; the app uses IDB directly */
