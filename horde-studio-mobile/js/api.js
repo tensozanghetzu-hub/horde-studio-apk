@@ -487,7 +487,16 @@
     if (session && (session.summary || (session.facts && session.facts.length))) {
       var mem = [];
       if (session.summary) mem.push('Story so far: ' + repairMojibake(session.summary));
-      if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + repairMojibake(f); }).join('\n'));
+      /* v1.39.104: what the chat holds true now, newest first and dated with
+         the message count it was learned at. A superseded fact stays on the
+         chat but is never offered here as current - that is what used to put
+         a stale promise or a finished plan in front of the character. */
+      var chatNow = currentChatFacts(session).slice()
+        .sort(function (a, b) { return (b.from || 0) - (a.from || 0); });
+      if (chatNow.length) {
+        mem.push('Established facts (each still true; the message it was learned at in brackets):\n' +
+          chatNow.map(function (f) { return '- ' + repairMojibake(f.text) + ' [' + (f.from || 0) + ']'; }).join('\n'));
+      }
       parts.push(mem.join('\n'));
     }
     if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
@@ -2057,10 +2066,24 @@
       'You are a memory manager for a roleplay between ' + s.userName + ' and ' + char.name + '.\n' +
       'Read the transcript and return STRICT JSON only, with no commentary:\n' +
       '{"summary":"<3-6 sentences capturing plot, tone and where things stand>",' +
-      '"facts":["<short durable fact>","..."]}\n' +
+      '"facts":["<short durable fact>","..."],' +
+      '"changed":["<a fact from the list below that this transcript has made untrue>"]}\n' +
       'Keep at most 8 facts. Facts must be durable: names, places, relationships, injuries, promises, objects, goals.\n' +
+      /* v1.39.104: the world summariser has asked for this since v1.39.100 and
+         the chat one did not, which is half of why a chat's memory could argue
+         with itself. A change is a different job from the news. */
+      '\"changed\" lists any fact from the list below that this conversation has made ' +
+        'untrue - a name that changed, a debt that was paid, a place that burned, a ' +
+        'promise that was broken. Quote that fact word for word in \"changed\" and state ' +
+        'the new truth in \"facts\". Do not change a fact on a guess, and do not restate ' +
+        'an old fact in new words unless something actually changed. Omit \"changed\" ' +
+        'entirely when nothing changed.\n' +
       (session && session.summary ? 'Existing summary to extend:\n' + repairMojibake(session.summary) + '\n' : '') +
-      (session && session.facts && session.facts.length ? 'Existing facts:\n' + session.facts.map(repairMojibake).join('\n') + '\n' : '');
+      (session && session.facts && session.facts.length
+        ? 'What the chat currently holds true:\n' +
+          chatFactObjects(session).filter(function (f) { return f.to === null || f.to === undefined; })
+            .map(function (f) { return '- ' + repairMojibake(f.text); }).join('\n') + '\n'
+        : '');
     var rules = instruction;
     instruction = rules + '\nTranscript:\n' + convo;
 
@@ -2154,6 +2177,162 @@
           mem.window = modelContextTokens(s.model) || 0;
           return mem;
       });
+  }
+
+  /* ---------------- chat facts keep a history (v1.39.104) -----------------
+
+     The world half of this shipped in v1.39.100; this is the same discipline
+     for persona chats, where the bug was identical. `session.facts` was an
+     array of plain strings replaced wholesale on every pass, so a fact from
+     message 20 and its replacement from message 200 sat side by side with no
+     ordering signal, and the model chose between them. That is the "the
+     quest changed" failure wearing a chat costume.
+
+     A fact now carries an id, the message count it was learned at, the point
+     it stopped being true (null while current) and the id of what replaced
+     it. Nothing is deleted: a stale fact is superseded, so a chat can still
+     answer "was that ever true" while the prompt shows only what is true now.
+
+     The matching and supersession rules are deliberately the same shape as
+     the world engine's (sameFact there), kept here rather than imported:
+     api.js has no dependency on hordeworld.js and a cycle between them would
+     be a much worse bug than the duplication. */
+
+  function chatFactWords(text) {
+    return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  }
+  var CHAT_FACT_STOP = {};
+  ('a an the is was were are be been being has have had do does did will would ' +
+   'can could may might must shall should to of in on at for with by from as ' +
+   'that this these those it its he she they them his her their you your ' +
+   'and or but not no yes now still then there here about into over after ' +
+   'before again also just only very too more most some any all one two ' +
+   'user they\'ve they\'re i we us our my me').split(' ').forEach(function (w) { CHAT_FACT_STOP[w] = true; });
+  function chatFactTokens(text) {
+    var out = [];
+    chatFactWords(text).forEach(function (w) {
+      if (w.length < 3 || CHAT_FACT_STOP[w]) return;
+      if (out.indexOf(w) === -1) out.push(w);
+    });
+    return out;
+  }
+  /** 'same' (restated, nothing changed), 'supersede' (the same subject, a
+   *  different claim) or '' (unrelated). Cautious on purpose: a miss leaves
+   *  both facts on the record with dates and the model can read them, while a
+   *  false hit would retire something still true with no way back. */
+  function chatSameFact(aText, bText) {
+    var a = chatFactWords(aText), b = chatFactWords(bText);
+    if (!a.length || !b.length) return '';
+    if (a.join(' ') === b.join(' ')) return 'same';
+    var ta = chatFactTokens(aText), tb = chatFactTokens(bText);
+    if (!ta.length || !tb.length) return '';
+    var shared = 0;
+    ta.forEach(function (w) { if (tb.indexOf(w) !== -1) shared++; });
+    var min = Math.min(ta.length, tb.length), max = Math.max(ta.length, tb.length);
+    if (shared >= 3 && shared / min >= 0.75 && (max - min) <= Math.max(2, max * 0.5)) return 'supersede';
+    return '';
+  }
+  function chatNextFactId(facts) {
+    var n = 0;
+    (facts || []).forEach(function (f) {
+      var m = /^f(\d+)$/.exec(String((f && f.id) || ''));
+      if (m) n = Math.max(n, parseInt(m[1], 10));
+    });
+    return 'f' + (n + 1);
+  }
+  /** A chat written before facts had ids carried plain strings. They become
+   *  records stamped with the count the memory was last written at - the best
+   *  date the chat still has. Read-only: nothing on disk is rewritten. */
+  function chatFactObjects(session) {
+    var list = (session && Array.isArray(session.facts)) ? session.facts : [];
+    var from = typeof (session && session.memAt) === 'number' ? session.memAt : 0;
+    return list.map(function (f, i) {
+      if (f && typeof f === 'object') {
+        return { id: f.id || ('f' + (i + 1)), text: String(f.text || ''),
+                 from: typeof f.from === 'number' ? f.from : from,
+                 to: (f.to === undefined ? null : f.to), by: f.by || null };
+      }
+      return { id: 'f' + (i + 1), text: String(f || ''), from: from, to: null, by: null };
+    }).filter(function (f) { return f.text; });
+  }
+  /** What the chat holds true now, oldest first. */
+  function currentChatFacts(session) {
+    return chatFactObjects(session).filter(function (f) { return f.to === null || f.to === undefined; });
+  }
+  /** What it used to hold true, newest first - for the sheet, never for the
+   *  prompt. */
+  function pastChatFacts(session) {
+    return chatFactObjects(session)
+      .filter(function (f) { return f.to !== null && f.to !== undefined; })
+      .sort(function (a, b) { return (b.to || 0) - (a.to || 0); });
+  }
+  var CHAT_FACT_CAP = 24, CHAT_FACT_CURRENT = 12;
+
+  /** Write a memory pass onto a session: restatements are confirmed rather
+   *  than duplicated, contradictions supersede, and a fact the model reports
+   *  as no longer true is retired only when the report actually names it. */
+  function applyChatMemory(session, mem) {
+    var at = typeof session.messageCount === 'number' ? session.messageCount : 0;
+    var all = chatFactObjects(session).map(function (f) { return { id: f.id, text: f.text, from: f.from, to: f.to, by: f.by }; });
+    var currentOf = function () {
+      return all.filter(function (f) { return f.to === null || f.to === undefined; });
+    };
+
+    /* the model's report of what stopped being true - an accusation, not an
+       instruction: it retires a fact only when it points at one */
+    ((mem && (mem.changed || mem.superseded)) || []).forEach(function (raw) {
+      var said = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!said) return;
+      var saidWords = chatFactWords(said).join(' '), saidTokens = chatFactTokens(said);
+      var target = null;
+      currentOf().forEach(function (f) {
+        if (target) return;
+        if (chatFactWords(f.text).join(' ') === saidWords) { target = f; return; }
+        var ft = chatFactTokens(f.text);
+        if (!ft.length || saidTokens.length < 3) return;
+        var shared = 0;
+        ft.forEach(function (w) { if (saidTokens.indexOf(w) !== -1) shared++; });
+        if (shared >= 3 && shared / ft.length >= 0.6) target = f;
+      });
+      if (target) target.to = at;
+    });
+
+    ((mem && mem.facts) || []).forEach(function (raw) {
+      var text = String((raw && raw.text) || raw || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (!text) return;
+      var match = null, how = '';
+      currentOf().forEach(function (f) { if (!match) { var v = chatSameFact(f.text, text); if (v) { match = f; how = v; } } });
+      if (match && how === 'same') {
+        /* restating a fact is the chat still relying on it: it stays young, so
+           a load-bearing fact is never the one an overflow retires */
+        match.from = at;
+        return;
+      }
+      if (match && how === 'supersede') {
+        var nf = { id: chatNextFactId(all), text: text, from: at, to: null, by: null };
+        match.to = at; match.by = nf.id;
+        all.push(nf);
+        return;
+      }
+      var dup = currentOf().some(function (f) { return chatFactWords(f.text).join(' ') === chatFactWords(text).join(' '); });
+      if (!dup) all.push({ id: chatNextFactId(all), text: text, from: at, to: null, by: null });
+    });
+
+    /* the ceilings retire, they do not delete */
+    var cur = currentOf();
+    if (cur.length > CHAT_FACT_CURRENT) {
+      cur.slice().sort(function (a, b) { return (a.from || 0) - (b.from || 0); })
+        .slice(0, cur.length - CHAT_FACT_CURRENT)
+        .forEach(function (f) { f.to = at; f.retired = true; });
+    }
+    if (all.length > CHAT_FACT_CAP) {
+      var past = all.filter(function (f) { return f.to !== null && f.to !== undefined; })
+        .sort(function (a, b) { return (a.to || 0) - (b.to || 0); });
+      var doomed = {};
+      past.slice(0, all.length - CHAT_FACT_CAP).forEach(function (f) { doomed[f.id] = true; });
+      all = all.filter(function (f) { return !doomed[f.id]; });
+    }
+    return { facts: all, current: all.filter(function (f) { return f.to === null || f.to === undefined; }) };
   }
 
   /* v1.36.0: a world run gets the same memory discipline as a persona
@@ -2752,6 +2931,10 @@
     rpgStatusPrompt: rpgStatusPrompt, parseRpgUpdate: parseRpgUpdate,
     stripRpgUpdate: stripRpgUpdate, hideRpgUpdate: hideRpgUpdate,
     emptyContinuity: emptyContinuity, normalizeContinuity: normalizeContinuity,
+    /* v1.39.104: chat facts keep a history, the same way a world's do */
+    chatFactObjects: chatFactObjects, currentChatFacts: currentChatFacts,
+    pastChatFacts: pastChatFacts, applyChatMemory: applyChatMemory,
+    chatSameFact: chatSameFact,
     continuityPrompt: continuityPrompt, parseContinuityUpdate: parseContinuityUpdate,
     stripContinuityUpdate: stripContinuityUpdate, hideContinuityUpdate: hideContinuityUpdate,
     applyContinuityProposal: applyContinuityProposal,

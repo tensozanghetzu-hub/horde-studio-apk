@@ -1265,8 +1265,11 @@
     var memAt = session.memAt || session.memoryAt || 0;
     var windowed = messages.slice(-(settings.contextMessages || 40))
       .map(function (m) { return (m.role === 'user' ? 'You' : 'They') + ': ' + (m.text || ''); }).join('\n');
+    /* v1.39.104: session.facts holds records now, so a raw join() would count
+       "[object Object]" once per fact instead of its wording. Only what the
+       prompt actually carries counts - the facts still true. */
     var contextChars = (session.summary || '').length +
-      ((session.facts || []).join('\n')).length + windowed.length;
+      API.currentChatFacts(session).map(function (f) { return f.text; }).join('\n').length + windowed.length;
     return {
       messages: messages.length,
       replies: replies,
@@ -2113,7 +2116,21 @@
             var sp = API.splitSpeaker(c, s, m.text || '');
             return sp.name + ': ' + sp.text + (m.image ? '\n[image: ' + m.image + ']' : '');
           }).join('\n\n') +
-          (s.summary ? '\n\n---\nMemory: ' + s.summary + '\n' + (s.facts || []).map(function (f) { return '- ' + f; }).join('\n') : '');
+          (s.summary || (s.facts && s.facts.length)
+            ? '\n\n---\nMemory: ' + (s.summary || '') +
+              API.chatFactObjects(s).filter(function (f) { return f.to === null || f.to === undefined; })
+                .map(function (f) { return '\n- ' + f.text; }).join('') +
+              /* v1.39.104: a fact that stopped being true is history, not noise.
+                 It goes in the export, marked, so the file does not read as if
+                 the chat had simply forgotten it. */
+              (function () {
+                var gone = API.pastChatFacts(s);
+                if (!gone.length) return '';
+                return '\n\nNo longer true:\n' + gone.map(function (f) {
+                  return '- ' + f.text + ' (until message ' + (f.to || 0) + ')';
+                }).join('\n');
+              })()
+            : '');
         UI.download((c ? c.name : 'chat') + '-' + (s.title || 'chat') + '.txt', text, 'text/plain');
       });
     });
@@ -2428,6 +2445,10 @@
         'Continue from the last message and let something happen that has not happened yet.';
     }
 
+    /* v1.39.104: the chat's state, said again where it is actually read.
+       Only present when this chat has continuity switched on. */
+    var chatNow = App.chatNowBrief(session);
+
     var LOOP_ORDER = 'DO NOT REPEAT YOURSELF. This reply must not retell, replay or reword any beat that ' +
       'already appears in the transcript above, and must not run the same sequence again (arrival, ' +
       'instruction, training, dismissal, rest). Change what happens next: move time, place, or the ' +
@@ -2443,7 +2464,7 @@
       continueFrom: opts.continueFor ? (target.text || '') : undefined,
       signal: App.abort ? App.abort.signal : undefined,
       note: vhNote,
-      finalNote: [rerollSeam, extra].filter(Boolean).join('\n\n') || null,
+      finalNote: [rerollSeam, chatNow, extra].filter(Boolean).join('\n\n') || null,
       onDelta: function (chunk, full) {
         var soFar = full || ((msg._stream || '') + chunk);
         /* v1.39.28: while continuing, `full` is seed + new prose — the new
@@ -2773,7 +2794,13 @@
             return;
           }
           session.summary = mem.summary;
-          session.facts = mem.facts;
+          /* v1.39.104: facts are records now - a restatement is confirmed, a
+             contradiction supersedes, and a fact the model reports as no
+             longer true is retired only when the report names it. What the
+             prompt is shown is the current list; the rest stays on the chat. */
+          var chatFacts = API.applyChatMemory(session, mem);
+          session.facts = chatFacts.facts;
+          session.memCurrent = chatFacts.current.length;
           session.memAt = session.messageCount || 0;
           /* v1.39.93: remember exactly which turns this memory describes, so a
              reroll of one of them can be recognised as "the basis changed"
@@ -2784,7 +2811,7 @@
           return Store.putSession(session).then(function () {
             if (App.state && App.state.session && App.state.session.id === session.id) App.state.session = session;
             if (!silent) UI.toast('Memory updated');
-            else UI.toast('Memory updated (' + mem.facts.length + ' facts)');
+            else UI.toast('Memory updated (' + (chatFacts.current.length || 0) + ' facts)');
           });
         }).catch(function (e) { if (!silent) UI.toast('Memory failed: ' + e.message, 4000); });
       });
@@ -4691,12 +4718,20 @@
   App.memorySheet = function (sessionId) {
     IDB.get('sessions', sessionId).then(function (s) {
       if (!s) return;
-      var facts = (s.facts || []).slice(), editingFact = -1, deletingFact = -1, addingFact = false;
+      /* v1.39.104: the sheet works on fact RECORDS. Editing a current fact
+         keeps its id and its date (it is the same fact, better worded);
+         adding one becomes a new record; deleting one is a real delete, which
+         is the player's decision to make and not the model's. */
+      var facts = API.chatFactObjects(s).map(function (f) {
+        return { id: f.id, text: f.text, from: f.from, to: f.to, by: f.by, retired: f.retired };
+      });
+      var editingFact = -1, deletingFact = -1, addingFact = false;
+      function isCurrent(f) { return f.to === null || f.to === undefined; }
       function render(body) {
         var rows = facts.map(function (f, i) {
           if (editingFact === i) {
             return '<div class="field compact" style="align-items:stretch;flex-direction:column">' +
-              '<textarea data-fact-edit="' + i + '" rows="3">' + esc(f) + '</textarea>' +
+              '<textarea data-fact-edit="' + i + '" rows="3">' + esc(f.text) + '</textarea>' +
               '<div class="row"><button type="button" class="btn primary sm" data-save-fact="' + i + '">Apply edit</button>' +
               '<button type="button" class="btn ghost sm" data-cancel-edit="' + i + '">Cancel</button></div></div>';
           }
@@ -4705,8 +4740,11 @@
               '<button type="button" class="btn danger sm" data-confirm-delete="' + i + '">Delete</button>' +
               '<button type="button" class="btn ghost sm" data-cancel-delete="' + i + '">Cancel</button></div>';
           }
-          return '<div class="opt" style="align-items:flex-start;gap:6px">' +
-            '<span style="flex:1;min-width:0;white-space:normal">' + esc(f) + '</span>' +
+          var when = isCurrent(f)
+            ? '<span class="hint">[' + (f.from || 0) + ']</span>'
+            : '<span class="hint">no longer true since ' + (f.to || 0) + '</span>';
+          return '<div class="opt" style="align-items:flex-start;gap:6px' + (isCurrent(f) ? '' : ';opacity:.72') + '">' +
+            '<span style="flex:1;min-width:0;white-space:normal">' + esc(f.text) + ' ' + when + '</span>' +
             '<button type="button" class="chip" data-edit-fact="' + i + '" aria-label="Edit fact">' + icon('edit') + ' Edit</button>' +
             '<button type="button" class="chip" data-remove-fact="' + i + '" aria-label="Delete fact">' + icon('trash') + '</button></div>';
         });
@@ -4731,7 +4769,8 @@
             var input = body.querySelector('[data-fact-edit="' + i + '"]');
             var edited = String(input ? input.value : '').trim();
             if (!edited) { UI.toast('A fact cannot be empty'); return; }
-            facts[i] = edited; editingFact = -1; render(body);
+            /* the same fact, better worded: keep its id and its date */
+            facts[i].text = edited; editingFact = -1; render(body);
           };
         });
         body.querySelectorAll('#facts [data-cancel-edit]').forEach(function (el) {
@@ -4757,7 +4796,10 @@
             var input = body.querySelector('[data-new-fact]');
             var value = String(input ? input.value : '').trim();
             if (!value) { UI.toast('A fact cannot be empty'); return; }
-            facts.push(value); addingFact = false; render(body);
+            var nextId = 1;
+            facts.forEach(function (f) { var m = /^f(\d+)$/.exec(f.id); if (m) nextId = Math.max(nextId, parseInt(m[1], 10) + 1); });
+            facts.push({ id: 'f' + nextId, text: value, from: s.messageCount || 0, to: null, by: null });
+            addingFact = false; render(body);
           };
         });
         body.querySelectorAll('#facts [data-cancel-new-fact]').forEach(function (el) {
@@ -4836,6 +4878,39 @@
         }
       });
     });
+  };
+
+  /** v1.39.104: the chat's NOW anchor.
+   *
+   * Same reasoning as the world run's (v1.39.99): the continuity ledger is
+   * injected early in the system prompt, and on a long chat the transcript
+   * grows between it and the newest message - so the state the reply is
+   * supposed to honour sits in the middle of a long context, which is where a
+   * model reads worst. This restates the few things that are load-bearing, in
+   * five short lines, immediately before the newest message.
+   *
+   * Only when continuity is switched ON for this chat. A chat without it has
+   * no ledger to anchor, and inventing one would be a new feature, not a fix.
+   * Terse on purpose: it is a reminder, not a second ledger, and the existing
+   * "never change this ledger silently" rule still governs it. */
+  App.chatNowBrief = function (session) {
+    var c = session && session.continuity;
+    if (!c || c.enabled !== true || !API.normalizeContinuity) return '';
+    var n = API.normalizeContinuity(c);
+    var lines = [];
+    if (n.stage) lines.push('Stage: ' + n.stage);
+    var where = [];
+    if (n.location) where.push('at ' + n.location);
+    if (n.time) where.push(n.time);
+    if (where.length) lines.push('Where: ' + where.join(' \u2014 '));
+    if (n.participants.length) lines.push('Who is here: ' + n.participants.slice(0, 8).join(', '));
+    var open = n.events.filter(function (e) { return e.status === 'open'; });
+    if (open.length) {
+      lines.push('Open: ' + open.slice(0, 3).map(function (e) { return e.name; }).join('; '));
+    }
+    if (!lines.length) return '';
+    return 'Where things stand right now - approved state, already in force:\n' + lines.join('\n') +
+      '\nWrite from this, not from an earlier moment, and do not restate it.';
   };
 
   App.promptInspector = function (sessionId) {

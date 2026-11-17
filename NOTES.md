@@ -1,5 +1,59 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.104 — a chat remembers like a world does (2026-11-17)
+
+Asked whether the memory work had reached chats or only worlds. Checked: **only
+worlds.** All three changes — the NOW anchor, facts that keep a history, and the
+instruction to roll before prose — had been built inside the world engine, and a
+persona chat was still on the older model. Then, of the three, you picked: facts
+with a history always, the NOW anchor only where continuity is switched on, and
+no roll-before-prose because a chat has no dice. That is what this is.
+
+- **A chat's facts had no life.** `session.facts` was an array of plain strings,
+  thrown away and rewritten in full on every memory pass. A fact learned at
+  message 20 and the fact that replaced it at message 200 arrived side by side
+  with no date and no order — so when the two disagreed, nobody could tell which
+  was true now. This is the identical bug the world side had before v1.39.100,
+  and it is fixed the same way: each fact is now a record with an id, the message
+  it became true at, and (once it stops being true) the message that ended it.
+- **The same problem, the same cure.** Restating a load-bearing fact refreshes
+  its date instead of adding a copy, so a promise from chapter one does not age
+  out while the chat leans on it. A statement that replaces an older one retires
+  the old record rather than deleting it — the history stays readable.
+- **The summariser can now say what changed.** The chat memory pass wrote a new
+  summary and a new fact list but had no way to report that a stored fact had
+  become false. The world summariser has asked for `"changed"` since v1.39.100;
+  the chat one never did, and that was half of why a chat's memory could argue
+  with itself. It is asked now, and it is shown the list of what the chat
+  currently holds true, not the raw array.
+- **A model cannot delete a fact by implying it.** `"changed"` retires a fact
+  only when it names one word for word — a vague "everything is different now"
+  retires nothing, and only the player can truly delete. Same conservatism as
+  the world side (`API.sameFact`).
+- **The prompt carries only what is true now, newest first, each dated.** Retired
+  facts are not sent; they are kept for the sheet and the export.
+- **The memory sheet shows the history.** Current facts carry the message they
+  were learned at; a retired one is dimmed and reads "no longer true since N".
+  Editing keeps the record's id and date, adding one mints a new dated record,
+  and delete is still a real delete — the player's, and nobody else's.
+- **The NOW anchor, for chats with continuity on.** Where the chat stands is
+  restated as the last thing the model reads before writing: stage, where and
+  when, who is present, and the events still open. With continuity off, nothing
+  is added — the request is unchanged, so a plain chat costs nothing.
+- **Found while wiring it:** `App.chatHealth` counted the context as
+  `session.facts.join('\n')`, which after this change would have measured
+  `[object Object]` once per fact, and the transcript export wrote `- [object
+  Object]` for every memory. Both read the wording now, and the export prints
+  what a fact *was* under "No longer true", so a saved chat does not look as if
+  it simply forgot.
+- Existing chats and exports open unchanged: plain-string facts are read as
+  current records, dated by the last memory write.
+- `tests/chatfacthistory-test.js` is new — 70 checks over record identity,
+  supersede-not-delete, the conservative `"changed"` path, prompt ordering,
+  the continuity gate, migration of old chats, the ceilings retiring rather
+  than deleting, and the two `[object Object]` bugs above. Suite 111 files /
+  0 failing; generic gate clean.
+
 ## v1.39.103 — a drafted world is a playable one (2026-11-17)
 
 Reported: "AI create a world" produces a social sandbox — `gameRules.modules`

@@ -67,7 +67,7 @@ function loadCore(overrides) {
     'UI.download = (name, text) => { sandbox._dl = { name, text }; };',
     'UI.fmtTime = t => "now";'
   ].join('\n');
-  const apiStub = 'var Views = {}; var API = {};\n' + 'API = { _calls: [], generateFree: function (o) { API._calls.push(o); return Promise.resolve(sandbox.__title || "Canal Duels at Dawn"); }, aiJson: function () { return Promise.resolve(null); } };' +
+  const apiStub = 'var Views = {}; var API = {};\n' + 'API = { _calls: [], generateFree: function (o) { API._calls.push(o); return Promise.resolve(sandbox.__title || "Canal Duels at Dawn"); }, aiJson: function () { return Promise.resolve(null); }, currentChatFacts: function (s) { return (s && s.facts ? s.facts : []).map(function (f) { return typeof f === "string" ? { text: f, to: null } : f; }).filter(function (f) { return f.to === null || f.to === undefined; }); } };' +
     'Sandbox = { issue: () => {} };';
   const viewsStub = "Views = { appendMessage: () => ({ classList: { add(){} }, querySelector() { return null; }, removeClass(){} }), thread: () => {}, stickToBottom: () => false, renderPersonaBar: () => {}, toast: () => {} };";
   const domStub = `window.$ = function (s) { return null; }; var $ = window.$;

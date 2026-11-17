@@ -90,6 +90,16 @@ var sb = {
     icon: function () { return ''; }
   },
   document: { querySelector: function () { return null; }, querySelectorAll: function () { return []; }, addEventListener: function () { } },
+  /* v1.39.104: chatHealth now asks the API which facts are still true. The
+     engine itself is covered in chatfacthistory-test; here it only has to
+     answer for both shapes, because this sheet must survive an old chat. */
+  API: {
+    currentChatFacts: function (s) {
+      return (s && s.facts ? s.facts : []).map(function (f) {
+        return typeof f === 'string' ? { text: f, to: null } : f;
+      }).filter(function (f) { return f.to === null || f.to === undefined; });
+    }
+  },
   App: {}
 };
 sb.window = sb;
