@@ -719,7 +719,7 @@
      "Relationship: Widow, your neighbour" carry a capital letter and a colon,
      so the old scan could not tell them from "Rose: come in." and put both in
      the Scene strip as if they were people standing on the porch. */
-  var CAST_REV = 7;          /* bump when detection rules change */
+  var CAST_REV = 8;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -733,6 +733,22 @@
        cast in place indefinitely. The card's own content is the thing that
        changed; that is what this watches. */
     var fp = App.castFingerprint(char);
+    /* v1.39.95: a one-person card has no scene to keep. Whatever a chat is
+       carrying — a cast from an older version of the card, or a scan that
+       mistook a mood for a person — is dropped here, and the bar hides. */
+    if (session.sceneCast && session.sceneCast.length) {
+      var one = App.detectCast(char);
+      if (one.length < 2) {
+        session.sceneCast = [];
+        session.scenePresent = [];
+        session.addressedTo = '';
+        session.castChecked = true;
+        session.castRev = CAST_REV;
+        session.castFp = fp;
+        Store.putSession(session);
+        return;
+      }
+    }
     /* Older chats may hold headings the loose scan mistook for people, and
        older cards may name people the current scan can see. Re-detect once per
        card version, unless the player has edited the cast by hand. */
@@ -971,6 +987,34 @@
     /* A person recurs. A heading, a field label and a one-off mention do not. */
     /* the loaded character's own name, usable even if she never appears in a
        dialogue label — a rota can declare her without her ever speaking */
+    /* v1.39.95: how often the name appears anywhere, and the words right after
+       it. A person's name recurs throughout a card; a mood word appears only in
+       the label that gives it a value — "Warm: she likes company", "Upset: she
+       hates being ignored". Once blank lines are ignored, that distinction
+       decides whether a label is a speaker or a state.
+       Nothing here is card vocabulary: the test is how the card USES the word,
+       which is what keeps it general. */
+    function bareLines(text) {
+      var out = [];
+      String(text || '').split('\n').forEach(function (line) {
+        var t = line.replace(/^\s*[^A-Za-z{]+/, '');
+        var m = /^([A-Z][A-Za-z'\u2019.-]+(?: [A-Z][A-Za-z'\u2019.-]+)?)\s*:\s*(\S.*)$/.exec(t);
+        if (m) out.push({ name: m[1], value: m[2] });
+      });
+      return out;
+    }
+    var labelLines = bareLines(char.persona).concat(bareLines(char.greeting)).concat(bareLines(char.examples));
+    function valueSays(word) {
+      var re = new RegExp('(^|[^A-Za-z])' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z])', 'i');
+      return labelLines.some(function (l) { return re.test(l.value); });
+    }
+    function occurrences(word) {
+      try {
+        var re = new RegExp('(^|[^A-Za-z])' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z])', 'gi');
+        return (String(blob).match(re) || []).length;
+      } catch (e) { return 0; }
+    }
+
     var found = [], seen = {}, selfName = '', selfActs = 0;
     var selfLabel = shaped(String(char.name || '').trim());
     order.forEach(function (low) {
@@ -990,6 +1034,9 @@
       if (!c.strong) {
         if (c.acts < 2) return;
         if ((c.desc || 0) >= c.acts) return;
+        /* a word that appears only as a label, and reads as a state the card
+           describes — mood, temperament, habit — is not somebody speaking */
+        if (occurrences(c.name) <= c.acts && valueSays(c.name)) return;
       }
       var name = cands[low].name, key = norm(name);
       if (seen[key] || seen[firstWord(key)]) return;
@@ -1015,6 +1062,7 @@
       if (found.some(function (f) { return norm(f) === key || firstWord(norm(f)) === firstWord(key); })) return;
       if (seen[key] || seen[firstWord(key)]) return;
       if (isField(name)) return;
+      if (valueSays(name)) return;
       seen[key] = true; seen[firstWord(key)] = true;
       found.push(name);
     });

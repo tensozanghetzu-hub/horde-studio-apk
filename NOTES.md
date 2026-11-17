@@ -1,5 +1,29 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.95 — a mood tracker is not a cast (2026-11-17)
+
+Reported from a single-person card: the Scene bar read Rose, Warm, Teasing,
+Upset, Vulnerable, Embarrassed.
+
+- **The cause is a counting accident, and the fix does not depend on it.** Blank
+  lines between the labels used to break the old line-by-line act count, so each
+  mood was seen once — which should already have been below the threshold. It is
+  now measured on the whole card, and the threshold is no longer the only guard.
+- **A label whose value reads as a state is vetoed.** The rule is about how the
+  card *uses* the word, not what the word is: if a name appears only as a label
+  and the sentence beside it describes somebody ("Warm: she likes company and
+  always puts the kettle on"), it is a state, not a speaker. `Warm:` followed by
+  a quoted line is still a speaker, because the card is using it as one. Nothing
+  in that test is card vocabulary, so no card has to be named to make it work.
+- **A one-person card can never carry a cast.** Whatever an old chat holds — a
+  cast from a previous version of the card, or a scan that mistook a mood for a
+  person — is dropped when the chat opens, and the bar hides itself. `CAST_REV`
+  is 8, so stored chats re-detect.
+- Tests: scenecast 48 → 63 — the reported shape, moods that are spoken lines
+  (kept), a real recurring cast (untouched), and `initSceneCast` clearing a
+  stored cast on a one-person card while leaving a real one alone.
+  Suite 106/0, generic checks clean.
+
 ## v1.39.94 — a 503 says what it is, and offers a way out (2026-11-16)
 
 Reported: a free route worked, then every request was 503 from 8 PM onward.

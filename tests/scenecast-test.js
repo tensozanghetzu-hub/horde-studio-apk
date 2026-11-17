@@ -258,7 +258,81 @@ console.log('\na rota cannot invent people from prose that merely lists somethin
 same('a bullet under an unrelated heading is ignored',
   detectCast({ name: 'X', persona: 'Likes\n- Cooking\n- Sports\n- Music\n', scenario: '', greeting: '', examples: '' }), []);
 
-console.log('\nthe revision bump makes stored chats re-detect');
+/* v1.39.95 — a mood tracker is not a cast.
+   A single-person card that writes its states the way a card writes anything
+   else ("Warm: she likes company", "Upset: she hates being ignored") got a
+   scene bar full of moods. The blank lines between them used to break the
+   counting, so each appeared once — which should have been the end of it.
+   The rule now does not depend on that: a word that appears ONLY as a label,
+   and reads as a state the card describes, is not somebody speaking. */
+console.log('\na mood tracker is not a cast');
+var moodCard = {
+  name: 'Rose', scenario: '', examples: '',
+  persona: 'Rose is a widow in her forties.\n\nPersonality\n\n' +
+    'Warm: she likes company and always puts the kettle on.\n' +
+    'Teasing: she pokes fun when she is comfortable.\n' +
+    'Upset: she goes quiet when her late husband is mentioned.\n' +
+    'Vulnerable: she admits things she would rather not.\n' +
+    'Embarrassed: she looks away and changes the subject.\n',
+  greeting: 'Rose: \u201cYou know... Daniel used to sit out here with me every night.\u201d\n\n' +
+    'She is quiet for a moment, her fingers finding the rim of her glass.'
+};
+same('moods and states are not people', detectCast(moodCard), []);
+['Warm', 'Teasing', 'Upset', 'Vulnerable', 'Embarrassed'].forEach(function (w) {
+  ok('"' + w + '" is not a person', detectCast(moodCard).indexOf(w) === -1);
+});
+
+console.log('\n…but a label whose value is speech is still a speaker');
+var talkingMoods = {
+  name: 'Rose', scenario: '', examples: '',
+  greeting: 'Warm: \u201cSit down, love. I\u2019ll put the kettle on.\u201d\n\n' +
+    'Teasing: \u201cYou always were hopeless with the gate.\u201d'
+};
+same('labels that speak are kept', detectCast(talkingMoods), ['Warm', 'Teasing']);
+
+console.log('\nand a real cast is untouched by the new veto');
+var realCast = {
+  name: 'Alpha', scenario: '', examples: 'Mara: I will take the far one.',
+  greeting: '',
+  persona: 'Mara is her mother.\n\nMara said nothing.\nMara asked about the rooms.\nMara replied softly.'
+};
+same('a recurring, quoted speaker still appears', detectCast(realCast), ['Mara']);
+
+/* An existing chat keeps its stored cast until something re-detects. On a
+   one-person card the cast must be dropped outright, whatever put it there. */
+console.log('\na stored cast on a one-person card is dropped on open');
+var appSrcAll = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
+var initStart = appSrcAll.indexOf('  App.initSceneCast = function (char, session) {');
+var initEnd = appSrcAll.indexOf('\n  };', initStart) + 4;
+ok('initSceneCast is where the test expects it', initStart > 0 && initEnd > initStart);
+var initCalls = { put: 0 };
+var initSb = {
+  App: { state: {} }, console: console, CAST_REV: rev,
+  Store: { putSession: function () { initCalls.put++; return Promise.resolve(); } }
+};
+vm.runInNewContext(appSrcAll.slice(initStart, initEnd) + '\nthis.App = App;', initSb, { filename: 'initSceneCast.js' });
+initSb.App.detectCast = function () { return []; };
+initSb.App.castFingerprint = function () { return 'fp'; };
+var stale = { sceneCast: ['Rose', 'Warm', 'Teasing'], scenePresent: ['Rose', 'Warm', 'Teasing'], addressedTo: 'Warm' };
+initSb.App.initSceneCast({ name: 'Rose', persona: '', greeting: '', scenario: '', examples: '', vh: {} }, stale);
+same('the stale chips are gone', stale.sceneCast, []);
+same('…their presence too', stale.scenePresent, []);
+same('…and the addressed state', stale.addressedTo, '');
+ok('…and the change is persisted', initCalls.put === 1);
+
+var keptSb = {
+  App: { state: {} }, console: console, CAST_REV: rev,
+  Store: { putSession: function () { return Promise.resolve(); } }
+};
+vm.runInNewContext(appSrcAll.slice(initStart, initEnd) + '\nthis.App = App;', keptSb, { filename: 'initSceneCast2.js' });
+keptSb.App.detectCast = function () { return ['Rose', 'Mara']; };
+keptSb.App.castFingerprint = function () { return 'fp'; };
+var live = { sceneCast: ['Rose', 'Mara'], scenePresent: ['Rose'], castChecked: true, castRev: rev, castFp: 'fp' };
+keptSb.App.initSceneCast({ name: 'Rose', persona: '', greeting: '', scenario: '', examples: '', vh: {} }, live);
+same('a real cast is left alone', live.sceneCast, ['Rose', 'Mara']);
+same('…and its presence', live.scenePresent, ['Rose']);
+
+console.log('\\nthe revision bump makes stored chats re-detect');
 var appAll = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
 var rev = parseInt((appAll.match(/var CAST_REV = (\d+);/) || [])[1], 10);
 ok('CAST_REV was bumped past the version that shipped the bug', rev >= 3, String(rev));
