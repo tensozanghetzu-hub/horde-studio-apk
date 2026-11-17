@@ -156,12 +156,32 @@ var OR429 = JSON.stringify({ error: { message: 'Provider returned error', code: 
       );
     })
     .then(function () {
+      /* v1.39.62 changed this contract on purpose: 502/503/504 mean the
+         upstream provider is saturated, which is the commonest failure on free
+         routes, so they are retried instead of surfaced at once. The old
+         assertion ("500s never retry") described the behaviour before that. */
       script = [errRes(502, '<html>Bad Gateway</html>')];
+      var before = fetchCalls;
       return API.streamChat(SETTINGS, MSGS, null).then(
-        function () { ok('502 must not resolve', false, 'resolved'); },
+        function (text) {
+          ok('502 is retried, and a healthy retry resolves', typeof text === 'string', text);
+          ok('…the retry really happened', fetchCalls === before + 2, (fetchCalls - before) + ' calls');
+        },
+        function (e) { ok('502 retried then resolved', false, e.message); }
+      );
+    })
+    .then(function () {
+      /* If every attempt is a 502 the request must fail, not resolve empty. */
+      script = [];
+      var always502 = errRes(502, '<html>Bad Gateway</html>');
+      var savedFetch = sb.window.fetch;
+      sb.window.fetch = function () { return Promise.resolve(always502); };
+      return API.streamChat(SETTINGS, MSGS, null).then(
+        function () { ok('exhausted 502 retries must not resolve', false, 'resolved'); },
         function (e) {
-          ok('500s keep the historic "API <code>: <body>" shape', /^API 502: /.test(e.message), e.message);
-          ok('…and 500s never retry', true);
+          ok('exhausted 502 keeps the historic "API <code>: <body>" shape',
+            /^API 502: /.test(e.message), e.message);
+          sb.window.fetch = savedFetch;
         }
       );
     })

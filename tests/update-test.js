@@ -6,7 +6,16 @@
  *   python3 /home/user/apk-download/server.py          # :8010
  *   node update-test.js
  */
-const { chromium } = require('playwright-core');
+/* Browser-driven test: skip cleanly when the driver is not installed, so the
+   suite is honest on a machine without it (CI runs the same file). */
+let chromium;
+try {
+  ({ chromium } = require('playwright-core'));
+} catch (e) {
+  console.log('SKIP ' + require('path').basename(__filename) +
+    ' — playwright-core is not installed (npm i playwright-core to run it)');
+  process.exit(0);
+}
 const fs = require('fs');
 const path = require('path');
 

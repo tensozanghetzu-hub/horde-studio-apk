@@ -41,7 +41,7 @@ function history() {
   ];
 }
 
-var char = { id: 'c1', name: 'Mara', persona: 'A test character.', scenario: '', examples: '', lorebook: [] };
+var char = { id: 'c1', name: 'Olive', persona: 'A test character.', scenario: '', examples: '', lorebook: [] };
 var session = { id: 's1', charId: 'c1' };
 
 function baseSettings(over) {
@@ -119,7 +119,7 @@ run('openai').then(function (sent) {
   ok('horde path: the newest turn is in the prompt',
     p.indexOf('sixth turn, the newest thing I typed') !== -1);
   ok('horde path: the prompt ends on the character name, ready to answer',
-    /Mara:\s*$/.test(p), JSON.stringify(p.slice(-40)));
+    /Olive:\s*$/.test(p), JSON.stringify(p.slice(-40)));
   return null;
 }).then(function () {
   console.log('\n  ' + pass + ' passed, ' + fail + ' failed\n');

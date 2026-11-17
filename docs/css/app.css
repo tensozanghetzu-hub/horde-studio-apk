@@ -31,6 +31,14 @@
   --ease:cubic-bezier(.22,.8,.28,1);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* v1.39.78: the `hidden` attribute is a USER-AGENT rule (`[hidden]{display:none}`)
+   and every author rule beats the UA sheet, so any component that sets
+   `display:flex` on itself silently ignored `hidden`. The generating banner did
+   exactly that and sat under the chat as an empty purple outline once a reply
+   finished. Individual `[hidden]` guards existed for typing, toast, sheet, the
+   icon buttons and the attachment stage — whoever added each one hit the same
+   bug separately. This is the general form, so the next component cannot. */
+[hidden]{display:none !important}
 html,body{height:100%}
 body{
   margin:0;background:var(--bg);color:var(--text);
@@ -271,6 +279,9 @@ pre,code{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
 /* v1.27.0: models wrap NPC speech in *…*; it used to read as faded grey
    narration (--dim). Speech now wears the theme's accent tint. */
 .bubble em{color:var(--accent-tint)}
+/* v1.39.79: a continued bubble says so, because a reply that opens
+   mid-sentence ("around your wrist.") otherwise looks like the app lost text */
+.mcont{font-size:11px;color:var(--muted);opacity:.75;margin-top:6px;letter-spacing:.02em}
 .msg-actions{display:flex;gap:2px;align-items:center;margin-top:5px;flex-wrap:wrap}
 .msg:not(.me) .msg-actions{justify-content:flex-start}
 .chip{

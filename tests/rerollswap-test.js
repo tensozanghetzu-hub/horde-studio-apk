@@ -122,6 +122,14 @@ function fresh(opts) {
     Views: {
       thread: function () { calls.thread++; },
       appendMessage: function (c, m) { var el = makeEl(m.id); appended.push(el); calls.append++; return el; },
+      /* v1.39.79: the app rebuilds a finished bubble instead of patching its
+         text, so the fake view has to do the same thing the real one does:
+         put the message's text on the element and hand it back. */
+      refreshMessage: function (c, m) {
+        var el = appended.filter(function (x) { return x.mid === m.id; })[0] || existing[m.id] || null;
+        if (el && el.mtext) el.mtext.innerHTML = m.text;
+        return el;
+      },
       stickToBottom: function () {},
       stateStrip: function () {}
     },

@@ -93,12 +93,26 @@ var fakeDb = {
 
 /* ---------------- the referee's script ---------------------------------- */
 var apiCalls = 0;
+var intents = {};   /* intents[n] = what the referee says it is attempting, nth intent pass */
+var intentCalls = 0, proseCalls = 0;
 var replies = [];   /* API.generate resolves with replies[callIndex]       */
 var throws = {};    /* throws[callIndex] = error message                   */
+/* v1.39.101: a turn now opens with a short "what is being attempted" pass for
+   worlds that name checks. The two kinds of call have their own scripts, so
+   every existing expectation keeps meaning what it meant: `replies` is the
+   narration (draft, then repair), `intents` is the attempt. An intent the
+   script does not supply asks for no check, which is exactly the behaviour
+   these turns were written against. */
 var API = {
-  generate: function () {
+  generate: function (o) {
     apiCalls++;
-    var i = apiCalls - 1;
+    var asker = (o && o.character && String(o.character.systemPrompt || '').indexOf('BEFORE THIS TURN IS NARRATED') !== -1);
+    if (asker) {
+      intentCalls++;
+      var said = intents[intentCalls - 1];
+      return Promise.resolve(said !== undefined ? said : '{"intent":"wait and watch","checks":[]}');
+    }
+    var i = proseCalls++;
     if (throws[i]) return Promise.reject(new Error(throws[i]));
     return Promise.resolve(replies[i] !== undefined ? replies[i] : '…');
   }
@@ -153,7 +167,7 @@ function freshWorld() {
   App.state.worldRun = run;
   App.state.worldBusy = false;
   App.state.worldStatusOpen = false;
-  apiCalls = 0; replies = []; throws = {}; toasts = []; saves = 0;
+  apiCalls = 0; intentCalls = 0; proseCalls = 0; replies = []; throws = {}; toasts = []; saves = 0; intents = {};
   els['#wr-input'].value = '';
   App.go('worldrun');
   return { world: world, run: run };
@@ -180,7 +194,8 @@ function checks(run) { return (run.log || []).filter(function (m) { return m.rol
   send();
   await settle();
   var r1 = live();
-  eq('one API call', apiCalls, 1);
+  eq('the intent pass and the scene: two calls, one turn', apiCalls, 2);
+  eq('...one of them the attempt', intentCalls, 1);
   eq('one turn', r1.turn, 1);
   eq('the +5 minute tag applied once', r1.extraMinutes, 5);
   eq('the +1 crown applied once', r1.stats.cash, 13);
@@ -204,7 +219,7 @@ function checks(run) { return (run.log || []).filter(function (m) { return m.rol
   await settle(120);
   var r2 = live();
   eq('one turn', r2.turn, 1);
-  eq('the repair was the second call', apiCalls, 2);
+  eq('the repair is the second narration call, after the draft', proseCalls, 2);
   ok('the draft\'s quest never became a task', !(r2.quests || []).length, JSON.stringify(r2.quests));
   ok('the draft\'s companion never joined', !(r2.companions || []).length, JSON.stringify(r2.companions));
   eq('only the final clock delta', r2.extraMinutes, 5);
@@ -222,7 +237,7 @@ function checks(run) { return (run.log || []).filter(function (m) { return m.rol
   send();
   await settle();
   eq('first turn: Bram joins', (live().companions || []).length, 1);
-  apiCalls = 0;   /* a fresh queue for the next turn */
+  apiCalls = 0; intentCalls = 0; proseCalls = 0;   /* a fresh queue for the next turn */
   replies = ['Bram nods again. [[with:Bram Kest]]', 'Bram nods again.'];
   send();
   await settle(120);
@@ -270,7 +285,7 @@ function checks(run) { return (run.log || []).filter(function (m) { return m.rol
   send();
   await settle();
   var r6 = live();
-  ok('one turn, no repair', r6.turn === 1 && apiCalls === 1, 'turn ' + r6.turn + ' calls ' + apiCalls);
+  ok('one turn, no repair', r6.turn === 1 && proseCalls === 1, 'turn ' + r6.turn + ' calls ' + proseCalls);
   eq('exactly one check line', checks(r6).length, 1);
   ok('the check line reads like a verdict', /Notice check: .* vs DC 12/.test(checks(r6)[0].content), checks(r6)[0].content);
   eq('the dice seed advanced exactly once', r6.seed, (seed6 + 0x6D2B79F5) | 0);
