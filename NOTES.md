@@ -1,5 +1,39 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.100 — facts keep a history (2026-11-17)
+
+The second of the three changes from `MEMORY-AND-STATE-RESEARCH.md`. The first
+(the NOW anchor, v1.39.99) stopped the state going stale in the middle of a
+prompt. This one stops the *memory* arguing with itself.
+
+- **A fact is a record now, not a line of text.** `{id, text, from, to, by}` —
+  the turn it was learned on, the turn it stopped being true, and the id of the
+  fact that replaced it. The prompt is shown what is true **now**, newest first
+  and dated; the run keeps everything else.
+- **Superseded, never deleted.** A memory used to be replaced wholesale every
+  pass, and when the list overflowed the oldest lines were dropped silently —
+  exactly the ones a long run rests on. Now a change marks the old fact with
+  the turn it ended and the id that replaced it, and the overflow *retires*
+  rather than deletes. The sheet has a "No longer true" section, so the player
+  can see that the old level or the finished task was replaced on a turn.
+- **The model may report a change, but not decree one.** The world summariser
+  is asked for a third field, `"changed"` — facts this transcript has made
+  untrue. A stored fact is retired only when the report names it (an exact
+  restatement, or three of its own subject words), so a vague "things changed"
+  cannot empty the memory, and an unknown line is dropped rather than stored.
+- **Restatement is detected in code, on the cautious side.** `sameFact()` finds
+  the same subject with a different claim only when three subject words and
+  three quarters of the shorter statement match; a near miss is deliberate — a
+  miss leaves both facts on the record with dates, which the referee can read,
+  while a false hit would retire something still true.
+- **What is cited stays young.** A fact shown in the prompt is re-dated to the
+  current turn, so a load-bearing fact never looks like the oldest thing in the
+  memory when the ceiling has to choose.
+- Old runs migrate on read: plain-string facts become dated records stamped
+  with the last memory write. Nothing on disk has to be rewritten.
+- New `tests/facthistory-test.js` (55 checks). Suite 109 files / 0 failing;
+  generic gate clean.
+
 ## v1.39.99 — the state, said again where it is actually read (2026-11-17)
 
 The research in `MEMORY-AND-STATE-RESEARCH.md` named one cause of late-game

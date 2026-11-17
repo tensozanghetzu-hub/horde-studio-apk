@@ -3404,6 +3404,36 @@
         }).join('')
       : '<div class="hint">No one is with you right now.</div>';
 
+    /* v1.39.100: what the run believes, and what it used to believe. A fact
+       that has been superseded is still on the record - this is where the
+       player can see that the old level or the finished task did not just
+       vanish, it was replaced, on a turn. */
+    var nowFacts = (HW.currentFacts && HW.currentFacts(run)) || [];
+    var oldFacts = (HW.pastFacts && HW.pastFacts(run)) || [];
+    if (run.memory && (run.memory.summary || nowFacts.length || oldFacts.length)) {
+      if (run.memory.summary) {
+        h += '<h3>Story so far</h3>';
+        h += '<div class="hint">' + esc(run.memory.summary) + '</div>';
+      }
+      if (nowFacts.length) {
+        h += '<h3>What the world holds true</h3>';
+        h += nowFacts.slice().sort(function (a, b) { return (b.from || 0) - (a.from || 0); })
+          .map(function (f) {
+            return '<div class="ws-item">' + esc(f.text) +
+              ' <span class="hint">(turn ' + (f.from || 0) + ')</span></div>';
+          }).join('');
+      }
+      if (oldFacts.length) {
+        h += '<h3>No longer true</h3>';
+        h += '<div class="hint">Kept for the record. The referee is not shown these as current.</div>';
+        h += oldFacts.slice(0, 8).map(function (f) {
+          return '<div class="ws-item"><span class="hint">' + esc(f.text) +
+            ' — until turn ' + (f.to || 0) + '</span></div>';
+        }).join('');
+        if (oldFacts.length > 8) h += '<div class="hint">…and ' + (oldFacts.length - 8) + ' more.</div>';
+      }
+    }
+
     return h;
   };
 

@@ -545,19 +545,232 @@
     return t > 0 && t % e === 0 && (run.memAt || 0) !== t;
   }
 
+  /* ---------------- facts with a history (v1.39.100) ----------------
+
+     Memory used to be {summary, facts:[str]}, and every pass replaced it
+     wholesale. Two problems came out of that, and both look like the story
+     forgetting itself:
+
+       - A fact from turn 3 and its replacement from turn 40 sat side by side
+         in one flat list with no ordering signal at all, so the model chose,
+         and sometimes chose the stale one. That is how a quest objective or a
+         level "changes back".
+       - When the list overflowed, the oldest facts were dropped silently -
+         and the oldest is often the one the whole run rests on.
+
+     A fact now carries an id, the turn it was learned on, the turn it stopped
+     being true (null while it is current), and the id of the fact that
+     replaced it. Nothing is deleted: a stale fact is superseded, so the run
+     can still answer "was that ever true" while the prompt shows only what is
+     true now.
+
+     Supersession is decided here, in code, not by the model: the model is
+     asked to re-state a fact it already reported when that fact changes, and
+     the two are the same fact if they are worded the same way but for what
+     changed. See sameFact(). */
+
+  function factWords(text) {
+    return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  }
+
+  /* The words that make two statements about the same thing: a shared subject.
+     Deliberately crude - a named pair of entities plus an object is enough to
+     say "these are the same fact, restated", and too-clever matching would
+     supersede facts that only look alike. */
+  function factTokens(text) {
+    var STOP = {};
+    ('a an the is was were are be been being has have had do does did will would ' +
+     'can could may might must shall should to of in on at for with by from as ' +
+     'that this these those it its he she they them his her their you your ' +
+     'and or but not no yes now still then there here about into over after ' +
+     'before again also just only very too more most some any all one two ' +
+     'player they\'ve they\'re i we us our my me').split(' ').forEach(function (w) { STOP[w] = true; });
+    var out = [];
+    factWords(text).forEach(function (w) {
+      if (w.length < 3 || STOP[w]) return;
+      if (out.indexOf(w) === -1) out.push(w);
+    });
+    return out;
+  }
+
+  /** Do two statements describe the same fact, restated?
+   *  Returns 'same' (a restatement with the same words - nothing changed),
+   *  'supersede' (the same subject, but a different claim - the old one has
+   *  stopped being true) or '' (unrelated). */
+  function sameFact(aText, bText) {
+    var a = factWords(aText), b = factWords(bText);
+    if (!a.length || !b.length) return '';
+    if (a.join(' ') === b.join(' ')) return 'same';
+    var ta = factTokens(aText), tb = factTokens(bText);
+    if (!ta.length || !tb.length) return '';
+    var shared = 0;
+    ta.forEach(function (w) { if (tb.indexOf(w) !== -1) shared++; });
+    var min = Math.min(ta.length, tb.length), max = Math.max(ta.length, tb.length);
+    /* Two of the same subject words, three fifths of the SHORTER statement in
+       common, and the two claims about the same size. The length guard is the
+       important one: two long sentences that merely share a phrasing ("how it
+       stands with the lamp" / "how it stands with the gate") must not look
+       like one fact changing, or a run quietly supersedes its own vocabulary.
+       A near miss costs nothing - the model can still report the change by
+       name, which is the path that matters. */
+    /* Three shared subject words, three quarters of the shorter statement,
+       and claims of a similar size. Erring towards a miss on purpose: a miss
+       leaves the old fact and the new one on the record with dates, which the
+       referee can read, while a false hit would retire something still true
+       and the run would have no way back. */
+    if (shared >= 3 && shared / min >= 0.75 && (max - min) <= Math.max(2, max * 0.5)) return 'supersede';
+    return '';
+  }
+
+  function nextFactId(facts) {
+    var n = 0;
+    (facts || []).forEach(function (f) {
+      var m = /^f(\d+)$/.exec(String((f && f.id) || ''));
+      if (m) n = Math.max(n, parseInt(m[1], 10));
+    });
+    return 'f' + (n + 1);
+  }
+
+  /* v1.39.100: runs written before facts had ids carried plain strings.
+     They become facts stamped with the turn the memory was last written,
+     which is the best date the run still has. Read-only migration: it
+     happens in normalize, so nothing on disk has to be rewritten twice. */
+  function factObjects(run) {
+    var mem = (run && run.memory) || {};
+    var list = Array.isArray(mem.facts) ? mem.facts : [];
+    var from = typeof mem.memTurn === 'number' ? mem.memTurn : 0;
+    return list.map(function (f, i) {
+      if (f && typeof f === 'object') return f;
+      return { id: 'f' + (i + 1), text: String(f || ''), from: from, to: null, by: null };
+    });
+  }
+
+  /** The facts that are true now, newest last. */
+  function currentFacts(run) {
+    return factObjects(run).filter(function (f) { return (f.to === null || f.to === undefined) && f.text; });
+  }
+
+  /** The facts that have stopped being true, newest first - for the record
+      and for the memory sheet, never for the prompt. */
+  function pastFacts(run) {
+    return factObjects(run)
+      .filter(function (f) { return f.to !== null && f.to !== undefined && f.text; })
+      .sort(function (a, b) { return (b.to || 0) - (a.to || 0); });
+  }
+
+  /** How many facts are kept. Current and past share the ceiling; when a
+      current fact cannot be kept it is superseded, not deleted, so the run
+      still knows it was once true. */
+  var FACT_CAP = 24;
+  var FACT_CAP_CURRENT = 12;
+
+  function applyFacts(run, incoming, changed) {
+    var turn = run.turn || 0;
+    var all = factObjects(run).map(function (f) {
+      return { id: f.id, text: f.text, from: f.from, to: (f.to === undefined ? null : f.to), by: f.by || null };
+    });
+    var kept = [];
+
+    /* v1.39.100: the model may also REPORT that a stored fact stopped being
+       true. It is an accusation, not an instruction: a fact is retired only
+       when the report actually points at it - an exact restatement, or
+       enough of its own words to name it. A report that matches nothing is
+       dropped, so a vague "things changed" cannot empty the memory. */
+    (changed || []).forEach(function (raw) {
+      var said = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!said) return;
+      var target = null;
+      all.forEach(function (f) {
+        if (target || (f.to !== null && f.to !== undefined)) return;
+        if (!f.text) return;
+        if (factWords(f.text).join(' ') === factWords(said).join(' ')) { target = f; return; }
+        if (sameFact(f.text, said) === 'supersede') target = f;
+      });
+      if (!target) {
+        var saidTokens = factTokens(said);
+        if (saidTokens.length < 3) return;
+        all.forEach(function (f) {
+          if (target || (f.to !== null && f.to !== undefined) || !f.text) return;
+          var ft = factTokens(f.text);
+          if (!ft.length) return;
+          var shared = 0;
+          ft.forEach(function (w) { if (saidTokens.indexOf(w) !== -1) shared++; });
+          /* most of the stored fact's own subject words, quoted back at it */
+          if (shared >= 3 && shared / ft.length >= 0.6) target = f;
+        });
+      }
+      if (target) { target.to = turn; target.retired = true; }
+    });
+
+    (incoming || []).forEach(function (raw) {
+      var text = String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (!text) return;
+      var current = all.filter(function (f) { return f.to === null || f.to === undefined; });
+      var match = null, how = '';
+      for (var i = 0; i < current.length && !match; i++) {
+        var v = sameFact(current[i].text, text);
+        if (v) { match = current[i]; how = v; }
+      }
+      if (match && how === 'same') return;              /* nothing changed */
+      if (match && how === 'supersede') {
+        var nf = { id: nextFactId(all), text: text, from: turn, to: null, by: null };
+        match.to = turn;
+        match.by = nf.id;
+        all.push(nf);
+        kept.push(nf);
+        return;
+      }
+      /* Nothing it restates: a second identical line already kept this pass
+         is a duplicate, not a new fact. */
+      var dup = all.some(function (f) {
+        return (f.to === null || f.to === undefined) && factWords(f.text).join(' ') === factWords(text).join(' ');
+      });
+      if (dup) return;
+      var fresh = { id: nextFactId(all), text: text, from: turn, to: null, by: null };
+      all.push(fresh);
+      kept.push(fresh);
+    });
+
+    /* Over the ceiling: the least load-bearing CURRENT fact is retired. Age
+       decides, oldest first - but a fact the run has cited since is younger
+       than its learning turn says, so "from" is refreshed whenever it is
+       shown. What is retired is marked, never dropped. */
+    var current = all.filter(function (f) { return f.to === null || f.to === undefined; });
+    if (current.length > FACT_CAP_CURRENT) {
+      current.slice().sort(function (a, b) { return (a.from || 0) - (b.from || 0); })
+        .slice(0, current.length - FACT_CAP_CURRENT)
+        .forEach(function (f) { f.to = turn; f.retired = true; });
+    }
+    /* ...and the total is bounded so a very long run cannot grow a memory
+       without limit. Past facts go first, oldest first. */
+    if (all.length > FACT_CAP) {
+      var past = all.filter(function (f) { return f.to !== null && f.to !== undefined; })
+        .sort(function (a, b) { return (a.to || 0) - (b.to || 0); });
+      var drop = all.length - FACT_CAP;
+      var doomed = {};
+      past.slice(0, drop).forEach(function (f) { doomed[f.id] = true; });
+      all = all.filter(function (f) { return !doomed[f.id]; });
+    }
+    return { facts: all, kept: kept };
+  }
+
   /** Write the memory the model handed back: bounded, deduped, and only
    *  stamped when something actually arrived - an empty pass must not
    *  burn the cadence marker, or the next due turn never happens. */
   function applyMemory(run, mem) {
     var summary = String((mem && mem.summary) || '').replace(/\s+/g, ' ').trim().slice(0, 1500);
-    var facts = [], seen = {};
+    var incoming = [];
     ((mem && mem.facts) || []).forEach(function (f) {
-      var t = String(f || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-      var k = t.toLowerCase();
-      if (t && !seen[k] && facts.length < 12) { seen[k] = true; facts.push(t); }
+      var t = String(f || '').replace(/\s+/g, ' ').trim();
+      if (t) incoming.push(t);
     });
-    if (!summary && !facts.length) return run;
-    run.memory = { summary: summary, facts: facts };
+    var res = applyFacts(run, incoming, (mem && (mem.changed || mem.superseded)) || []);
+    if (!summary && !res.kept.length) return run;
+    run.memory = {
+      summary: summary || (run.memory && run.memory.summary) || '',
+      facts: res.facts,
+      memTurn: run.turn || 0
+    };
     run.memAt = run.turn || 0;
     return run;
   }
@@ -2322,9 +2535,18 @@
       var memPart = 'Story memory - what the past scenes established in prose ' +
         '(the ledger above outranks it):\n';
       if (run.memory.summary) memPart += 'Story so far: ' + run.memory.summary + '\n';
-      if ((run.memory.facts || []).length) {
-        memPart += 'Established facts:\n' +
-          run.memory.facts.map(function (f) { return '- ' + f; }).join('\n');
+      /* v1.39.100: only what is true now, newest first, each dated with the
+         turn it was learned on. A superseded fact is kept on the run but is
+         never offered as current - that is what used to put a stale level or
+         a finished objective in front of the referee. */
+      var now = currentFacts(run).slice().sort(function (a, b) { return (b.from || 0) - (a.from || 0); });
+      if (now.length) {
+        memPart += 'Established facts (each still true; the turn it was learned on in brackets):\n' +
+          now.map(function (f) { return '- ' + f.text + ' [' + (f.from || 0) + ']'; }).join('\n');
+        /* a fact that is shown is a fact the run is still citing: its age
+           starts from here, so a load-bearing fact never looks oldest. */
+        var t = run.turn || 0;
+        now.forEach(function (f) { if ((f.from || 0) < t) f.from = t; });
       }
       parts.push(memPart);
     }
@@ -2726,6 +2948,9 @@
     /* v1.36.0: the memory cadence and its write-side, testable without
        a model in the room */
     memoryDue: memoryDue, applyMemory: applyMemory,
+    /* v1.39.100: facts keep their history - superseded, never deleted */
+    currentFacts: currentFacts, pastFacts: pastFacts, sameFact: sameFact,
+    factObjects: factObjects,
     /* v1.37.0: the dead-key hint, for the open book */
     deadKey: deadKey,
     /* tests inject a store; the app uses IDB directly */

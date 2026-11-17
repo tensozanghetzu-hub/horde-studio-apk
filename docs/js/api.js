@@ -2162,19 +2162,40 @@
       return '';   /* corrections and dice verdicts are not story */
     }).filter(Boolean).join('\n');
 
+    /* v1.39.100: the model is asked, once, for three things: the summary, what
+       is true now, and - separately - what this transcript has made UNTRUE.
+       A memory that only ever appends is a memory that argues with itself:
+       the old line and its replacement sit in the same list with no ordering
+       signal and the referee picks. Reporting the change is a distinct job
+       from reporting the news, so it gets its own field. It is still only a
+       report - the engine retires a stored fact only when the report names
+       it (applyFacts), never on a vague say-so. */
+    var current = (run.memory && run.memory.facts) || [];
+    var currentLines = current.map(function (f) {
+      return '- ' + String((f && typeof f === 'object') ? (f.text || '') : f);
+    }).filter(function (l) { return l.length > 2; });
+
     var instruction =
       'You are a memory manager for the text roleplay world "' +
         String((world && world.name) || 'World') + '".\n' +
       'Read the transcript and return STRICT JSON only, with no commentary:\n' +
       '{"summary":"<3-6 sentences capturing plot, tone and where things stand>",' +
-      '"facts":["<short durable fact>","..."]}\n' +
+      '"facts":["<short durable fact>","..."],' +
+      '"changed":["<a fact from the LIST BELOW that this transcript has made untrue>"]}\n' +
       'Keep at most 12 facts. Facts must be durable: names, places, relationships, ' +
       'promises, objects, goals, conditions, what was decided or revealed.\n' +
       'Do NOT record tag commands, stat numbers, cheese-and-ledger mechanics - ' +
       'the world tracks those itself.\n' +
+      'If the transcript makes any fact in the LIST BELOW untrue - a name that ' +
+      'changed, a debt that was paid, a place that burned, an alliance that broke - ' +
+      'quote that fact word for word in "changed" and state the new truth in ' +
+      '"facts". Do not change a fact on a guess, and do not restate an old fact ' +
+      'in new words unless something actually changed. Omit "changed" entirely ' +
+      'when nothing did.\n' +
       (run.memory && run.memory.summary ? 'Existing summary to extend:\n' + run.memory.summary + '\n' : '') +
-      (run.memory && run.memory.facts && run.memory.facts.length
-        ? 'Existing facts:\n' + run.memory.facts.join('\n') + '\n' : '');
+      (currentLines.length
+        ? 'LIST BELOW - what the story currently holds true:\n' + currentLines.join('\n') + '\n'
+        : '');
     var rules = instruction;
     instruction = rules + '\nTranscript:\n' + convo;
 
@@ -2182,7 +2203,7 @@
       return Horde.generateText({
         prompt: instruction + '\n\nJSON:',
         model: s.hordeTextModel || '',
-        maxLength: 320, temperature: 0.3, topP: 0.9, apikey: s.hordeKey,
+        maxLength: 420, temperature: 0.3, topP: 0.9, apikey: s.hordeKey,
         maxWait: 300
       }).then(function (r) { return parseMemory(r.text); });
     }
@@ -2224,7 +2245,7 @@
   }
 
   function parseMemory(text) {
-    var out = { summary: '', facts: [], ok: false, reason: '' };
+    var out = { summary: '', facts: [], changed: [], ok: false, reason: '' };
     var raw = String(text || '').trim();
     if (!raw) { out.reason = 'the model returned nothing'; return out; }
     var start = raw.indexOf('{');
@@ -2235,6 +2256,11 @@
         var j = JSON.parse(raw.slice(start, end + 1));
         body = String(j.summary || '').trim();
         out.facts = (j.facts || []).map(function (f) { return String(f).trim(); }).filter(Boolean).slice(0, 12);
+        /* v1.39.100: facts this transcript made untrue. Free text, matched
+           against the stored list by the engine - never applied blindly. */
+        out.changed = (j.changed || j.superseded || []).map(function (f) {
+          return String((f && typeof f === 'object') ? (f.text || '') : f).trim();
+        }).filter(Boolean).slice(0, 12);
         out.ok = true;
       } catch (e) { body = ''; }
     }
@@ -2247,7 +2273,10 @@
       if (sm) {
         try { body = JSON.parse('"' + sm[1] + '"').trim(); }
         catch (e2) { body = sm[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').trim(); }
-        var fm = /"facts"\s*:\s*\[([\s\S]*)$/.exec(raw);
+        /* v1.39.100: stop at the end of the facts array, or at the next
+           key - otherwise a truncated answer with a "changed" list after
+           "facts" folded those lines into the facts as well. */
+        var fm = /"facts"\s*:\s*\[([\s\S]*?)(?:"changed"\s*:|"superseded"\s*:|\]\s*[,}]|$)/.exec(raw);
         if (fm) {
           var items = fm[1].match(/"((?:[^"\\]|\\.)*)"/g) || [];
           out.facts = items.map(function (q) {
