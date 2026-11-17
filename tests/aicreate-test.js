@@ -245,6 +245,109 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     wbox.window = wbox;
     vm.runInNewContext(fs.readFileSync(path.join(JS, 'hordeworld.js'), 'utf8'), wbox, { filename: 'hordeworld.js' });
 
+    /* ---- v1.39.103: a drafted world is a playable one ------------------
+       The drafter used to ask for a social sandbox: quests, relationships and
+       a key nothing reads. No checks, so the referee could never call for a
+       roll; no dice, no turn bound, no vital stat. It still asked for 2-3
+       skills and 1-2 classes - a training the world could never test. These
+       checks are about what the DRAFT can do when it is played, not about the
+       wording of the prompt. */
+    var appSrc = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
+    var draftStart = appSrc.indexOf('App.aiCreateWorld = function');
+    var draftEnd = appSrc.indexOf('App.importWorld = function');
+    var draft = appSrc.slice(draftStart, draftEnd);
+    ok('the drafter exists', draftStart !== -1 && draftEnd > draftStart);
+
+    /* the shape it echoes back has to declare the dice the engine runs */
+    var shapeAt = draft.indexOf('var waysInShape');
+    /* the shape literal carries its own comment, so read to its closing
+       statement rather than a fixed number of characters */
+    var shapeStop = shapeAt === -1 ? -1 : draft.indexOf('hudConfig: {} });', shapeAt);
+    var shape = shapeAt === -1 ? '' : draft.slice(shapeAt, shapeStop + 40)
+      /* the shape's own comment explains what was removed; the assertions are
+         about the object it builds, so the comment is not evidence */
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    ok('the drafted ruleset declares checks', /checks:\s*\[\]/.test(shape), shape.slice(0, 200));
+    ok('...and dice', /dice:\s*\{/.test(shape));
+    ok('...and a turn bound', /statBound:\s*\d/.test(shape));
+    /* only modules the engine reads are declared; health is conditional and
+       asked for in words, because a world with no stat that can hit zero
+       should not claim a floor it does not have */
+    ok('...and modules the engine actually reads',
+      /quests:\s*true/.test(shape) && /inventory:\s*true/.test(shape) && /commerce:\s*true/.test(shape));
+    ok('...and does not claim modules nothing reads',
+      !/livingWorld/.test(shape) && !/modules[^}]*relationships/.test(shape), shape);
+    ok('the drafter asks for checks with consequences both ways',
+      /checks is 2-4 of/.test(draft) && /on_success/.test(draft) && /on_failure/.test(draft));
+    ok('...and asks for a vital stat when health is on', /vitalStatId/.test(draft));
+    ok('the drafter asks for the off-screen pacing', /worldAgent/.test(draft) && /intervalTurns/.test(draft));
+    /* every module the draft declares has to be a module the code reads */
+    var grSrc = fs.readFileSync(path.join(JS, 'hordeworld.js'), 'utf8') +
+                fs.readFileSync(path.join(JS, 'views.js'), 'utf8') + appSrc;
+    var read = {};
+    (grSrc.match(/modules\s*\|\|\s*\{\}\)\.([a-zA-Z]+)/g) || []).forEach(function (m) {
+      read[m.split('.').pop()] = true;
+    });
+    ok('the code reads these modules', Object.keys(read).length > 0, Object.keys(read).join(','));
+    /* only the modules block's own keys - `criticals` and friends live
+       elsewhere in the same shape literal */
+    var modulesBlock = (shape.match(/modules:\s*\{[^}]*\}/) || [''])[0];
+    var declared = (modulesBlock.match(/(\w+):\s*true/g) || []).map(function (x) { return x.split(':')[0]; });
+    var unknown = declared.filter(function (m) { return !read[m]; });
+    ok('every module the draft declares is one the code reads',
+      declared.length >= 3 && unknown.length === 0,
+      declared.join(',') + ' / unread: ' + unknown.join(','));
+
+    /* and the promise holds: a world built from that shape really plays */
+    var draftedWorld = wbox.HW.parse({
+      _format: 'horde-world', name: 'Drafted', ledgerV2: true,
+      startLocationId: 'loc_pier',
+      locations: [{ id: 'loc_pier', name: 'Old Pier' }, { id: 'loc_dock', name: 'Old Dock' }],
+      entities: [{ id: 'npc_warden', name: 'Tide Warden', type: 'npc', homeLocation: 'loc_pier' }],
+      gameRules: {
+        modules: { quests: true, relationships: true, livingWorld: true, health: true, inventory: true, commerce: true },
+        checks: [{ name: 'Sneak', dc: 11, stat: 'stat_nerve',
+                   on_success: { stats: { stat_nerve: 1 } }, on_failure: { stats: { stat_nerve: -2 } } }],
+        dice: { sides: 20, defaultDifficulty: 11, criticals: true },
+        statBound: 3, vitalStatId: 'stat_nerve'
+      },
+      hudConfig: { stats: [{ id: 'stat_nerve', name: 'Nerve', value: 10, min: 0, max: 20 },
+                           { id: 'stat_insight', name: 'Insight', value: 10, min: 0, max: 20 }] },
+      startingLives: [{ id: 'origin_main', name: 'New Face', startLocationId: 'loc_pier' }],
+      skillsCatalog: [{ id: 'skill_water', name: 'Reading the Water', stat: 'stat_insight' }],
+      classes: [{ id: 'cls_pilot', name: 'Pilot', skills: ['skill_water'] }]
+    });
+    ok('a drafted world parses', !!draftedWorld);
+    var dr = wbox.HW.start(draftedWorld, 'origin_main');
+    dr.turn = 1;
+    ok('a drafted world has a vital floor', wbox.HW.vitalStat(draftedWorld) === 'stat_nerve');
+    var drPrompt = wbox.HW.buildPrompt(draftedWorld, dr, 'I step onto the pier.').system;
+    ok('its prompt offers the check grammar', /\[\[roll:SPEC:check:NAME\]\]/.test(drPrompt));
+    ok('...and names the check it can call', /Sneak \(DC 11\)/.test(drPrompt));
+    /* a roll really resolves, and moves the world's numbers by its own rule */
+    var before = dr.stats.stat_nerve;
+    dr.turn = 2;
+    var rolled = wbox.HW.resolveCheckNow(draftedWorld, dr, 'Sneak');
+    ok('the check rolls', !!(rolled && rolled.entry), JSON.stringify(rolled));
+    ok('...and pays its consequence', dr.stats.stat_nerve !== before,
+      before + ' -> ' + dr.stats.stat_nerve);
+    /* the turn bound holds: a proposed change beyond it is refused */
+    var drMid = wbox.HW.start(draftedWorld, 'origin_main');
+    var bounded = wbox.HW.applyTags(draftedWorld, drMid, 'A windfall. [[cash:+40]]');
+    ok('an over-bound change is refused, not applied',
+      (bounded.rejections || []).some(function (r) { return /beyond/.test(r.reason); }),
+      JSON.stringify(bounded.rejections) + ' cash ' + drMid.stats.cash);
+    ok('...and the purse did not move', (drMid.stats.cash || 0) === 0, drMid.stats.cash);
+    /* the training the drafter asks for can actually be taught and used */
+    var taught = wbox.HW.applyTags(draftedWorld, drMid, 'You learn the water. [[skill:Reading the Water]]');
+    ok('a taught skill is recorded', (drMid.skills || {}).skill_water === 1,
+      JSON.stringify(drMid.skills) + ' ' + (taught.rejections || []).length);
+    /* the pacing the drafter now asks for is honoured by the engine */
+    var paced = wbox.HW.parse(Object.assign({}, draftedWorld, { worldAgent: { enabled: true, intervalTurns: 12 } }));
+    ok('the off-screen pulse runs on the drafted interval',
+      wbox.HW.pulseInterval(paced) === 12 && wbox.HW.pulseDue(paced, { turn: 12 }) === true);
+    ok('...and not before it', wbox.HW.pulseDue(paced, { turn: 11 }) === false);
+
     /* ---- the three-part world draft joins through HW.assemble ------------ */
     var partPlaces = {
       name: 'Drowned City', description: 'A sunken metropolis of canals.',

@@ -63,7 +63,12 @@
     ['name', 'description', 'startLocationId', 'locations',
      'entities', 'factions', 'relationships', 'lorebook', 'classes', 'skillsCatalog',
      'dmPrompt', 'intro', 'authorNote', 'startingLives', 'gameRules', 'hudConfig',
-     'goalPrograms', 'startingQuests', 'sandboxConfig', 'kernel'
+     'goalPrograms', 'startingQuests', 'sandboxConfig', 'kernel',
+     /* v1.39.103: two keys a draft could carry and this join silently threw
+        away - the off-screen pacing the referee prompt asks for, and the item
+        registry that decides whether a world's item tags are checked at all.
+        A drafter that mentions either must not have it dropped on the floor. */
+     'worldAgent', 'items'
     ].forEach(function (k) {
       var v = a[k] !== undefined ? a[k] : (b[k] !== undefined ? b[k] : c[k]);
       if (v !== undefined) w[k] = v;

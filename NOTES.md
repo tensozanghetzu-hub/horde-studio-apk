@@ -1,5 +1,43 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.103 — a drafted world is a playable one (2026-11-17)
+
+Reported: "AI create a world" produces a social sandbox — `gameRules.modules`
+gets quests, relationships and livingWorld and nothing else, no checks, no
+dice, no `statBound` — then asks for 2-3 skills and 1-2 classes and stops.
+Verified against the shipped prompt and the engine: **accurate on every point**,
+and the consequences were real.
+
+- **The drafted world had no dice.** With no `checks`, the prompt never offers
+  the check grammar and the two-phase turn is skipped, so a referee could never
+  call for a roll. It now asks for 2-4 checks with a DC, the stat each rides
+  on, and a consequence **in both directions** — plus `dice` and a `statBound`
+  of 2-5, so a single turn cannot move a number by a hundred.
+- **It asked for a training it could never test.** The drafter spent a whole
+  request on 2-3 skills and 1-2 classes while offering no check that could use
+  one. Skills are now something the world can actually call on.
+- **No vital stat.** `health` was never asked for, so there was no floor and no
+  downed state; it is now offered, conditional, with the stat named in
+  `vitalStatId`.
+- **Two of the three modules it asked for are read by nothing.**
+  `relationships` and `livingWorld` are consumed nowhere in the engine — the
+  social web comes from the people draft's own `relationships` array, and the
+  world moving on its own comes from `worldAgent`. Asking for them was asking
+  the model to fill in keys that do nothing. The shape now declares only
+  modules the code reads.
+- **Found next door:** the referee draft asked for `kernel.sceneLocationLimit`
+  — which the engine reads, but only to reorder the location list — while the
+  pacing that actually makes the world breathe is `worldAgent.intervalTurns`,
+  which was never asked for. Drafted worlds never had an off-screen pulse. It
+  is asked for now (8-20 turns).
+- **And `HW.assemble` was dropping keys on the floor:** a draft's `worldAgent`
+  and its `items` registry were thrown away during the join, so an item-registry
+  world silently lost the check on its owns item tags. Both are carried now.
+- `tests/aicreate-test.js` grows 20 checks that play a *drafted* world rather
+  than reading the prompt: it has a vital floor, offers the check grammar,
+  rolls a check and pays both consequences, refuses an over-bound change, and
+  teaches a skill. Suite 110 files / 0 failing; generic gate clean.
+
 ## v1.39.102 — the continuity scene fields, verified (2026-11-17)
 
 Reported: `parseContinuityUpdate` accepts stage/location/time changes but

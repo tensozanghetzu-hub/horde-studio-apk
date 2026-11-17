@@ -2959,7 +2959,15 @@
                 'Finish the roleplay world ' + (places.name || 'the world') + '. ' +
                 'Answer with ONE JSON object only, first and last characters curlies. Single line, no ' +
                 'markdown, no commentary, with exactly these keys: ' +
-                JSON.stringify({ dmPrompt: '', intro: '', authorNote: '', kernel: { sceneLocationLimit: 15 } }) + ' ' +
+                /* v1.39.103: this asked for kernel.sceneLocationLimit, which
+                   the engine reads but not for pacing - it only reorders the
+                   location list. The interval that actually makes the world
+                   move between scenes is worldAgent.intervalTurns, and the
+                   drafter never asked for it, so a drafted world never
+                   breathed. It is asked for now, next to the cap it was
+                   confused with. */
+                JSON.stringify({ dmPrompt: '', intro: '', authorNote: '',
+                  kernel: { sceneLocationLimit: 15 }, worldAgent: { enabled: true, intervalTurns: 15 } }) + ' ' +
                 'where dmPrompt is 120-180 words: you are the showrunner and referee of this world; ' +
                 'the core promise that the player can do anything; what persists and what never resets; ' +
                 'simulation discipline — honor the clock, exits, who is present, and what characters ' +
@@ -2967,7 +2975,10 @@
                 'consent; voice: second person, present tense, concrete, no purple prose. ' +
                 'intro is the opening scene, 2-3 sentences, second person present tense, ending on a ' +
                 'small hook. authorNote is one sentence on what keeps this world honest. ' +
-                'kernel.sceneLocationLimit is an integer 10-30.',
+                'kernel.sceneLocationLimit is an integer 10-30 — how many places the referee keeps in ' +
+                'mind at once. worldAgent.intervalTurns is an integer 8-20: how many turns pass before the ' +
+                'world itself moves off-screen (a faction acts, a rumour travels) so the story is not ' +
+                'waiting on the player alone.',
                 480, prog).then(function (referee) {
                 if (!referee || !referee.dmPrompt) {
                   throw new Error('the model sent no referee prompt — press Create to try again');
@@ -2977,7 +2988,15 @@
                 status(stage + '…');
                 var waysInShape = JSON.stringify({
                   startingLives: [], startingQuests: [], goalPrograms: [],
-                  gameRules: { modules: { quests: true, relationships: true, livingWorld: true } },
+                  /* only modules the engine actually reads: `relationships`
+                     and `livingWorld` were asked for here for many releases
+                     and nothing consumes either - the social web comes from
+                     the people draft's own relationships array, and the world
+                     moving on its own comes from worldAgent. */
+                  gameRules: {
+                    modules: { quests: true, inventory: true, commerce: true },
+                    checks: [], dice: { sides: 20, defaultDifficulty: 11, criticals: true }, statBound: 3
+                  },
                   hudConfig: {} });
                 return API.aiJson(Store.settings,
                   'Finish the roleplay world ' + (places.name || 'the world') + ' on the way in. ' +
@@ -2994,7 +3013,24 @@
                   '"steps":["3 short steps, in order"]}. ' +
                   'hudConfig is {"showClock":true, "startWeekday":"Monday", "startTimeHours":8, ' +
                   '"startTimeMinutes":integer 0-59, "timeStep":10, "stats":[3 of {"id":"stat_snake", "name":"string", ' +
-                  '"value":integer, "min":0, "max":integer}]}.',
+                  '"value":integer, "min":0, "max":integer}]}. ' +
+                  /* v1.39.103: a world the app drafts has to be as playable as
+                     one an author writes. It used to be handed a social
+                     sandbox - four modules, no checks, no dice, no turn
+                     bound - so the referee could never call for a roll, never
+                     had a vital floor, and could move a number by any amount
+                     it liked in one turn. The shape now declares the dice the
+                     engine already knows how to run, and asks for the two to
+                     four checks this world's premise actually turns on. */
+                  'gameRules.modules keeps quests and picks the rest honestly: inventory and commerce ' +
+                  'unless this world has nothing to carry or trade, and health only when one of the stats ' +
+                  'above can drop to zero - name that stat in "vitalStatId". ' +
+                  'checks is 2-4 of {"name":"one or two words a referee would say out loud, ' +
+                  'e.g. Sneak or Read the Room", "dc":integer 8-16, "stat":"one of the stat ids you gave", ' +
+                  '"on_success":{"stats":{"stat id":integer -3 to +3}}, "on_failure":{"stats":{"stat id":integer ' +
+                  '-3 to +3}}} - the rolls this world actually turns on, each with a consequence both ways. ' +
+                  'dice keeps sides and defaultDifficulty from the shape and may raise criticals. ' +
+                  'statBound is an integer 2-5: the most any one stat or the purse may move in a single turn.',
                   480, prog).then(function (/* waysIn */ waysIn) {
                   /* 5 of 5 the book and the bent: skills, classes, lore */
                   stage = '5 of 5, the book and the bent';
