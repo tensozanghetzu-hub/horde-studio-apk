@@ -2180,6 +2180,82 @@
     return out.join('\n');
   }
 
+  /* Short enough to name the player by, long enough to still mean something. */
+  function clip(text, n) {
+    var t = String(text || '').replace(/\s+/g, ' ').trim();
+    return t.length > n ? t.slice(0, n - 1).replace(/[\s,;:.\u2013-]+$/, '') + '\u2026' : t;
+  }
+
+  /* The headline numbers only: the vital stat with its mark, and the purse.
+       Everything else is in the ledger above; repeating it here would be the
+       echo the briefing ban exists to stop. */
+  function nowNumbers(world, run) {
+    var hud = world.hudConfig || {}, gr = world.gameRules || {};
+    var out = [];
+    var vital = vitalStat(world);
+    if (vital) {
+      var s = null;
+      (hud.stats || []).forEach(function (x) { if (x.id === vital) s = x; });
+      if (s && run.stats && run.stats[vital] !== undefined) {
+        out.push('Vital: ' + s.name + ' ' + run.stats[vital] + (s.max !== undefined ? '/' + s.max : ''));
+      }
+    }
+    if ((gr.modules || {}).commerce !== false && run.cashId && run.stats && run.stats[run.cashId] !== undefined) {
+      out.push('Money: ' + run.stats[run.cashId] + ' ' + (gr.currencyName || 'cash'));
+    }
+    return out;
+  }
+
+  function nowObjectives(world, run) {
+    if (((world.gameRules || {}).modules || {}).quests === false) return [];
+    return (run.quests || []).filter(function (q) { return !q.done; })
+      .map(function (q) { return clip(q.text, 90); }).filter(Boolean).slice(0, 3);
+  }
+
+  /**
+   * v1.39.99: the NOW anchor.
+   *
+   * The briefing sits at the top of the system prompt. On a long run the
+   * history in between is thousands of tokens of prose, and a model reads
+   * the ends of its context far better than the middle — so the numbers and
+   * the open task that the chronicle above depends on ended up in exactly
+   * the place attention is weakest. That is how a ledger that says twelve
+   * coins still produces a scene where the purse is suddenly empty.
+   *
+   * This is the same state, from the same run, restated in five short lines
+   * immediately before the player's newest turn: where, when, who, the
+   * headline numbers, and what is still open. Nothing new is invented and it
+   * costs no model call. Deliberately terse — it is a reminder, not a second
+   * briefing, and the echo ban applies to it as much as to the fields above.
+   */
+  function buildNowBrief(world, run) {
+    var lines = [];
+    var l = location(world, run.locationId);
+    var clock = clockOf(run, (world.hudConfig || {}));
+    var where = [];
+    if (l) where.push('at ' + l.name);
+    if ((world.hudConfig || {}).showClock !== false) {
+      where.push(clock.text + (seasonText(world, run) ? ', ' + seasonText(world, run) : ''));
+    }
+    if (where.length) lines.push('Where: ' + where.join(' \u2014 '));
+
+    var withWho = (run.companions || []).map(function (c) { return c.name; });
+    if (l) {
+      npcsAt(world, l.id, clock).forEach(function (n) {
+        if (withWho.indexOf(n.name) === -1) withWho.push(n.name);
+      });
+    }
+    if (withWho.length) lines.push('Who is here: ' + clip(withWho.join(', '), 160));
+
+    var numbers = nowNumbers(world, run);
+    if (numbers.length) lines.push(numbers.join(' \u2014 '));
+
+    var open = nowObjectives(world, run);
+    if (open.length) lines.push('Open: ' + open.join('; '));
+
+    return lines.length ? lines.join('\n') : '';
+  }
+
   /**
    * Build the messages for one turn.
    * Returns { system, messages }.
@@ -2393,6 +2469,7 @@
     /* v1.30.4: a reply stored before the cleanup still carries the copied
        note - keep the model from reading it as a pattern to repeat. The
        player's own lines are never touched. */
+    var note = '';
     log.forEach(function (m) {
       messages.push({
         role: m.role,
@@ -2401,9 +2478,19 @@
         content: m.role === 'assistant' ? stripBriefingEcho(stripTagArtifacts(m.content)) : m.content
       });
     });
+    /* v1.39.99: the state the turn is answered from, as the last thing read
+       before the player's words (see buildNowBrief). */
+    var nowBrief = buildNowBrief(world, run);
+    if (nowBrief) {
+      note = 'Where things stand right now - bookkeeping, already applied:\n' + nowBrief +
+        '\nContinue from this, not from an earlier moment.';
+    }
     messages.push({ role: 'user', content: input });
 
-    return { system: parts.join('\n\n'), messages: messages };
+    /* A chat provider carries this as a trailing system turn so it reaches
+       the model after the newest user line. A prompt provider gets it after
+       the transcript and before the answer cue, which is the same place. */
+    return { system: parts.join('\n\n'), messages: messages, note: note };
   }
 
   /** Advance the turn counter and record the exchange.

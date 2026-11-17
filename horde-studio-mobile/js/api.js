@@ -913,6 +913,9 @@
       return [head.trim(), ex ? 'Example dialogue — a sample of the intended voice, length and format. ' +
         'These are NOT events that have already happened and are not part of this story:\n' + ex : '',
         'Chat history:\n' + h.join('\n'),
+        /* v1.39.99: finalNote is read here too, so a state reminder supplied
+           by a world run lands after the transcript and immediately before
+           the cue to answer — the same position the chat format gives it. */
         finalNote || '', character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */

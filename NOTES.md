@@ -1,5 +1,32 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.99 — the state, said again where it is actually read (2026-11-17)
+
+The research in `MEMORY-AND-STATE-RESEARCH.md` named one cause of late-game
+fuzziness with a cheap fix, so this release takes it.
+
+- **A NOW anchor on every world turn.** The briefing — time, stats, money,
+  carrying, tasks — sits at the top of the system prompt. On a long run the
+  transcript grows between it and the player's newest line, and the middle of a
+  long context is where a model reads worst, so the numbers a run is honouring
+  were the ones easiest to lose: the purse refills, a level slides back, an open
+  task stops being mentioned. The same state is now restated in a few short
+  lines immediately *before* the newest turn: where, when, who is present, the
+  vital number and the purse, and at most three open tasks.
+- **It is bookkeeping, not a second briefing.** No stat dump, no inventory, no
+  lore, no memory, three tasks at most, and the same "never restate this" ban
+  applies. Nothing new is invented and it costs no model call.
+- **It rides the seam, not the middle.** For a chat provider it is a trailing
+  system turn after the newest user line (where the reroll note already goes);
+  for a prompt provider it is joined after the transcript and immediately before
+  the cue to answer. A repaired turn gets it too, from the pre-turn state.
+- Worlds are untouched: the block is built from the run, so nothing in an
+  installed world file changes, and a world with no clock, no numbers and no
+  open tasks simply gets no anchor.
+- New `tests/nowbrief-test.js` (31 checks) pins the position, the contents, the
+  terseness and the silence. Suite 108 files / 0 failing; generic gate clean.
+- Research only, no card involved: the world in the test is invented here.
+
 ## v1.39.98 — the bundled sample world, and the last of it (2026-11-17)
 
 The v1.39.97 sweep caught the docs, the comments and the tests. It missed the one

@@ -3386,6 +3386,8 @@
           examples: '', lorebook: [], systemPrompt: prompt2.system
         },
         session: { id: run.id },
+        /* v1.39.99: a repaired turn is answered from the same NOW state */
+        finalNote: prompt2.note || null,
         history: msgs.map(function (m) {
           return { id: 'w' + Math.random().toString(36).slice(2),
                    role: m.role, text: m.text, createdAt: Date.now() };
@@ -3423,6 +3425,8 @@
         examples: '', lorebook: [], systemPrompt: built.system
       },
       session: { id: run.id },
+      /* v1.39.99: the state restated immediately before the newest turn */
+      finalNote: built.note || null,
       history: built.messages.map(function (m) {
         return { id: 'w' + Math.random().toString(36).slice(2), role: m.role, text: m.content, createdAt: Date.now() };
       }),
