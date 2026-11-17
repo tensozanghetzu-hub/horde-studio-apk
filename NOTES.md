@@ -1,5 +1,32 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.102 — the continuity scene fields, verified (2026-11-17)
+
+Reported: `parseContinuityUpdate` accepts stage/location/time changes but
+`normalizeContinuity` drops them. Investigated against the shipped code, with
+the round trip run end to end — **the report does not reproduce**, but the
+investigation found a real inconsistency in the same place.
+
+- **What was checked:** a model proposal setting stage, location and time is
+  parsed in full; `applyContinuityProposal` writes all three onto the ledger;
+  saving that ledger through `normalizeContinuity` keeps all three; and the
+  next prompt says `Stage: Act Two / Location: The Cellar / Time: Night`. A
+  stage change also flips stage-gated lore as it should. Refusals — unknown
+  field, empty value — are deliberate: the ledger is not blanked by a bad
+  proposal.
+- **Not reproduced:** `normalizeContinuity` reads all three fields from the
+  ledger it is given. The guess in the report — that the fields "come from
+  somewhere else" — does not hold: nothing else supplies them.
+- **What was wrong anyway:** a scene change was clipped to 160 characters on
+  the way through the parser, but the ledger stores stage and time at 120. A
+  long stage or time was therefore shown to the reviewer in full and silently
+  cut on save — the approved change and the saved change were not the same
+  string. Each field is now clipped to its own ceiling, so what the reviewer
+  approves is exactly what is stored.
+- `tests/continuity-test.js` grows 10 checks over the whole scene round trip,
+  including the "unrelated proposal must not roll the scene back" case.
+  Suite 110 files / 0 failing; generic gate clean.
+
 ## v1.39.101 — the die is rolled before the scene is written (2026-11-17)
 
 The third and last change from `MEMORY-AND-STATE-RESEARCH.md`. The die was

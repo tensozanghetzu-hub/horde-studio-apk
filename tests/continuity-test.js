@@ -68,5 +68,55 @@ ok('reply handler stores proposals only for enabled chats and hides tags', /sess
 ok('continuity is included in per-chat export/import and timeline forks', /continuity:\s*s\.continuity/.test(app) && /s\.continuity\s*=\s*API\.normalizeContinuity/.test(app) && /s2\.continuity\s*=/.test(app));
 ok('message actions expose pending continuity proposals for review', /data-act="continuity-review"/.test(views) && /App\.reviewContinuityProposal\(msg\)/.test(app));
 ok('timeline stage is editable on lore entries and carried through card import/export', /Timeline stage \(optional, exact match\)/.test(app) && /stage:\s*e\.stage\s*\|\|\s*''/.test(fs.readFileSync(path.join(ROOT, 'js/store.js'), 'utf8')));
+/* v1.39.102: the scene fields round-trip. A model may propose a new stage,
+   location or time; approving it has to change what the next prompt says,
+   and the string the reviewer approved has to be the string that is saved. */
+var sceneBase = {
+  enabled: true, stage: 'Act One', location: 'Archive', time: 'Evening',
+  participants: ['Olive'], knowledge: [], objects: [], events: []
+};
+var sceneProposal = API.parseContinuityUpdate('<continuity_update>{"reason":"they moved below","changes":[' +
+  '{"type":"scene","op":"set","field":"stage","value":"Act Two"},' +
+  '{"type":"scene","op":"set","field":"location","value":"The Cellar"},' +
+  '{"type":"scene","op":"set","field":"time","value":"Night"}]}</continuity_update>');
+ok('a scene proposal survives parsing', !!sceneProposal && sceneProposal.changes.length === 3);
+var sceneApplied = API.applyContinuityProposal(sceneBase, sceneProposal);
+ok('applying it changes all three scene fields',
+  sceneApplied.stage === 'Act Two' && sceneApplied.location === 'The Cellar' && sceneApplied.time === 'Night',
+  JSON.stringify([sceneApplied.stage, sceneApplied.location, sceneApplied.time]));
+ok('the source ledger is untouched', sceneBase.stage === 'Act One' && sceneBase.location === 'Archive');
+/* the round trip that actually decides what the model reads next */
+var sceneAppliedTwice = API.normalizeContinuity(sceneApplied);
+ok('saving it again does not drop it',
+  sceneAppliedTwice.stage === 'Act Two' && sceneAppliedTwice.location === 'The Cellar' && sceneAppliedTwice.time === 'Night',
+  JSON.stringify(sceneAppliedTwice));
+var scenePrompt = API.continuityPrompt({ continuity: sceneApplied });
+ok('and the next prompt is written from the new scene',
+  scenePrompt.indexOf('Stage: Act Two') >= 0 && scenePrompt.indexOf('Location: The Cellar') >= 0 &&
+  scenePrompt.indexOf('Time: Night') >= 0, scenePrompt.split('\n').slice(2, 5).join(' | '));
+/* a proposal that does not mention the scene leaves a hand-edit alone */
+var handEdited = { enabled: true, stage: 'Act Two', location: 'The Vault', time: 'Night',
+  participants: ['Olive'], knowledge: [], objects: [], events: [] };
+var arrival = API.parseContinuityUpdate('<continuity_update>{"changes":[{"type":"participant","op":"add","name":"Ivo"}]}</continuity_update>');
+var afterArrival = API.applyContinuityProposal(handEdited, arrival);
+ok('an unrelated proposal does not roll the scene back',
+  afterArrival.location === 'The Vault' && afterArrival.stage === 'Act Two' && afterArrival.time === 'Night',
+  JSON.stringify([afterArrival.stage, afterArrival.location, afterArrival.time]));
+ok('...and still applies its own change', afterArrival.participants.indexOf('Ivo') >= 0);
+/* the approved string is the saved string */
+var longText = new Array(200).join('s');
+var longProposal = API.parseContinuityUpdate('<continuity_update>{"changes":[' +
+  '{"type":"scene","op":"set","field":"stage","value":"' + longText + '"},' +
+  '{"type":"scene","op":"set","field":"location","value":"' + longText + '"}]}</continuity_update>');
+var longApplied = API.applyContinuityProposal(sceneBase, longProposal);
+ok('what the reviewer is shown is what gets saved',
+  longApplied.stage.length === longProposal.changes[0].value.length &&
+  longApplied.location.length === longProposal.changes[1].value.length,
+  longProposal.changes[0].value.length + '/' + longApplied.stage.length + ', ' +
+  longProposal.changes[1].value.length + '/' + longApplied.location.length);
+ok('scene field ceilings match the ledger\'s own',
+  longApplied.stage.length === 120 && longApplied.location.length === 160,
+  longApplied.stage.length + '/' + longApplied.location.length);
+
 console.log('\ncontinuity-test: ' + (fail ? fail + ' failed, ' : '') + pass + ' ok');
 process.exit(fail ? 1 : 0);

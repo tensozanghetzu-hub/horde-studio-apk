@@ -357,7 +357,13 @@
       if (!x || typeof x !== 'object') return;
       var type = String(x.type || ''), op = String(x.op || '');
       if (type === 'scene' && op === 'set' && ['stage', 'location', 'time'].indexOf(x.field) !== -1) {
-        var value = clip(x.value, 160); if (value) changes.push({ type: type, op: op, field: x.field, value: value });
+        /* v1.39.102: each scene field is clipped to the same ceiling the
+           ledger stores it at. They used to share one 160 ceiling, so a long
+           stage or time was shown to the reviewer in full and then silently
+           cut to 120 on save - the approved change and the saved change were
+           not the same string. */
+        var cap = (x.field === 'location') ? 160 : 120;
+        var value = clip(x.value, cap); if (value) changes.push({ type: type, op: op, field: x.field, value: value });
       } else if (type === 'participant' && ['add', 'remove'].indexOf(op) !== -1) {
         var name = clip(x.name, 80); if (name) changes.push({ type: type, op: op, name: name });
       } else if (type === 'knowledge' && ['add', 'remove'].indexOf(op) !== -1) {
