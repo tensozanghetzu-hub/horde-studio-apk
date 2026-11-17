@@ -1,5 +1,18 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.98 — the bundled sample world, and the last of it (2026-11-17)
+
+The v1.39.97 sweep caught the docs, the comments and the tests. It missed the one
+place a name could still ship: the sample world that every install can open.
+
+- **The sample world now uses the same invented cast as the tests** — the
+  investigator is Tessa Holt, and her id is `npc_investigator`, not a name. The
+  fixture and the bundled copy are the same people again, so a test that reads a
+  name from one and joins it in the other cannot drift apart.
+- Nothing else changed: no prompt, no rule, no threshold. A world already
+  installed on a phone is untouched — this only affects a fresh copy.
+- Suite 106 files / 0 failing, generic gate clean.
+
 ## v1.39.97 — no card names left anywhere (2026-11-17)
 
 Requested: go through the docs, the comments and the tests and remove any
