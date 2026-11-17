@@ -45,35 +45,35 @@ var API = sb.API;
 /* ------------------------------------------------------------------ */
 console.log('1. the card\'s own name is a speaker label on a cast card');
 
-var cast = ['Sloane', 'Aston', 'Mara'];
+var cast = ['Nadia', 'Boris', 'Olive'];
 var single = [];
 
-var replySheOpens = 'Sloane: *She sets her backpack down.* "I can take the treadmill down."';
+var replySheOpens = 'Nadia: *She sets her backpack down.* "I can take the treadmill down."';
 same('her own label is kept when she speaks first',
-  API.cleanReply(replySheOpens, 'Sloane', 'Blu', { cast: cast }), replySheOpens);
+  API.cleanReply(replySheOpens, 'Nadia', 'Quinn', { cast: cast }), replySheOpens);
 
-var replyMidway = 'The landing is quiet.\nSloane: "I can take the treadmill down."';
+var replyMidway = 'The landing is quiet.\nNadia: "I can take the treadmill down."';
 ok('a line starting with her name no longer cuts the reply',
-  API.cleanReply(replyMidway, 'Sloane', 'Blu', { cast: cast }).indexOf('treadmill') !== -1,
-  API.cleanReply(replyMidway, 'Sloane', 'Blu', { cast: cast }));
+  API.cleanReply(replyMidway, 'Nadia', 'Quinn', { cast: cast }).indexOf('treadmill') !== -1,
+  API.cleanReply(replyMidway, 'Nadia', 'Quinn', { cast: cast }));
 same('…the whole reply survives',
-  API.cleanReply(replyMidway, 'Sloane', 'Blu', { cast: cast }), replyMidway);
+  API.cleanReply(replyMidway, 'Nadia', 'Quinn', { cast: cast }), replyMidway);
 
-var replyOther = 'Aston: *He grins.* "Thanks, buddy."';
-same('another speaker\'s label is untouched', API.cleanReply(replyOther, 'Sloane', 'Blu', { cast: cast }), replyOther);
+var replyOther = 'Boris: *He grins.* "Thanks, buddy."';
+same('another speaker\'s label is untouched', API.cleanReply(replyOther, 'Nadia', 'Quinn', { cast: cast }), replyOther);
 
 console.log('\nthe player\'s own name still ends the reply, cast or not');
-var leaked = 'Sloane: "Hi."\nBlu: *I nod and head upstairs.*';
+var leaked = 'Nadia: "Hi."\nQuinn: *I nod and head upstairs.*';
 same('a fake player turn is still cut',
-  API.cleanReply(leaked, 'Sloane', 'Blu', { cast: cast }), 'Sloane: "Hi."');
+  API.cleanReply(leaked, 'Nadia', 'Quinn', { cast: cast }), 'Nadia: "Hi."');
 
 console.log('\na one-character card behaves exactly as before');
 same('her label is stripped there',
-  API.cleanReply('Sloane: *She nods.*', 'Sloane', 'Blu', { cast: single }), '*She nods.*');
+  API.cleanReply('Nadia: *She nods.*', 'Nadia', 'Quinn', { cast: single }), '*She nods.*');
 same('…and a mid-reply turn still cuts it',
-  API.cleanReply('She nods.\nSloane: Another line.', 'Sloane', 'Blu', { cast: single }), 'She nods.');
+  API.cleanReply('She nods.\nNadia: Another line.', 'Nadia', 'Quinn', { cast: single }), 'She nods.');
 same('no cast passed at all is the old behaviour',
-  API.cleanReply('Sloane: *She nods.*', 'Sloane', 'Blu'), '*She nods.*');
+  API.cleanReply('Nadia: *She nods.*', 'Nadia', 'Quinn'), '*She nods.*');
 
 console.log('\nthe bubble header follows the speaker');
 ok('the chat sets speakerName from the reply', /msg\.speakerName = spoken\.name/.test(appSrc));

@@ -51,7 +51,7 @@ function makeContext() {
       icon: function (n) { return '<svg data-icon="' + n + '"></svg>'; },
       toast: function () {}
     },
-    Store: { settings: { userName: 'Blu', activePersona: '' } },
+    Store: { settings: { userName: 'Quinn', activePersona: '' } },
     App: {},
     API: {}
   };

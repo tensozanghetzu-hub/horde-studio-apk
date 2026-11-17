@@ -49,26 +49,26 @@ function settings() {
 
 /* ---- parseAiJson: the extractor is the whole safety net ---------------- */
 
-var clean = { name: 'Mara', places: [{ id: 'a', name: 'Home' }] };
+var clean = { name: 'Olive', places: [{ id: 'a', name: 'Home' }] };
 var cleanText = JSON.stringify(clean);
 
 var r = loadApi(cleanText);
 var p = r.api.parseAiJson(cleanText);
-ok('clean object passes through', p && p.name === 'Mara' && p.places.length === 1, JSON.stringify(p));
+ok('clean object passes through', p && p.name === 'Olive' && p.places.length === 1, JSON.stringify(p));
 
 var fenced = '```json\n' + cleanText + '\n```';
-ok('fenced object is unwrapped', (r.api.parseAiJson(fenced) || {}).name === 'Mara');
+ok('fenced object is unwrapped', (r.api.parseAiJson(fenced) || {}).name === 'Olive');
 
 var prose = 'Sure! Here is the character as a JSON object:\n' + cleanText + '\nHope that helps!';
-ok('prose before and after is tolerated', (r.api.parseAiJson(prose) || {}).name === 'Mara');
+ok('prose before and after is tolerated', (r.api.parseAiJson(prose) || {}).name === 'Olive');
 
-var trail = '{"name":"Mara", "places":[{"id":"a","name":"Home"}],}';
-ok('trailing comma before a close is tolerated', (r.api.parseAiJson(trail) || {}).name === 'Mara');
+var trail = '{"name":"Olive", "places":[{"id":"a","name":"Home"}],}';
+ok('trailing comma before a close is tolerated', (r.api.parseAiJson(trail) || {}).name === 'Olive');
 
 ok('garbage returns null', r.api.parseAiJson('I am sorry, I cannot do that.') === null);
 ok('empty string returns null', r.api.parseAiJson('') === null);
 ok('top-level array is not an object', r.api.parseAiJson('[1,2,3]') === null);
-ok('unbalanced braces return null', r.api.parseAiJson('{"name":"Mara"') === null);
+ok('unbalanced braces return null', r.api.parseAiJson('{"name":"Olive"') === null);
 
 /* A whole-person draft has several ordered fields. A model can hit its output
    cap after completing persona but halfway through examples; that useful
@@ -118,7 +118,7 @@ ok('nested objects survive', (r.api.parseAiJson(JSON.stringify(nested)) || {}).a
 var ai = loadApi(fenced);
 ai.api.aiJson(settings(), 'the prompt', 800, function () {})
   .then(function (obj) {
-    ok('aiJson resolves to the parsed object', obj && obj.name === 'Mara', JSON.stringify(obj));
+    ok('aiJson resolves to the parsed object', obj && obj.name === 'Olive', JSON.stringify(obj));
     var s = ai.sent();
     ok('uses the selected horde model', s && s.model === 'test-model', s && s.model);
     ok('bounded by the caller\'s maxTokens', s && s.maxLength === 800, s && s.maxLength);
@@ -228,10 +228,10 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
         { id: 'loc_dock', name: 'Old Dock', mapType: 'building', parentLocationId: 'loc_region', description: 'A rotted pier.', exits: [{ text: 'to The Shallows', travelTime: 5, isOneWay: false }] }
       ],
       entities: [
-        { id: 'npc_mara', name: 'Mara', type: 'npc', isMajor: true, description: 'A boat-woman.', persona: 'Dry and watchful.', goal: 'Collect her debt.', secrets: 'She can swim.' }
+        { id: 'npc_fisher', name: 'Olive', type: 'npc', isMajor: true, description: 'A boat-woman.', persona: 'Dry and watchful.', goal: 'Collect her debt.', secrets: 'She can swim.' }
       ],
       factions: [{ id: 'fac_tide', name: 'Tide Guild', description: 'Runs the boats.' }],
-      relationships: [{ a: 'npc_mara', b: 'npc_mara', label: 'self', score: 0 }],
+      relationships: [{ a: 'npc_fisher', b: 'npc_fisher', label: 'self', score: 0 }],
       lorebook: [{ keyword: 'canal,water', text: 'The water is black and still.' }],
       startingLives: [{ id: 'origin_main', name: 'New Face in Town', role: 'A visitor.', startLocationId: 'loc_dock', description: 'You arrive at the dock.' }],
       gameRules: { modules: { quests: true, relationships: true, livingWorld: true } },
@@ -255,9 +255,9 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
       ]
     };
     var partPeople = {
-      entities: [{ id: 'npc_mara', name: 'Mara', type: 'npc', isMajor: true, description: 'A boat-woman.', persona: 'Dry and watchful.', goal: 'Collect her debt.', secrets: 'She can swim.' }],
+      entities: [{ id: 'npc_fisher', name: 'Olive', type: 'npc', isMajor: true, description: 'A boat-woman.', persona: 'Dry and watchful.', goal: 'Collect her debt.', secrets: 'She can swim.' }],
       factions: [{ id: 'fac_tide', name: 'Tide Guild', description: 'Runs the boats.' }],
-      relationships: [{ a: 'npc_mara', b: 'npc_mara', label: 'self', score: 0 }]
+      relationships: [{ a: 'npc_fisher', b: 'npc_fisher', label: 'self', score: 0 }]
     };
     var partRules = {
       dmPrompt: 'You are the showrunner and referee. ' + 'Filler. '.repeat(30),
@@ -291,7 +291,7 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     var rich = wbox.HW.parse(wbox.HW.assemble({
       places: partPlaces,
       people: {
-        entities: [{ id: 'npc_mara', name: 'Mara', type: 'npc', persona: 'Dry and watchful.',
+        entities: [{ id: 'npc_fisher', name: 'Olive', type: 'npc', persona: 'Dry and watchful.',
           homeLocation: 'loc_dock',
           schedule: [{ time: '09:00', locationId: 'loc_dock', activity: 'Mends the nets', days: ['weekday'] }] }],
         factions: [{ id: 'fac_tide', name: 'Tide Guild', description: 'Runs the boats.', goal: 'Own every mooring.' }]
@@ -355,7 +355,7 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
 
     /* v1.36.1: the character side learns its word edges too */
     var cchar = {
-      name: 'Mara', persona: 'Dry and watchful.',
+      name: 'Olive', persona: 'Dry and watchful.',
       lorebook: [
         { keys: ['bell'], content: 'bells at noon', enabled: true },
         { keys: ['mark'], content: 'the Mark counts coin', enabled: true },

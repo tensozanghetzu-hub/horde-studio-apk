@@ -40,8 +40,8 @@ Corollaries the user has stated directly:
   the shipped source in 60-character windows; a match fails.
 - **A manual list** of names from past testing, kept as a second net.
 - **Card-word false positives.** A word the app itself uses constantly is
-  vocabulary, not a name — "Your Wife (Mara)" must not forbid the word "your".
-  The shipped code is its own dictionary for this.
+  vocabulary, not a name — a rota entry of the form "Your Wife (Name)" must not
+  forbid the word "your". The shipped code is its own dictionary for this.
 - **Build isolation.** The build pipeline may not read a card folder at all.
 
 The test suite is the second half of the gate: every bug that was reported is

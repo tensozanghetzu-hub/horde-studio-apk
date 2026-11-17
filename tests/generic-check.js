@@ -25,7 +25,9 @@ section('1. No card-specific content in shipped code');
    Add to this list when a card name ends up in code or a comment. */
 const FORBIDDEN = [
   'nira', "veth", 'tal\'ira', 'samantha', 'voss',
-  'aston', 'sloane', 'aky', 'heres-the-deal',
+  'nadia', 'boris', 'olive', 'quinn', 'mira', 'ilse', 'frank',
+  'lena', 'tomas', 'wren',
+  'heres-the-deal',
   'jedi', 'twi\'lek', 'padawan', 'masters', "makashi"
 ];
 
@@ -132,15 +134,16 @@ cardDocs.forEach(d => {
 });
 
 /* A name that is an ordinary word in the app's own vocabulary cannot be used
-   as a detection signal — "Your Wife (Mara)" must not forbid the word "your".
+   as a detection signal — a rota entry like "Your Wife (Olive)" must not
+   forbid the word "your".
    The shipped code is its own dictionary: a word the app uses constantly is
    vocabulary, a word it never uses is a name. */
 const shippedAll = SHIPPED.map(f => {
   const p = path.join(JS, f);
   return fs.existsSync(p) ? fs.readFileSync(p, 'utf8').toLowerCase() : '';
 }).join('\n');
-/* v1.39.96: a card TITLE is mostly ordinary English — "Your Lonely Widow
-   Landlady" is four common words, and forbidding them fails every release for
+/* v1.39.96: a card TITLE is mostly ordinary English — "One Lonely Boarding
+   House" is four common words, and forbidding them fails every release for
    no reason. A name that the app itself uses as a word cannot be a leak
    indicator; the manual list above remains the net for the ones it cannot
    catch, and a genuine first leak is still caught because the word is not in
@@ -270,10 +273,10 @@ check(App.detectCast(sheetCard).length === 0, 'a one-person sheet yields no cast
 
 const groupCard = {
   name: 'Alpha',
-  persona: 'Bravo Vale is the father.\n\nCharlie Vale is his daughter.\n\n' +
-    'Bravo Vale said nothing.\nCharlie Vale asked about the rooms.\nCharlie Vale replied softly.\nBravo Vale asked back.',
-  scenario: 'Bravo Vale and Charlie Vale are guests.',
-  greeting: '"Charlie Vale said the rooms are upstairs."', examples: 'Charlie Vale: I will take the far one.'
+  persona: 'Cora Vane is the father.\n\nAda Vane is his daughter.\n\n' +
+    'Cora Vane said nothing.\nAda Vane asked about the rooms.\nAda Vane replied softly.\nCora Vane asked back.',
+  scenario: 'Cora Vane and Ada Vane are guests.',
+  greeting: '"Ada Vane said the rooms are upstairs."', examples: 'Ada Vane: I will take the far one.'
 };
 const g = App.detectCast(groupCard);
 check(g.length > 0, 'a genuine multi-person card still yields a cast', 'got ' + JSON.stringify(g));

@@ -39,12 +39,12 @@ var detectCast = sb.App.detectCast;
 console.log('\nthe reported card — one person, two headings');
 
 var widow = {
-  name: 'Your Lonely Widow Landlady',
-  persona: 'Name: Rosalind Chase\nAge: 34\nOccupation: Landlady\n' +
+  name: 'The Quiet Boarding House',
+  persona: 'Name: Mira Holloway\nAge: 34\nOccupation: Landlady\n' +
     'Relationship: Widow. Your neighbour across the street.\n' +
     'Appearance: Floral dresses, bare feet.',
   greeting: 'The screen door creaks open, and Rose steps out onto the porch with two glasses of lemonade.',
-  scenario: 'Rosalind Chase\'s house — front porch.',
+  scenario: 'Mira Holloway\'s house — front porch.',
   examples: 'Main INTRO:\n{{char}}: The screen door creaks open.\n' +
     '<START>\n{{char}}: Evening.\n' +
     'Relationship:\nShe has known you for years.'
@@ -52,8 +52,8 @@ var widow = {
 var cast = detectCast(widow);
 ok('"Main INTRO" is not a person', cast.indexOf('Main INTRO') === -1, JSON.stringify(cast));
 ok('"Relationship" is not a person', cast.indexOf('Relationship') === -1, JSON.stringify(cast));
-ok('"Rosalind Chase" is not added from the Name field alone',
-  cast.indexOf('Rosalind Chase') === -1, JSON.stringify(cast));
+ok('"Mira Holloway" is not added from the Name field alone',
+  cast.indexOf('Mira Holloway') === -1, JSON.stringify(cast));
 same('nothing is invented for a one-person card', cast, []);
 
 console.log('\nthe screen agrees with the prompt');
@@ -73,11 +73,11 @@ apiSb.window = apiSb;
 vm.runInNewContext(fs.readFileSync(path.join(JS, 'api.js'), 'utf8'), apiSb, { filename: 'api.js' });
 var API = apiSb.API;
 var ai = { id: 'a', name: 'Rose', persona: 'p', greeting: 'g', examples: '', scenario: '' };
-var one = API.buildChat(ai, oneName, [{ role: 'user', text: 'Hello.' }], { userName: 'Blu', systemPrompt: 'x', maxTokens: 600 });
+var one = API.buildChat(ai, oneName, [{ role: 'user', text: 'Hello.' }], { userName: 'Quinn', systemPrompt: 'x', maxTokens: 600 });
 ok('a single name never injects the cast override',
   one[0].content.indexOf('SCENE CAST') === -1, one[0].content.slice(0, 120));
 var two = API.buildChat(ai, { sceneCast: ['Rose', 'Tom'], scenePresent: ['Rose'] },
-  [{ role: 'user', text: 'Hello.' }], { userName: 'Blu', systemPrompt: 'x', maxTokens: 600 });
+  [{ role: 'user', text: 'Hello.' }], { userName: 'Quinn', systemPrompt: 'x', maxTokens: 600 });
 ok('two names still do', two[0].content.indexOf('SCENE CAST') !== -1);
 
 /* ------------------------------------------------------------------ */
@@ -85,23 +85,23 @@ console.log('\nreal people are still found');
 
 var group = {
   name: 'Alpha',
-  persona: 'Bravo Vale is the father.\n\nCharlie Vale is his daughter.\n\n' +
-    'Bravo Vale said nothing. Charlie Vale asked about the rooms.\n' +
-    'Charlie Vale replied softly. Bravo Vale asked back.',
-  scenario: 'Bravo Vale and Charlie Vale are guests.',
-  greeting: '"Charlie Vale said the rooms are upstairs."',
-  examples: 'Charlie Vale: I will take the far one.'
+  persona: 'Ada Vane is the father.\n\nCora Vane is his daughter.\n\n' +
+    'Ada Vane said nothing. Cora Vane asked about the rooms.\n' +
+    'Cora Vane replied softly. Ada Vane asked back.',
+  scenario: 'Ada Vane and Cora Vane are guests.',
+  greeting: '"Cora Vane said the rooms are upstairs."',
+  examples: 'Cora Vane: I will take the far one.'
 };
 var g = detectCast(group);
 ok('a genuine multi-person card still yields a cast', g.length >= 2, JSON.stringify(g));
 ok('…and the speakers are the ones found',
-  g.indexOf('Charlie Vale') !== -1 && g.indexOf('Bravo Vale') !== -1, JSON.stringify(g));
+  g.indexOf('Cora Vane') !== -1 && g.indexOf('Ada Vane') !== -1, JSON.stringify(g));
 
 var labelOnly = {
   name: 'Nobody', persona: '', scenario: '', greeting: '',
-  examples: 'Mara: Sit down.\nMara: You look tired.'
+  examples: 'Pearl: Sit down.\nPearl: You look tired.'
 };
-same('two speaking labels are enough', detectCast(labelOnly), ['Mara']);
+same('two speaking labels are enough', detectCast(labelOnly), ['Pearl']);
 
 var oneLine = {
   name: 'Nobody', persona: '', scenario: '', greeting: '',
@@ -119,57 +119,57 @@ same('even when a heading repeats, it is not a person', detectCast(headings), []
 
 console.log('\nthe card\'s own name is never cast');
 var selfCard = {
-  name: 'Rosalind Chase', persona: '', scenario: '',
-  greeting: 'Rosalind Chase said hello. Rosalind Chase said hello again.',
-  examples: 'Rosalind Chase: Welcome.'
+  name: 'Mira Holloway', persona: '', scenario: '',
+  greeting: 'Mira Holloway said hello. Mira Holloway said hello again.',
+  examples: 'Mira Holloway: Welcome.'
 };
 same('full name excluded', detectCast(selfCard), []);
 var firstOnly = {
-  name: 'Rosalind', persona: '', scenario: '',
-  greeting: 'Rosalind said hello. Rosalind said hello again.', examples: ''
+  name: 'Mira', persona: '', scenario: '',
+  greeting: 'Mira said hello. Mira said hello again.', examples: ''
 };
 same('first name excluded', detectCast(firstOnly), []);
 
 /* ------------------------------------------------------------------ */
 /* v1.39.83 — the reported card: three people written as field blocks.
-   "Name: Aston / Age: 32 / Role: ... / Appearance: ... / Likes: ..." once per
+   "Name: Boris / Age: 32 / Role: ... / Appearance: ... / Likes: ..." once per
    character means every field header recurs three times, and the scan counted
    each recurrence as an act. The headers outranked the speakers and the Scene
    bar filled with Name, Age, Role, Appearance, Likes. */
 console.log('\nfield blocks are not a cast');
 var blocks =
-  'Name: Aston\nAge: 32\nRole: Older brother\nAppearance: Tall, dark hair\nLikes: Cooking\n\n' +
-  'Name: Sloane\nAge: 29\nRole: Sister\nAppearance: Red hair\nLikes: Reading\n\n' +
-  'Name: Aky\nAge: 30\nRole: Wife\nAppearance: Blonde\nLikes: Music\n';
-var blockCard = { name: 'Sloane', persona: blocks, greeting: '', scenario: '', examples: '' };
+  'Name: Deacon\nAge: 32\nRole: Older brother\nAppearance: Tall, dark hair\nLikes: Cooking\n\n' +
+  'Name: Prue\nAge: 29\nRole: Sister\nAppearance: Red hair\nLikes: Reading\n\n' +
+  'Name: Ilse\nAge: 30\nRole: Wife\nAppearance: Blonde\nLikes: Music\n';
+var blockCard = { name: 'Prue', persona: blocks, greeting: '', scenario: '', examples: '' };
 same('a card made only of fields yields no cast', detectCast(blockCard), []);
 ['Name', 'Age', 'Role', 'Appearance', 'Likes'].forEach(function (w) {
   ok('"' + w + '" is not a person', detectCast(blockCard).indexOf(w) === -1);
 });
 
 var spokenBlocks = {
-  name: 'Sloane', persona: blocks, scenario: '', examples: '',
-  greeting: 'Sloane: \u201cHi... sorry if we\u2019re interrupting anything.\u201d\n\n' +
-    'Aston: \u201cDon\u2019t mind her. She\u2019s always been a little shy around new people.\u201d'
+  name: 'Prue', persona: blocks, scenario: '', examples: '',
+  greeting: 'Prue: \u201cHi... sorry if we\u2019re interrupting anything.\u201d\n\n' +
+    'Deacon: \u201cDon\u2019t mind her. She\u2019s always been a little shy around new people.\u201d'
 };
 same('the people in those blocks are found, and only the people',
-  detectCast(spokenBlocks), ['Sloane', 'Aston']);
+  detectCast(spokenBlocks), ['Prue', 'Deacon']);
 
 console.log('\nthe loaded character may be in her own scene');
 same('she leads the cast on a multi-person card',
-  detectCast(spokenBlocks)[0], 'Sloane');
+  detectCast(spokenBlocks)[0], 'Prue');
 var stillAlone = {
-  name: 'Rosalind', persona: '', scenario: '', examples: '',
-  greeting: 'Rosalind: \u201cCome in, it\u2019s cold out there.\u201d'
+  name: 'Mira', persona: '', scenario: '', examples: '',
+  greeting: 'Mira: \u201cCome in, it\u2019s cold out there.\u201d'
 };
 same('…but a card with nobody else still has no cast', detectCast(stillAlone), []);
 
 console.log('\none speaking line is enough when it is really speech');
 var quotedOnce = {
   name: 'Nobody', persona: '', scenario: '', examples: '',
-  greeting: 'Mara: \u201cSit down. You look like you have been walking all day.\u201d'
+  greeting: 'Olive: \u201cSit down. You look like you have been walking all day.\u201d'
 };
-same('a quoted line names its speaker once', detectCast(quotedOnce), ['Mara']);
+same('a quoted line names its speaker once', detectCast(quotedOnce), ['Olive']);
 var bareOnce = {
   name: 'Nobody', persona: '', scenario: '', examples: 'Joss: Out.'
 };
@@ -181,17 +181,17 @@ same('a bare two-word line still does not', detectCast(bareOnce), []);
    to outrank the people who speak. */
 console.log('\na sentence about somebody is not a line of dialogue');
 var blocksWithOverall =
-  'Name: Aston\nAge: 42\nRole: The father\nLikes: Cooking\n' +
+  'Name: Deacon\nAge: 42\nRole: The father\nLikes: Cooking\n' +
   'Overall: A loyal, easygoing father and longtime best friend who is trying to get his life back together.\n\n' +
-  'Name: Sloane\nAge: 18\nRole: The daughter\nLikes: Reading\n' +
+  'Name: Prue\nAge: 18\nRole: The daughter\nLikes: Reading\n' +
   'Overall: A quiet, watchful daughter who says the true thing nobody else will say.\n';
 var overallCard = {
-  name: 'Sloane', persona: blocksWithOverall, scenario: '', examples: '',
-  greeting: 'Sloane: \u201cHi... sorry if we\u2019re interrupting anything.\u201d\n\n' +
-    'Aston: \u201cDon\u2019t mind her. Where should we start unloading?\u201d'
+  name: 'Prue', persona: blocksWithOverall, scenario: '', examples: '',
+  greeting: 'Prue: \u201cHi... sorry if we\u2019re interrupting anything.\u201d\n\n' +
+    'Deacon: \u201cDon\u2019t mind her. Where should we start unloading?\u201d'
 };
 var oc = detectCast(overallCard);
-same('the described field is not a person', oc, ['Sloane', 'Aston']);
+same('the described field is not a person', oc, ['Prue', 'Deacon']);
 ok('"Overall" never reaches the cast', oc.indexOf('Overall') === -1, JSON.stringify(oc));
 
 var describedOnly = {
@@ -203,15 +203,15 @@ same('even twice over, a description is not a speaker', detectCast(describedOnly
 console.log('\ndialogue still wins on its own evidence');
 var quotedSpeaker = {
   name: 'Nobody', persona: '', scenario: '', examples: '',
-  greeting: 'Mara: \u201cYou are late. The door was unlocked all evening.\u201d'
+  greeting: 'Olive: \u201cYou are late. The door was unlocked all evening.\u201d'
 };
-same('one quoted line names its speaker', detectCast(quotedSpeaker), ['Mara']);
+same('one quoted line names its speaker', detectCast(quotedSpeaker), ['Olive']);
 var describedPlusSpoken = {
   name: 'Nobody', persona: '', scenario: '', examples: '',
-  greeting: 'Mara: A patient mother who holds the whole house together.\n' +
-    'Mara: \u201cTake your shoes off. You are tracking mud through my kitchen.\u201d'
+  greeting: 'Olive: A patient mother who holds the whole house together.\n' +
+    'Olive: \u201cTake your shoes off. You are tracking mud through my kitchen.\u201d'
 };
-same('a described label that also speaks is kept', detectCast(describedPlusSpoken), ['Mara']);
+same('a described label that also speaks is kept', detectCast(describedPlusSpoken), ['Olive']);
 var fieldWordQuoted = {
   name: 'Nobody', persona: '', scenario: '', examples: '',
   greeting: 'Overall: \u201cTake your shoes off. You are tracking mud through my kitchen.\u201d'
@@ -222,37 +222,37 @@ same('a field header is never a person, even mid-sentence', detectCast(fieldWord
    "Characters", "Who's here" and the like declares people the dialogue scan
    cannot see: someone who has not spoken yet is still in the room. */
 console.log('\na declared rota is cast too');
-var rota = 'Sloane is quiet.\n\nCast\n' +
-  '- **Aston Ashworth** \u2014 42, her father. Warm and over-apologetic.\n' +
-  '- **Mara** \u2014 34, the player\u2019s wife. Dry and controlled.\n' +
-  '- **Sloane Ashworth** \u2014 18, quiet, watches the adults.\n' +
+var rota = 'Nadia is quiet.\n\nCast\n' +
+  '- **Tomas Reyes** \u2014 42, her father. Warm and over-apologetic.\n' +
+  '- **Olive** \u2014 34, the player\u2019s wife. Dry and controlled.\n' +
+  '- **Prue** \u2014 18, quiet, watches the adults.\n' +
   'Write at most two of them speaking in one reply.\n';
 
-var rotaOnly = { name: 'Sloane', persona: rota, scenario: '', greeting: '', examples: '' };
+var rotaOnly = { name: 'Nadia', persona: rota, scenario: '', greeting: '', examples: '' };
 same('the rota supplies the people nobody saw speak',
-  detectCast(rotaOnly), ['Sloane', 'Aston Ashworth', 'Mara']);
+  detectCast(rotaOnly), ['Tomas Reyes', 'Olive', 'Prue']);
 
 ['Cast:', 'CAST', '**Cast**', 'Characters', 'Main Characters:', 'NPCs', "Who\u2019s here", 'In this scene:']
   .forEach(function (heading) {
-    var c = { name: 'Sloane', persona: heading + '\n- **Aston** \u2014 father\n- **Mara** \u2014 wife\n', scenario: '', greeting: '', examples: '' };
+    var c = { name: 'Nadia', persona: heading + '\n- **Boris** \u2014 father\n- **Olive** \u2014 wife\n', scenario: '', greeting: '', examples: '' };
     var got = detectCast(c);
-    ok('"' + heading + '" is read as a rota heading', got.length === 2 && got[0] === 'Aston', JSON.stringify(got));
+    ok('"' + heading + '" is read as a rota heading', got.length === 2 && got[0] === 'Boris', JSON.stringify(got));
   });
 
 console.log('\nthe rota is read for people, not for anything else');
 same('a field-word bullet stays a field',
   detectCast({ name: 'X', persona: 'Cast\n- **Name** \u2014 label\n- **Overall** \u2014 summary\n', scenario: '', greeting: '', examples: '' }), []);
 same('a heading with prose and no bullets declares nobody',
-  detectCast({ name: 'Sloane', persona: 'Characters\nThis card has several people in it, written out in the prose above.\n', scenario: '', greeting: '', examples: '' }), []);
+  detectCast({ name: 'Nadia', persona: 'Characters\nThis card has several people in it, written out in the prose above.\n', scenario: '', greeting: '', examples: '' }), []);
 same('a rota entry cannot duplicate the loaded character by full name',
-  detectCast({ name: 'Sloane', persona: 'Cast\n- **Sloane Ashworth** \u2014 18, quiet.\n- **Aston** \u2014 father.\n', scenario: '', greeting: '', examples: '' }),
-  ['Sloane', 'Aston']);
+  detectCast({ name: 'Nadia', persona: 'Cast\n- **Nadia Marchetti** \u2014 18, quiet.\n- **Boris** \u2014 father.\n', scenario: '', greeting: '', examples: '' }),
+  ['Nadia', 'Boris']);
 same('the rota is capped like any other cast',
   detectCast({ name: 'X', persona: 'Cast\n- **Anna** one\n- **Bella** two\n- **Cara** three\n' +
     '- **Dana** four\n- **Elin** five\n- **Faye** six\n- **Gwen** seven\n', scenario: '', greeting: '', examples: '' }).length, 6);
 same('bullet styles: dash, star, numbered, plain name',
-  detectCast({ name: 'X', persona: 'Cast\n- **Aston** \u2014 one\n* Mara: two\n1. Joss \u2013 three\n', scenario: '', greeting: '', examples: '' }),
-  ['Aston', 'Mara', 'Joss']);
+  detectCast({ name: 'X', persona: 'Cast\n- **Boris** \u2014 one\n* Olive: two\n1. Joss \u2013 three\n', scenario: '', greeting: '', examples: '' }),
+  ['Boris', 'Olive', 'Joss']);
 
 console.log('\na rota cannot invent people from prose that merely lists something');
 same('a bullet under an unrelated heading is ignored',
@@ -274,7 +274,7 @@ var moodCard = {
     'Upset: she goes quiet when her late husband is mentioned.\n' +
     'Vulnerable: she admits things she would rather not.\n' +
     'Embarrassed: she looks away and changes the subject.\n',
-  greeting: 'Rose: \u201cYou know... Daniel used to sit out here with me every night.\u201d\n\n' +
+  greeting: 'Rose: \u201cYou know... Frank used to sit out here with me every night.\u201d\n\n' +
     'She is quiet for a moment, her fingers finding the rim of her glass.'
 };
 same('moods and states are not people', detectCast(moodCard), []);
@@ -323,11 +323,11 @@ same('labels that speak are kept', detectCast(talkingMoods), ['Warm', 'Teasing']
 
 console.log('\nand a real cast is untouched by the new veto');
 var realCast = {
-  name: 'Alpha', scenario: '', examples: 'Mara: I will take the far one.',
+  name: 'Alpha', scenario: '', examples: 'Olive: I will take the far one.',
   greeting: '',
-  persona: 'Mara is her mother.\n\nMara said nothing.\nMara asked about the rooms.\nMara replied softly.'
+  persona: 'Olive is her mother.\n\nOlive said nothing.\nOlive asked about the rooms.\nOlive replied softly.'
 };
-same('a recurring, quoted speaker still appears', detectCast(realCast), ['Mara']);
+same('a recurring, quoted speaker still appears', detectCast(realCast), ['Olive']);
 
 /* An existing chat keeps its stored cast until something re-detects. On a
    one-person card the cast must be dropped outright, whatever put it there. */
@@ -356,11 +356,11 @@ var keptSb = {
   Store: { putSession: function () { return Promise.resolve(); } }
 };
 vm.runInNewContext(appSrcAll.slice(initStart, initEnd) + '\nthis.App = App;', keptSb, { filename: 'initSceneCast2.js' });
-keptSb.App.detectCast = function () { return ['Rose', 'Mara']; };
+keptSb.App.detectCast = function () { return ['Rose', 'Olive']; };
 keptSb.App.castFingerprint = function () { return 'fp'; };
-var live = { sceneCast: ['Rose', 'Mara'], scenePresent: ['Rose'], castChecked: true, castRev: rev, castFp: 'fp' };
+var live = { sceneCast: ['Rose', 'Olive'], scenePresent: ['Rose'], castChecked: true, castRev: rev, castFp: 'fp' };
 keptSb.App.initSceneCast({ name: 'Rose', persona: '', greeting: '', scenario: '', examples: '', vh: {} }, live);
-same('a real cast is left alone', live.sceneCast, ['Rose', 'Mara']);
+same('a real cast is left alone', live.sceneCast, ['Rose', 'Olive']);
 same('…and its presence', live.scenePresent, ['Rose']);
 
 console.log('\\nthe revision bump makes stored chats re-detect');

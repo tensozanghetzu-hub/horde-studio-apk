@@ -6,7 +6,7 @@
  * the model answered only:
  *
  *   OOC: This appears to be a scene reset or alternate opening. The previous
- *   scene had boxes already inside, Mara in the doorway, and established
+ *   scene had boxes already inside, Olive in the doorway, and established
  *   tension. This version has everyone still outside with the car just
  *   arriving. Which version would you like to continue?
  *
@@ -56,18 +56,18 @@ var API = sb.API;
 /* The reported card's shape: the greeting is the opening, the examples are a
    later scene. Nothing here depends on its names — only on the order. */
 var char = {
-  id: 'c1', name: 'Sloane',
-  persona: 'Name: Sloane\nAge: 18\n\nName: Aston\nAge: 42',
-  greeting: 'Episode 1 — The Unexpected Move-In\n\n*A car pulls into the driveway. Several moving boxes are piled beside them.*\n\nAston: "Well, look who we have here!"',
+  id: 'c1', name: 'Nadia',
+  persona: 'Name: Nadia\nAge: 18\n\nName: Boris\nAge: 42',
+  greeting: 'Opening scene\n\n*A car pulls into the driveway. Several moving boxes are piled beside them.*\n\nBoris: "Well, look who we have here!"',
   scenario: '',
   examples: '{{user}}: *I set the last box down by the staircase.* "Take the guest room."\n' +
-    '{{char}}: Aston: "You are a lifesaver, buddy." Your Wife: *She has not moved from the living room doorway.* "Three weeks is what you said."\n' +
+    '{{char}}: Boris: "You are a lifesaver, buddy." Your Wife: *She has not moved from the living room doorway.* "Three weeks is what you said."\n' +
     '<START>\n' +
     '{{user}}: "Give him a break."\n' +
     '{{char}}: Your Wife: "He would. That is not the point."'
 };
-var session = { sceneCast: ['Sloane', 'Aston', 'Mara'], scenePresent: ['Sloane', 'Aston', 'Mara'] };
-var settings = { userName: 'Blu', systemPrompt: 'You are {{char}}.', maxTokens: 600 };
+var session = { sceneCast: ['Nadia', 'Boris', 'Olive'], scenePresent: ['Nadia', 'Boris', 'Olive'] };
+var settings = { userName: 'Quinn', systemPrompt: 'You are {{char}}.', maxTokens: 600 };
 var history = [
   { role: 'assistant', text: char.greeting },
   { role: 'user', text: 'come in. Happy i can help.' }
@@ -95,7 +95,7 @@ ok('the label says the chat begins at the opening',
 
 console.log('\nan OOC answer is only for an OOC question');
 var system = chat[0].content;
-ok('the rule still answers a real OOC note', /if, and only if, Blu writes an OOC note/.test(system));
+ok('the rule still answers a real OOC note', /if, and only if, Quinn writes an OOC note/.test(system));
 ok('…still asking for a plain "OOC:" line', /begins with "OOC:"/.test(system));
 ok('the rule now forbids unsolicited OOC', /Otherwise write the scene and never speak out of character/.test(system));
 ok('…specifically opening a reply with it', /do not open a reply with "OOC:"/.test(system));
@@ -116,7 +116,7 @@ ok('the opening message is inside the chat history',
 console.log('\nno card names in the shipped rule text');
 var ruleStart = system.indexOf('Out of character:');
 var ruleBlock = system.slice(ruleStart, system.indexOf('\n\n', ruleStart));
-['Aston', 'Mara'].forEach(function (n) {
+['Boris', 'Olive'].forEach(function (n) {
   ok('the rule does not name ' + n, ruleBlock.indexOf(n) === -1);
 });
 

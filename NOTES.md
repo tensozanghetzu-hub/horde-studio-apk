@@ -1,5 +1,34 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.97 — no card names left anywhere (2026-11-17)
+
+Requested: go through the docs, the comments and the tests and remove any
+mention of a specific card or character, keeping invented examples as examples.
+Nothing in the app's behaviour changed in this release; the only shipped bytes
+that differ are one code comment. It is a release because an APK is the only
+way to hand over a build, and because a workspace that still names real cards
+is the exact condition that lets a fix drift toward one card.
+
+- **Docs.** The release notes, the policy and the setup guide were re-read and
+  rewritten where they quoted a name. Prose that described a shape ("the
+  character is labelled eight times and speaks throughout") was kept — that is
+  the evidence a future fix needs; the names attached to it were not.
+- **Comments.** Shipped comments now use invented speakers only. The generic
+  gate scans comments as well as code, which is why this happened at all.
+- **Tests and fixtures.** Every fixture name that came from a card was replaced
+  with an invented one, then every touched test was run and its failures read.
+  Two of them had been passing for the wrong reason: a blind rename had
+  collapsed a two-speaker label test into one repeated name, and a world
+  fixture referred to a character the fixture never declared, so the join was
+  correctly refused. Both are fixed by giving the fixture a real second person
+  rather than by loosening the assertion.
+- **The gate.** The forbidden-word list is a second net, not the rule; it now
+  covers the new fixture names so a future blind copy-paste is caught. It also
+  stopped quoting a card title in its own explanation.
+- No behaviour change: `detectCast`, the scene bar, the world companions, the
+  reply rules and the 600-token cap are exactly as they were in v1.39.96.
+  Full suite 106 files / 0 failing, and the generic gate is clean.
+
 ## v1.39.96 — v1.39.95 did not fix it; here is why (2026-11-17)
 
 The report after v1.39.95 was the correct one: the bar was still there. The card
@@ -16,20 +45,20 @@ was then supplied, and it showed a shape the previous fix could not see.
   labelled eight times and speaks throughout; a second character recurs.
   Occurrence counts outside labels are useless here — "Warm" appears eleven
   times, all as an ordinary adjective ("Humor: Warm, dry, self-deprecating").
-- Verified against the supplied card: `detectCast` now returns `["Rose"]`, so a
-  one-person card carries no cast and the strip hides. The three-person card
-  still returns Sloane, Aston, Mara. `CAST_REV` is 9.
+- Verified against the reported card: `detectCast` returns only the character
+  herself, so a one-person card carries no cast and the strip hides. A
+  three-person card still returns all three of its people. `CAST_REV` is 9.
 - Tests: scenecast 63 → 69; the mood list is reproduced with invented words, and
   a real second speaker added to the same card is still found.
-- The generic gate was extended: a card TITLE of ordinary English ("Your Lonely
-  Widow Landlady") no longer forbids common words — a word the app itself uses
-  cannot be a leak indicator. It also caught a card phrase in one of my own
-  comments, which is now rewritten. Suite 106/0.
+- The generic gate was extended: a card title made of ordinary English words no
+  longer forbids those words — vocabulary the app itself uses cannot be a leak
+  indicator. It also caught a card phrase in one of my own comments, which is
+  now rewritten. Suite 106/0.
 
 ## v1.39.95 — a mood tracker is not a cast (2026-11-17)
 
-Reported from a single-person card: the Scene bar read Rose, Warm, Teasing,
-Upset, Vulnerable, Embarrassed.
+Reported from a single-person card: the Scene bar listed the character plus
+five of her own moods.
 
 - **The cause is a counting accident, and the fix does not depend on it.** Blank
   lines between the labels used to break the old line-by-line act count, so each
@@ -199,13 +228,14 @@ The standing rule is now written down and **tested**, not remembered.
   those words in shipped code fails the release. Dropping a new card in for
   testing forbids its names from that moment; the hand-maintained list is kept
   only as a second net.
-- **Card words that are app vocabulary are excluded automatically.** "Your Wife
-  (Mara)" must not forbid the word "your": the shipped code is its own
-  dictionary, and a word it uses constantly cannot be a detection signal.
-- **Three real leaks surfaced on the first run** and were fixed: `npc_mara` /
-  "Mara Vess" in the world-generation JSON shape, "Mara" in two continuity
-  placeholders, and "Dr. Mara" in a sentence-splitting comment. All now use role
-  words. Nothing about behaviour changed.
+- **Card words that are app vocabulary are excluded automatically.** A rota
+  entry of the form "Your Wife (Name)" must not forbid the word "your": the
+  shipped code is its own dictionary, and a word it uses constantly cannot be a
+  detection signal.
+- **Three real leaks surfaced on the first run** and were fixed: a personal name
+  inside the world-generation JSON shape, the same name in two continuity
+  placeholders, and one in a sentence-splitting comment. All now use role words.
+  Nothing about behaviour changed.
 - README points at the policy; the release checklist gains the step.
 - Suite 104/0, generic checks clean.
 
@@ -214,8 +244,8 @@ The standing rule is now written down and **tested**, not remembered.
 On turn 1 of a fresh chat the model answered with nothing but:
 
 > OOC: This appears to be a scene reset or alternate opening. The previous scene
-> had boxes already inside, Mara in the doorway … Which version would you like
-> to continue?
+> had boxes already inside, a fourth name in the doorway … Which version would
+> you like to continue?
 
 It was right about what it had been given, and the app had given it that.
 
@@ -265,9 +295,10 @@ they damaged the chat without ever showing an error.
   greeting, scenario, examples) and re-detect when it differs, unless the player
   has edited the cast by hand.
 - **Every reply was labelled with the card's own name.** In a chat-format prompt
-  the turns were unattributed; in the string prompt and the export, Aston's
-  dialogue was labelled with the card's name — and the summariser fed it to the
-  model that way, so the memory recorded everyone's lines as one person's.
+  the turns were unattributed; in the string prompt and the export, a second
+  character's dialogue was labelled with the card's own name — and the
+  summariser fed it to the model that way, so the memory recorded everyone's
+  lines as one person's.
   `splitSpeaker` reads a leading label against the scene cast, keeps the one
   nearest the prose, strips the redundant stack, and falls back to the card name.
   Applied to the prompt, the export and the summariser.
@@ -301,7 +332,8 @@ she could not be sent away, addressed, or kept out of a reply.
 
 ## v1.39.84 — a description is not dialogue (2026-11-16)
 
-Same card, one layer deeper: the chips read Sloane, Aston and **Overall**.
+Same card, one layer deeper: the chips read the character, a second person,
+and a field called **Overall**.
 
 - **Cause.** The block-written card ends each character with an `Overall:` line
   ("A loyal, easygoing father who is trying to get his life back together.").
@@ -314,14 +346,14 @@ Same card, one layer deeper: the chips read Sloane, Aston and **Overall**.
   with an article, runs on, and never uses the first or second person. Heading
   nouns (Overall, Summary, Notes, Details, …) join the field vocabulary and can
   never become a person, even inside quotes.
-- Verified against the reported card itself: `detectCast` returns Sloane,
-  Aston. Stored chats re-detect through `CAST_REV` 5.
+- Verified against the reported card itself: `detectCast` returns exactly its
+  two people. Stored chats re-detect through `CAST_REV` 5.
 - Tests: scenecast 27 → 33. Suite 102/0, generic checks clean.
 
 ## v1.39.83 — field headers are not people (2026-11-16)
 
-Reported from a three-person card: the Scene bar showed Aston, Name, Age, Role,
-Appearance and Likes.
+Reported from a three-person card: the Scene bar showed one person's name and
+then the field headers Name, Age, Role, Appearance and Likes.
 
 - **Cause.** A card written as blocks — Name, Age, Role, Appearance, Likes, once
   per character — repeats every field header three times. The detector counted
@@ -406,8 +438,8 @@ Both from a review of multi-character cards. Both confirmed in the code first.
 - **The turn went off the edge.** v1.39.79 appended `· turn N` to the header
   line, which is a single ellipsised row: a real chat title ("First Night on
   Coruscant · t…") pushed the turn out of sight. It is now a prefix —
-  `turn 4 · as Blu · First Night on Coruscant` — where truncation cannot reach
-  it. The title is already in the Chats list; the turn is not.
+  `turn 4 · as Player · First Night on Coruscant` — where truncation cannot
+  reach it. The title is already in the Chats list; the turn is not.
 - Tests: chat-health-test (14) drives the sheet end to end against a fake IDB
   and scans every file for calls to IDB methods that do not exist, so this
   class of bug cannot come back silently. Suite 100 → 101 files, 0 failing.
@@ -462,20 +494,19 @@ Both from a review of multi-character cards. Both confirmed in the code first.
 
 ## v1.39.77 — Scene cast stops reading field labels as people (2026-11-15)
 
-- Reported from a real card: the Scene strip showed "Main INTRO", "Rose" and
-  "Relationship" as if three people were on the porch. They came from the
-  label scan, which treated any `Capitalised words:` line as a speaker — a
-  section heading and a profile field are shaped exactly like `Rose: come in.`
+- Reported from a real card: the Scene strip showed a section heading, the
+  character, and a profile field as if three people were on the porch. They came
+  from the label scan, which treated any `Capitalised words:` line as a
+  speaker — a heading and a field are shaped exactly like a spoken line.
 - A name is now a person only when the card uses it to speak, more than once:
   words after the colon, or a two-word proper name beside a speech verb
-  ("Bravo Vale said", "asked Bravo Vale"). A bare `Heading:` proves nothing; a
+  ("Ada Vane said", "asked Ada Vane"). A bare `Heading:` proves nothing; a
   single mention does not either. All-caps headings ("Main INTRO") are
   rejected outright. v1.39.59 fixed the header scan; this is the other half,
   the label scan it never covered.
 - `sceneCastPrompt` no longer injects for a one-name cast. The strip hides
   below two names, so a single-character chat was still carrying "SCENE
-  CAST — THIS OVERRIDES THE CARD: Present in this scene: Rose, Blu" on every
-  turn — an instruction the user never asked for, on a card with one person
+  CAST — THIS OVERRIDES THE CARD: Present in this scene: …" on every turn — an instruction the user never asked for, on a card with one person
   in it. Screen and prompt now agree.
 - `CAST_REV` 2 → 3, so chats that stored the old picks re-detect once on open.
   Casts edited by hand are still left alone.
@@ -756,7 +787,7 @@ From APK-ISSUES.md, worked §E → CI → §F → §G.
 
 ## v1.39.59 — Scene cast stops reading headings as people (2026-11-13)
 
-- The header scan behind Scene detection now requires a name to recur and to appear in a speaking context ("Sloane said", "Sloane:", "said Sloane"), so profile headings such as "Basic Info", "Facial Features", "Composure First", "Battlefield Precision" and "Emotional Suppression" are no longer added as cast.
+- The header scan behind Scene detection now requires a name to recur and to appear in a speaking context ("Ada said", "Ada:", "said Ada"), so profile headings such as "Basic Info", "Facial Features", "Composure First", "Battlefield Precision" and "Emotional Suppression" are no longer added as cast.
 - A card's own name is excluded even when given in full or with a curly apostrophe.
 - Chats that stored the old picks re-detect once on open; casts the player edited by hand are left untouched.
 

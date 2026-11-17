@@ -123,14 +123,14 @@ var sb2 = loadApi();
 var castSession = { sceneCast: ['Rose', 'Tom'], scenePresent: ['Rose'] };
 var prompt = sb2.API.buildChat({ id: 'a', name: 'Rose', persona: 'p', greeting: 'g', examples: '', scenario: '' },
   castSession, [{ role: 'user', text: 'Hello.' }],
-  { userName: 'Blu', systemPrompt: 'x', maxTokens: 600, historyTokens: 6000 });
+  { userName: 'Quinn', systemPrompt: 'x', maxTokens: 600, historyTokens: 6000 });
 var system = prompt[0].content;
-ok('the roster is still there', /Present in this scene: Rose, Blu/.test(system));
+ok('the roster is still there', /Present in this scene: Rose, Quinn/.test(system));
 ok('the prohibition is still there', /Elsewhere and out of the scene: Tom/.test(system));
 ok('…and it still says they never speak', /never speak, react, act/.test(system));
 ok('speech must be attributed by name', /name them in the prose/.test(system));
 ok('it warns against round-robin turns', /do not give each of them a turn/.test(system));
-ok('it forbids writing the player', /Never write Blu.s words, thoughts or actions/.test(system));
+ok('it forbids writing the player', /Never write Quinn.s words, thoughts or actions/.test(system));
 ok('the cast block is still last-worded', /THIS OVERRIDES THE CARD/.test(system));
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

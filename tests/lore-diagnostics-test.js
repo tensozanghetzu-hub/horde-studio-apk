@@ -31,8 +31,8 @@ function loadApi() {
   return sb.API;
 }
 var API = loadApi();
-var char = { name: 'Blu', persona: '', scenario: '', greeting: '', examples: '' };
-var s = { userName: 'Blu' };
+var char = { name: 'Quinn', persona: '', scenario: '', greeting: '', examples: '' };
+var s = { userName: 'Quinn' };
 
 /* ------------------------------------------------------------------ */
 console.log('A4 — tags are stripped before macros expand');
@@ -48,7 +48,7 @@ same('both orders drop the script, but only one never writes into it', oldOrder,
 
 /* a legitimate macro in prose still expands */
 same('a macro in prose still works',
-  API.macros(API.plainText('{{char}} watches {{user}}.'), char, s), 'Blu watches Blu.');
+  API.macros(API.plainText('{{char}} watches {{user}}.'), char, s), 'Quinn watches Quinn.');
 
 /* the sheet uses the safe order at every site */
 var src = fs.readFileSync(path.join(JS, 'api.js'), 'utf8');

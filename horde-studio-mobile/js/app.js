@@ -917,8 +917,8 @@
     scanNames(char.persona);
 
     /* A two-word proper name right beside a speech verb is a person too —
-       "Bravo Vale said nothing", "asked Bravo Vale". Requiring two
-       capitalised words keeps ordinary prose out ("She said", "The door"). */
+       "Cora Vane said nothing", "asked Cora Vane". Requiring two capitalised
+       words keeps ordinary prose out ("She said", "The door"). */
     var verb = '(?:said|says|asked|asks|replied|replies|answered|whispered|murmured|snapped|added|laughed|sighed)';
     var after = new RegExp('\\b([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)\\s+' + verb + '\\b', 'g');
     var before = new RegExp('\\b' + verb + '\\s+([A-Z][a-z]+(?:\\s+[A-Z][a-z]+)+)\\b', 'g');

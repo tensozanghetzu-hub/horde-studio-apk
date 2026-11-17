@@ -126,7 +126,7 @@ function loadApiOnly(overrides) {
       ok('the chat temperature beats the character default',
         /overrides\.temperature/.test(appSrc));
       const API = loadApiOnly();
-      const char = { id: 'c1', name: 'Mara', persona: 'Watchful toll warden.', temperature: 0.9, maxTokens: 500 };
+      const char = { id: 'c1', name: 'Olive', persona: 'Watchful toll warden.', temperature: 0.9, maxTokens: 500 };
       const session = { id: 's1' };
       /* buildPath checks happen against App source but the prompt plumbing
          is API's; the note channel is shared */
@@ -155,13 +155,13 @@ function loadApiOnly(overrides) {
       ok('attachments are normalized small (normalizeImage at 640)', /normalizeImage\(f(?:ile)?[, ]+640\)/.test(appSrc + viewsSrc));
       ok('messages carry the caption the character reads', /imageCaption/.test(appSrc + viewsSrc));
       const API = loadApiOnly();
-      const msgs = API.buildChat({ id: 'c1', name: 'Mara' }, { id: 's1' },
+      const msgs = API.buildChat({ id: 'c1', name: 'Olive' }, { id: 's1' },
         [{ role: 'user', text: '', imageCaption: 'a jellyfish lantern drifting between pillars' }],
         { systemPrompt: 'You are {name}.', contextMessages: 40, maxContextChars: 26000 }, null);
       const userLine = msgs.find(m => m.role === 'user');
       ok('the model reads the photo caption', !!userLine && /a jellyfish lantern/.test(userLine.content) && /photo/.test(userLine.content),
         JSON.stringify(userLine && userLine.content));
-      const plain = API.buildPrompt({ id: 'c1', name: 'Mara' }, { id: 's1' },
+      const plain = API.buildPrompt({ id: 'c1', name: 'Olive' }, { id: 's1' },
         [{ role: 'user', text: 'look', imageCaption: 'a rusted bell' }],
         { systemPrompt: 'You are {name}.', contextMessages: 40, maxContextChars: 26000 }, null, 400);
       ok('...and in the plain-text path too', /rusted bell/.test(plain));
@@ -205,7 +205,7 @@ function loadApiOnly(overrides) {
       ok('auto-titling leaves user-chosen titles alone', /titleAuto/.test(appSrc));
       const sb = loadCoreLite();
       sb.Store.settings = Object.assign({ provider: 'horde', userName: 'Me', systemPrompt: 'Be {name}.' }, sb.Store.settings);
-      sb.Store.characters = [{ id: 'c1', name: 'Mara', persona: 'p' }];
+      sb.Store.characters = [{ id: 'c1', name: 'Olive', persona: 'p' }];
       const sess = { id: 's1', charId: 'c1', title: 'New chat', createdAt: Date.now(), updatedAt: Date.now() };
       await sb.IDB.put('sessions', sess);
       /* two alternatives pattern: call maybeAutoTitle directly with a
