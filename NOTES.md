@@ -1,5 +1,31 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.96 — v1.39.95 did not fix it; here is why (2026-11-17)
+
+The report after v1.39.95 was the correct one: the bar was still there. The card
+was then supplied, and it showed a shape the previous fix could not see.
+
+- **The moods are quoted lines.** The card lists them under a "Dialogue
+  Examples:" heading — `Warm: "Sweetheart, you're home…"`, `Upset: "I'm sorry…"`.
+  Every rule that calls a quoted line speech was therefore correct to fire.
+  What the previous version got wrong was where the new veto sat: after the
+  evidence test, so nothing reachable. Both vetoes now run first.
+- **The distinguishing facts are structural, and measured on this card:**
+  a mood is *labelled once* and sits inside *a run of other labels*
+  (`Humor:`, `Speech:`, `Greeting:`, `Warm:`, `Teasing:` …); the character is
+  labelled eight times and speaks throughout; a second character recurs.
+  Occurrence counts outside labels are useless here — "Warm" appears eleven
+  times, all as an ordinary adjective ("Humor: Warm, dry, self-deprecating").
+- Verified against the supplied card: `detectCast` now returns `["Rose"]`, so a
+  one-person card carries no cast and the strip hides. The three-person card
+  still returns Sloane, Aston, Mara. `CAST_REV` is 9.
+- Tests: scenecast 63 → 69; the mood list is reproduced with invented words, and
+  a real second speaker added to the same card is still found.
+- The generic gate was extended: a card TITLE of ordinary English ("Your Lonely
+  Widow Landlady") no longer forbids common words — a word the app itself uses
+  cannot be a leak indicator. It also caught a card phrase in one of my own
+  comments, which is now rewritten. Suite 106/0.
+
 ## v1.39.95 — a mood tracker is not a cast (2026-11-17)
 
 Reported from a single-person card: the Scene bar read Rose, Warm, Teasing,

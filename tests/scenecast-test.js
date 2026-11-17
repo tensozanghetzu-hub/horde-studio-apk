@@ -282,6 +282,37 @@ same('moods and states are not people', detectCast(moodCard), []);
   ok('"' + w + '" is not a person', detectCast(moodCard).indexOf(w) === -1);
 });
 
+/* The reported card writes its moods as quoted lines under "Dialogue
+   Examples:" — so by every other measure they look like speech. What a mood
+   cannot do is behave like a person: it is labelled once, and it sits in a run
+   of other labels. Built here from the same SHAPE with invented words. */
+console.log('\nquoted moods inside a label list are still not people');
+var listedMoods = {
+  name: 'The Landlady', scenario: '', examples: '',
+  greeting: 'She looks up when the door opens.',
+  persona: 'She keeps the house spotless.\n\n' +
+    'Humor: Bright, dry, self-deprecating. Laughs at herself first.\n\n' +
+    'Speech:\n\nBright, soft, slightly slow. Uses pet names for everyone.\n\n' +
+    'Dialogue Examples:\n\n' +
+    'Greeting: \u201cOh, there you are. I was just about to start dinner.\u201d\n\n' +
+    'Bright: \u201cSweetheart, you\u2019re home. I was waiting up for you.\u201d\n\n' +
+    'Cheeky: \u201cOh, so you noticed my dress, did you?\u201d\n\n' +
+    'Hurt: \u201cI\u2019m sorry. I didn\u2019t mean to\u2014I\u2019m not usually like this.\u201d\n\n' +
+    'Wistful: \u201cDo you ever feel like you\u2019re invisible?\u201d\n'
+};
+same('a single person whose moods are quoted yields no cast', detectCast(listedMoods), []);
+['Bright', 'Cheeky', 'Hurt', 'Wistful'].forEach(function (w) {
+  ok('"' + w + '" is not a person', detectCast(listedMoods).indexOf(w) === -1);
+});
+
+console.log('\n…but a real second speaker in the same card survives');
+var listedMoodsPlus = Object.assign({}, listedMoods, {
+  persona: listedMoods.persona + '\n' +
+    'Her sister Nell visits on Sundays.\nNell: \u201cPut the kettle on, then.\u201d\n' +
+    'Nell: \u201cYou look tired. Sit down.\u201d\n'
+});
+same('the recurring, quoted second speaker is found', detectCast(listedMoodsPlus), ['Nell']);
+
 console.log('\n…but a label whose value is speech is still a speaker');
 var talkingMoods = {
   name: 'Rose', scenario: '', examples: '',

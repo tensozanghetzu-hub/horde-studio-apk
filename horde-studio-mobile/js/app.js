@@ -715,11 +715,11 @@
      other rooms stop answering conversations they cannot hear. */
 
   /* v1.39.77: a label is only evidence of a person when the card uses it to
-     SPEAK — with words after the colon, more than once. "Main INTRO:" and
-     "Relationship: Widow, your neighbour" carry a capital letter and a colon,
-     so the old scan could not tell them from "Rose: come in." and put both in
-     the Scene strip as if they were people standing on the porch. */
-  var CAST_REV = 8;          /* bump when detection rules change */
+     SPEAK — with words after the colon, more than once. A section heading
+     ending in a colon, and a field whose value describes the character, both
+     look exactly like a spoken line to a naive scan; it put them in the Scene
+     strip as if they were people standing on the porch. */
+  var CAST_REV = 9;          /* bump when detection rules change */
 
   App.initSceneCast = function (char, session) {
     if (!char || !session) return;
@@ -1003,6 +1003,33 @@
       });
       return out;
     }
+    /* v1.39.96: a mood word is used all through the card as an ordinary
+       adjective — "Humor: Warm, dry, self-deprecating", "Speech: warm, soft" —
+       so counting occurrences cannot tell it from a person's name, which really
+       does recur as itself. What a mood does NOT do is appear as a label more
+       than once, or outside the block its labels live in. */
+    var personaLines = String(char.persona || '').split('\n');
+    function labelIndexes(word) {
+      var re = new RegExp('^\\s*' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*:', 'i');
+      var out = [];
+      for (var i = 0; i < personaLines.length; i++) if (re.test(personaLines[i])) out.push(i);
+      return out;
+    }
+    /* the run of labels a word belongs to: walk backwards over the previous
+       label lines, whatever they are called */
+    function inLabelBlock(word) {
+      var at = labelIndexes(word);
+      if (at.length !== 1) return false;
+      var i = at[0], steps = 0, gaps = 0;
+      while (i > 0 && steps < 60) {
+        i--; steps++;
+        var line = String(personaLines[i] || '').trim();
+        if (!line) { gaps++; if (gaps > 3) break; continue; }
+        if (/^[A-Z][A-Za-z'\u2019 .-]{0,28}:\s*\S/.test(line)) { return true; }
+        gaps = 0;
+      }
+      return false;
+    }
     var labelLines = bareLines(char.persona).concat(bareLines(char.greeting)).concat(bareLines(char.examples));
     function valueSays(word) {
       var re = new RegExp('(^|[^A-Za-z])' + String(word || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^A-Za-z])', 'i');
@@ -1028,15 +1055,22 @@
         return;
       }
       var c = cands[low];
+      /* v1.39.96: these two vetoes run BEFORE the evidence test, because a mood
+         written as a quoted line ("Upset: 'I'm sorry…'") qualifies as speech by
+         every other measure. What it cannot do is behave like a person. */
+      /* a label that appears once and sits inside a run of other labels —
+         "Humor:", "Speech:", "Greeting:", then "Warm:", "Teasing:" — is one
+         value in a list, not a speaker; a person speaks more than once */
+      if (inLabelBlock(c.name)) return;
+      /* a word that appears only as a label, beside a sentence that describes
+         somebody rather than being spoken by them */
+      if (occurrences(c.name) <= c.acts && valueSays(c.name)) return;
       /* Quoted speech anywhere is enough. Otherwise a label needs to recur —
          and if every occurrence reads as a description of somebody rather
          than something they said, recurrence proves nothing. */
       if (!c.strong) {
         if (c.acts < 2) return;
         if ((c.desc || 0) >= c.acts) return;
-        /* a word that appears only as a label, and reads as a state the card
-           describes — mood, temperament, habit — is not somebody speaking */
-        if (occurrences(c.name) <= c.acts && valueSays(c.name)) return;
       }
       var name = cands[low].name, key = norm(name);
       if (seen[key] || seen[firstWord(key)]) return;
@@ -1063,6 +1097,7 @@
       if (seen[key] || seen[firstWord(key)]) return;
       if (isField(name)) return;
       if (valueSays(name)) return;
+      if (inLabelBlock(name)) return;
       seen[key] = true; seen[firstWord(key)] = true;
       found.push(name);
     });
