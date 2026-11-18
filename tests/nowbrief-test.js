@@ -164,11 +164,16 @@ eq('so does a repaired turn', (app.match(/finalNote: prompt2\.note \|\| null/g) 
 
 var api = fs.readFileSync(path.join(ROOT, 'js', 'api.js'), 'utf8');
 var joined = 'Chat history:\\n' + "' + h.join('\\n'),";
-var joinAt = api.indexOf(joined), noteAt = api.indexOf("finalNote || '', character.name + ':'");
+/* v1.39.108: the tail turn now carries the style lock as well as the note, so
+   the assertion is on the intent - the note is joined after the transcript and
+   pushed as the trailing system turn - rather than on one exact expression. */
+var joinAt = api.indexOf(joined), noteAt = api.indexOf("finalNote || '', styleLock(history), character.name + ':'");
+var tailAt = api.indexOf("var tail = [styleLock(hist), finalNote].filter(Boolean).join('\\n\\n');");
 ok('a prompt-format provider joins it after the transcript',
   joinAt !== -1 && noteAt !== -1 && noteAt > joinAt, joinAt + ' / ' + noteAt);
 ok('a chat-format provider appends it as a trailing system turn',
-  /if \(finalNote\) msgs\.push\(\{ role: 'system', content: finalNote \}\)/.test(api));
+  tailAt !== -1 && /if \(tail\) msgs\.push\(\{ role: 'system', content: tail \}\)/.test(api));
+ok('...and the note is still part of that tail', /styleLock\(hist\), finalNote/.test(api));
 
 console.log('\n' + (fail ? 'FAILED' : 'ok') + ' — ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
