@@ -620,11 +620,31 @@
            stored history — so the readout and the prompt cannot disagree. */
         var sample = API.loreSample(msgs || []);
         var stage = newest.continuity && newest.continuity.enabled ? newest.continuity.stage : '';
-        var diag = API.loreDiagnostics(c.lorebook || [], sample, 6, 1536, stage);
+        /* v1.39.110: read the ceilings from the engine. These were literals
+           here, so when the prompt moved to 10 entries / 5000 bytes this
+           screen kept reporting 6 / 1536 - it told the author that entries
+           were "over the byte budget" which the request was happily sending. */
+        var diag = API.loreDiagnostics(c.lorebook || [], sample, API.LORE_LIMIT, API.LORE_BUDGET, stage);
+        var stageNote = '';
+        if (diag.stageSkipped) {
+          /* A staged book with no stage set is dark in every chat. Without
+             this line the author sees "3 of 28 in the prompt", every row
+             disagreeing with them, and concludes the lorebook is broken. */
+          stageNote = '<div style="margin-top:6px;color:var(--warn,#fbbf24)">' +
+            (diag.stageBlank
+              ? '<b>' + diag.stageSkipped + '</b> ' + (diag.stageSkipped === 1 ? 'entry is' : 'entries are') +
+                ' hidden because this chat has <b>no stage set</b>. Staged entries only appear when the ' +
+                'chat’s stage matches theirs exactly — open Chat continuity on this conversation and ' +
+                'set one, or clear the stage on those entries to make them available everywhere.'
+              : '<b>' + diag.stageSkipped + '</b> ' + (diag.stageSkipped === 1 ? 'entry belongs' : 'entries belong') +
+                ' to another stage and ' + (diag.stageSkipped === 1 ? 'is' : 'are') + ' hidden here ' +
+                '(this chat is in <b>' + esc(diag.stage || '') + '</b>).') +
+            '</div>';
+        }
         summary.innerHTML = 'Checking the conversation “' + esc(newest.title || 'New chat') +
           '”. <b>' + diag.admitted + ' of ' + diag.rows.length + '</b> ' +
           (diag.rows.length === 1 ? 'entry is' : 'entries are') + ' in the prompt now · ' +
-          diag.used + ' of ' + diag.cap + ' bytes used.';
+          diag.used + ' of ' + diag.cap + ' bytes used.' + stageNote;
         list.innerHTML = diag.rows.length ? diag.rows.map(function (r, i) {
           return '<div class="kv" data-lore="' + i + '" style="cursor:pointer;align-items:flex-start">' +
             '<span style="flex:1">' +

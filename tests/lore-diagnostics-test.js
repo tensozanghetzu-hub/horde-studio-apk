@@ -89,7 +89,12 @@ same('a miss explains itself', diag.rows[1].reason, 'no keyword matched in the r
 same('a disabled entry is named', diag.rows[2].reason, 'disabled');
 same('a constant entry is always in', diag.rows[3].reason, 'always (constant)');
 same('…and shows as matched', diag.rows[3].matched, true);
-ok('a wrong-stage entry names the stage', /wrong stage/.test(diag.rows[4].reason), diag.rows[4].reason);
+/* v1.39.110: the wording depends on WHY it is dark. With no stage set the
+   entry is dark for want of a stage, which is a different thing to fix than
+   being in the wrong act - the row must name the stage either way. */
+ok('a dark-stage entry names the stage', /stage "late"/.test(diag.rows[4].reason), diag.rows[4].reason);
+ok('...and says the chat has no stage rather than the wrong one',
+  /no stage set/.test(diag.rows[4].reason) && !/^wrong stage/.test(diag.rows[4].reason), diag.rows[4].reason);
 same('the admitted count is honest', diag.admitted, 2);
 
 var overLimit = [];

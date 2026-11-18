@@ -1,5 +1,33 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.110 — a dark entry says why it is dark (2026-11-17)
+
+Reported as a general finding: a stage-gated entry is invisible in every chat
+whose stage is blank, and blank is the default. An author who stages a book and
+tests it in an ordinary chat concludes the lorebook is broken. The engine was
+excluding those entries correctly — it just never said so.
+
+- **The Lore screen now reports staging.** "3 entries are hidden because this
+  chat has no stage set", with what to do about it: set a stage on this
+  conversation, or clear the stage on those entries so they are available
+  everywhere.
+- **Blank and wrong are different, and are now worded differently.** A chat
+  with no stage gets *"needs stage \"act two\" - this chat has no stage set, so it
+  is dark"*; a chat in the wrong act gets *"wrong stage (entry needs \"act one\",
+  chat is \"act two\")"*. The first is a setup problem, the second is expected.
+- **The diagnostic counts them**: `stageSkipped`, `stageBlank` and
+  `stageDarkWithoutStage`, so the distinction is visible to anything that reads
+  it, not only in the sentence.
+- **Found while investigating: the Lore screen had its own copies of the
+  ceilings.** v1.39.109 moved the prompt to 10 entries / 5000 bytes and left
+  `6, 1536` hardcoded here, so the screen reported entries "over the byte
+  budget" that the request was in fact sending — 4 of 28 on a real card while
+  the prompt carried 10. It reads `API.LORE_LIMIT` / `API.LORE_BUDGET` now, and
+  a test fails if the two ever diverge again.
+- `tests/lore-stage-test.js` is new — 27 checks over blank, matching and
+  differing stages, the no-staging case, the screen's wording, and screen-versus
+  -prompt agreement.
+
 ## v1.39.109 — a lorebook that answers the scene (2026-11-17)
 
 Reported from a 66-turn chat whose lorebook had stopped being useful. Three
