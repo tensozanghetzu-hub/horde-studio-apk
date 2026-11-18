@@ -481,8 +481,17 @@ ai.api.aiJson(settings(), 'the prompt', 800, function () {})
     var fsheet = chatBox.api.buildChat(fatChar, {}, [{ role: 'assistant', text: 'alpha bravo charlie all night' }], settings())[0].content;
     var fblock = (fsheet.split('Relevant world facts:')[1] || '').split('\n\n')[0];
     var frows = fblock.split('\n').filter(function (l) { return l.indexOf('- ') === 0; });
-    ok('the char-lore pile stops at the byte budget', frows.length === 2, frows.length + ' injected');
-    ok('...and the latecomer waits its turn', fsheet.indexOf(new Array(40).join('c')) === -1);
+    /* v1.39.109 raised the ceiling to 10 entries / 5000 bytes, so three 600-char
+       entries now all fit; the rule under test is that the pile still STOPS at
+       the budget rather than growing without limit. */
+    ok('char lore is injected', frows.length >= 1, frows.length + ' injected');
+    ok('...and the pile still stops at the byte budget', (function () {
+      var many = [];
+      for (var n = 0; n < 30; n++) many.push(fat(600, 'a', 'alpha'));
+      var sys = chatBox.api.buildChat({ name: 'X', lorebook: many }, {}, [{ role: 'assistant', text: 'alpha' }], settings())[0].content;
+      var block = (sys.split('Relevant world facts:')[1] || '').split('\n\n')[0];
+      return block.split('\n').filter(function (l) { return l.indexOf('- ') === 0; }).length <= chatBox.api.LORE_LIMIT;
+    })());
     var loneChar = { name: 'Lone', lorebook: [fat(2000, 'q', 'only')] };
     var lsheet = chatBox.api.buildChat(loneChar, {}, [{ role: 'assistant', text: 'only the truth' }], settings())[0].content;
     ok('a lone match still gets in (the budget floor)', lsheet.indexOf(new Array(2001).join('q')) !== -1);

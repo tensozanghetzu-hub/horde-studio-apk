@@ -1,5 +1,36 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.109 — a lorebook that answers the scene (2026-11-17)
+
+Reported from a 66-turn chat whose lorebook had stopped being useful. Three
+defects in how entries are chosen, measured on the real card:
+
+- **Nothing configured the answer.** On a given turn the model received the
+  scope rule, a Hagrid scene from the Hogwarts Express and the Sorting
+  ceremony — both from sixty turns earlier — while the character the current
+  scene was about was dropped for budget. The book was being sampled, not read.
+- **The scan read the entire history.** `loreSample` joined every message, so
+  by turn 66 every proper noun ever mentioned still matched: 28 of 28 entries
+  fired and the budget was spent on whichever the book listed first. It now
+  reads a bounded window of 20 messages.
+- **There was no relevance ordering at all.** Entries were taken in book order,
+  and cards list chapters before characters. Selection now ranks by how
+  *recently* the key was seen — an entry mentioned in the message being
+  answered outranks one mentioned forty turns ago — then by how many of its
+  keys matched, then by specificity, then by cost. Constant entries still lead.
+- **The ceiling was too small to hold the answer.** 6 entries / 1536 bytes; on
+  the reported card four chapter summaries consumed 1,533 of it. Now 10 entries
+  / 5000 characters, still well inside the usual share of context.
+- On the reported chat the result is ten entries, 3,634 characters, the
+  character entry present and the stale chapters gone — at every window size
+  tested from 4 to 40 messages.
+- The diagnostic reports the decision the prompt actually makes, including each
+  entry's rank, so the Lore screen no longer describes a selection nobody used.
+- `tests/lore-selection-test.js` is new — 36 checks over windowing, recency
+  scoring, constant precedence, stage gating, the ceilings, and the diagnostic
+  agreeing with the prompt. The C2 guarantee from v1.39.74 is preserved and
+  re-pinned: something mentioned earlier in the window still fires.
+
 ## v1.39.108 — stop the asterisks being written (2026-11-17)
 
 Reported: asterisks get denser the longer a chat runs until replies are

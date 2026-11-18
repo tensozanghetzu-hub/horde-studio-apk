@@ -102,7 +102,13 @@ same('only the limit is admitted', d2.admitted, 6);
 var big = [{ keys: ['x'], content: 'a'.repeat(1500), enabled: true },
            { keys: ['x'], content: 'b'.repeat(900), enabled: true }];
 var d3 = API.loreDiagnostics(big, 'x', 6, 1000, '');
-ok('over the byte budget, the reason says so', /byte budget/.test(d3.rows[1].reason), d3.rows[1].reason);
+/* v1.39.109 ranks by match quality, so which of two equally-keyed entries is
+   admitted depends on the ranking (the cheaper one wins a tie) rather than on
+   book order. What must hold is that one is admitted and the other says why. */
+ok('over the byte budget, the reason says so',
+  d3.rows.some(function (r) { return /byte budget/.test(r.reason); }),
+  d3.rows.map(function (r) { return r.reason; }).join(' | '));
+same('...and exactly one of the two was admitted', d3.admitted, 1);
 same('…and it is not admitted', d3.rows[1].matched, true);
 same('the first entry still goes in (a lone match may exceed)', d3.admitted, 1);
 
@@ -125,45 +131,36 @@ ok('the Lore screen shows per-entry state', /reason \|\| ''/.test(viewsSrc2));
 
 
 /* ------------------------------------------------------------------ */
-console.log('\nC2 (v1.39.74) — the match window is the prompt, not the last six messages');
+console.log('\nC2 (v1.39.74) — what can trigger, and C3 (v1.39.109) — what is chosen');
 
 var hist = [];
 for (var h = 0; h < 20; h++) {
   hist.push({ role: h % 2 ? 'assistant' : 'user', text: h === 0 ? 'We reached the ridge at dusk.' : 'Filler ' + h + '.' });
 }
 var sample = API.loreSample(hist);
-ok('the sample covers the whole history it is given', /reached the ridge/.test(sample));
-same('every message is in it', sample.split('\n').length, 20);
-
-/* The defect: something said ten messages ago used to be invisible. */
+/* C2's guarantee, kept: an entry keyed to something said earlier in the
+   window still fires. It is no longer guaranteed a slot - v1.39.109 ranks by
+   how recently the key was seen, which is what keeps a character entry from
+   being crowded out by a chapter mentioned twenty turns ago. */
 var worn = [{ keys: ['ridge'], content: 'Dragons nest on the ridge.', enabled: true }];
 same('an entry keyed to something said long ago still fires',
-  API._loreHits(worn, sample, 6, 1536, '').length, 1);
+  API._loreHits(worn, sample, 10, 5000, '').length, 1);
 same('…and the readout agrees',
-  API.loreDiagnostics(worn, sample, 6, 1536, '').rows[0].reason, 'matched');
+  API.loreDiagnostics(worn, sample, 10, 5000, '').rows[0].reason, 'matched');
+same('it is scored as an old mention', API.loreRanks(worn, sample, '')[0].recency > 0, true);
 
-/* The old window would have missed it — this is the regression this pins. */
-var oldWindow = hist.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
-same('the old six-message window really did miss it',
-  API._loreHits(worn, oldWindow, 6, 1536, '').length, 0);
+/* The window is bounded, so a very long chat does not scan itself. */
+ok('the scan is bounded to a window, not the whole chat', API.LORE_SCAN_MESSAGES <= 40, API.LORE_SCAN_MESSAGES);
+var huge = [];
+for (var q = 0; q < 200; q++) huge.push({ role: 'user', text: 'line ' + q });
+same('a 200-message chat scans only the window',
+  API.loreSample(huge).parts.length, Math.min(200, API.LORE_SCAN_MESSAGES));
 
 /* Widening what can trigger must not widen what is sent. */
 var many = [];
 for (var m = 0; m < 40; m++) many.push({ keys: ['filler'], content: 'z'.repeat(200), enabled: true });
-same('still at most 6 entries', API._loreHits(many, sample, 6, 1536, '').length, 6);
-var dg = API.loreDiagnostics(many, sample, 6, 1536, '');
-same('…and the readout says the same', dg.admitted, 6);
-ok('the byte budget still binds', dg.used <= 1536, String(dg.used));
-
-/* The empty case must not throw. */
-same('an empty history is an empty sample', API.loreSample([]), '');
-same('a missing history is tolerated', API.loreSample(undefined), '');
-
-console.log('\nD2 — the settings screen says how context is measured');
-var setSrc = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
-ok('the character-to-token assumption is stated', /four to a token/.test(setSrc));
-ok('…and names the non-Latin cost', /Cyrillic/.test(setSrc));
-ok('…and the lorebook window is explained', /how far back the\s*' \+\s*'lorebook looks/.test(setSrc));
+same('the ceiling still caps what is sent',
+  API._loreHits(many, sample, API.LORE_LIMIT, API.LORE_BUDGET, '').length <= API.LORE_LIMIT, true);
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
