@@ -1,0 +1,14 @@
+var fs=require('fs'),vm=require('vm');
+var sb={console:console,JSON:JSON,Math:Math,Date:Date,Promise:Promise,Object:Object,Array:Array,String:String,Number:Number,RegExp:RegExp,Error:Error,isNaN:isNaN,parseFloat:parseFloat,parseInt:parseInt,TextEncoder:TextEncoder,TextDecoder:TextDecoder};
+sb.window=sb;sb.global=sb;
+sb.fetch=function(){return Promise.resolve({ok:false,text:function(){return Promise.resolve('');}});};
+vm.runInNewContext(fs.readFileSync('/home/user/horde-studio-mobile/js/api.js','utf8'),sb,{filename:'api.js'});
+var API=sb.API;
+var raw='{"summary": "some text but no close';
+console.log('raw:', JSON.stringify(raw));
+var po=API.proseOnly(raw);
+console.log('proseOnly ->', JSON.stringify(po), '| len', po.length);
+console.log('has summary key?', /["\u201c]?summary["\u201d]?\s*:/.test(raw));
+var m=/["\u201c]summary["\u201d]\s*:\s*["\u201c]?((?:[^"\\\n\u201d]|\\.)*)/.exec(raw);
+console.log('match:', m && JSON.stringify(m[1]));
+console.log('parseMemory:', JSON.stringify(API.parseMemory(raw)));

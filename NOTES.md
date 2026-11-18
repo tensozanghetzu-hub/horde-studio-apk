@@ -1,5 +1,1069 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.109 — a lorebook that answers the scene (2026-11-17)
+
+Reported from a 66-turn chat whose lorebook had stopped being useful. Three
+defects in how entries are chosen, measured on the real card:
+
+- **Nothing configured the answer.** On a given turn the model received the
+  scope rule, a Hagrid scene from the Hogwarts Express and the Sorting
+  ceremony — both from sixty turns earlier — while the character the current
+  scene was about was dropped for budget. The book was being sampled, not read.
+- **The scan read the entire history.** `loreSample` joined every message, so
+  by turn 66 every proper noun ever mentioned still matched: 28 of 28 entries
+  fired and the budget was spent on whichever the book listed first. It now
+  reads a bounded window of 20 messages.
+- **There was no relevance ordering at all.** Entries were taken in book order,
+  and cards list chapters before characters. Selection now ranks by how
+  *recently* the key was seen — an entry mentioned in the message being
+  answered outranks one mentioned forty turns ago — then by how many of its
+  keys matched, then by specificity, then by cost. Constant entries still lead.
+- **The ceiling was too small to hold the answer.** 6 entries / 1536 bytes; on
+  the reported card four chapter summaries consumed 1,533 of it. Now 10 entries
+  / 5000 characters, still well inside the usual share of context.
+- On the reported chat the result is ten entries, 3,634 characters, the
+  character entry present and the stale chapters gone — at every window size
+  tested from 4 to 40 messages.
+- The diagnostic reports the decision the prompt actually makes, including each
+  entry's rank, so the Lore screen no longer describes a selection nobody used.
+- `tests/lore-selection-test.js` is new — 36 checks over windowing, recency
+  scoring, constant precedence, stage gating, the ceilings, and the diagnostic
+  agreeing with the prompt. The C2 guarantee from v1.39.74 is preserved and
+  re-pinned: something mentioned earlier in the window still fires.
+
+## v1.39.108 — stop the asterisks being written (2026-11-17)
+
+Reported: asterisks get denser the longer a chat runs until replies are
+unreadable — in one export, 55 of 94 replies carried more asterisks than words,
+and the chats were being deleted rather than finished. The previously offered
+answer hid them; this removes the request and resists the amplification.
+
+- **The default system prompt asked for them.** "Use asterisk italics
+  (\*like this\*) for thoughts and actions" is read by the model as its own
+  house style, so a narrator began marking its prose. That line is gone; the
+  default now asks for plain prose with no markers and dialogue in quotes.
+- **Installs holding the old default are upgraded.** The migration now compares
+  against both previous defaults. A prompt the user has edited by even one
+  character is never touched — that is their text, not ours.
+- **A style lock after the transcript.** A plain-prose instruction now rides in
+  the tail turn, after the card, the examples and the history. This is the only
+  position that survives a long chat: 6,000 characters of starred replies teach
+  the habit far better than a system message read before them can forbid it.
+- **It only fires when the habit is really there.** A greeting that italicises
+  one line, or a handful of italic beats, gets no instruction at all — nothing
+  changes for a chat that was never afflicted. The trigger is a reply carrying
+  a dozen or more, or twenty across the window.
+- **Both request paths carry it**, chat-format and prompt-format, so the fix
+  does not hold on one provider and fail on another.
+- `tests/style-lock-test.js` is new — 36 checks over the default text, the
+  migration's exact-match rule, the trigger threshold in both directions, and
+  the lock's position as the last thing read. Three suites that pinned the old
+  behaviour were updated to the new one rather than deleted.
+
+## v1.39.107 — the summary fix stops eating ordinary prose (2026-11-17)
+
+v1.39.106 detected a wrecked memory answer by looking for the word `summary:`
+anywhere in it. That was too broad, and it rejected prose that had always been
+stored correctly:
+
+- `Here is a summary: the mill burned and the yard went quiet.`
+- `She read the line that began "summary:" and stopped reading.`
+
+Both reverted to stored memories now. The evidence of wreckage is a brace, a
+bracket or a fence — never the word. The quoted key is taken before an
+unquoted one, so a preamble containing "the summary:" no longer captures
+nothing.
+
+Verified by diffing the parser against v1.39.105 across thirteen shapes: the
+only three that change are the three that were broken (a bare cut fragment,
+a prefixed cut fragment, a fenced cut fragment). Complete JSON, `changed`
+lists, plain prose, over-long prose, refusals, stubs and empty replies are
+byte-identical. `tests/summary-cut-test.js` is 49 checks and now pins the
+prose cases too.
+
+- Found by testing rather than by report: the first version of 1.39.106 broke
+  two shapes while fixing three.
+
+## v1.39.106 — a summary that was JSON wreckage is recovered (2026-11-17)
+
+Reported from a real 66-turn chat whose exported memory read
+`{"summary":"…who m` — the raw JSON wrapper, cut mid-word, standing in for the
+whole past of the chat.
+
+- **The unfinished-JSON guard only looked at the first character.** A model
+  that opens with a line of its own — "Here is the summary:" — and is then cut
+  off by the token ceiling produces `Here is the summary: {"summary":"…` with
+  no closing brace. Because the answer did not *start* with a brace, the guard
+  never fired, and the byte-cut prose branch stored the wrapper as the summary.
+  Every later prompt then began with `Story so far: {"summary":"…`. Such an
+  answer is now recognised by the summary key wherever it appears, and the
+  sentence is recovered from the fragment (`API.proseOnly`).
+- **A rejected JSON answer used to lose the summary it did contain.** The same
+  fragment, with no preamble, was refused outright — the memory pass wrote
+  nothing at all, which reads as "the chat simply stopped remembering". It is
+  recovered now.
+- **A recovered fragment is always marked.** If the JSON never closed, the text
+  recovered from it is the end of a sentence the model did not finish, so it
+  ends in an ellipsis the model can see — even when it is short enough not to
+  be clipped. A complete answer is not marked.
+- Prose that never mentions a summary key, a JSON stub, and the too-short floor
+  all behave exactly as before; only the wrecked answers change.
+- `tests/summary-cut-test.js` grows to 43 checks: bare, prefixed, newline-less
+  and fenced preambles all recover the sentence and never store the wrapper;
+  mid-sentence recoveries are marked; prose and stubs are untouched.
+
+## v1.39.105 — an empty ledger keeps quiet, a cut summary says so (2026-11-17)
+
+Two more reports, both app bugs rather than card bugs. Both held up; one was
+worse than reported.
+
+- **An empty continuity ledger used to say a great deal.** With the switch on
+  and nothing approved, the prompt carried ~1,500 characters of protocol that
+  stated nothing — and `Stage: (not set)`, `Location: (not set)`, `Time: (not
+  set)` invited the model to write the placeholder into the story as though it
+  were a place. **Worse, a partly-filled ledger could freeze the scene:** the
+  cast rule — "only characters listed as present may speak or act" — was
+  printed even when no cast was listed, so a chat whose ledger had a location
+  and nothing else was told that nobody present could act. Nothing approved now
+  means nothing said (`API.continuityHasState`), the switch stays on so it
+  starts appearing the moment there is something to say, unapproved fields are
+  omitted rather than filled with "(not set)", and the cast rule only appears
+  when there is a cast to obey. A ledger with no cast is told to keep the cast
+  it already has instead of being forbidden one.
+- **A truncated summary stopped mid-sentence with no sign it was cut.** When a
+  memory pass answers in prose instead of JSON, the answer was cut at 800
+  characters — straight through a word if that is where 800 landed — and stored
+  as the summary, which then went back into the next prompt as remembered fact.
+  The next prompt read a sentence that simply stops; nothing told it there was
+  more. The cut now lands on the last real sentence end inside the budget and
+  marks itself with an ellipsis the model can see, falls back to a word boundary
+  (never mid-word) when a single sentence is longer than the whole budget, and
+  never touches a JSON summary. Abbreviations, closing quotes and parenthetical
+  endings are handled.
+- **Still standing: the protocol is a fixed cost.** A ledger holding one fact
+  still pays ~960 characters of instructions to report it. That is the price of
+  the proposal loop, it is charged once per turn, and it is only paid when
+  continuity is on and the ledger holds something.
+- `tests/continuity-test.js` grows to 47 checks (silence when blank, no
+  placeholder state, no cast rule without a cast, the player-protection line
+  survives, one protocol per prompt, cost grows only with approved facts).
+  `tests/summary-cut-test.js` is new — 28 checks over sentence-boundary cuts,
+  the word-boundary fallback, short answers left untouched, JSON summaries never
+  truncated, and the marker being visible. Suite 112 files / 0 failing; generic
+  gate clean.
+
+## v1.39.104 — a chat remembers like a world does (2026-11-17)
+
+Asked whether the memory work had reached chats or only worlds. Checked: **only
+worlds.** All three changes — the NOW anchor, facts that keep a history, and the
+instruction to roll before prose — had been built inside the world engine, and a
+persona chat was still on the older model. Then, of the three, you picked: facts
+with a history always, the NOW anchor only where continuity is switched on, and
+no roll-before-prose because a chat has no dice. That is what this is.
+
+- **A chat's facts had no life.** `session.facts` was an array of plain strings,
+  thrown away and rewritten in full on every memory pass. A fact learned at
+  message 20 and the fact that replaced it at message 200 arrived side by side
+  with no date and no order — so when the two disagreed, nobody could tell which
+  was true now. This is the identical bug the world side had before v1.39.100,
+  and it is fixed the same way: each fact is now a record with an id, the message
+  it became true at, and (once it stops being true) the message that ended it.
+- **The same problem, the same cure.** Restating a load-bearing fact refreshes
+  its date instead of adding a copy, so a promise from chapter one does not age
+  out while the chat leans on it. A statement that replaces an older one retires
+  the old record rather than deleting it — the history stays readable.
+- **The summariser can now say what changed.** The chat memory pass wrote a new
+  summary and a new fact list but had no way to report that a stored fact had
+  become false. The world summariser has asked for `"changed"` since v1.39.100;
+  the chat one never did, and that was half of why a chat's memory could argue
+  with itself. It is asked now, and it is shown the list of what the chat
+  currently holds true, not the raw array.
+- **A model cannot delete a fact by implying it.** `"changed"` retires a fact
+  only when it names one word for word — a vague "everything is different now"
+  retires nothing, and only the player can truly delete. Same conservatism as
+  the world side (`API.sameFact`).
+- **The prompt carries only what is true now, newest first, each dated.** Retired
+  facts are not sent; they are kept for the sheet and the export.
+- **The memory sheet shows the history.** Current facts carry the message they
+  were learned at; a retired one is dimmed and reads "no longer true since N".
+  Editing keeps the record's id and date, adding one mints a new dated record,
+  and delete is still a real delete — the player's, and nobody else's.
+- **The NOW anchor, for chats with continuity on.** Where the chat stands is
+  restated as the last thing the model reads before writing: stage, where and
+  when, who is present, and the events still open. With continuity off, nothing
+  is added — the request is unchanged, so a plain chat costs nothing.
+- **Found while wiring it:** `App.chatHealth` counted the context as
+  `session.facts.join('\n')`, which after this change would have measured
+  `[object Object]` once per fact, and the transcript export wrote `- [object
+  Object]` for every memory. Both read the wording now, and the export prints
+  what a fact *was* under "No longer true", so a saved chat does not look as if
+  it simply forgot.
+- Existing chats and exports open unchanged: plain-string facts are read as
+  current records, dated by the last memory write.
+- `tests/chatfacthistory-test.js` is new — 70 checks over record identity,
+  supersede-not-delete, the conservative `"changed"` path, prompt ordering,
+  the continuity gate, migration of old chats, the ceilings retiring rather
+  than deleting, and the two `[object Object]` bugs above. Suite 111 files /
+  0 failing; generic gate clean.
+
+## v1.39.103 — a drafted world is a playable one (2026-11-17)
+
+Reported: "AI create a world" produces a social sandbox — `gameRules.modules`
+gets quests, relationships and livingWorld and nothing else, no checks, no
+dice, no `statBound` — then asks for 2-3 skills and 1-2 classes and stops.
+Verified against the shipped prompt and the engine: **accurate on every point**,
+and the consequences were real.
+
+- **The drafted world had no dice.** With no `checks`, the prompt never offers
+  the check grammar and the two-phase turn is skipped, so a referee could never
+  call for a roll. It now asks for 2-4 checks with a DC, the stat each rides
+  on, and a consequence **in both directions** — plus `dice` and a `statBound`
+  of 2-5, so a single turn cannot move a number by a hundred.
+- **It asked for a training it could never test.** The drafter spent a whole
+  request on 2-3 skills and 1-2 classes while offering no check that could use
+  one. Skills are now something the world can actually call on.
+- **No vital stat.** `health` was never asked for, so there was no floor and no
+  downed state; it is now offered, conditional, with the stat named in
+  `vitalStatId`.
+- **Two of the three modules it asked for are read by nothing.**
+  `relationships` and `livingWorld` are consumed nowhere in the engine — the
+  social web comes from the people draft's own `relationships` array, and the
+  world moving on its own comes from `worldAgent`. Asking for them was asking
+  the model to fill in keys that do nothing. The shape now declares only
+  modules the code reads.
+- **Found next door:** the referee draft asked for `kernel.sceneLocationLimit`
+  — which the engine reads, but only to reorder the location list — while the
+  pacing that actually makes the world breathe is `worldAgent.intervalTurns`,
+  which was never asked for. Drafted worlds never had an off-screen pulse. It
+  is asked for now (8-20 turns).
+- **And `HW.assemble` was dropping keys on the floor:** a draft's `worldAgent`
+  and its `items` registry were thrown away during the join, so an item-registry
+  world silently lost the check on its owns item tags. Both are carried now.
+- `tests/aicreate-test.js` grows 20 checks that play a *drafted* world rather
+  than reading the prompt: it has a vital floor, offers the check grammar,
+  rolls a check and pays both consequences, refuses an over-bound change, and
+  teaches a skill. Suite 110 files / 0 failing; generic gate clean.
+
+## v1.39.102 — the continuity scene fields, verified (2026-11-17)
+
+Reported: `parseContinuityUpdate` accepts stage/location/time changes but
+`normalizeContinuity` drops them. Investigated against the shipped code, with
+the round trip run end to end — **the report does not reproduce**, but the
+investigation found a real inconsistency in the same place.
+
+- **What was checked:** a model proposal setting stage, location and time is
+  parsed in full; `applyContinuityProposal` writes all three onto the ledger;
+  saving that ledger through `normalizeContinuity` keeps all three; and the
+  next prompt says `Stage: Act Two / Location: The Cellar / Time: Night`. A
+  stage change also flips stage-gated lore as it should. Refusals — unknown
+  field, empty value — are deliberate: the ledger is not blanked by a bad
+  proposal.
+- **Not reproduced:** `normalizeContinuity` reads all three fields from the
+  ledger it is given. The guess in the report — that the fields "come from
+  somewhere else" — does not hold: nothing else supplies them.
+- **What was wrong anyway:** a scene change was clipped to 160 characters on
+  the way through the parser, but the ledger stores stage and time at 120. A
+  long stage or time was therefore shown to the reviewer in full and silently
+  cut on save — the approved change and the saved change were not the same
+  string. Each field is now clipped to its own ceiling, so what the reviewer
+  approves is exactly what is stored.
+- `tests/continuity-test.js` grows 10 checks over the whole scene round trip,
+  including the "unrelated proposal must not roll the scene back" case.
+  Suite 110 files / 0 failing; generic gate clean.
+
+## v1.39.101 — the die is rolled before the scene is written (2026-11-17)
+
+The third and last change from `MEMORY-AND-STATE-RESEARCH.md`. The die was
+never fake — it came from the run's own seeded generator — but the referee
+requested the check inside the reply it was already writing, so it chose the
+moment, and a model that has written the outcome keeps writing toward it.
+
+- **A turn is two phases for a world that names checks.** First the referee is
+  asked only what the player is attempting and which check settles it — no
+  scene. The engine rolls that check then, before a word of prose exists.
+  Second, the scene is written *from* the verdict, which the prompt states as
+  fact: number, DC, modifiers, outcome, and what success or failure changed.
+- **The result cancels the roll.** The settled check's effects are applied and
+  its line logged before the prose arrives (so the die is on screen while you
+  wait, as a roll bar beside the scene rather than inside it), and the second
+  prompt is told it may not request that check again. The commit path refuses
+  to resolve it a second time — one action, one roll.
+- **A repair re-writes the scene, it does not re-roll the dice.** The rolls
+  that settled this turn are still settled through the repair, and they ride
+  the turn's receipt marked `preRolled`.
+- **Nothing changes for a world that names no checks**: phase one is skipped
+  entirely and the turn is exactly what it was. Phase one is also an aid, not
+  a gate — if it fails, the turn is narrated without a pre-rolled check rather
+  than costing the player their turn. Unknown check names it hallucinates are
+  reported as rejections; it cannot invent a rule.
+- The per-turn check marker is cleared at commit, so a run cannot accumulate
+  one turn's rolls into the next.
+- New `tests/preroll-test.js` (50 checks). Suite 110 files / 0 failing; generic
+  gate clean.
+
+## v1.39.100 — facts keep a history (2026-11-17)
+
+The second of the three changes from `MEMORY-AND-STATE-RESEARCH.md`. The first
+(the NOW anchor, v1.39.99) stopped the state going stale in the middle of a
+prompt. This one stops the *memory* arguing with itself.
+
+- **A fact is a record now, not a line of text.** `{id, text, from, to, by}` —
+  the turn it was learned on, the turn it stopped being true, and the id of the
+  fact that replaced it. The prompt is shown what is true **now**, newest first
+  and dated; the run keeps everything else.
+- **Superseded, never deleted.** A memory used to be replaced wholesale every
+  pass, and when the list overflowed the oldest lines were dropped silently —
+  exactly the ones a long run rests on. Now a change marks the old fact with
+  the turn it ended and the id that replaced it, and the overflow *retires*
+  rather than deletes. The sheet has a "No longer true" section, so the player
+  can see that the old level or the finished task was replaced on a turn.
+- **The model may report a change, but not decree one.** The world summariser
+  is asked for a third field, `"changed"` — facts this transcript has made
+  untrue. A stored fact is retired only when the report names it (an exact
+  restatement, or three of its own subject words), so a vague "things changed"
+  cannot empty the memory, and an unknown line is dropped rather than stored.
+- **Restatement is detected in code, on the cautious side.** `sameFact()` finds
+  the same subject with a different claim only when three subject words and
+  three quarters of the shorter statement match; a near miss is deliberate — a
+  miss leaves both facts on the record with dates, which the referee can read,
+  while a false hit would retire something still true.
+- **What is cited stays young.** A fact shown in the prompt is re-dated to the
+  current turn, so a load-bearing fact never looks like the oldest thing in the
+  memory when the ceiling has to choose.
+- Old runs migrate on read: plain-string facts become dated records stamped
+  with the last memory write. Nothing on disk has to be rewritten.
+- New `tests/facthistory-test.js` (55 checks). Suite 109 files / 0 failing;
+  generic gate clean.
+
+## v1.39.99 — the state, said again where it is actually read (2026-11-17)
+
+The research in `MEMORY-AND-STATE-RESEARCH.md` named one cause of late-game
+fuzziness with a cheap fix, so this release takes it.
+
+- **A NOW anchor on every world turn.** The briefing — time, stats, money,
+  carrying, tasks — sits at the top of the system prompt. On a long run the
+  transcript grows between it and the player's newest line, and the middle of a
+  long context is where a model reads worst, so the numbers a run is honouring
+  were the ones easiest to lose: the purse refills, a level slides back, an open
+  task stops being mentioned. The same state is now restated in a few short
+  lines immediately *before* the newest turn: where, when, who is present, the
+  vital number and the purse, and at most three open tasks.
+- **It is bookkeeping, not a second briefing.** No stat dump, no inventory, no
+  lore, no memory, three tasks at most, and the same "never restate this" ban
+  applies. Nothing new is invented and it costs no model call.
+- **It rides the seam, not the middle.** For a chat provider it is a trailing
+  system turn after the newest user line (where the reroll note already goes);
+  for a prompt provider it is joined after the transcript and immediately before
+  the cue to answer. A repaired turn gets it too, from the pre-turn state.
+- Worlds are untouched: the block is built from the run, so nothing in an
+  installed world file changes, and a world with no clock, no numbers and no
+  open tasks simply gets no anchor.
+- New `tests/nowbrief-test.js` (31 checks) pins the position, the contents, the
+  terseness and the silence. Suite 108 files / 0 failing; generic gate clean.
+- Research only, no card involved: the world in the test is invented here.
+
+## v1.39.98 — the bundled sample world, and the last of it (2026-11-17)
+
+The v1.39.97 sweep caught the docs, the comments and the tests. It missed the one
+place a name could still ship: the sample world that every install can open.
+
+- **The sample world now uses the same invented cast as the tests** — the
+  investigator is Tessa Holt, and her id is `npc_investigator`, not a name. The
+  fixture and the bundled copy are the same people again, so a test that reads a
+  name from one and joins it in the other cannot drift apart.
+- Nothing else changed: no prompt, no rule, no threshold. A world already
+  installed on a phone is untouched — this only affects a fresh copy.
+- Suite 106 files / 0 failing, generic gate clean.
+
+## v1.39.97 — no card names left anywhere (2026-11-17)
+
+Requested: go through the docs, the comments and the tests and remove any
+mention of a specific card or character, keeping invented examples as examples.
+Nothing in the app's behaviour changed in this release; the only shipped bytes
+that differ are one code comment. It is a release because an APK is the only
+way to hand over a build, and because a workspace that still names real cards
+is the exact condition that lets a fix drift toward one card.
+
+- **Docs.** The release notes, the policy and the setup guide were re-read and
+  rewritten where they quoted a name. Prose that described a shape ("the
+  character is labelled eight times and speaks throughout") was kept — that is
+  the evidence a future fix needs; the names attached to it were not.
+- **Comments.** Shipped comments now use invented speakers only. The generic
+  gate scans comments as well as code, which is why this happened at all.
+- **Tests and fixtures.** Every fixture name that came from a card was replaced
+  with an invented one, then every touched test was run and its failures read.
+  Two of them had been passing for the wrong reason: a blind rename had
+  collapsed a two-speaker label test into one repeated name, and a world
+  fixture referred to a character the fixture never declared, so the join was
+  correctly refused. Both are fixed by giving the fixture a real second person
+  rather than by loosening the assertion.
+- **The gate.** The forbidden-word list is a second net, not the rule; it now
+  covers the new fixture names so a future blind copy-paste is caught. It also
+  stopped quoting a card title in its own explanation.
+- No behaviour change: `detectCast`, the scene bar, the world companions, the
+  reply rules and the 600-token cap are exactly as they were in v1.39.96.
+  Full suite 106 files / 0 failing, and the generic gate is clean.
+
+## v1.39.96 — v1.39.95 did not fix it; here is why (2026-11-17)
+
+The report after v1.39.95 was the correct one: the bar was still there. The card
+was then supplied, and it showed a shape the previous fix could not see.
+
+- **The moods are quoted lines.** The card lists them under a "Dialogue
+  Examples:" heading — `Warm: "Sweetheart, you're home…"`, `Upset: "I'm sorry…"`.
+  Every rule that calls a quoted line speech was therefore correct to fire.
+  What the previous version got wrong was where the new veto sat: after the
+  evidence test, so nothing reachable. Both vetoes now run first.
+- **The distinguishing facts are structural, and measured on this card:**
+  a mood is *labelled once* and sits inside *a run of other labels*
+  (`Humor:`, `Speech:`, `Greeting:`, `Warm:`, `Teasing:` …); the character is
+  labelled eight times and speaks throughout; a second character recurs.
+  Occurrence counts outside labels are useless here — "Warm" appears eleven
+  times, all as an ordinary adjective ("Humor: Warm, dry, self-deprecating").
+- Verified against the reported card: `detectCast` returns only the character
+  herself, so a one-person card carries no cast and the strip hides. A
+  three-person card still returns all three of its people. `CAST_REV` is 9.
+- Tests: scenecast 63 → 69; the mood list is reproduced with invented words, and
+  a real second speaker added to the same card is still found.
+- The generic gate was extended: a card title made of ordinary English words no
+  longer forbids those words — vocabulary the app itself uses cannot be a leak
+  indicator. It also caught a card phrase in one of my own comments, which is
+  now rewritten. Suite 106/0.
+
+## v1.39.95 — a mood tracker is not a cast (2026-11-17)
+
+Reported from a single-person card: the Scene bar listed the character plus
+five of her own moods.
+
+- **The cause is a counting accident, and the fix does not depend on it.** Blank
+  lines between the labels used to break the old line-by-line act count, so each
+  mood was seen once — which should already have been below the threshold. It is
+  now measured on the whole card, and the threshold is no longer the only guard.
+- **A label whose value reads as a state is vetoed.** The rule is about how the
+  card *uses* the word, not what the word is: if a name appears only as a label
+  and the sentence beside it describes somebody ("Warm: she likes company and
+  always puts the kettle on"), it is a state, not a speaker. `Warm:` followed by
+  a quoted line is still a speaker, because the card is using it as one. Nothing
+  in that test is card vocabulary, so no card has to be named to make it work.
+- **A one-person card can never carry a cast.** Whatever an old chat holds — a
+  cast from a previous version of the card, or a scan that mistook a mood for a
+  person — is dropped when the chat opens, and the bar hides itself. `CAST_REV`
+  is 8, so stored chats re-detect.
+- Tests: scenecast 48 → 63 — the reported shape, moods that are spoken lines
+  (kept), a real recurring cast (untouched), and `initSceneCast` clearing a
+  stored cast on a one-person card while leaving a real one alone.
+  Suite 106/0, generic checks clean.
+
+## v1.39.94 — a 503 says what it is, and offers a way out (2026-11-16)
+
+Reported: a free route worked, then every request was 503 from 8 PM onward.
+
+- **The diagnosis was already right, the advice was missing.** `providerError`
+  returned the bare provider message for any 5xx. It now says: the provider
+  behind this model is unavailable; on a `:free` route that means the shared
+  pool is full and no availability is guaranteed; the app already retried twice;
+  nothing was lost. A 429 and a 401 keep their own, different advice — this is
+  the distinction that matters, because a 503 is not quota and not the key.
+- **A failed send now offers `Later` / `Try again` / `Choose model`** instead of
+  a toast that scrolls away. Only for provider outages; every other error keeps
+  the toast it had.
+- `providerError` is exported so the wording can be tested directly — the old
+  path could only be reached through a real failing request.
+- Tests: new `route-outage-test` (31) — 502/503/504 flagged, free versus paid
+  wording, 429 and 401 unchanged, and the sheet's three actions. Suite 105 → 106
+  files, 0 failing; generic checks clean.
+
+## v1.39.93 — who is speaking, and memory that remembers what it described (2026-11-16)
+
+Two reports from real use.
+
+- **The card's own name is a speaker label on a cast card.** `cleanReply` cut a
+  reply at the first line beginning with the character's name and stripped that
+  name off the front — rules for a single-character card, where `Name:` means
+  the model started a turn it should not have written. On a card with a cast it
+  is how the story says who is talking, so whenever the loaded character spoke
+  her name vanished. Those two rules now apply only when the scene cast has
+  fewer than two names; the player's own name still ends the reply either way.
+- **The bubble header follows the speaker.** It showed the card's name whoever
+  had spoken, so another character's line sat under the card's name. On a cast
+  card the resolved speaker is stored with the message and the bubble uses it.
+- **Memory knows what it described.** Generating a memory now records a digest
+  of the turns it covered (`memAnchorHash`, `memAnchorCount`). When the
+  conversation continues — the next message the player sends — the digest is
+  compared; if a covered reply was rerolled, edited or deleted, the memory is
+  dropped with an explanation and rebuilt from the story that is actually
+  there. Checking on send rather than at the reroll means a player who rerolls
+  and then swipes back keeps their memory. Memory written by hand in the Memory
+  sheet is marked and never auto-cleared.
+- Tests: new `speaker-and-memory-test` (29) — her label kept at the start and
+  mid-reply, the player's fake turn still cut, a one-character card unchanged,
+  and the digest behaving for reroll, append, delete and empty. Suite 104 → 105
+  files, 0 failing; generic checks clean (the gate caught a card name in one of
+  my own comments — rewritten).
+
+## v1.39.92 — a failed automatic run says so (2026-11-16)
+
+Reported: memory had generated itself, by itself, on an earlier turn — so the
+pipeline works, and the failure is intermittent rather than absolute. That fits
+v1.39.91's diagnosis (a request that grows past the route's window as the chat
+grows) and rules out a broken path.
+
+What was wrong from the user's side is that an **automatic** attempt failed in
+total silence: memory simply stopped advancing and nothing said so. It now
+reports, once, and then stays quiet for five minutes per chat so a persistent
+failure does not toast after every reply.
+
+- session-defects 116 → 119. Suite 104/0, generic checks clean.
+
+## v1.39.91 — the summariser sent the whole chat and got nothing back (2026-11-16)
+
+Two regenerates, both "the model refused", with the sheet reporting an **empty**
+reply. That combination pointed at the request, not the model.
+
+- **The summariser ignored the history budget.** It sent `history.slice(-40)` —
+  forty whole messages, however long. On turn 16 of a long chat that is a prompt
+  larger than a free route's window, and a provider that cannot fit it answers
+  with an empty completion. It now caps its transcript to the same
+  `historyBudgetTokens` the chat uses, halving the message count until the text
+  fits.
+- **Three attempts, each cheaper than the last:** JSON → plain prose on the same
+  transcript → a hard-capped 3 500-character slice of the newest turns with
+  `reasoning: {enabled:false}` on OpenRouter (a reasoning route can spend the
+  entire output budget thinking and return nothing visible).
+- **The failure record now says what was asked:** message count, approximate
+  tokens, the model, and its context window, alongside the raw reply — shown in
+  the Memory sheet. Empty from an oversized request and empty from a model that
+  simply said nothing were indistinguishable before.
+- Tests: session-defects 102 → 116, driving the real `summarize()` against a fake
+  transport: capped request, three attempts, shrinking sizes, reasoning disabled
+  only on the third, and each attempt's outcome accepted where it should be.
+  Suite 104/0, generic checks clean.
+
+## v1.39.90 — the refusal test was eating honest summaries (2026-11-16)
+
+The toast said "the model refused" twice running, on a chat where the model had
+nothing to refuse. It was the guard, not the model.
+
+- **`MEMORY_REFUSAL` matched anywhere in the text.** Its alternatives included
+  bare fragments — `there is no`, `no (roleplay|content|conversation|history)`,
+  `i can't` — so a real summary of a scene where nobody had agreed on the rent
+  yet ("there is no agreement about it") was classified as a refusal and thrown
+  away, and the prose retry was thrown away for the same reason. The pattern is
+  now anchored to the start of the text and names refusal *openings* only.
+- **Parsed JSON is authoritative.** A summary that came out of valid JSON is the
+  field the model was asked for; it is only rejected if it IS a refusal, first
+  words and all (under 240 characters).
+- **A self-inflicted bug found while fixing it:** the first version of the new
+  pattern was assembled from single-quoted strings, where `\s` and `\b` are
+  not what they look like — the escapes became a literal `s` and a backspace
+  character, so nothing matched. It is a regex literal now, and the tests pin
+  both directions.
+- **Both attempts are reported.** The reason now carries the retry's outcome,
+  including "the retry failed" when the request itself throws, and the first
+  attempt's text is kept even then. The Memory sheet shows what the model
+  actually returned, in a read-only box, instead of only a sentence about it.
+- Tests: session-defects 80 → 102 — honest summaries containing "there is no",
+  "cannot", "no agreement" are kept, and seven refusal shapes are still caught.
+  Suite 104/0, generic checks clean.
+
+## v1.39.89 — memory that fails says why, and salvages what it can (2026-11-16)
+
+The v1.39.86 guard did its job — it refused to store junk — but it was catching
+more than refusals, and it said nothing about which case it was.
+
+- **A truncated answer is not a refusal.** The summariser asked for up to 900
+  tokens' worth of output while the request ceiling was 500, so on a long chat
+  the JSON was cut mid-object, `JSON.parse` failed, and the whole memory was
+  discarded. The ceiling is now 900, the fact count is trimmed to 8, and
+  `parseMemory` salvages the `"summary"` field from an incomplete object —
+  the summary is written first, so it is usually whole.
+- **One retry, in prose.** If the model will not produce JSON, it will usually
+  write five sentences: the second attempt asks for plain prose with no JSON and
+  no headings, and accepts it.
+- **Every rejection now carries a reason** — "the model returned nothing",
+  "the model refused", "unfinished JSON", "too short to be a summary" — and the
+  raw reply is kept. The toast names the reason and points to the Memory sheet,
+  which shows the reason, what the model actually said, and confirms nothing was
+  overwritten. A silent guard is only half a fix.
+- The world summariser gets the same ceiling.
+- Tests: session-defects 61 → 80. Suite 104/0, generic checks clean.
+
+## v1.39.88 — the general-purpose rule, enforced (2026-11-16)
+
+The standing rule is now written down and **tested**, not remembered.
+
+- **`POLICY.md`** states it: a fix targets a class of problem, never a card. It
+  names no card; it fixes the cause; it leaves every other card — present or
+  future — exactly as it was; and it helps anyone, not only the reporter. Corollaries: import problems are fixed for all imports, chat problems for all
+  chats.
+- **`tests/generic-check.js` now derives the forbidden names from the cards
+  themselves.** It reads every `.json`, `.png` and `.charx` on disk — the PNG
+  `chara`/`ccv3` chunks included, so an attached card counts — and takes the
+  character name, the author, and the names in the card's own cast rota. Any of
+  those words in shipped code fails the release. Dropping a new card in for
+  testing forbids its names from that moment; the hand-maintained list is kept
+  only as a second net.
+- **Card words that are app vocabulary are excluded automatically.** A rota
+  entry of the form "Your Wife (Name)" must not forbid the word "your": the
+  shipped code is its own dictionary, and a word it uses constantly cannot be a
+  detection signal.
+- **Three real leaks surfaced on the first run** and were fixed: a personal name
+  inside the world-generation JSON shape, the same name in two continuity
+  placeholders, and one in a sentence-splitting comment. All now use role words.
+  Nothing about behaviour changed.
+- README points at the policy; the release checklist gains the step.
+- Suite 104/0, generic checks clean.
+
+## v1.39.87 — why the reply was pure OOC (2026-11-16)
+
+On turn 1 of a fresh chat the model answered with nothing but:
+
+> OOC: This appears to be a scene reset or alternate opening. The previous scene
+> had boxes already inside, a fourth name in the doorway … Which version would
+> you like to continue?
+
+It was right about what it had been given, and the app had given it that.
+
+- **The example dialogue was being sent as prior turns.** `buildChat` pushed
+  `mes_example` messages into the request *before* the history, so the model
+  read the card's samples as the oldest part of this conversation. This card's
+  examples show a later moment — boxes inside, the wife in the doorway — so the
+  story appeared to have advanced and then restarted at its own opening line.
+  Examples are now a labelled block in the system message ("a sample of the
+  intended voice … NOT events that have already happened"), and the transcript
+  begins at the opening message. The same label goes on the continuation format.
+- **The OOC rule invited it.** v1.39.86 widened the rule with "if you are unsure
+  what they are asking, say so in that line" — an escape hatch offered with no
+  invitation, which a model can use for any inconsistency it thinks it sees. The
+  rule now applies only to an actual OOC note, and says plainly: otherwise write
+  the scene, do not open with "OOC:", do not ask which version of events to
+  continue, do not comment on the prompt or the examples, and treat the opening
+  message plus the most recent turns as the truth.
+- Tests: new `ooc-and-examples-test` (22) builds a request from this card shape
+  and asserts the request opens with the greeting, not an example. Suite 103 →
+  104 files, 0 failing; generic checks clean.
+
+## v1.39.86 — the memory that remembered nothing, and four quieter defects (2026-11-16)
+
+All five from a real 11-turn transcript on a three-speaker card. Two were silent:
+they damaged the chat without ever showing an error.
+
+- **A refusal was stored as the memory summary** — the worst of them. The
+  summariser put the transcript in the *system* message and sent a user turn
+  whose whole content was "Return the JSON now." A model reading the user turn
+  as the request saw an instruction with no data and refused. `parseMemory` then
+  stored that refusal, up to 800 characters, as the story so far — and past the
+  history budget that summary is the only record of the past. The transcript now
+  travels in the user turn and the rules in the system turn (the world
+  summariser too); a reply that reads like a refusal is rejected rather than
+  stored, a summary under 40 characters is rejected, and the caller leaves the
+  existing memory untouched and says so. The Memory sheet flags a chat whose
+  stored summary already reads like a refusal, with one button to clear it.
+- **The OOC rule asked for a line the cleanup deleted.** `[ooc] …` was classified
+  as planning and stripped, so the answer the rule asked for could vanish. OOC
+  tags are now exempt; `[note]`/`[meta]`/`[aside]` are still planning, and a bare
+  `Note:` is no longer a meta line at all — that is how a character leaves a note
+  on the table.
+- **The cast never invalidated when the card changed.** `CAST_REV` only moves
+  when the app ships a rule, so editing a card kept the old chips forever.
+  Sessions now carry a fingerprint of everything detection reads (name, persona,
+  greeting, scenario, examples) and re-detect when it differs, unless the player
+  has edited the cast by hand.
+- **Every reply was labelled with the card's own name.** In a chat-format prompt
+  the turns were unattributed; in the string prompt and the export, a second
+  character's dialogue was labelled with the card's own name — and the
+  summariser fed it to the model that way, so the memory recorded everyone's
+  lines as one person's.
+  `splitSpeaker` reads a leading label against the scene cast, keeps the one
+  nearest the prose, strips the redundant stack, and falls back to the card name.
+  Applied to the prompt, the export and the summariser.
+- Tests: new `session-defects-test` (61). Suite 102 → 103 files, 0 failing;
+  generic checks clean.
+
+## v1.39.85 — read the card's own rota (2026-11-16)
+
+A card that lists its people under a "Cast" heading had one of them invisible:
+she never speaks in the greeting, so the dialogue scan could not see her, and
+she could not be sent away, addressed, or kept out of a reply.
+
+- `detectCast` now reads a rota too: a heading line that is a cast heading —
+  Cast, Cast list, Characters, Main/Supporting/Other characters, NPCs, People,
+  "Who's here", "In this scene" — followed by bullets. The bullet's bold name,
+  or the text before a dash or colon, is a person. General by construction:
+  the heading vocabulary and the bullet shape, no names anywhere.
+- A rota cannot invent people out of an unrelated list: the heading must be a
+  cast heading, a non-bullet line ends the rota, and field words are still
+  rejected (`- **Overall** — …` stays a field).
+- A declared name is proof, so it can rescue a card whose only speakers were
+  labelled once — but dialogue keeps the order, so the rota only appends.
+- The loaded character is listed under her own name in the header; a rota entry
+  for her marks her as present rather than adding a second chip.
+- Re-detection treats newly learned names as present. Sending someone away was
+  a choice about a name the player could see; it says nothing about a name that
+  was invisible until now.
+- Tests: scenecast 33 → 48, covering eight heading spellings, four bullet
+  styles, the field-word guard, the prose-instead-of-bullets case and the cap.
+  Suite 102/0, generic checks clean.
+
+## v1.39.84 — a description is not dialogue (2026-11-16)
+
+Same card, one layer deeper: the chips read the character, a second person,
+and a field called **Overall**.
+
+- **Cause.** The block-written card ends each character with an `Overall:` line
+  ("A loyal, easygoing father who is trying to get his life back together.").
+  v1.39.83 had just taught the detector that one full sentence after a label is
+  speech — a good rule, and the reason this got through: the sentence was real,
+  it just was not dialogue. Two of them were enough to outrank the speakers.
+- **Fix.** Two general tests replace the word-count shortcut. Quotation marks
+  are now the only single-line proof of speech. Failing that, a label must
+  recur, and its values must not all read as description — a description opens
+  with an article, runs on, and never uses the first or second person. Heading
+  nouns (Overall, Summary, Notes, Details, …) join the field vocabulary and can
+  never become a person, even inside quotes.
+- Verified against the reported card itself: `detectCast` returns exactly its
+  two people. Stored chats re-detect through `CAST_REV` 5.
+- Tests: scenecast 27 → 33. Suite 102/0, generic checks clean.
+
+## v1.39.83 — field headers are not people (2026-11-16)
+
+Reported from a three-person card: the Scene bar showed one person's name and
+then the field headers Name, Age, Role, Appearance and Likes.
+
+- **Cause.** A card written as blocks — Name, Age, Role, Appearance, Likes, once
+  per character — repeats every field header three times. The detector counted
+  each colon-line as an act of speech and required two to be a person, so the
+  headers scored three each while the people who actually spoke scored one and
+  were dropped. The more characters a card listed, the more certainly its field
+  names outranked its cast.
+- **Fix, in three parts.** Card field vocabulary is rejected outright; a label
+  followed by a quoted line or a full sentence counts as speech on its own,
+  because that is a far stronger signal than repetition; and the loaded
+  character is allowed into the cast on a multi-person card — she could never
+  appear in it before, which left two-person cards with a cast of one and hid
+  the whole strip.
+- Nothing in the detector is card-specific. Stored chats re-detect through
+  `CAST_REV` 4 unless the player has edited the cast by hand, and the chat's own
+  character stays present through the re-detect.
+- Tests: scenecast 16 → 27, including the exact block-written shape that was
+  reported and the one-quoted-line rule in both directions. Suite 102/0.
+
+## v1.39.82 — the history budget, and a scene cast with rules (2026-11-16)
+
+Both from a review of multi-character cards. Both confirmed in the code first.
+
+- **The history cap was invisible and outranked the slider.** `maxContextChars`
+  appeared exactly once in the whole app — as the literal `26000` in the one
+  call that trims history. No setting, no UI, and it beat "Messages in context"
+  silently: at 250-word replies the slider reads 40 and 17 messages are sent.
+  It is now `historyTokens`, a real setting in Settings → Generation with a
+  slider, a tappable exact value, and a hint that says what it does and does
+  not cover.
+- **It is not raised blindly.** The review suggested 100k characters as "free on
+  a 25.6k-token window", which holds only for models that have one. On
+  OpenRouter's free routes 8 192-token windows are common, and a prompt bigger
+  than the window is not more memory: the provider truncates it and the
+  character answers the start of the conversation forever — the failure the
+  Horde budget code already documents. The default is 6 000 tokens, which
+  leaves 1 080 tokens of room in an 8 192-token window for a card and a reply.
+  Above that, the app fits itself to the model: `listModels` now keeps each
+  catalogue entry's `context_length` (no extra request — the picker already
+  fetched it), and `historyBudgetTokens` shrinks the budget to what the window
+  leaves once the sheet and the reply are paid for.
+- **`sceneCastPrompt` was a roster with no rules.** It said who was present and
+  who was elsewhere, and forbade the absent from acting — and nothing else, so
+  a model given three names either blends them into one un-attributed narrator
+  or writes a round-robin where everyone gets a paragraph. It now also asks for
+  attributed speech, says not to give each present character a turn, and
+  forbids writing the player's words — which is exactly where multi-person
+  prompts go wrong, and `OOC_RULE` was far away in the system block.
+- Tests: history-budget-test (33) covers the maths, the storage round trip, the
+  UI being wired, and the cast rules appearing in the built prompt. Suite
+  101 → 102 files, 0 failing.
+
+## v1.39.81 — the reply footer says what it means (2026-11-16)
+
+- The line under a bubble read "116 words · cut", which can be read two ways:
+  how long this reply is, or how much the app withheld because the reply ran
+  long. It was the first — and the second is not a thing this app does. A cut
+  reply is short, not trimmed; the model simply hit its token budget and
+  stopped mid-thought.
+- The footer now names its own subject and its own state:
+  - `116 words in this reply · complete`
+  - `116 words in this reply · the model hit your 600-token limit, so it
+    stopped mid-thought · Continue finishes it`
+  - `… · the model chose to stop before finishing` (provider said `stop`)
+  - `… · it stopped mid-sentence; Continue finishes it` (no reason reported)
+- The token limit named is the one actually in settings, so the sentence and
+  the slider cannot disagree.
+- Tests: message-footer-test grew 26 → 37, including "nothing suggests text was
+  withheld" and "a complete reply has no Continue nudge". Suite 101 files,
+  0 failing.
+
+## v1.39.80 — Chat health that opens, and a turn you can still read (2026-11-16)
+
+- **Chat health did nothing.** The sheet called `IDB.all('messages')`; the store
+  has `getAll` and `getAllByIndex` and has never had `all`. The throw happened
+  while `Promise.all([...])` was building its argument array — synchronously —
+  so the `.catch()` chained after it never ran: no sheet, no toast, no error.
+  The menu had already called `close()`, so the whole visible result was a menu
+  that vanished. It now reads through `Store.getMessages(sessionId)`, the
+  indexed getter the rest of the app uses, and a missing session says so
+  instead of silently returning.
+- **The turn went off the edge.** v1.39.79 appended `· turn N` to the header
+  line, which is a single ellipsised row: a real chat title ("First Night on
+  Coruscant · t…") pushed the turn out of sight. It is now a prefix —
+  `turn 4 · as Player · First Night on Coruscant` — where truncation cannot
+  reach it. The title is already in the Chats list; the turn is not.
+- Tests: chat-health-test (14) drives the sheet end to end against a fake IDB
+  and scans every file for calls to IDB methods that do not exist, so this
+  class of bug cannot come back silently. Suite 100 → 101 files, 0 failing.
+
+## v1.39.79 — the footer under a reply, and knowing what turn you are on (2026-11-16)
+
+- Reported from a screenshot: a reply with two full paragraphs under it read
+  "**0 words · cut**". The footer was rendered once, when the bubble was
+  created — before the first chunk arrived, so `_stream` was `''` — and every
+  later update patched only `.mtext`. The number under a reply was whatever the
+  streaming render happened to leave behind, and "cut" appeared because an
+  empty string does not end in punctuation.
+- Two changes, because either alone would leave a way to lie:
+  an empty `_stream` now falls back to the stored text (empty means "nothing
+  has streamed yet"), and `Views.refreshMessage` rebuilds the whole bubble from
+  the finished message — text, word count, cut marker, continuation label,
+  swipe row — instead of patching the text and leaving the rest stale. All
+  four completion paths use it: normal, Continue, reroll, and Stop.
+- A continued bubble now says "↳ continued from the reply above". A reply that
+  opens mid-sentence ("around your wrist.") otherwise looks like the app lost
+  text; it is the model resuming where the cut was, and the label says so.
+- Turn indicator: the chat header now ends with `· turn N` (or `· opening`
+  before your first message). A turn is one message you sent — a reply, a
+  reroll and a Continue all belong to the same turn, which is the only reading
+  that survives continuing a cut reply. Recomputed when you send and when a
+  reply lands, not just when the chat opens.
+- Tests: message-footer-test (26). Suite 99 → 100 files, 0 failing.
+
+## v1.39.78 — the empty bar under the chat (2026-11-15)
+
+- Reported from a screenshot: a purple rounded outline sitting under the
+  conversation with nothing in it, which the user could not identify. It is the
+  generating banner (`#gen-banner`) — the "Generating on a volunteer GPU… · 24s"
+  strip — still on screen after the reply finished, emptied and hidden in the
+  DOM but visible anyway.
+- Cause: `hidden` is a USER-AGENT rule (`[hidden]{display:none}`) and every
+  author rule outranks the UA sheet. `.gen-banner{display:flex}` therefore beat
+  `b.hidden = true`, leaving an empty bordered pill behind every reply.
+- It had been found six times before, one symptom at a time: `.typing[hidden]`,
+  `.toast[hidden]`, `.sheet-wrap[hidden]`, `.icon-btn[hidden]`,
+  `.attach-stage[hidden]` and `.wr-hud-*[hidden]` are all patches for the same
+  bug. The banner was the seventh component and had no patch. The general form
+  now sits once at the top of the stylesheet: `[hidden]{display:none !important}`,
+  so the next component cannot repeat it.
+- Two other elements were in the same hole and are fixed by the same rule: the
+  persona bars (`#persona-bar`, `#chat-persona-bar`) and the world HUD
+  (`#wr-hud`), which could each leave an empty strip when hidden.
+- Tests: hidden-attribute-test (10) reads the markup and the stylesheet
+  together — every element marked `hidden` whose component sets its own
+  `display` must be covered by the global guard. Removing the guard fails it.
+  Suite 98 → 99 files, 0 failing.
+
+## v1.39.77 — Scene cast stops reading field labels as people (2026-11-15)
+
+- Reported from a real card: the Scene strip showed a section heading, the
+  character, and a profile field as if three people were on the porch. They came
+  from the label scan, which treated any `Capitalised words:` line as a
+  speaker — a heading and a field are shaped exactly like a spoken line.
+- A name is now a person only when the card uses it to speak, more than once:
+  words after the colon, or a two-word proper name beside a speech verb
+  ("Ada Vane said", "asked Ada Vane"). A bare `Heading:` proves nothing; a
+  single mention does not either. All-caps headings ("Main INTRO") are
+  rejected outright. v1.39.59 fixed the header scan; this is the other half,
+  the label scan it never covered.
+- `sceneCastPrompt` no longer injects for a one-name cast. The strip hides
+  below two names, so a single-character chat was still carrying "SCENE
+  CAST — THIS OVERRIDES THE CARD: Present in this scene: …" on every turn — an instruction the user never asked for, on a card with one person
+  in it. Screen and prompt now agree.
+- `CAST_REV` 2 → 3, so chats that stored the old picks re-detect once on open.
+  Casts edited by hand are still left alone.
+- Tests: scenecast-test (16) reproduces the reported card, checks headings in
+  every shape, checks that real speakers are still found, and pins the
+  one-name prompt rule. Suite 97 → 98 files, 0 failing.
+
+## v1.39.76 — card containers (§K, APK-ISSUES-2) (2026-11-15)
+
+All five findings confirmed against the code at `b84df09` before anything was
+touched; every fixture in the new test is a real PNG built byte by byte.
+
+- **K1 (critical)** — `ccv3` is base64 UTF-8 JSON per the V3 spec, and the
+  reader parsed it as literal text. Any conforming exporter that writes only
+  `ccv3` failed with "No character data embedded in this PNG". It now decodes
+  base64 first and falls back to raw JSON, exactly like `chara` does.
+- **K2** — `chunks.forEach` took the first parseable chunk in file order, so a
+  stale V2 copy in `chara` shadowed the real V3 card. All chunks are read, then
+  `ccv3` wins, as the spec says.
+- **K3** — `zTXt` and compressed `iTXt` were collected and parsed as plain text.
+  Both are now inflated (via `DecompressionStream`), and a WebView too old to
+  inflate says that specifically instead of "no character data".
+- **K4** — the V3 branch read `data` alone, so a V3 tag with top-level fields
+  imported as an empty character with no warning. `mergeCardData` merges top
+  level and `data` with `data` winning (the same rule the V2 branch always had),
+  and `App.v3ShapeNote` explains in the import preview when a file is shaped
+  that way.
+- **K5** — the reader was chosen by file name. It now sniffs the PNG signature
+  and falls back to JSON, so a PNG named `.json` and a JSON named `.png` both
+  import, and a file that is neither gets "that file is not a character card"
+  rather than a complaint about the extension.
+- Found while fixing K4: the merge left the card's own `data` object inside the
+  merged result, so `cardImages` walked it a second time and imported every
+  picture twice under `data_`-prefixed names. `mergeCardData` deletes it.
+- Tests: card-container-test (25) covers every finding with real PNG bytes,
+  including zlib-compressed chunks and non-ASCII round trips. Suite 96 → 97
+  files, 0 failing.
+
+## v1.39.75 — the version string the app reports (2026-11-15)
+
+- `store.js` carried `var VERSION = '1.39.51'` — six releases behind. It is what
+  the About screen shows whenever the updater has not answered yet, which is
+  precisely the moment someone writes down a bug report, so every report would
+  have quoted a version that matched no release. The stale copy had also already
+  reached `docs/js/store.js`, so phones were serving it.
+- It was hand-maintained in two places that cannot read the manifest (`store.js`
+  for display, `sw.js` for the cache name). Both are now stamped from
+  `android:versionName` by `tools/stamp-version.py`, which runs at the top of
+  `build.sh` and `build-channel.py`. There is no manual step left to forget.
+- `sw.js` no longer counts its own cache (`horde-studio-v142` vs app `1.39.74`
+  was a third number to keep in your head). The cache is now
+  `horde-studio-v<version>`, so a release always installs a fresh shell; the
+  worker's activate step deletes every other cache, so nothing accumulates.
+- Its banner comment named `v1.39.53`, a third stale literal in a comment nobody
+  greps. Replaced with a version-neutral one the stamp owns.
+- Tests: version-consistency-test (17) ties the manifest to store.js, sw.js,
+  `docs/`, the README headline, and checks the stamp is wired into both build
+  paths — so the next drift fails CI instead of reaching a phone. Suite 96
+  files, 0 failing.
+
+## v1.39.74 — C2 (match window) and D2 (say what context costs) (2026-11-15)
+
+- C2: the lorebook was matched against the last six messages — three
+  exchanges. An entry keyed to "the ridge" fired while the ridge was being
+  discussed and went quiet four messages later, though the ridge was still in
+  the prompt, still in the story, and still underfoot. `loreSample(history)`
+  now hands the matcher the same transcript the request carries, already cut to
+  the "Messages in context" setting by `trimHistory`. Prompt cost does not
+  change: admission is still capped at 6 entries and 1536 bytes, so this widens
+  what can *fire* an entry, never what is sent.
+- The Lore screen reads the same sample through `API.loreSample`, and its copy
+  changed from "comparing the last few messages" to "checking the conversation"
+  — the readout cannot describe a different window from the one in use.
+- D2: the settings sheet now says that context is measured in bytes (about four
+  per Latin character, four per emoji, two or three for CJK and Cyrillic), so
+  "same card, different language, less memory" is documented rather than
+  surprising. It also says the same number is how far back the lorebook looks.
+- Tests: lore-diagnostics-test grew 32 → 45 (the widening, the old window
+  missing the same entry, the caps still holding). Suite 95 files, 0 failing.
+
+## v1.39.73 — H2, export shape (2026-11-15)
+
+- The export wrote every character field at the top level and left `data` with
+  nothing but the name. The V2 spec asks for both, and tools that read only
+  `data` saw a card with no description, no scenario and no greeting — it looked
+  truncated everywhere except here. Every field is now mirrored into `data` with
+  the same value, so our own import (which merges with `data` winning) is
+  byte-for-byte unaffected and other tools see a complete card.
+- `personality` stays empty on purpose. This app keeps one persona string, so
+  there is no split to write back; copying the same text into `personality` as
+  well would double the sheet for any tool that joins the two fields. The loss
+  is real and unfixable without a second field in the editor — an empty field is
+  the honest representation of it.
+- Tests added: export-shape-test (19). Suite 94 → 95 files, 0 failing.
+
+## v1.39.72 — stale import notes (2026-11-15)
+
+- Two lines in the import preview described losses that v1.39.70 had already
+  fixed, so the app was telling authors their card was broken when it was not:
+  lorebook `constant` ("that is not supported — they only fire on a keyword
+  match") and V3 expression portraits ("not carried for V3 cards"). Both notes
+  are gone; `import-notes-test` now asserts the silence, so a note cannot outlive
+  its defect again. Every remaining note (secondary keys / `selective`,
+  `insertion_order`, a card's own system prompt) is still a real, unaddressed
+  loss.
+- Suite unchanged at 94 files, 0 failing.
+
+## v1.39.71 — A4, D1, C2, D3 (2026-11-15)
+
+- A4: six prompt-building sites expanded `{{char}}`/`{{user}}` *before* stripping
+  tags. A name interpolated inside an attribute or a `<script>` block was written
+  into markup that was then deleted, so the text the model saw depended on where
+  the tag boundaries fell. Every site now strips first and expands second
+  (`macros(plainText(x))`). A `<span title="{{user}}">` and a `<script>` payload
+  both come out as `Her eyes narrow. Done.`, and a macro in plain prose still
+  expands.
+- D1: the reply length had three different implicit defaults (200 in the API,
+  400 in two UI sites, unset in a fourth). `API.DEFAULT_MAX_TOKENS = 400` and
+  `API.maxTokensOf(settings)` replace all of them, so the budget shown, the
+  budget sent and the number in the settings sheet cannot disagree. The saved
+  600-token setting is untouched; the constant only supplies a default.
+- C2: the Lore screen reports, per entry, whether it is in the prompt this turn
+  and why not — `matched`, `no keyword matched in the recent messages`,
+  `disabled`, `wrong stage (…)`, `matched, but the 6-entry limit was reached`,
+  `matched, but over the 1536-byte budget`. The readout reads the newest
+  conversation's last six messages, the same window `loreHits` scans, and falls
+  back to "open a conversation" rather than guessing. `API.loreDiagnostics` is
+  the implementation, and a test pins it against `loreHits` so the summary can
+  never drift from what is actually sent.
+- D3: the Lore screen shows what the character sheet costs on every single turn
+  ("About N tokens of character text"). The sheet is never trimmed, so this is
+  the number that explains a prompt that grows without the chat growing.
+- The Lore screen's "Add lore entry" button was rebuilt into a plain template.
+  The first pass wrapped the block in an IIFE that assigned two undeclared
+  variables; it parsed but was unverified. `worldview-test` now renders the
+  screen and checks the groups, the token count, tag balance and the button.
+- Tests added: lore-diagnostics-test (32), worldview-test (18).
+  Suite 92 → 94 files, 0 failing; `generic-check` clean.
+
+## v1.39.70 — A2, C3, C1, B1 (2026-11-15)
+
+- A2: the V3 import branch never set `expressionPortraits`, so a V3 card's
+  portraits imported as undefined and re-exported without them — a round trip
+  deleted them. Same line as V2, and the export already handled the rest.
+- C3: checked rather than trusted. The doc called it SUSPECTED and read
+  `enabled: e.enabled !== false` as "always true"; it is a boolean expression,
+  so a disabled entry exports as `enabled: false` and round-trips correctly.
+  No product change; `lorebook-roundtrip-test` pins it.
+- C1: `constant` lorebook entries now always join the prompt (they used to be
+  dropped at import, and matching required a keyword). Still gated by
+  `enabled`, `stage` and the byte budget, so a book cannot flood a prompt.
+  The flag also survives export.
+- B1: `<START>` was deleted by `plainText` before the parser could match it, so
+  conventional example blocks merged into one wall of text. The separator is now
+  held behind a sentinel through the plain-text pass; `---` is accepted too.
+  The §G warning about dropped `<START>` is removed because it no longer happens.
+- Tests added: lorebook-roundtrip-test (25). Suite 91 -> 92 files, 0 failing.
+
+## v1.39.69 — card import review (2026-11-15)
+
+From APK-ISSUES.md, worked §E → CI → §F → §G.
+
+- §E suite green: `btoa` added to three vm sandboxes (card-avatar, pngutf8,
+  cardimages); continuefix's assertion counted the seam note as duplication
+  (the doc blamed the user turn — it was the v1.39.63 note quoting the cut
+  tail); card-avatar's two PNG assertions compared the FileReader placeholder
+  instead of the file bytes; ratelimit's "500s never retry" predates the
+  v1.39.62 retry, so it now asserts retry-then-resolve plus exhausted-rejects;
+  typing/update skip cleanly without playwright-core.
+- §E2 CI: a `tests` job gates the `release` job, so a red suite cannot publish.
+- §F A1: the V3 persona no longer folds in the scenario. Git history shows the
+  fold predates the `scenario` field (v1.11.0 started using it separately and
+  left the fold) — it was never load-bearing; V2 never folded.
+- §F H1: `characterToCard` drops a scenario that duplicates the scenario field
+  as an exact trailing block. Narrow by design — an exact match only, so a
+  persona that merely mentions the scenario keeps its text, and nothing is lost
+  because the scenario is written to its own field.
+- §G: `App.importLossNotes` reports dropped `<START>` separators, lorebook
+  `constant` / `secondary_keys` / `insertion_order`, a card system prompt, and
+  V3 expression portraits — rendered in the import sheet.
+- Tests added: v3-scenario-fold-test (15), import-notes-test (10).
+
 ## Build artefact policy (2026-11-14)
 
 - Exactly one root APK exists at a time: `build.sh` deletes every other
@@ -98,7 +1162,7 @@
 
 ## v1.39.59 — Scene cast stops reading headings as people (2026-11-13)
 
-- The header scan behind Scene detection now requires a name to recur and to appear in a speaking context ("Sloane said", "Sloane:", "said Sloane"), so profile headings such as "Basic Info", "Facial Features", "Composure First", "Battlefield Precision" and "Emotional Suppression" are no longer added as cast.
+- The header scan behind Scene detection now requires a name to recur and to appear in a speaking context ("Ada said", "Ada:", "said Ada"), so profile headings such as "Basic Info", "Facial Features", "Composure First", "Battlefield Precision" and "Emotional Suppression" are no longer added as cast.
 - A card's own name is excluded even when given in full or with a curly apostrophe.
 - Chats that stored the old picks re-detect once on open; casts the player edited by hand are left untouched.
 

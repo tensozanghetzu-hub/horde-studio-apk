@@ -15,7 +15,11 @@ function ok(label, yes, detail) { if (yes) { pass++; console.log('  ok   ' + lab
 console.log('A — edit stays in the Memory sheet instead of opening a destructive nested modal');
 ok('fact rows render an explicit edit action', /data-edit-fact/.test(block));
 ok('edit control opens an inline prefilled multiline editor', /data-fact-edit/.test(block) && /data-save-fact/.test(block) && /data-cancel-edit/.test(block));
-ok('inline edits update the working fact and rerender', block.indexOf('facts[i] = edited;') !== -1 && block.indexOf('render(body);', block.indexOf('facts[i] = edited;')) !== -1);
+/* v1.39.104: a fact is a record now, so an edit rewrites its text and keeps
+   its id and date - it is the same fact, better worded. */
+ok('inline edits update the working fact and rerender',
+  block.indexOf('facts[i].text = edited;') !== -1 &&
+  block.indexOf('render(body);', block.indexOf('facts[i].text = edited;')) !== -1);
 ok('editing no longer launches a nested sheet', !/UI\.input\('Edit fact'/.test(block));
 console.log('B — delete confirmation stays inline too');
 ok('fact rows render an explicit remove action', /data-remove-fact/.test(block));
@@ -72,6 +76,14 @@ Body.prototype.querySelectorAll = function (selector) {
   var active = { id: 's1', facts: ['stale'] }, stored = null, opts = null, body = null;
   var sb = {
     App: { state: { session: active } },
+    /* v1.39.104: the sheet reads fact RECORDS through API.chatFactObjects;
+       legacy plain strings read as current records, as the app does */
+    API: { chatFactObjects: function (x) {
+      return (x.facts || []).map(function (f, i) {
+        if (f && typeof f === 'object') return f;
+        return { id: 'f' + (i + 1), text: String(f), from: 0, to: null, by: null };
+      });
+    } },
     IDB: { get: function () { return Promise.resolve(session); } },
     Store: { settings: { memoryEvery: 14 }, putSession: function (s) { stored = s; session.facts = s.facts; return Promise.resolve(s); } },
     UI: {
@@ -113,8 +125,20 @@ Body.prototype.querySelectorAll = function (selector) {
 
   var save = opts.actions.find(a => a.label === 'Save');
   await save.onClick(body);
-  ok('save stores edited, deleted, and added facts', !!stored && JSON.stringify(stored.facts) === JSON.stringify(['corrected fact', 'new user fact']), JSON.stringify(stored && stored.facts));
-  ok('save refreshes the active chat memory', JSON.stringify(sb.App.state.session.facts) === JSON.stringify(['corrected fact', 'new user fact']));
+  /* v1.39.104: what is stored is a list of fact records, so the assertion is
+     about the facts' TEXT and their currency, not about bare strings */
+  function texts(list) { return (list || []).map(function (f) { return typeof f === 'string' ? f : f.text; }); }
+  function currentTexts(list) {
+    return (list || []).filter(function (f) { return typeof f === 'string' || f.to === null || f.to === undefined; })
+      .map(function (f) { return typeof f === 'string' ? f : f.text; });
+  }
+  ok('save stores edited, deleted, and added facts',
+    !!stored && JSON.stringify(texts(stored.facts)) === JSON.stringify(['corrected fact', 'new user fact']),
+    JSON.stringify(stored && stored.facts));
+  ok('...as records, not bare strings',
+    !!stored && stored.facts.every(function (f) { return f && f.id && f.text; }));
+  ok('save refreshes the active chat memory',
+    JSON.stringify(currentTexts(sb.App.state.session.facts)) === JSON.stringify(['corrected fact', 'new user fact']));
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

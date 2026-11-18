@@ -24,6 +24,12 @@ KEY="$ROOT/horde-studio.keystore"
 APK_VERSION="$(grep -o 'android:versionName="[^"]*"' "$ROOT/AndroidManifest.xml" | head -1 | sed 's/.*="//;s/"//')"
 FINAL="/home/user/HordeStudio-v${APK_VERSION}.apk"
 
+# store.js and sw.js ship to the browser, where the manifest is not readable,
+# so their version copies are stamped from it here. They used to be bumped by
+# hand and store.js fell six releases behind — the About screen showed a number
+# that matched no release. The script is idempotent; a stale copy cannot ship.
+python3 "$ROOT/../tools/stamp-version.py"
+
 echo "==> cleaning"
 rm -rf "$OUT"
 mkdir -p "$OUT/res-flat" "$OUT/obj" "$OUT/dex"

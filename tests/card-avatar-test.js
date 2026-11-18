@@ -98,7 +98,7 @@ function loadStore(arrayBuffer, dataUrl) {
     Promise: Promise, JSON: JSON, Object: Object, Date: Date, Array: Array,
     Math: Math, String: String, Error: Error, console: console,
     Uint8Array: Uint8Array, DataView: DataView, TextEncoder: TextEncoder,
-    TextDecoder: TextDecoder, atob: atob,
+    TextDecoder: TextDecoder, atob: atob, btoa: btoa,
     FileReader: arrayBuffer ? makeFileReader(arrayBuffer, dataUrl) : function () { throw new Error('no FileReader'); },
     localStorage: { getItem: function () { return null; }, setItem: function () { }, removeItem: function () { } },
     IDB: makeDb(),
@@ -110,6 +110,18 @@ function loadStore(arrayBuffer, dataUrl) {
 }
 
 var PNG_DATA_URL = 'data:image/png;base64,THEPNGBYTES';
+
+/* The importer attaches the PNG FILE ITSELF as the avatar, built from the
+   bytes it read (store.js `bytesToDataUrl`), not from the FileReader
+   placeholder. Assert the attached URL decodes back to the same bytes —
+   stronger than comparing a fixed string, and it is what the app means by
+   "a PNG-embedded card IS its own avatar". */
+function fileDataUrl(buf) {
+  var bytes = new Uint8Array(buf);
+  var bin = '';
+  for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return 'data:image/png;base64,' + btoa(bin);
+}
 var AVATAR = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAA';
 var AVATAR_JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRg';
 var WEB_URL = 'https://cdn.example.com/avatars/sera.png';
@@ -217,7 +229,8 @@ function v2(name, extra) {
   var json = JSON.stringify(v3('Sera'));
   var Store2 = loadStore(pngWithCard(json), PNG_DATA_URL);
   var pngCard = await Store2.readCardFile({ name: 'sera.png' });
-  same('no char_x in the JSON → the PNG file itself is attached (v3: in data)', pngCard.data.char_x, PNG_DATA_URL);
+  same('no char_x in the JSON → the PNG file itself is attached (v3: in data)',
+    pngCard.data.char_x, fileDataUrl(pngWithCard(json)));
 
   var jsonOwn = JSON.stringify(v3('Sera', { char_x: AVATAR }));
   var Store3 = loadStore(pngWithCard(jsonOwn), PNG_DATA_URL);
@@ -227,7 +240,8 @@ function v2(name, extra) {
   var v2Json = JSON.stringify(v2('Sera'));
   var Store4 = loadStore(pngWithCard(v2Json), PNG_DATA_URL);
   var pngCard3 = await Store4.readCardFile({ name: 'sera-v2.png' });
-  same('v2-embedded JSON gets char_x at the top level', pngCard3.char_x, PNG_DATA_URL);
+  same('v2-embedded JSON gets char_x at the top level',
+    pngCard3.char_x, fileDataUrl(pngWithCard(v2Json)));
 
   var c2 = Store.cardToCharacter(v3('Sera', { char_x: PNG_DATA_URL }));
   same('a full-file data URI passes through the importer', c2.avatar, PNG_DATA_URL);

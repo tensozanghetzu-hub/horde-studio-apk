@@ -96,7 +96,7 @@ const UNICODE = {
 
   const sandbox = {
     Promise, JSON, Object, Date, Array, Math, String, Error, console,
-    Uint8Array, DataView, TextEncoder, TextDecoder, atob,
+    Uint8Array, DataView, TextEncoder, TextDecoder, atob, btoa,
     FileReader: makeFileReader(new Uint8Array(png), 'data:image/png;base64,x'),
     localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
     IDB: new Proxy({}, { get: () => () => Promise.reject(new Error('no db')) }),

@@ -122,6 +122,13 @@ function freshWorld(overrides) {
     Views: {
       thread: function () { calls.thread++; },
       appendMessage: function () { var el = makeEl(); calls.els.push(el); calls.append++; return el; },
+      /* v1.39.79: a finished bubble is rebuilt, not patched — the fake view
+         renders the message's final text the way the real one now does. */
+      refreshMessage: function (c, m) {
+        var el = calls.els[calls.els.length - 1] || null;
+        if (el && el.mtext) el.mtext.innerHTML = m.text;
+        return el;
+      },
       stickToBottom: function () {},
       chats: function () {}
     },

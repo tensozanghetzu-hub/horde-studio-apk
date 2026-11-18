@@ -1510,7 +1510,12 @@ ok('a run without either stays silent about it', HW.buildPrompt(cw, HW.start(cw,
   for (var i = 0; i < 20; i++) manyFacts.push('fact ' + i);
   HW.applyMemory(wr, { summary: longText, facts: manyFacts });
   ok('the summary is capped at 1500', wr.memory.summary.length <= 1500, wr.memory.summary.length + '');
-  eq('the facts list is capped at twelve', wr.memory.facts.length, 12);
+  /* v1.39.100: a fact is retired, not deleted, when the ceiling is reached -
+     so the current list stays at twelve and the rest remain on the record. */
+  eq('the current facts are capped at twelve',
+    wr.memory.facts.filter(function (f) { return f.to === null || f.to === undefined; }).length, 12);
+  ok('...and the ones it could not keep are still on the record',
+    wr.memory.facts.length > 12 && wr.memory.facts.length <= 24, wr.memory.facts.length + '');
 
   /* recall: the memory rides the prompt, labelled as memory, not ledger */
   var mw = {

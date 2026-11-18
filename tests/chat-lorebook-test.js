@@ -7,7 +7,7 @@ sb.window=sb; sb.global=sb;
 vm.runInNewContext(fs.readFileSync(SRC,'utf8'),sb,{filename:'api.js'});
 var API=sb.API, pass=0,fail=0;
 function ok(label,cond,extra){if(cond){pass++;console.log('  ok   '+label);}else{fail++;console.log('  FAIL '+label+(extra?' -> '+extra:''));}}
-var char={id:'c1',name:'Mara',persona:'A careful archivist.',scenario:'An old library.',examples:'',postHistory:'',lorebook:[{keys:['archive bell'],content:'The character-wide archive bell rings at dusk.',enabled:true}]};
+var char={id:'c1',name:'Olive',persona:'A careful archivist.',scenario:'An old library.',examples:'',postHistory:'',lorebook:[{keys:['archive bell'],content:'The character-wide archive bell rings at dusk.',enabled:true}]};
 var settings={systemPrompt:'Stay in character.',userName:'You',userPersona:'',temperature:0.8,maxTokens:600,contextMessages:40,maxContextChars:26000};
 function prompt(session,history){return API.buildChat(char,session,history,settings,null)[0].content;}
 var sessionA={id:'a',summary:'',facts:[],chatLorebook:[{keys:['silver gate'],content:'In this timeline, the silver gate is sealed.',enabled:true},{keys:['secret passage'],content:'This entry is disabled.',enabled:false}]};

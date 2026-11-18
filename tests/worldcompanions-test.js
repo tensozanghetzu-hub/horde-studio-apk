@@ -84,7 +84,7 @@ ok('parting with someone who is not along is refused', (run3.companions || []).l
 
 /* comma lists: one tag, several names */
 var run4 = freshRun();
-var r6 = HW.applyTags(world, run4, '[[with:Mara Voss, Prudence Kettle]]');
+var r6 = HW.applyTags(world, run4, '[[with:Tessa Holt, Prudence Kettle]]');
 ok('a comma list joins everyone named', (run4.companions || []).length === 2, JSON.stringify(run4.companions));
 
 /* the party has a cap */

@@ -10,42 +10,42 @@ sb.window = sb; sb.global = sb;
 vm.runInNewContext(fs.readFileSync(path.join(ROOT, 'js/api.js'), 'utf8'), sb, { filename: 'api.js' });
 var API = sb.API, pass = 0, fail = 0;
 function ok(label, condition, extra) { if (condition) { pass++; console.log('  ok   ' + label); } else { fail++; console.log('  FAIL ' + label + (extra ? ' -> ' + extra : '')); } }
-var char = { id: 'c1', name: 'Mara', persona: 'A careful archivist.', scenario: 'An old library.', examples: '', postHistory: '', lorebook: [
+var char = { id: 'c1', name: 'Olive', persona: 'A careful archivist.', scenario: 'An old library.', examples: '', postHistory: '', lorebook: [
   { keys: ['sealed gate'], content: 'Stage-independent: the library has a west wing.', enabled: true },
   { keys: ['sealed gate'], content: 'At the trial stage, the gate has cracked.', enabled: true, stage: 'The trial' }
 ] };
 var settings = { systemPrompt: 'Stay in character.', userName: 'You', userPersona: '', temperature: 0.8, maxTokens: 600, contextMessages: 40, maxContextChars: 26000 };
 function prompt(session, text) { return API.buildChat(char, session, [{ role: 'user', text: text || 'The sealed gate is here.' }], settings, null)[0].content; }
-var a = { id: 'a', continuity: { enabled: true, stage: 'The trial', location: 'Archive', time: 'Evening', participants: ['Mara'], knowledge: [
-  { who: 'Mara', fact: 'the gate is cracked', basis: 'witnessed it' },
-  { who: '{{user}}', fact: 'the note is forged', basis: 'was told by Mara' },
+var a = { id: 'a', continuity: { enabled: true, stage: 'The trial', location: 'Archive', time: 'Evening', participants: ['Olive'], knowledge: [
+  { who: 'Olive', fact: 'the gate is cracked', basis: 'witnessed it' },
+  { who: '{{user}}', fact: 'the note is forged', basis: 'was told by Olive' },
   { who: 'Narrator only', fact: 'the key is cursed', basis: 'hidden world truth' },
   { who: 'Ivo', fact: 'the door is trapped', basis: 'inferred from scratches' }
-], objects: [{ name: 'Brass key', state: 'bent but usable', holder: 'Mara', basis: 'picked up from floor' }], events: [
+], objects: [{ name: 'Brass key', state: 'bent but usable', holder: 'Olive', basis: 'picked up from floor' }], events: [
   { name: 'Find the missing ledger', status: 'open', detail: 'Last seen in the archive' },
-  { name: 'Disable the bell', status: 'resolved', detail: 'Confirmed by Mara' }
+  { name: 'Disable the bell', status: 'resolved', detail: 'Confirmed by Olive' }
 ] }, chatLorebook: [
   { keys: ['sealed gate'], content: 'Chat-only: this timeline has a silver gate.', enabled: true },
   { keys: ['sealed gate'], content: 'Stage-locked chat secret.', enabled: true, stage: 'After the trial' }
 ] };
 var pa = prompt(a);
 ok('enabled continuity state is injected into a character-independent prompt', pa.indexOf('CHAT CONTINUITY LEDGER') >= 0 && pa.indexOf('Location: Archive') >= 0);
-ok('scene participants and stage are included', pa.indexOf('Present in scene: Mara') >= 0 && pa.indexOf('Stage: The trial') >= 0);
-ok('present NPC knowledge is tracked with provenance', pa.indexOf('Mara knows: the gate is cracked (basis: witnessed it)') >= 0);
+ok('scene participants and stage are included', pa.indexOf('Present in scene: Olive') >= 0 && pa.indexOf('Stage: The trial') >= 0);
+ok('present NPC knowledge is tracked with provenance', pa.indexOf('Olive knows: the gate is cracked (basis: witnessed it)') >= 0);
 ok('off-scene NPC knowledge is excluded from the prompt', pa.indexOf('Ivo knows:') < 0);
 ok('player knowledge and narrator-only truth remain distinct', pa.indexOf('Facts explicitly known to {{user}}') >= 0 && pa.indexOf('Narrator-only world facts') >= 0);
 ok('object state and resolved/open events are injected', pa.indexOf('Brass key: bent but usable') >= 0 && pa.indexOf('Find the missing ledger') >= 0 && pa.indexOf('Disable the bell') >= 0);
 ok('matching stage-gated character and chat lore is injected', pa.indexOf('At the trial stage, the gate has cracked.') >= 0 && pa.indexOf('Chat-only: this timeline has a silver gate.') >= 0);
 ok('nonmatching stage-gated lore is withheld', pa.indexOf('Stage-locked chat secret.') < 0);
 var b = prompt({ id: 'b', continuity: { enabled: true, stage: 'Before the trial', participants: ['Ivo'], knowledge: [], objects: [], events: [] }, chatLorebook: [] });
-ok('another chat with the same character receives no continuity leaks', b.indexOf('Archive') < 0 && b.indexOf('Mara knows:') < 0 && b.indexOf('silver gate') < 0);
+ok('another chat with the same character receives no continuity leaks', b.indexOf('Archive') < 0 && b.indexOf('Olive knows:') < 0 && b.indexOf('silver gate') < 0);
 var disabled = prompt({ id: 'c', continuity: { enabled: false, stage: 'The trial' }, chatLorebook: [] });
 ok('opt-out default suppresses continuity and stage-gated lore', disabled.indexOf('CHAT CONTINUITY LEDGER') < 0 && disabled.indexOf('At the trial stage') < 0);
 ok('stage-independent lore continues to work when continuity is off', disabled.indexOf('Stage-independent: the library has a west wing.') >= 0);
 
-var raw = 'The room grew quiet.\n<continuity_update>{"reason":"Mara showed the key","changes":[' +
+var raw = 'The room grew quiet.\n<continuity_update>{"reason":"Olive showed the key","changes":[' +
   '{"type":"participant","op":"add","name":"Ivo"},' +
-  '{"type":"knowledge","op":"add","who":"Ivo","fact":"the key is bent","basis":"Mara showed it to him"},' +
+  '{"type":"knowledge","op":"add","who":"Ivo","fact":"the key is bent","basis":"Olive showed it to him"},' +
   '{"type":"object","op":"set","name":"Brass key","state":"bent","holder":"Ivo","basis":"he took it"},' +
   '{"type":"event","op":"resolve","name":"Find the missing ledger","detail":"Located in the archive"}]}</continuity_update>';
 var proposal = API.parseContinuityUpdate(raw);
@@ -54,7 +54,7 @@ ok('tagged state is stripped from user-visible prose', API.stripContinuityUpdate
 ok('stream hides an unfinished proposal tag', API.hideContinuityUpdate('visible prose<continuity_update>{"changes":') === 'visible prose');
 var applied = API.applyContinuityProposal(a.continuity, proposal);
 ok('proposal application updates only approved ledger data', applied.participants.indexOf('Ivo') >= 0 && applied.objects[0].holder === 'Ivo' && applied.events[0].status === 'resolved');
-ok('knowledge proposal retains its provenance', applied.knowledge.some(function (x) { return x.who === 'Ivo' && x.basis === 'Mara showed it to him'; }));
+ok('knowledge proposal retains its provenance', applied.knowledge.some(function (x) { return x.who === 'Ivo' && x.basis === 'Olive showed it to him'; }));
 ok('unapproved source state remains unchanged', a.continuity.participants.length === 1 && a.continuity.events[0].status === 'open');
 ok('invalid or provenance-free knowledge suggestions are rejected', API.parseContinuityUpdate('<continuity_update>{"changes":[{"type":"knowledge","op":"add","who":"Ivo","fact":"a secret"}]}</continuity_update>') === null);
 var imported = API.parseLorebookFile(JSON.stringify({ entries: [{ keys: ['gate'], content: 'A stage fact.', stage: 'Act two' }] }));
@@ -68,5 +68,94 @@ ok('reply handler stores proposals only for enabled chats and hides tags', /sess
 ok('continuity is included in per-chat export/import and timeline forks', /continuity:\s*s\.continuity/.test(app) && /s\.continuity\s*=\s*API\.normalizeContinuity/.test(app) && /s2\.continuity\s*=/.test(app));
 ok('message actions expose pending continuity proposals for review', /data-act="continuity-review"/.test(views) && /App\.reviewContinuityProposal\(msg\)/.test(app));
 ok('timeline stage is editable on lore entries and carried through card import/export', /Timeline stage \(optional, exact match\)/.test(app) && /stage:\s*e\.stage\s*\|\|\s*''/.test(fs.readFileSync(path.join(ROOT, 'js/store.js'), 'utf8')));
+/* v1.39.102: the scene fields round-trip. A model may propose a new stage,
+   location or time; approving it has to change what the next prompt says,
+   and the string the reviewer approved has to be the string that is saved. */
+var sceneBase = {
+  enabled: true, stage: 'Act One', location: 'Archive', time: 'Evening',
+  participants: ['Olive'], knowledge: [], objects: [], events: []
+};
+var sceneProposal = API.parseContinuityUpdate('<continuity_update>{"reason":"they moved below","changes":[' +
+  '{"type":"scene","op":"set","field":"stage","value":"Act Two"},' +
+  '{"type":"scene","op":"set","field":"location","value":"The Cellar"},' +
+  '{"type":"scene","op":"set","field":"time","value":"Night"}]}</continuity_update>');
+ok('a scene proposal survives parsing', !!sceneProposal && sceneProposal.changes.length === 3);
+var sceneApplied = API.applyContinuityProposal(sceneBase, sceneProposal);
+ok('applying it changes all three scene fields',
+  sceneApplied.stage === 'Act Two' && sceneApplied.location === 'The Cellar' && sceneApplied.time === 'Night',
+  JSON.stringify([sceneApplied.stage, sceneApplied.location, sceneApplied.time]));
+ok('the source ledger is untouched', sceneBase.stage === 'Act One' && sceneBase.location === 'Archive');
+/* the round trip that actually decides what the model reads next */
+var sceneAppliedTwice = API.normalizeContinuity(sceneApplied);
+ok('saving it again does not drop it',
+  sceneAppliedTwice.stage === 'Act Two' && sceneAppliedTwice.location === 'The Cellar' && sceneAppliedTwice.time === 'Night',
+  JSON.stringify(sceneAppliedTwice));
+var scenePrompt = API.continuityPrompt({ continuity: sceneApplied });
+ok('and the next prompt is written from the new scene',
+  scenePrompt.indexOf('Stage: Act Two') >= 0 && scenePrompt.indexOf('Location: The Cellar') >= 0 &&
+  scenePrompt.indexOf('Time: Night') >= 0, scenePrompt.split('\n').slice(2, 5).join(' | '));
+/* a proposal that does not mention the scene leaves a hand-edit alone */
+var handEdited = { enabled: true, stage: 'Act Two', location: 'The Vault', time: 'Night',
+  participants: ['Olive'], knowledge: [], objects: [], events: [] };
+var arrival = API.parseContinuityUpdate('<continuity_update>{"changes":[{"type":"participant","op":"add","name":"Ivo"}]}</continuity_update>');
+var afterArrival = API.applyContinuityProposal(handEdited, arrival);
+ok('an unrelated proposal does not roll the scene back',
+  afterArrival.location === 'The Vault' && afterArrival.stage === 'Act Two' && afterArrival.time === 'Night',
+  JSON.stringify([afterArrival.stage, afterArrival.location, afterArrival.time]));
+ok('...and still applies its own change', afterArrival.participants.indexOf('Ivo') >= 0);
+/* the approved string is the saved string */
+var longText = new Array(200).join('s');
+var longProposal = API.parseContinuityUpdate('<continuity_update>{"changes":[' +
+  '{"type":"scene","op":"set","field":"stage","value":"' + longText + '"},' +
+  '{"type":"scene","op":"set","field":"location","value":"' + longText + '"}]}</continuity_update>');
+var longApplied = API.applyContinuityProposal(sceneBase, longProposal);
+ok('what the reviewer is shown is what gets saved',
+  longApplied.stage.length === longProposal.changes[0].value.length &&
+  longApplied.location.length === longProposal.changes[1].value.length,
+  longProposal.changes[0].value.length + '/' + longApplied.stage.length + ', ' +
+  longProposal.changes[1].value.length + '/' + longApplied.location.length);
+ok('scene field ceilings match the ledger\'s own',
+  longApplied.stage.length === 120 && longApplied.location.length === 160,
+  longApplied.stage.length + '/' + longApplied.location.length);
+
+/* ---- v1.39.105: an empty ledger says nothing, and never says anything wrong */
+console.log('\nan empty ledger is silent, and a partial one is not a trap');
+function blankLedger(over) {
+  var c = { enabled: true, stage: '', location: '', time: '', participants: [], knowledge: [], objects: [], events: [] };
+  Object.keys(over || {}).forEach(function (k) { c[k] = over[k]; });
+  return { continuity: c };
+}
+if (API.continuityHasState) {
+  ok('disabled says nothing', API.continuityPrompt({ continuity: { enabled: false } }) === '');
+  ok('enabled with nothing approved says nothing', API.continuityPrompt(blankLedger()) === '');
+  ok('...and whitespace is still nothing',
+    API.continuityPrompt(blankLedger({ stage: '   ' })) === '');
+  ok('one fact is enough to speak', API.continuityPrompt(blankLedger({ location: 'The Mill' })) !== '');
+
+  /* the deadlock: a cast-less ledger used to order that nobody present may act */
+  var lonely = API.continuityPrompt(blankLedger({ location: 'The Mill' }));
+  ok('a ledger with no cast does not forbid everyone from speaking',
+    lonely.indexOf('Only characters listed as present may speak') === -1, lonely);
+  ok('...and does not claim a state it was never given',
+    lonely.indexOf('(not set)') === -1, lonely);
+  ok('...but still keeps the player character safe',
+    /Never put words, actions, thoughts/.test(lonely));
+  ok('...and still asks for proposals it can act on',
+    /<continuity_update>/.test(lonely));
+
+  /* the protocol is a fixed cost, so it must not be paid twice */
+  var full = API.continuityPrompt({ continuity: sceneApplied });
+  ok('the protocol appears once', full.split('<continuity_update>').length === 2, full.split('<continuity_update>').length - 1);
+  ok('a full ledger keeps the cast rule',
+    /Only characters listed as present may speak/.test(full), full.slice(0, 400));
+  ok('...and still says who is present', full.indexOf('Present in scene: ') >= 0);
+  /* the prompt grows with what it is given, no more */
+  var oneFact = API.continuityPrompt(blankLedger({ location: 'The Mill' })).length;
+  var twoFacts = API.continuityPrompt(blankLedger({ location: 'The Mill', time: 'Night' })).length;
+  ok('a second approved fact costs only its own line', twoFacts - oneFact < 40, twoFacts - oneFact);
+  var emptyCost = oneFact;
+  ok('a nearly empty ledger costs as little as it can', emptyCost < 1500, emptyCost);
+}
+
 console.log('\ncontinuity-test: ' + (fail ? fail + ' failed, ' : '') + pass + ' ok');
 process.exit(fail ? 1 : 0);

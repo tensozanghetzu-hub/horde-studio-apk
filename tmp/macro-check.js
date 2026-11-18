@@ -1,0 +1,17 @@
+var fs=require('fs'),vm=require('vm');
+var sb={console:console,JSON:JSON,Math:Math,Date:Date,Promise:Promise,Object:Object,Array:Array,String:String,Number:Number,RegExp:RegExp,Error:Error,isNaN:isNaN,parseFloat:parseFloat,parseInt:parseInt,TextEncoder:TextEncoder,TextDecoder:TextDecoder};
+sb.window=sb;sb.global=sb;
+sb.fetch=function(){return Promise.resolve({ok:false,text:function(){return Promise.resolve('');}})};
+vm.runInNewContext(fs.readFileSync('/home/user/horde-studio-mobile/js/api.js','utf8'),sb,{filename:'api.js'});
+var API=sb.API;
+var prompt=fs.readFileSync('/home/user/system-prompt.md','utf8');
+var char={name:'The Narrator — Hogwarts: Book One'};
+var s={userName:'Blu'};
+var out=API.macros(prompt,char,s);
+console.log('=== after macro substitution ===');
+console.log('unreplaced {{...}}:',(out.match(/\{\{[^}]+\}\}/g)||[]).length);
+console.log('contains character name:',out.indexOf('The Narrator — Hogwarts: Book One')!==-1);
+console.log('contains player name:',out.indexOf('Blu')!==-1);
+console.log('asterisks after substitution:',out.split('*').length-1);
+console.log();
+console.log(out.split('\n').slice(0,7).join('\n'));
