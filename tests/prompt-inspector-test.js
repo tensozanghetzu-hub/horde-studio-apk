@@ -8,7 +8,7 @@ var sb={console:console,document:{addEventListener:function(){}},
   UI:{esc:function(x){return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');},icon:function(){return '';},toast:function(){},sheet:function(opts){captured=opts;return Promise.resolve(null);}},
   Store:{settings:{systemPrompt:'Stay safe.',maxTokens:600,provider:'openrouter'},getCharacter:function(id){return Promise.resolve(cast[id]||null);},getMessages:function(){return Promise.resolve([{role:'user',text:'Hello'}]);}},
   IDB:{get:function(){return Promise.resolve(session);}},
-  API:{HORDE_CTX_TOKENS:8192,
+  API:{HORDE_CTX_TOKENS:8192,DEFAULT_MAX_TOKENS:400,maxTokensOf:function(s){return (s&&s.maxTokens)||400;},
     buildChat:function(char,sess,messages,settings,note){buildArgs={kind:'chat',char:char,session:sess,messages:messages,settings:settings,note:note};return [{role:'system',content:'System prompt with rain and style.'},{role:'user',content:'Hello'}];},
     buildPrompt:function(char,sess,messages,settings,note,budget){buildArgs={kind:'horde',char:char,session:sess,messages:messages,settings:settings,note:note,budget:budget};return 'Exact Horde prompt';}},
   Promise:Promise,Array:Array,Object:Object,String:String,Math:Math,Date:Date,setTimeout:setTimeout,setInterval:function(){},clearInterval:function(){}};

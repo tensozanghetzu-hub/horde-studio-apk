@@ -7,7 +7,16 @@
  * Needs chromium (real CSS cascade) and the static server on :8000.
  *   python3 -m http.server 8000 --directory /home/user/horde-studio-mobile
  */
-const { chromium } = require('playwright-core');
+/* Browser-driven test: skip cleanly when the driver is not installed, so the
+   suite is honest on a machine without it (CI runs the same file). */
+let chromium;
+try {
+  ({ chromium } = require('playwright-core'));
+} catch (e) {
+  console.log('SKIP ' + require('path').basename(__filename) +
+    ' — playwright-core is not installed (npm i playwright-core to run it)');
+  process.exit(0);
+}
 const fs = require('fs');
 const path = require('path');
 

@@ -56,10 +56,22 @@
      "stay in character at all times" and forbids commentary, so without a
      standing rule most models ignore "OOC: ..." lines entirely. */
   var OOC_RULE =
-    'Out of character: if {{user}} writes an OOC note (OOC:, [ooc], (ooc)), ' +
-    'step out of {{char}} and answer it in one short plain line, then return ' +
-    'to the scene exactly where it left off. {{char}} never comments on OOC ' +
-    'inside the fiction.';
+    'Out of character: if, and only if, {{user}} writes an OOC note (OOC:, [ooc], ' +
+    '(ooc)), step out of the character and answer it first, in one short plain line that ' +
+    'begins with "OOC:" and answers the question they actually asked, then return ' +
+    'to the scene exactly where it left off. Never answer an OOC question only ' +
+    'through the fiction - if you are unsure what they are asking, say so in ' +
+    'that line. ' +
+    /* v1.39.87: the escape hatch was being used without an invitation. A model
+       that noticed anything it could not reconcile - a sample that looked out
+       of order, a contradiction it imagined - would open the reply with an
+       OOC question and write no story at all. */
+    'Otherwise write the scene and never speak out of character: do not open a ' +
+    'reply with "OOC:", do not ask the player which version of events to ' +
+    'continue, and do not comment on the prompt, the examples or the order of ' +
+    'the story. If something seems inconsistent, treat the opening message and ' +
+    'the most recent turns as the truth and carry on from there. ' +
+    '{{char}} never comments on OOC inside the fiction.';
 
   /* ------------------------------------------------------------------
    * v1.13.1 — HTML in card text.
@@ -145,13 +157,20 @@
 
   /* Turn a SillyTavern-style example block into alternating messages */
   function examplesToMessages(text, char, s) {
+    /* B1 (v1.39.70): every card-writing guide tells authors to separate example
+       turns with <START>, but plainText() deletes every tag — including that
+       one — before the parser below could ever match it, so the separator
+       vanished and the turns merged into one wall of text with no warning.
+       Hold it behind a sentinel so it survives the plain-text pass. */
+    var START = '@@HS_START@@';
+    text = String(text || '').replace(/<\s*START\s*>/gi, '\n' + START + '\n');
     text = plainText(text);
     var out = [], cur = null;
     String(text || '').split(/\r?\n/).forEach(function (raw) {
       var line = raw.trim();
       if (!line) return;
-      var m = line.match(/^<START>$/i);
-      if (m) { cur = null; return; }
+      /* the recovered separator, plus the other common convention */
+      if (line === START || /^-{3,}$/.test(line)) { cur = null; return; }
       var isUser = /^\{\{user\}\}\s*:/i.test(line);
       var isChar = /^\{\{char\}\}\s*:/i.test(line) ||
         new RegExp('^' + (char && char.name ? char.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : 'char') + '\\s*:', 'i').test(line);
@@ -176,27 +195,163 @@
     return re.test(text);
   }
 
-  function loreHits(entries, recent, limit, budget, stage) {
-    if (!entries || !entries.length) return [];
-    var text = (recent || '').toLowerCase();
+  /* C2 (v1.39.71): why each entry did or did not join the prompt. loreHits
+     answers yes/no; an author whose entry never fires needs the reason, and
+     "dropped for budget" and "no keyword" are very different fixes.
+     Returns one row per entry, in book order. */
+  function loreDiagnostics(entries, recent, limit, budget, stage) {
+    var max = limit || LORE_LIMIT;
+    var cap = (typeof budget === 'number' && budget > 0) ? budget : LORE_BUDGET;
+    var ranked = loreRanks(entries, recent, stage);
+    var byIndex = {};
+    ranked.forEach(function (r) { byIndex[r.index] = r; });
+    /* Decide against the ranked list, so this reports what the prompt will
+       actually contain. It used to walk the book in order, which described a
+       selection nobody used. */
+    var chosen = {};
+    loreAdmit(ranked, max, cap).forEach(function (r) { chosen[r.index] = true; });
     var activeStage = String(stage || '').trim().toLowerCase();
-    var out = [], bytes = 0;
-    /* v1.37.0: the same byte discipline the world side has - the pile
-       stops at the budget, and a lone match may exceed it alone. */
-    var cap = (typeof budget === 'number' && budget > 0) ? budget : 1536;
-    entries.forEach(function (e) {
-      if (out.length >= (limit || 6)) return;
+    var rows = [], used = 0, admitted = 0;
+    (entries || []).forEach(function (e, i) {
+      var row = { keys: e.keys || [], content: e.content || '', matched: false, reason: '', rank: -1 };
+      var r = byIndex[i];
+      if (e.enabled === false) { row.reason = 'disabled'; rows.push(row); return; }
+      var need = String(e.stage || '').trim().toLowerCase();
+      if (need && need !== '*' && (!activeStage || need !== activeStage)) {
+        row.reason = 'wrong stage (' + (e.stage || '') + ')'; rows.push(row); return;
+      }
+      if (!r) { row.reason = 'no keyword matched in the recent messages'; rows.push(row); return; }
+      row.matched = true;
+      row.rank = ranked.indexOf(r);
+      if (chosen[i]) {
+        row.reason = r.constant ? 'always (constant)' : 'matched';
+        used += r.cost; admitted++;
+      } else if (admitted >= max) {
+        row.reason = 'matched, but the ' + max + '-entry limit was reached';
+      } else {
+        row.reason = 'matched, but over the ' + cap + '-byte budget';
+      }
+      rows.push(row);
+    });
+    return { rows: rows, used: used, cap: cap, admitted: admitted, limit: max };
+  }
+
+  /* v1.39.109: how much of a book may reach one prompt.
+     These were 6 / 1536. On a real 28-entry card, four fat chapter summaries
+     consumed 1,533 of 1,536 bytes, so a character entry that mattered more was
+     dropped while a scene from sixty turns ago was injected. Raised so that
+     relevance - not the size of whichever entry happens to be listed first -
+     decides what survives. */
+  var LORE_LIMIT = 10, LORE_BUDGET = 5000;
+  var LORE_CHAT_LIMIT = 6, LORE_CHAT_BUDGET = 2048;
+
+  /* v1.39.109: the window that keyword scanning reads.
+     loreSample used to return ALL of history, so on turn 66 the scan text held
+     the entire story: every proper noun ever mentioned still matched, every
+     entry fired, and the budget was spent on whatever was listed first. Every
+     engine descended from World Info scans a small window for exactly this
+     reason. Four messages covers the player's turn and the reply it answered. */
+  var LORE_SCAN_MESSAGES = 20;
+  function loreSample(history) {
+    var list = history || [];
+    var window = list.slice(-LORE_SCAN_MESSAGES);
+    var parts = window.map(function (m) { return String(m.text || ''); });
+    var text = parts.join('\n');
+    /* The newest turn is carried separately: an entry whose key the player has
+       just written is more likely to be what the reply is about than one that
+       only appeared a few messages back. */
+    var newest = parts.length ? parts[parts.length - 1] : '';
+    return { text: text, newest: newest, parts: parts };
+  }
+  /* Accept either the object loreSample returns or a plain string, so any
+     caller that already hands over the text keeps working. */
+  function scanText(sample) {
+    if (sample && typeof sample === 'object') return String(sample.text || '');
+    return String(sample || '');
+  }
+  function scanNewest(sample) {
+    if (sample && typeof sample === 'object') return String(sample.newest || '');
+    return '';
+  }
+
+  /* Rank every entry that may join this prompt, best first.
+
+     Order of precedence, and why:
+       1. constant      - the author's own "always" flag, honoured first
+       2. newest match  - key appears in the message being answered
+       3. key count     - how many of its keys matched in the window
+       4. specificity   - fewer keys on the entry means a more deliberate match
+       5. shorter       - when otherwise equal, the cheaper entry wins
+
+     Nothing here looks at book order. On a real card the chapters are listed
+     before the characters, and with a flat scan the chapters always won. */
+  function loreRanks(entries, sample, stage) {
+    var text = scanText(sample).toLowerCase();
+    var activeStage = String(stage || '').trim().toLowerCase();
+    /* Split the scan into messages so a match can be scored by how long ago
+       it happened. "The newest message mentions it" and "it was mentioned
+       forty turns ago" were previously the same yes/no answer, which is why a
+       wide window produced an arbitrary top ten. */
+    var lines = (sample && typeof sample === 'object' && Array.isArray(sample.parts))
+      ? sample.parts.map(function (p) { return String(p || '').toLowerCase(); })
+      : null;
+    function recencyOf(keys) {
+      if (!lines) return 0;
+      for (var back = 0; back < lines.length; back++) {
+        var line = lines[lines.length - 1 - back];
+        for (var i = 0; i < keys.length; i++) {
+          if (keys[i] && keyStands(line, keys[i])) return back;
+        }
+      }
+      return lines.length;
+    }
+    var out = [];
+    (entries || []).forEach(function (e, index) {
       if (e.enabled === false) return;
       var requiredStage = String(e.stage || '').trim().toLowerCase();
       if (requiredStage && requiredStage !== '*' && (!activeStage || requiredStage !== activeStage)) return;
-      var hit = (e.keys || []).some(function (k) { return k && keyStands(text, k); });
-      if (!hit) return;
-      var cost = String(e.content || '').length;
-      if (out.length && bytes + cost > cap) return;
-      out.push(e);
-      bytes += cost;
+      var constant = e.constant === true;
+      var keys = e.keys || [];
+      var matched = keys.filter(function (k) { return k && keyStands(text, k); });
+      if (!constant && !matched.length) return;
+      out.push({
+        entry: e, index: index, constant: constant,
+        /* 0 = mentioned in the message being answered; higher = older */
+        recency: constant ? -1 : recencyOf(matched.length ? matched : keys),
+        keyCount: constant ? keys.length : matched.length,
+        keys: keys.length, cost: String(e.content || '').length
+      });
+    });
+    out.sort(function (a, b) {
+      if (a.constant !== b.constant) return a.constant ? -1 : 1;
+      if (a.recency !== b.recency) return a.recency - b.recency;
+      if (a.keyCount !== b.keyCount) return b.keyCount - a.keyCount;
+      if (a.keys !== b.keys) return a.keys - b.keys;
+      if (a.cost !== b.cost) return a.cost - b.cost;
+      return a.index - b.index;
     });
     return out;
+  }
+
+  /* Admit ranked entries until the count or the byte budget runs out. A single
+     entry larger than the whole budget is still admitted when it is first, so
+     a lone long entry is not silently dropped. */
+  function loreAdmit(ranked, limit, budget) {
+    var max = limit || LORE_LIMIT, cap = (typeof budget === 'number' && budget > 0) ? budget : LORE_BUDGET;
+    var out = [], bytes = 0;
+    ranked.forEach(function (r) {
+      if (out.length >= max) return;
+      if (out.length && bytes + r.cost > cap) return;
+      out.push(r);
+      bytes += r.cost;
+    });
+    return out;
+  }
+
+  function loreHits(entries, sample, limit, budget, stage) {
+    if (!entries || !entries.length) return [];
+    return loreAdmit(loreRanks(entries, sample, stage), limit, budget)
+      .map(function (r) { return r.entry; });
   }
 
   /* Per-chat continuity state is deliberately generic: the app stores approved
@@ -248,18 +403,46 @@
     };
   }
 
+  /* v1.39.105: does this ledger actually hold anything approved?
+     A ledger with the switch on and nothing in it used to inject ~1,500
+     characters of protocol that stated nothing, and one of its lines was
+     actively harmful: with no cast listed it still said "only characters
+     listed as present may speak or act", so a chat whose ledger had a
+     location and nothing else was told that nobody present could speak.
+     Nothing approved means nothing to say. */
+  function continuityHasState(c) {
+    if (!c) return false;
+    return !!(c.stage || c.location || c.time ||
+      c.participants.length || c.knowledge.length || c.objects.length || c.events.length);
+  }
+
   function continuityPrompt(session) {
     var raw = session && session.continuity;
     if (!raw || raw.enabled !== true) return '';
-    var c = normalizeContinuity(raw), lines = [
+    var c = normalizeContinuity(raw);
+    /* Enabled but blank is worth less than disabled: it costs tokens and says
+       nothing. The switch stays on, so the moment there is something approved
+       this starts appearing - it just does not pretend to a state it has not
+       been given. */
+    if (!continuityHasState(c)) return '';
+    var scene = [];
+    if (c.stage) scene.push('Stage: ' + c.stage);
+    if (c.location) scene.push('Location: ' + c.location);
+    if (c.time) scene.push('Time: ' + c.time);
+    /* Only fields that were actually approved. "(not set)" is not a fact, and
+       printing it invites the model to write the placeholder into the story. */
+    var lines = [
       'CHAT CONTINUITY LEDGER — USER-APPROVED STATE',
-      'This state belongs only to this chat. Treat it as authoritative over model-invented details. It is not automatically public knowledge to every character.',
-      'Stage: ' + (c.stage || '(not set)'),
-      'Location: ' + (c.location || '(not set)'),
-      'Time: ' + (c.time || '(not set)'),
-      'Present in scene: ' + (c.participants.length ? c.participants.join(', ') : '(not set; do not invent who is present)'),
-      'Never put words, actions, thoughts, memories, or unrecorded knowledge into the user character. Only characters listed as present may speak or act in this scene; show a transition before anyone enters, leaves, or changes location.'
-    ];
+      'This state belongs only to this chat. Treat it as authoritative over model-invented details. It is not automatically public knowledge to every character.'
+    ].concat(scene);
+    lines.push('Present in scene: ' + (c.participants.length
+      ? c.participants.join(', ')
+      : '(not listed; keep the cast you already have and do not introduce anyone new)'));
+    lines.push('Never put words, actions, thoughts, memories, or unrecorded knowledge into the user character.' +
+      (c.participants.length
+        /* the cast rule only bites when there is a cast - see above */
+        ? ' Only characters listed as present may speak or act in this scene; show a transition before anyone enters, leaves, or changes location.'
+        : ' Do not invent a new character into the scene without showing a transition; anyone already present may continue to act.'));
     var present = {};
     c.participants.forEach(function (n) { present[n.toLowerCase()] = true; });
     var gm = [], shared = [], user = [], npc = [];
@@ -298,7 +481,13 @@
       if (!x || typeof x !== 'object') return;
       var type = String(x.type || ''), op = String(x.op || '');
       if (type === 'scene' && op === 'set' && ['stage', 'location', 'time'].indexOf(x.field) !== -1) {
-        var value = clip(x.value, 160); if (value) changes.push({ type: type, op: op, field: x.field, value: value });
+        /* v1.39.102: each scene field is clipped to the same ceiling the
+           ledger stores it at. They used to share one 160 ceiling, so a long
+           stage or time was shown to the reviewer in full and then silently
+           cut to 120 on save - the approved change and the saved change were
+           not the same string. */
+        var cap = (x.field === 'location') ? 160 : 120;
+        var value = clip(x.value, cap); if (value) changes.push({ type: type, op: op, field: x.field, value: value });
       } else if (type === 'participant' && ['add', 'remove'].indexOf(op) !== -1) {
         var name = clip(x.name, 80); if (name) changes.push({ type: type, op: op, name: name });
       } else if (type === 'knowledge' && ['add', 'remove'].indexOf(op) !== -1) {
@@ -359,22 +548,34 @@
      most recent instruction — and worded to override the card. */
   function sceneCastPrompt(session, userName) {
     var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
-    if (!cast.length) return '';
+    /* v1.39.77: one name is not a cast. The strip hides below two, and the
+       prompt must agree with the screen — otherwise a single-character card
+       silently carries "SCENE CAST — THIS OVERRIDES THE CARD" on every turn,
+       which is both a waste and an instruction the user never asked for. */
+    if (cast.length < 2) return '';
     var presentNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) !== -1; });
     var awayNow = cast.filter(function (n) { return (session.scenePresent || []).indexOf(n) === -1; });
     var lines = [];
     if (presentNow.length) lines.push('Present in this scene: ' + presentNow.join(', ') + ', ' + userName);
     if (awayNow.length) lines.push('Elsewhere and out of the scene: ' + awayNow.join(', '));
     if (!lines.length) return '';
+    /* v1.39.82: the block used to be a roster and nothing else — who is here,
+       who is not, and one prohibition. A model handed three names and no
+       rules either blends them into one narrator or writes a round-robin in
+       which everyone gets a paragraph. These four sentences are the
+       difference between a scene and a list. */
     return 'SCENE CAST — THIS OVERRIDES THE CARD: ' + lines.join('. ') +
-      '. Characters listed as elsewhere never speak, react, act, or get narrated in this reply, even if the card or examples show them speaking.';
+      '. Characters listed as elsewhere never speak, react, act, or get narrated in this reply, even if the card or examples show them speaking.' +
+      ' When someone present speaks or acts, name them in the prose so it is never ambiguous who did it.' +
+      ' More than one present character may act in a reply, but do not give each of them a turn: write the beat that the moment calls for and let the others stay quiet.' +
+      ' Never write ' + userName + "'s words, thoughts or actions — leave them to the player.";
   }
 
   function charSheet(char, s, session, recent, assistantTurns) {
     var parts = [];
-    var persona = plainText(macros(char.persona, char, s));
+    var persona = macros(plainText(char.persona), char, s);
     if (persona) parts.push(persona);
-    var scenario = plainText(macros(char.scenario, char, s));
+    var scenario = macros(plainText(char.scenario), char, s);
     if (scenario) parts.push('Current situation: ' + scenario);
     if (s.userPersona) parts.push('About {{user}}: '.replace('{{user}}', s.userName) + s.userPersona);
     var state = statePrompt(char);
@@ -384,39 +585,48 @@
       var frequency = parseInt(session.sceneNoteFrequency, 10);
       if (!(frequency > 0)) frequency = 1;
       if ((assistantTurns || 0) % frequency === 0) {
-        sceneNote = plainText(macros(session.sceneNote, char, s));
+        sceneNote = macros(plainText(session.sceneNote), char, s);
       }
     }
     var scenePlacement = session && session.sceneNotePlacement || 'end';
     if (sceneNote && scenePlacement === 'character') parts.push('Scene note: ' + sceneNote);
 
     var activeStage = session && session.continuity && session.continuity.enabled ? session.continuity.stage : '';
-    var lore = loreHits(char.lorebook, recent, 6, 1536, activeStage);
+    var lore = loreHits(char.lorebook, recent, LORE_LIMIT, LORE_BUDGET, activeStage);
     if (lore.length) {
       parts.push('Relevant world facts:\n' + lore.map(function (e) {
-        return '- ' + plainText(macros(e.content, char, s));
+        return '- ' + macros(plainText(e.content), char, s);
       }).join('\n'));
     }
     /* Chat lore supplements the character's baseline world facts but only
        for this transcript. It is intentionally placed afterward so a
        timeline-specific fact can clarify an otherwise shared canon detail. */
     var chatLore = session && Array.isArray(session.chatLorebook)
-      ? loreHits(session.chatLorebook, recent, 4, 1024, activeStage) : [];
+      ? loreHits(session.chatLorebook, recent, LORE_CHAT_LIMIT, LORE_CHAT_BUDGET, activeStage) : [];
     if (chatLore.length) {
       parts.push('Relevant chat-only facts:\n' + chatLore.map(function (e) {
-        return '- ' + plainText(macros(e.content, char, s));
+        return '- ' + macros(plainText(e.content), char, s);
       }).join('\n'));
     }
     if (session && (session.summary || (session.facts && session.facts.length))) {
       var mem = [];
       if (session.summary) mem.push('Story so far: ' + repairMojibake(session.summary));
-      if (session.facts && session.facts.length) mem.push('Established facts:\n' + session.facts.map(function (f) { return '- ' + repairMojibake(f); }).join('\n'));
+      /* v1.39.104: what the chat holds true now, newest first and dated with
+         the message count it was learned at. A superseded fact stays on the
+         chat but is never offered here as current - that is what used to put
+         a stale promise or a finished plan in front of the character. */
+      var chatNow = currentChatFacts(session).slice()
+        .sort(function (a, b) { return (b.from || 0) - (a.from || 0); });
+      if (chatNow.length) {
+        mem.push('Established facts (each still true; the message it was learned at in brackets):\n' +
+          chatNow.map(function (f) { return '- ' + repairMojibake(f.text) + ' [' + (f.from || 0) + ']'; }).join('\n'));
+      }
       parts.push(mem.join('\n'));
     }
     if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
     var continuity = continuityPrompt(session);
     if (continuity) parts.push(continuity);
-    var post = plainText(macros(char.postHistory, char, s));
+    var post = macros(plainText(char.postHistory), char, s);
     if (post) parts.push(post);
     if (sceneNote && scenePlacement !== 'character' && scenePlacement !== 'memory') parts.push('Scene note: ' + sceneNote);
     return parts.join('\n\n');
@@ -584,6 +794,59 @@
    * ------------------------------------------------------------------ */
   var CONTEXT_CAP = 128000;   // bytes, provider-bound messages
 
+  /* v1.39.82: the history had a hard 26 000-character cap written into the
+     one call that used it — no setting, no UI, and it silently outranked the
+     "Messages in context" slider (which says 40 and delivers 17 at 250 words
+     a reply). It is now a real budget in tokens, and when the app knows the
+     model's window (OpenRouter publishes context_length) it shrinks to fit
+     inside it, because a prompt larger than the window is not "more memory":
+     the provider truncates it and the character answers the start of the
+     conversation forever. */
+  var DEFAULT_HISTORY_TOKENS = 6000;
+  /* room for the sheet, the examples, the reply and a little slack, so the
+     budget never claims the whole window */
+  var WINDOW_MARGIN_TOKENS = 512;
+
+  /* { model name -> context window in tokens }, filled from whatever model
+     catalogue the app has already fetched and cached in localStorage. No
+     extra request: the picker's own payload carries it. */
+  function modelContextTokens(model) {
+    var name = String(model || '').trim();
+    if (!name) return 0;
+    try {
+      var map = JSON.parse(global.localStorage.getItem('hs-model-windows') || '{}') || {};
+      var n = parseInt(map[name], 10);
+      return n > 0 ? n : 0;
+    } catch (e) { return 0; }
+  }
+
+  function rememberModelWindows(rows) {
+    try {
+      var map = JSON.parse(global.localStorage.getItem('hs-model-windows') || '{}') || {};
+      var seen = 0;
+      (rows || []).forEach(function (m) {
+        var id = m && (m.id || m.name);
+        var ctx = m && (m.context_length || m.context_window || (m.top_provider && m.top_provider.context_length));
+        if (id && parseInt(ctx, 10) > 0) { map[id] = parseInt(ctx, 10); seen++; }
+      });
+      if (seen) global.localStorage.setItem('hs-model-windows', JSON.stringify(map));
+    } catch (e) { /* storage can be unavailable in private WebViews */ }
+  }
+
+  /* How many tokens of transcript to send. The user's number, unless the
+     model's window is known and smaller than what the rest of the prompt
+     leaves room for. `cardTokens` is the sheet + examples + system block,
+     already measured by the caller. */
+  function historyBudgetTokens(s, cardTokens, replyTokens) {
+    var want = parseInt(s && s.historyTokens, 10);
+    if (!(want > 0)) want = DEFAULT_HISTORY_TOKENS;
+    var window = modelContextTokens(s && s.model);
+    if (!window) return want;
+    var room = window - (cardTokens || 0) - (replyTokens || 0) - WINDOW_MARGIN_TOKENS;
+    if (!(room > 0)) return Math.min(want, 1000);      /* a huge card leaves almost nothing */
+    return Math.min(want, room);
+  }
+
   /* The Horde is the tight one. horde.js asks for a context of
      min(HORDE_CTX_TOKENS, prompt + reply + 64) and the worker window really is
      that size, so a prompt that is comfortable for a chat provider can still be
@@ -596,6 +859,15 @@
      request. The Horde path is already bounded by hordeMaxWait; this is for
      the streaming providers, where a hung read() used to wait forever. */
   var STREAM_TIMEOUT_MS = 240000;   /* free routes queue well past 2 min */
+  /* D1 (v1.39.71): one answer to "what if maxTokens is missing?". Three places
+     used to disagree (400 in the settings default, 200 in two budget sums, and
+     no fallback at all in the Horde request), so a stored character with a
+     null cap computed its budget against 200 and then asked for undefined. */
+  var DEFAULT_MAX_TOKENS = 400;
+  function maxTokensOf(s) {
+    var n = parseInt(s && s.maxTokens, 10);
+    return n > 0 ? n : DEFAULT_MAX_TOKENS;
+  }
   /* Why the last generation stopped, as the provider reported it:
      'length' means our max-token cap cut the reply, 'stop' means the model
      finished (or a stop sequence fired). Shown on the bubble. */
@@ -606,6 +878,17 @@
   function totalBytes(msgs) {
     return msgs.reduce(function (a, m) { return a + bytesOf(m.content); }, 0);
   }
+  /* C2 (v1.39.74): what the lorebook is matched against.
+     It used to be the last six messages — three exchanges. An entry keyed to
+     "the ridge" fired while the ridge was being discussed and went silent four
+     messages later, even though the ridge was still in the prompt, still in the
+     story, and still the thing you were standing on. The prompt was right; the
+     trigger was looking at a window that closed behind you.
+
+     It is now the same transcript the request carries: the history the caller
+     passed, already cut by trimHistory to the user's "Messages in context"
+     setting. Cost does not grow — admission is still capped at 6 entries and
+     1536 bytes; only what can *fire* an entry widens. */
   function fitContext(msgs, floor) {
     var total = totalBytes(msgs);
     if (total <= CONTEXT_CAP) return msgs;
@@ -616,9 +899,36 @@
     return out;
   }
 
+  /* v1.39.108: one line, only when the transcript it follows actually shows
+     the habit. A chat that never used asterisks gets no extra instruction, so
+     nothing changes for it; a chat that did gets told, at the point of
+     generation, not to copy what it can see. Underscores are not mentioned -
+     they are common in ordinary prose and would be a false positive. */
+  function styleLock(history) {
+    var total = 0, worst = 0;
+    (history || []).forEach(function (m) {
+      if (!m || m.role !== 'assistant') return;
+      /* buildPrompt sees the stored shape (text); buildChat has already mapped
+         it to wire shape (content). Accept either. */
+      var body = String(m.text != null ? m.text : (m.content != null ? m.content : ''));
+      var n = (body.match(/\*/g) || []).length;
+      total += n;
+      if (n > worst) worst = n;
+    });
+    /* A greeting that italicises one line is not a habit. Measured against the
+       reported export: a normal early reply carries a handful, a reply that has
+       started degenerating carries dozens (51, then 302 as it ran away). Only
+       these two shapes earn the instruction - a first turn is never told to
+       break a habit it does not have. */
+    if (total < 20 && worst < 12) return '';
+    return 'FORMAT FOR THIS REPLY: write plain prose and quoted dialogue, with no asterisks ' +
+      'anywhere - not on words, not between them. Earlier replies above use them; that is the ' +
+      'habit to break, not a style to match. Do not mention or apologise for the change.';
+  }
+
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note, finalNote) {
-    var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+    var recent = loreSample(history);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     /* A world run (and any caller that knows better) supplies character.systemPrompt
        with the narrator rules plus live state. Fall back to the global prompt. */
@@ -632,29 +942,63 @@
     var sceneCast = sceneCastPrompt(session, s.userName);
     if (sceneCast) system += '\n\n' + sceneCast;
 
-    var msgs = [{ role: 'system', content: system.trim() }];
+    /* v1.39.87: the example dialogue was pushed as REAL turns, before the
+       history — so the model read the card's samples as the oldest part of
+       this conversation. A card whose examples show a later moment (moving
+       boxes already inside, the wife in the doorway) then reads as a story
+       that happened first and then restarted at its own opening line, and the
+       model stops to ask which version to continue. Examples are a sample of
+       voice and format; they are labelled as such and kept out of the
+       transcript. */
     var ex = examplesToMessages(character.examples, character, s);
-    ex.forEach(function (m) { msgs.push(m); });
+    var exText = ex.map(function (m) {
+      return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
+    }).join('\n');
+    if (exText) {
+      system += '\n\nExample dialogue — a sample of the intended voice, length and format. ' +
+        'These are NOT events that have already happened, they are not part of this story, ' +
+        'and nothing in them overrides the opening message below where the chat actually begins.\n' +
+        exText;
+    }
+    var msgs = [{ role: 'system', content: system.trim() }];
 
     /* v1.13.2: repair double-encoded text in stored messages (the card's
        greeting, a model reply that imitated the card's mojibake) so the
        model stops reading — and imitating — it. */
+    var castNow = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
     var hist = history.map(function (m) {
       var content = repairMojibake(m.text || '');
       /* v1.39.0: a player's photo degrades to the caption they wrote for
          it - text models never see pixels, so the caption IS the photo. */
       if (m.imageCaption && m.role === 'user') content += '\n[photo: ' + m.imageCaption + ']';
+      if (m.role !== 'user' && castNow.length >= 2) {
+        /* v1.39.86: a chat-format provider sends bare turns, so a card with
+           three speakers reached the model as an unattributed wall — and every
+           reply looked like it belonged to the card's own name. The speaker is
+           named, the way the examples do it. */
+        var sp = splitSpeaker(character, session, content);
+        content = sp.name + ': ' + sp.text;
+      }
       return { role: m.role === 'user' ? 'user' : 'assistant', content: content };
     }).filter(function (m) { return m.content.trim(); });
 
-    hist = trimHistory(hist, s.contextMessages || 40, s.maxContextChars || 26000);
+    var histBudget = historyBudgetTokens(s,
+      Math.ceil(String(system).length / 4), maxTokensOf(s));
+    hist = trimHistory(hist, s.contextMessages || 40, Math.max(2000, histBudget * 4));
     hist.forEach(function (m) { msgs.push(m); });
 
     /* A reroll instruction rides LAST, after the card, the examples and the
        transcript. Buried in the system block it argued with the card from a
        weaker position and lost; here it is the final thing read before the
        reply, which is where a model actually takes its orders from. */
-    if (finalNote) msgs.push({ role: 'system', content: finalNote });
+    /* v1.39.108: the style lock rides here for the same reason, and it is the
+       only thing that survives a long chat. The default system prompt used to
+       request asterisks; even with that gone, a history carrying thousands of
+       them teaches the habit far better than a system message can forbid it.
+       An instruction that sits AFTER the transcript is the one the model is
+       still holding when it writes. */
+    var tail = [styleLock(hist), finalNote].filter(Boolean).join('\n\n');
+    if (tail) msgs.push({ role: 'system', content: tail });
 
     msgs = fitContext(msgs, 1 + ex.length);
     if (totalBytes(msgs) > CONTEXT_CAP && ex.length) {
@@ -664,8 +1008,55 @@
   }
 
   /** Build a plain-text prompt for AI Horde / non-chat backends. */
+  /* v1.39.86: who is actually talking.
+     On a multi-person card the app labelled every reply with the card's own
+     name, so a second character's dialogue reached the model stacked behind
+     it — two labels for one line. The model then copied that shape back, and
+     the export and the memory summariser both recorded everyone's lines under
+     the card's name. A reply usually opens with its own speaker label; when it
+     names someone in the scene cast, that is the speaker: it wins, and the
+     label is removed so it is not sent back twice. */
+  function splitSpeaker(character, session, text) {
+    var fallback = (character && character.name) || 'Assistant';
+    var body = String(text == null ? '' : text);
+    var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    function key(v) { return String(v || '').toLowerCase().replace(/[\u2018\u2019]/g, "'").split(/[\s,]+/)[0]; }
+    function find(label) {
+      var low = String(label || '').toLowerCase().trim();
+      var hit = null;
+      cast.forEach(function (n) {
+        var nl = String(n || '').toLowerCase().trim();
+        if (!nl || hit) return;
+        if (nl === low || key(nl) === key(low) || nl.indexOf(low + ' ') === 0 || low.indexOf(nl + ' ') === 0) hit = n;
+      });
+      return hit;
+    }
+    if (cast.length < 2) {
+      /* still strip a redundant copy of the card's own name */
+      var one = find(fallback);
+      if (one) {
+        var m1 = /^[\s>*_#]*([^\n:()\[\]]{1,40}):\s/.exec(body);
+        if (m1 && String(m1[1]).toLowerCase().trim() === String(fallback).toLowerCase().trim()) {
+          return { name: fallback, text: body.slice(m1[0].length) };
+        }
+      }
+      return { name: fallback, text: body };
+    }
+    var name = '', t = body;
+    for (var pass = 0; pass < 2; pass++) {
+      var m = /^[\s>*_#]*([^\n:()\[\]]{1,40}):\s/.exec(t);
+      if (!m) break;
+      var who = find(m[1]);
+      if (!who) break;
+      /* the label nearest the prose is the one the writer meant */
+      name = who;
+      t = t.slice(m[0].length);
+    }
+    return { name: name || fallback, text: name ? t : body };
+  }
+
   function buildPrompt(character, session, history, s, note, budgetTokens, finalNote) {
-    var recent = history.slice(-6).map(function (m) { return m.text || ''; }).join('\n');
+    var recent = loreSample(history);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
       '\n\n' + charSheet(character, s, session, recent, assistantTurns);
@@ -679,13 +1070,22 @@
       return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
     }).join('\n');
     var hist = history.map(function (m) {
-      var content = repairMojibake(m.text || '');
-      if (m.imageCaption && m.role === 'user') content += '\n[photo: ' + m.imageCaption + ']';
-      return (m.role === 'user' ? s.userName : character.name) + ': ' + content;
+      if (m.role === 'user') {
+        var mine = repairMojibake(m.text || '');
+        if (m.imageCaption) mine += '\n[photo: ' + m.imageCaption + ']';
+        return s.userName + ': ' + mine;
+      }
+      var sp = splitSpeaker(character, session, repairMojibake(m.text || ''));
+      return sp.name + ': ' + sp.text;
     });
     var join = function (h) {
-      return [head.trim(), ex ? 'Example dialogue:\n' + ex : '', 'Chat history:\n' + h.join('\n'),
-        finalNote || '', character.name + ':'].filter(Boolean).join('\n\n');
+      return [head.trim(), ex ? 'Example dialogue — a sample of the intended voice, length and format. ' +
+        'These are NOT events that have already happened and are not part of this story:\n' + ex : '',
+        'Chat history:\n' + h.join('\n'),
+        /* v1.39.99: finalNote is read here too, so a state reminder supplied
+           by a world run lands after the transcript and immediately before
+           the cue to answer — the same position the chat format gives it. */
+        finalNote || '', styleLock(history), character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */
     /* Drop the OLDEST turns first, so the newest thing you typed always survives.
@@ -851,6 +1251,10 @@
         var arr = Array.isArray(d) ? d
           : (Array.isArray(d && d.data) ? d.data
             : (Array.isArray(d && d.models) ? d.models : []));
+        /* v1.39.82: keep each model's context window while we are here, so
+           the history budget can fit itself to the model instead of guessing
+           a character count. No extra request — the catalogue already has it. */
+        rememberModelWindows(arr);
         return arr.map(function (m) {
           return typeof m === 'string' ? m : (m && (m.id || m.name));
         }).filter(Boolean);
@@ -994,6 +1398,19 @@
         'On OpenRouter even free models reject when the balance goes negative.');
     } else if (status === 401 || status === 403) {
       e = new Error(base + ' — the API key was rejected; check Settings and the connection.');
+    } else if (status >= 500) {
+      /* v1.39.94: a 5xx is not the player's account, key or quota, and it is
+         not something a retry in the same minute usually fixes on a free
+         route. Say which of those it is, plainly. */
+      var freeRoute = /:free\s*$/i.test(modelName || '');
+      e = new Error(base + ' — the provider behind this model is unavailable. ' +
+        (freeRoute
+          ? 'Free routes carry no availability guarantee: when the shared pool is full, ' +
+            'every request is refused like this for a while and then recovers on its own. '
+          : '') +
+        'Nothing was lost — your message is still in the chat. The app already retried it ' +
+        'twice; wait a few minutes, or switch model for now.');
+      e.providerDown = true;
     } else {
       e = new Error(base);
     }
@@ -1244,11 +1661,19 @@
     var l = String(L || '').trim();
     if (!l) return false;
     if (/\?$/.test(l) && l.length < 70) return true;                 // "How do they react?"
-    if (/^(?:let's|lets|let me|wait|okay|ok[,.]|hmm|so,|now,|first,|firstly|then,|after that|actually,|maybe|perhaps|alright|right,|yes,|no,|i should|i'll|i will|i'd|i need|i can|i could|i must|i want to|we should|we need|the prompt|the instruction|the system|the card|note:|notes?:|step \d|finally,|also,|importantly,?|keep in mind|remember,?|one more|to sum|in summary,?)/i.test(l)) return true;
+    /* A bare "Note:" is how a character leaves a note on the table, and this
+       test runs over every line of a reply — treating that as planning is what
+       deletes a scene beat. Only the bracketed forms stay, further down. */
+    if (/^(?:let's|lets|let me|wait|okay|ok[,.]|hmm|so,|now,|first,|firstly|then,|after that|actually,|maybe|perhaps|alright|right,|yes,|no,|i should|i'll|i will|i'd|i need|i can|i could|i must|i want to|we should|we need|the prompt|the instruction|the system|the card|step \d|finally,|also,|importantly,?|keep in mind|remember,?|one more|to sum|in summary,?)/i.test(l)) return true;
     if (/\b(?:the\s+)?(?:prompt|instruction|system prompt|card|scenario)\s+(?:says?|asks?|tells?|wants?|instructs?|requires?|mentions?)\b/i.test(l)) return true;
     if (/\b(?:refine|rework|rewrite|adjust|revise|tighten|trim)\s+(?:the\s+)?(?:response|reply|answer|draft|this)\b/i.test(l)) return true;
     if (/\b(?:i|we)\s+(?:should|need to|could|can|will|must|might)\s+(?:probably\s+)?\b/i.test(l) && l.length < 90) return true;
-    if (/^(?:\[|\()\s*(?:ooc|note|meta|aside)/i.test(l)) return true;
+    /* v1.39.86: [ooc] is not planning. The OOC rule above asks the model to
+       answer in a tagged line, and this test then classified that very line as
+       reasoning and stripped it — the player's question went unanswered and
+       the answer, when it came, was deleted. OOC is an aside for the player;
+       [note]/[meta]/[aside] are still treated as planning. */
+    if (/^(?:\[|\()\s*(?:note|meta|aside)/i.test(l)) return true;
     return false;
   }
 
@@ -1359,14 +1784,22 @@
     return tl.join('\n');
   }
 
-  function cleanReply(text, charName, userName) {
+  function cleanReply(text, charName, userName, opts) {
     if (!text) return '';
+    /* v1.39.93: on a card with more than one character in the scene, the card's
+       own name is a SPEAKER LABEL, not the start of a new turn. The old rules
+       cut the reply at the first line beginning with it and stripped it off the
+       front, so whenever the loaded character spoke first her name vanished and
+       nothing on screen said who was talking. Those two rules stay for a
+       single-character card, where "CharName:" really is the model starting a
+       turn it should not have written. */
+    var casted = !!(opts && opts.cast && opts.cast.length >= 2);
     var lines = String(text).split('\n');
     var out = [];
     var userRe = new RegExp('^\\s*' + escapeRe(userName) + '\\s*:', 'i');
     var charRe = new RegExp('^\\s*' + escapeRe(charName) + '\\s*:', 'i');
     for (var i = 0; i < lines.length; i++) {
-      if (i > 0 && (userRe.test(lines[i]) || charRe.test(lines[i]))) break;
+      if (i > 0 && (userRe.test(lines[i]) || (!casted && charRe.test(lines[i])))) break;
       out.push(lines[i]);
     }
 
@@ -1397,7 +1830,7 @@
     }
 
     var t = out.join('\n').replace(/\s+$/, '');
-    if (charName) t = t.replace(new RegExp('^\\s*' + escapeRe(charName) + '\\s*:\\s*', 'i'), '');
+    if (charName && !casted) t = t.replace(new RegExp('^\\s*' + escapeRe(charName) + '\\s*:\\s*', 'i'), '');
     return t.trim();
   }
 
@@ -1443,7 +1876,7 @@
 
   /**
    * Break a one-line reply into its sentences. Returns null unless every piece
-   * looks like a text someone would actually send — that keeps "Dr. Mara is
+   * looks like a text someone would actually send — that keeps "Dr. Warden is
    * here" and long prose from being torn apart.
    */
   var ABBREV = /^(?:mr|mrs|ms|dr|st|jr|sr|prof|vs|etc|eg|ie|approx|no|al|fig|figs|vol|ch|pp|inc|ltd|co|mt|ft|sq|ave|rd|blvd)$/i;
@@ -1566,14 +1999,14 @@
         /* A continuation round re-sends what we already have on top of the
            prompt, so it has to leave room for two replies, not one. */
         var inContinuation = (idx > 0 || !!o.continueFrom);
-        var budget = HORDE_CTX_TOKENS - (s.maxTokens || 200) * (inContinuation ? 2 : 1) - 64;
+        var budget = HORDE_CTX_TOKENS - maxTokensOf(s) * (inContinuation ? 2 : 1) - 64;
         var base = buildPrompt(char, session, o.history, s, o.note, budget, o.finalNote);
         var prompt = inContinuation ? base + ' ' + full : base;
         return guardModel('text', s.hordeTextModel).then(function () {
           return Horde.generateText({
             prompt: prompt,
             model: s.hordeTextModel || '',
-            maxLength: s.maxTokens,
+            maxLength: maxTokensOf(s),
             temperature: s.temperature,
             topP: s.topP,
             topK: s.topK,
@@ -1651,7 +2084,7 @@
            space away, which once tight-glued "Crabbe" + "and"; hold it in a
            flag and hand it back after cleaning, before the glue rules run. */
         var leadSpace = /^\s/.test(raw);
-        var piece = cleanReply(raw, char && char.name, s.userName);
+        var piece = cleanReply(raw, char && char.name, s.userName, { cast: session && session.sceneCast });
         if (!piece) return full;
 
         /* Stitch without mangling. The hard part: when the previous pass ends with a
@@ -1733,7 +2166,7 @@
         full = before ? before + glue + piece : piece;
         /* Clean the ASSEMBLED text too: a speaker label can land across a pass
            boundary ("...out here.\n\nMi" + "ira: ..."), which per-pass cleaning misses. */
-        var joined = cleanReply(stripThinking(full, s.stripThinking !== false), char && char.name, s.userName);
+        var joined = cleanReply(stripThinking(full, s.stripThinking !== false), char && char.name, s.userName, { cast: session && session.sceneCast });
         if (joined) full = joined;
 
         if (s.provider === 'horde' && o.onDelta) {
@@ -1761,21 +2194,62 @@
   /** Ask the model to compress the story so far into a summary + facts. */
   function summarize(o) {
     var s = o.settings, char = o.character, session = o.session, history = o.history;
-    var convo = history.slice(-o.maxMessages || 40).map(function (m) {
-      return (m.role === 'user' ? s.userName : char.name) + ': ' + repairMojibake(m.text || '');
-    }).join('\n');
+    /* v1.39.91: the summariser ignored the history budget completely and sent
+       up to 40 whole messages. On a long chat that is a request bigger than a
+       free route's window, and a provider that cannot fit it answers with
+       nothing at all — which then reads, wrongly, as "the model refused".
+       The transcript is capped to the same budget the chat itself uses, newest
+       turns kept, so the request always fits the model that has to answer it. */
+    function transcriptOf(list) {
+      return list.map(function (m) {
+        var body = repairMojibake(m.text || '');
+        var who = m.role === 'user' ? s.userName : splitSpeaker(char, session, body).name;
+        return who + ': ' + (m.role === 'user' ? body : splitSpeaker(char, session, body).text);
+      }).join('\n');
+    }
+    var maxMessages = o.maxMessages || 40;
+    var budgetChars = Math.max(4000, historyBudgetTokens(s, 900, 500) * 4);
+    var convo = transcriptOf(history.slice(-maxMessages));
+    while (convo.length > budgetChars && maxMessages > 6) {
+      maxMessages = Math.floor(maxMessages / 2);
+      convo = transcriptOf(history.slice(-maxMessages));
+    }
+    var sentMessages = Math.min(maxMessages, history.length);
 
     var instruction =
       'You are a memory manager for a roleplay between ' + s.userName + ' and ' + char.name + '.\n' +
       'Read the transcript and return STRICT JSON only, with no commentary:\n' +
       '{"summary":"<3-6 sentences capturing plot, tone and where things stand>",' +
-      '"facts":["<short durable fact>","..."]}\n' +
-      'Keep at most 12 facts. Facts must be durable: names, places, relationships, injuries, promises, objects, goals.\n' +
+      '"facts":["<short durable fact>","..."],' +
+      '"changed":["<a fact from the list below that this transcript has made untrue>"]}\n' +
+      'Keep at most 8 facts. Facts must be durable: names, places, relationships, injuries, promises, objects, goals.\n' +
+      /* v1.39.104: the world summariser has asked for this since v1.39.100 and
+         the chat one did not, which is half of why a chat's memory could argue
+         with itself. A change is a different job from the news. */
+      '\"changed\" lists any fact from the list below that this conversation has made ' +
+        'untrue - a name that changed, a debt that was paid, a place that burned, a ' +
+        'promise that was broken. Quote that fact word for word in \"changed\" and state ' +
+        'the new truth in \"facts\". Do not change a fact on a guess, and do not restate ' +
+        'an old fact in new words unless something actually changed. Omit \"changed\" ' +
+        'entirely when nothing changed.\n' +
       (session && session.summary ? 'Existing summary to extend:\n' + repairMojibake(session.summary) + '\n' : '') +
-      (session && session.facts && session.facts.length ? 'Existing facts:\n' + session.facts.map(repairMojibake).join('\n') + '\n' : '') +
-      '\nTranscript:\n' + convo;
+      (session && session.facts && session.facts.length
+        ? 'What the chat currently holds true:\n' +
+          chatFactObjects(session).filter(function (f) { return f.to === null || f.to === undefined; })
+            .map(function (f) { return '- ' + repairMojibake(f.text); }).join('\n') + '\n'
+        : '');
+    var rules = instruction;
+    instruction = rules + '\nTranscript:\n' + convo;
 
-    var msgs = [{ role: 'system', content: instruction }, { role: 'user', content: 'Return the JSON now.' }];
+    /* v1.39.86: the transcript was only ever inside the SYSTEM message, and the
+       one user turn said "Return the JSON now." to nobody. A model that reads
+       the user turn as the request saw an instruction with no data in front of
+       it and refused — and the refusal was then stored as the story so far,
+       which is the only record of the past once the history budget is full. */
+    var msgs = [
+      { role: 'system', content: rules },
+      { role: 'user', content: 'Transcript:\n' + convo + '\n\nReturn the JSON now.' }
+    ];
 
     if (s.provider === 'horde') {
       return Horde.generateText({
@@ -1785,8 +2259,234 @@
         maxWait: 300
       }).then(function (r) { return parseMemory(r.text); });
     }
-    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 500 })
-      .then(parseMemory);
+    /* v1.39.89: 500 tokens was not enough for a six-sentence summary plus a
+       dozen facts, so on a long chat the answer was cut mid-JSON and the whole
+       memory was discarded. The ceiling is raised, the fact count trimmed, and
+       there is one cheap retry that asks for the summary alone — a model that
+       will not produce JSON will usually still write five sentences. */
+    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 900 })
+      .then(function (raw) {
+        var mem = parseMemory(raw);
+        if (mem.ok) return mem;
+        var retry = [
+          { role: 'system', content: 'You summarise a roleplay for its own memory.' },
+          { role: 'user', content: 'Transcript:\n' + convo +
+            '\n\nWrite 3-6 plain sentences saying what has happened, who is where, and what is unresolved. No JSON, no headings, no commentary.' }
+        ];
+        return streamChat(s, retry, null, null, { stream: false, temperature: 0.3, max_tokens: 400 })
+          .then(function (raw2) {
+            var mem2 = parseMemory(raw2);
+            if (mem2.ok) return mem2;
+            /* both attempts are reported: which one failed matters */
+            mem.reason = (mem.reason || 'no usable summary') +
+              (mem2.reason && mem2.reason !== mem.reason ? ' (retry: ' + mem2.reason + ')' : '');
+            mem.lastRaw = String(raw2 || raw || '').slice(0, 600);
+            mem.firstRaw = String(raw || '').slice(0, 600);
+            return mem;
+          }, function (err) {
+            mem.reason = (mem.reason || 'no usable summary') + ' (retry: ' +
+              String((err && err.message) || 'the retry failed') + ')';
+            mem.lastRaw = String(raw || '').slice(0, 600);
+            return mem;
+          }).then(function (mem) {
+            if (mem && mem.ok) return mem;
+            /* A third, deliberately tiny attempt. Some routes answer with
+               nothing at all when a reasoning model spends the whole output
+               budget thinking - the visible content is empty and the tokens
+               are gone. A short prompt with reasoning switched off (OpenRouter
+               only; the parameter is ignored elsewhere) is the cheap way out,
+               and it costs one request on an already-failing path. */
+            /* six of the newest turns, then a hard character cap: six long
+               replies can still be most of the chat, and the point of this
+               attempt is that nothing about it can be too big. */
+            var tiny = transcriptOf(history.slice(-6));
+            if (tiny.length > 3500) tiny = tiny.slice(-3500);
+            var tinyMsgs = [
+              { role: 'system', content: 'You summarise a roleplay for its own memory. Answer with plain sentences only.' },
+              { role: 'user', content: 'A few recent lines:\n' + tiny +
+                '\n\nIn 2-4 plain sentences, say what has happened and what is unresolved. No JSON, no headings.' }
+            ];
+            var tinyOpt = { stream: false, temperature: 0.3, max_tokens: 300 };
+            if (endpoint(s).toLowerCase().indexOf('openrouter.ai') !== -1) tinyOpt.reasoning = { enabled: false };
+            return streamChat(s, tinyMsgs, null, null, tinyOpt).then(function (raw3) {
+              var mem3 = parseMemory(raw3);
+              if (mem3.ok) { mem3.shortOf = true; return mem3; }
+              var lm = mem3.reason && mem3.reason !== mem.reason ? ' (third: ' + mem3.reason + ')' : '';
+              mem.reason = mem.reason + lm;
+              if (String(raw3 || '').trim() && !mem.lastRaw) mem.lastRaw = String(raw3).slice(0, 600);
+              return mem;
+            }, function (err3) {
+              mem.reason = mem.reason + ' (third: ' + String((err3 && err3.message) || 'failed') + ')';
+              return mem;
+            });
+          });
+        }).then(function (mem) {
+          /* Whatever happened, the record says what was asked and of whom:
+             an empty answer from an oversized request and an empty answer
+             from a model that simply said nothing look identical without it. */
+          mem.sentMessages = sentMessages;
+          mem.sentChars = convo.length;
+          mem.sentTokens = Math.ceil(convo.length / 4);
+          mem.model = String(s.model || (s.provider === 'horde' ? 'horde' : ''));
+          mem.window = modelContextTokens(s.model) || 0;
+          return mem;
+      });
+  }
+
+  /* ---------------- chat facts keep a history (v1.39.104) -----------------
+
+     The world half of this shipped in v1.39.100; this is the same discipline
+     for persona chats, where the bug was identical. `session.facts` was an
+     array of plain strings replaced wholesale on every pass, so a fact from
+     message 20 and its replacement from message 200 sat side by side with no
+     ordering signal, and the model chose between them. That is the "the
+     quest changed" failure wearing a chat costume.
+
+     A fact now carries an id, the message count it was learned at, the point
+     it stopped being true (null while current) and the id of what replaced
+     it. Nothing is deleted: a stale fact is superseded, so a chat can still
+     answer "was that ever true" while the prompt shows only what is true now.
+
+     The matching and supersession rules are deliberately the same shape as
+     the world engine's (sameFact there), kept here rather than imported:
+     api.js has no dependency on hordeworld.js and a cycle between them would
+     be a much worse bug than the duplication. */
+
+  function chatFactWords(text) {
+    return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  }
+  var CHAT_FACT_STOP = {};
+  ('a an the is was were are be been being has have had do does did will would ' +
+   'can could may might must shall should to of in on at for with by from as ' +
+   'that this these those it its he she they them his her their you your ' +
+   'and or but not no yes now still then there here about into over after ' +
+   'before again also just only very too more most some any all one two ' +
+   'user they\'ve they\'re i we us our my me').split(' ').forEach(function (w) { CHAT_FACT_STOP[w] = true; });
+  function chatFactTokens(text) {
+    var out = [];
+    chatFactWords(text).forEach(function (w) {
+      if (w.length < 3 || CHAT_FACT_STOP[w]) return;
+      if (out.indexOf(w) === -1) out.push(w);
+    });
+    return out;
+  }
+  /** 'same' (restated, nothing changed), 'supersede' (the same subject, a
+   *  different claim) or '' (unrelated). Cautious on purpose: a miss leaves
+   *  both facts on the record with dates and the model can read them, while a
+   *  false hit would retire something still true with no way back. */
+  function chatSameFact(aText, bText) {
+    var a = chatFactWords(aText), b = chatFactWords(bText);
+    if (!a.length || !b.length) return '';
+    if (a.join(' ') === b.join(' ')) return 'same';
+    var ta = chatFactTokens(aText), tb = chatFactTokens(bText);
+    if (!ta.length || !tb.length) return '';
+    var shared = 0;
+    ta.forEach(function (w) { if (tb.indexOf(w) !== -1) shared++; });
+    var min = Math.min(ta.length, tb.length), max = Math.max(ta.length, tb.length);
+    if (shared >= 3 && shared / min >= 0.75 && (max - min) <= Math.max(2, max * 0.5)) return 'supersede';
+    return '';
+  }
+  function chatNextFactId(facts) {
+    var n = 0;
+    (facts || []).forEach(function (f) {
+      var m = /^f(\d+)$/.exec(String((f && f.id) || ''));
+      if (m) n = Math.max(n, parseInt(m[1], 10));
+    });
+    return 'f' + (n + 1);
+  }
+  /** A chat written before facts had ids carried plain strings. They become
+   *  records stamped with the count the memory was last written at - the best
+   *  date the chat still has. Read-only: nothing on disk is rewritten. */
+  function chatFactObjects(session) {
+    var list = (session && Array.isArray(session.facts)) ? session.facts : [];
+    var from = typeof (session && session.memAt) === 'number' ? session.memAt : 0;
+    return list.map(function (f, i) {
+      if (f && typeof f === 'object') {
+        return { id: f.id || ('f' + (i + 1)), text: String(f.text || ''),
+                 from: typeof f.from === 'number' ? f.from : from,
+                 to: (f.to === undefined ? null : f.to), by: f.by || null };
+      }
+      return { id: 'f' + (i + 1), text: String(f || ''), from: from, to: null, by: null };
+    }).filter(function (f) { return f.text; });
+  }
+  /** What the chat holds true now, oldest first. */
+  function currentChatFacts(session) {
+    return chatFactObjects(session).filter(function (f) { return f.to === null || f.to === undefined; });
+  }
+  /** What it used to hold true, newest first - for the sheet, never for the
+   *  prompt. */
+  function pastChatFacts(session) {
+    return chatFactObjects(session)
+      .filter(function (f) { return f.to !== null && f.to !== undefined; })
+      .sort(function (a, b) { return (b.to || 0) - (a.to || 0); });
+  }
+  var CHAT_FACT_CAP = 24, CHAT_FACT_CURRENT = 12;
+
+  /** Write a memory pass onto a session: restatements are confirmed rather
+   *  than duplicated, contradictions supersede, and a fact the model reports
+   *  as no longer true is retired only when the report actually names it. */
+  function applyChatMemory(session, mem) {
+    var at = typeof session.messageCount === 'number' ? session.messageCount : 0;
+    var all = chatFactObjects(session).map(function (f) { return { id: f.id, text: f.text, from: f.from, to: f.to, by: f.by }; });
+    var currentOf = function () {
+      return all.filter(function (f) { return f.to === null || f.to === undefined; });
+    };
+
+    /* the model's report of what stopped being true - an accusation, not an
+       instruction: it retires a fact only when it points at one */
+    ((mem && (mem.changed || mem.superseded)) || []).forEach(function (raw) {
+      var said = String(raw || '').replace(/\s+/g, ' ').trim();
+      if (!said) return;
+      var saidWords = chatFactWords(said).join(' '), saidTokens = chatFactTokens(said);
+      var target = null;
+      currentOf().forEach(function (f) {
+        if (target) return;
+        if (chatFactWords(f.text).join(' ') === saidWords) { target = f; return; }
+        var ft = chatFactTokens(f.text);
+        if (!ft.length || saidTokens.length < 3) return;
+        var shared = 0;
+        ft.forEach(function (w) { if (saidTokens.indexOf(w) !== -1) shared++; });
+        if (shared >= 3 && shared / ft.length >= 0.6) target = f;
+      });
+      if (target) target.to = at;
+    });
+
+    ((mem && mem.facts) || []).forEach(function (raw) {
+      var text = String((raw && raw.text) || raw || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (!text) return;
+      var match = null, how = '';
+      currentOf().forEach(function (f) { if (!match) { var v = chatSameFact(f.text, text); if (v) { match = f; how = v; } } });
+      if (match && how === 'same') {
+        /* restating a fact is the chat still relying on it: it stays young, so
+           a load-bearing fact is never the one an overflow retires */
+        match.from = at;
+        return;
+      }
+      if (match && how === 'supersede') {
+        var nf = { id: chatNextFactId(all), text: text, from: at, to: null, by: null };
+        match.to = at; match.by = nf.id;
+        all.push(nf);
+        return;
+      }
+      var dup = currentOf().some(function (f) { return chatFactWords(f.text).join(' ') === chatFactWords(text).join(' '); });
+      if (!dup) all.push({ id: chatNextFactId(all), text: text, from: at, to: null, by: null });
+    });
+
+    /* the ceilings retire, they do not delete */
+    var cur = currentOf();
+    if (cur.length > CHAT_FACT_CURRENT) {
+      cur.slice().sort(function (a, b) { return (a.from || 0) - (b.from || 0); })
+        .slice(0, cur.length - CHAT_FACT_CURRENT)
+        .forEach(function (f) { f.to = at; f.retired = true; });
+    }
+    if (all.length > CHAT_FACT_CAP) {
+      var past = all.filter(function (f) { return f.to !== null && f.to !== undefined; })
+        .sort(function (a, b) { return (a.to || 0) - (b.to || 0); });
+      var doomed = {};
+      past.slice(0, all.length - CHAT_FACT_CAP).forEach(function (f) { doomed[f.id] = true; });
+      all = all.filter(function (f) { return !doomed[f.id]; });
+    }
+    return { facts: all, current: all.filter(function (f) { return f.to === null || f.to === undefined; }) };
   }
 
   /* v1.36.0: a world run gets the same memory discipline as a persona
@@ -1801,47 +2501,208 @@
       return '';   /* corrections and dice verdicts are not story */
     }).filter(Boolean).join('\n');
 
+    /* v1.39.100: the model is asked, once, for three things: the summary, what
+       is true now, and - separately - what this transcript has made UNTRUE.
+       A memory that only ever appends is a memory that argues with itself:
+       the old line and its replacement sit in the same list with no ordering
+       signal and the referee picks. Reporting the change is a distinct job
+       from reporting the news, so it gets its own field. It is still only a
+       report - the engine retires a stored fact only when the report names
+       it (applyFacts), never on a vague say-so. */
+    var current = (run.memory && run.memory.facts) || [];
+    var currentLines = current.map(function (f) {
+      return '- ' + String((f && typeof f === 'object') ? (f.text || '') : f);
+    }).filter(function (l) { return l.length > 2; });
+
     var instruction =
       'You are a memory manager for the text roleplay world "' +
         String((world && world.name) || 'World') + '".\n' +
       'Read the transcript and return STRICT JSON only, with no commentary:\n' +
       '{"summary":"<3-6 sentences capturing plot, tone and where things stand>",' +
-      '"facts":["<short durable fact>","..."]}\n' +
+      '"facts":["<short durable fact>","..."],' +
+      '"changed":["<a fact from the LIST BELOW that this transcript has made untrue>"]}\n' +
       'Keep at most 12 facts. Facts must be durable: names, places, relationships, ' +
       'promises, objects, goals, conditions, what was decided or revealed.\n' +
       'Do NOT record tag commands, stat numbers, cheese-and-ledger mechanics - ' +
       'the world tracks those itself.\n' +
+      'If the transcript makes any fact in the LIST BELOW untrue - a name that ' +
+      'changed, a debt that was paid, a place that burned, an alliance that broke - ' +
+      'quote that fact word for word in "changed" and state the new truth in ' +
+      '"facts". Do not change a fact on a guess, and do not restate an old fact ' +
+      'in new words unless something actually changed. Omit "changed" entirely ' +
+      'when nothing did.\n' +
       (run.memory && run.memory.summary ? 'Existing summary to extend:\n' + run.memory.summary + '\n' : '') +
-      (run.memory && run.memory.facts && run.memory.facts.length
-        ? 'Existing facts:\n' + run.memory.facts.join('\n') + '\n' : '') +
-      '\nTranscript:\n' + convo;
+      (currentLines.length
+        ? 'LIST BELOW - what the story currently holds true:\n' + currentLines.join('\n') + '\n'
+        : '');
+    var rules = instruction;
+    instruction = rules + '\nTranscript:\n' + convo;
 
     if (s.provider === 'horde') {
       return Horde.generateText({
         prompt: instruction + '\n\nJSON:',
         model: s.hordeTextModel || '',
-        maxLength: 320, temperature: 0.3, topP: 0.9, apikey: s.hordeKey,
+        maxLength: 420, temperature: 0.3, topP: 0.9, apikey: s.hordeKey,
         maxWait: 300
       }).then(function (r) { return parseMemory(r.text); });
     }
-    var msgs = [{ role: 'system', content: instruction }, { role: 'user', content: 'Return the JSON now.' }];
-    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 500 })
+    /* v1.39.86: the world log gets the same treatment as the chat transcript —
+       data in the user turn, rules in the system turn. */
+    var msgs = [
+      { role: 'system', content: rules },
+      { role: 'user', content: 'Transcript:\n' + convo + '\n\nReturn the JSON now.' }
+    ];
+    /* v1.39.89: same ceiling as the chat summariser — a world log is longer
+       than a chat transcript, not shorter. */
+    return streamChat(s, msgs, null, null, { stream: false, temperature: 0.3, max_tokens: 900 })
       .then(parseMemory);
   }
 
-  function parseMemory(text) {
-    var out = { summary: '', facts: [] };
-    if (!text) return out;
-    var start = text.indexOf('{');
-    var end = text.lastIndexOf('}');
-    if (start === -1 || end <= start) { out.summary = text.trim().slice(0, 800); return out; }
-    try {
-      var j = JSON.parse(text.slice(start, end + 1));
-      out.summary = String(j.summary || '').trim();
-      out.facts = (j.facts || []).map(function (f) { return String(f).trim(); }).filter(Boolean).slice(0, 12);
-    } catch (e) {
-      out.summary = text.trim().slice(0, 800);
+  /* v1.39.86: a refusal is not a summary.
+     This used to store whatever came back, up to 800 characters, when it held
+     no JSON — so a model that answered "No transcript was provided, so there
+     is no roleplay content to summarize" had that sentence written into
+     `session.summary`, which is appended to every later prompt as "Story so
+     far". Past the history budget that summary is the ONLY record of the past,
+     so the chat's memory became a note saying there was nothing to remember.
+     A model's silence is now a failure the caller reports, never content. */
+  /* v1.39.90: only a refusal that OPENS the text is a refusal.
+     The old pattern matched anywhere — "there is no", "no conversation",
+     "I can't" — so an honest summary of a scene where nobody had agreed on
+     the rent yet ("there is no agreement about it") was thrown away as a
+     model refusal, twice if the retry said something similar. A refusal is
+     the whole of what the model said, and it starts the answer. */
+  var MEMORY_REFUSAL = /^(?:(?:i\s+)?(?:cannot|can\s*not|can't|won't|will not|am unable to|am not able to|i'm unable to|i'm not able to)\b|as an ai\b|no transcript\b|there (?:is|was) no (?:transcript|conversation|roleplay|content|history|text)\b|the (?:transcript|conversation|content|text|input) (?:was|is) (?:not provided|missing|empty|absent)\b|(?:transcript|conversation|content|text|input) (?:was|were) not provided\b|nothing to (?:summari[sz]e|extract)\b|unable to (?:summari[sz]e|process|comply|extract)\b)/i;
+  /* Does a stored summary read like a refusal, or like nothing at all? Used by
+     the Memory sheet to flag a chat whose past was quietly replaced by the
+     model's excuse. */
+  function memoryLooksBroken(text) {
+    var t = String(text || '').trim();
+    if (!t) return false;
+    if (t.length < 24) return true;
+    return MEMORY_REFUSAL.test(t) && t.length < 400;
+  }
+
+  /* v1.39.105: this summary is prose, and it is going straight back into the
+     next prompt where it will be read as remembered fact. Cutting it at a
+     byte count used to leave "...the town wakes on the following morning",
+     a sentence that stops mid-thought with nothing to show it was cut - the
+     next prompt reads that as a memory that simply ends there. Prefer the
+     last real sentence end inside the budget; if a single sentence is longer
+     than the whole budget, cut on a word and mark it. Either way the model
+     is told, out loud, that there is more it is not seeing. */
+  function clipProse(text, max) {
+    var t = String(text || '').trim();
+    if (t.length <= max) return t;
+    var body = t.slice(0, max);
+    var lastEnd = -1, m, re = /[.!?][\"'\u201d\u2019)\]]*(?=\s|$)/g;
+    while ((m = re.exec(body))) lastEnd = m.index + m[0].length;
+    if (lastEnd > max * 0.4) return body.slice(0, lastEnd).replace(/\s+$/, '') + ' \u2026';
+    /* no usable sentence end: cut on the last word boundary, not mid-word */
+    var sp = body.search(/\s\S*$/);
+    if (sp > 0) body = body.slice(0, sp);
+    return body.replace(/[\s,;:\-]+$/, '') + ' \u2026';
+  }
+
+  /* v1.39.106: is this answer only the wreckage of JSON, or is there prose
+     worth keeping? A model that opens its memory answer with a short sentence
+     of its own ("Here is the summary:") and is then cut off by the token
+     ceiling leaves `Here is the summary: {"summary":"...` with no closing
+     brace. The unfinished-JSON guard only refused answers that START with a
+     brace, so that shape sailed through and the raw wrapper was stored as the
+     chat's permanent memory of its own past - read back on every later turn.
+
+     Anything holding the shape of a JSON summary key is treated as wreckage
+     no matter what precedes it, and recovery is attempted from the fragment.
+     Prose that never mentions a summary key is returned unchanged. */
+  function proseOnly(text) {
+    var t = String(text || '').trim();
+    /* Only an answer that is demonstrably JSON-shaped can be wreckage. The
+       first cut of this looked for the word "summary:" anywhere, and so ate
+       ordinary prose like "Here is a summary: the mill burned" and a sentence
+       that merely quoted the word - both were stored as memories before and
+       were rejected by that version. A brace, a bracket or a fence is the
+       evidence; the word alone is not. */
+    var jsonish = /^[\[{]/.test(t) || /^```/.test(t) || /\{\s*["\u201c]?summary["\u201d]?\s*:/.test(t);
+    if (!jsonish) return t;
+    /* Take the *quoted* key first. A single regex with optional quotes matched
+       the word inside a preamble ("Here is the summary: {"summary":"...") and
+       captured nothing, because the quote after the colon belongs to the key
+       one character later. */
+    var m = /["\u201c]summary["\u201d]\s*:\s*["\u201c]?((?:[^"\\\n\u201d]|\\.)*)/.exec(t) ||
+            /(?:^|[\s{,\[])summary\s*:\s*["\u201c]?((?:[^"\\\n\u201d]|\\.)*)/i.exec(t);
+    if (!m) return '';
+    var body = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\'/g, "'").trim();
+    /* The JSON never closed, so whatever was recovered is the end of a
+       sentence the model did not finish - even when it is short enough not to
+       need clipping. Say so, or the next prompt reads it as a thought that
+       simply stopped. */
+    if (body && !/[.!?]["'\u201d\u2019)\]]*$/.test(body)) {
+      body = clipProse(body, 800);
+      if (!/\u2026$/.test(body)) body = body.replace(/[\s,;:\-]+$/, '') + ' \u2026';
     }
+    return body;
+  }
+
+  function parseMemory(text) {
+    var out = { summary: '', facts: [], changed: [], ok: false, reason: '' };
+    var raw = String(text || '').trim();
+    if (!raw) { out.reason = 'the model returned nothing'; return out; }
+    var start = raw.indexOf('{');
+    var end = raw.lastIndexOf('}');
+    var body = '';
+    if (start !== -1 && end > start) {
+      try {
+        var j = JSON.parse(raw.slice(start, end + 1));
+        body = String(j.summary || '').trim();
+        out.facts = (j.facts || []).map(function (f) { return String(f).trim(); }).filter(Boolean).slice(0, 12);
+        /* v1.39.100: facts this transcript made untrue. Free text, matched
+           against the stored list by the engine - never applied blindly. */
+        out.changed = (j.changed || j.superseded || []).map(function (f) {
+          return String((f && typeof f === 'object') ? (f.text || '') : f).trim();
+        }).filter(Boolean).slice(0, 12);
+        out.ok = true;
+      } catch (e) { body = ''; }
+    }
+    /* v1.39.89: a reply cut off by the token ceiling is not a refusal. The
+       summary is the first thing the model writes, so when the JSON is
+       incomplete the summary is usually whole and only the facts are missing.
+       Salvage it rather than lose the whole memory. */
+    if (!body && start !== -1) {
+      var sm = /"summary"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(raw);
+      if (sm) {
+        try { body = JSON.parse('"' + sm[1] + '"').trim(); }
+        catch (e2) { body = sm[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').trim(); }
+        /* v1.39.100: stop at the end of the facts array, or at the next
+           key - otherwise a truncated answer with a "changed" list after
+           "facts" folded those lines into the facts as well. */
+        var fm = /"facts"\s*:\s*\[([\s\S]*?)(?:"changed"\s*:|"superseded"\s*:|\]\s*[,}]|$)/.exec(raw);
+        if (fm) {
+          var items = fm[1].match(/"((?:[^"\\]|\\.)*)"/g) || [];
+          out.facts = items.map(function (q) {
+            try { return JSON.parse(q).trim(); } catch (e3) { return q.replace(/^"|"$/g, '').trim(); }
+          }).filter(Boolean).slice(0, 12);
+        }
+        out.salvaged = true;
+      }
+    }
+    /* No usable JSON: only accept plain prose that reads like a summary. */
+    if (!body && !out.ok) {
+      var wreck = /["\u201c]?summary["\u201d]?\s*:/.test(raw);
+      body = clipProse(proseOnly(raw), 800);
+      if (MEMORY_REFUSAL.test(body)) { out.reason = 'the model refused'; return out; }
+      /* An answer that carried a summary key but yielded nothing usable was a
+         JSON attempt that did not finish - say that, rather than blaming its
+         length. The too-short floor is for prose replies. */
+      if (!body || (wreck && body.length < 40)) { out.reason = 'the model returned unfinished JSON'; return out; }
+      if (body.length < 40) { out.reason = 'the answer was too short to be a summary'; return out; }
+    }
+    if (!body) { out.reason = 'the model returned no summary field'; return out; }
+    /* A summary that came out of parsed JSON is the field the model was asked
+       for; it is only rejected if it IS a refusal, first words and all. */
+    if (MEMORY_REFUSAL.test(body) && body.length < 240) { out.reason = 'the model refused'; return out; }
+    out.summary = body;
+    out.ok = true;
     return out;
   }
 
@@ -2280,6 +3141,10 @@
     openRouterErrorDiagnosis: openRouterErrorDiagnosis, openRouterResetAt: openRouterResetAt,
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
+    splitSpeaker: splitSpeaker, parseMemory: parseMemory, memoryLooksBroken: memoryLooksBroken,
+    clipProse: clipProse, continuityHasState: continuityHasState, proseOnly: proseOnly,
+    styleLock: styleLock,
+    providerError: providerError,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
     parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,
     parseLorebookFile: parseLorebookFile, aiJson: aiJson,
@@ -2287,6 +3152,10 @@
     rpgStatusPrompt: rpgStatusPrompt, parseRpgUpdate: parseRpgUpdate,
     stripRpgUpdate: stripRpgUpdate, hideRpgUpdate: hideRpgUpdate,
     emptyContinuity: emptyContinuity, normalizeContinuity: normalizeContinuity,
+    /* v1.39.104: chat facts keep a history, the same way a world's do */
+    chatFactObjects: chatFactObjects, currentChatFacts: currentChatFacts,
+    pastChatFacts: pastChatFacts, applyChatMemory: applyChatMemory,
+    chatSameFact: chatSameFact,
     continuityPrompt: continuityPrompt, parseContinuityUpdate: parseContinuityUpdate,
     stripContinuityUpdate: stripContinuityUpdate, hideContinuityUpdate: hideContinuityUpdate,
     applyContinuityProposal: applyContinuityProposal,
@@ -2303,6 +3172,19 @@
     _unfuseFirstWord: unfuseFirstWord,
     /* tests shorten the stream deadline and the 429 backoff; the app never calls these */
     _setStreamTimeoutMs: function (ms) { STREAM_TIMEOUT_MS = ms; },
-    _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); }
+    _setRateRetryDelays: function (arr) { RATE_BACKOFF = arr.slice(); },
+    /* tests call the matcher directly; the app never does */
+    _loreHits: loreHits,
+    loreDiagnostics: loreDiagnostics,
+    loreSample: loreSample,
+    loreRanks: loreRanks,
+    LORE_LIMIT: LORE_LIMIT, LORE_BUDGET: LORE_BUDGET, LORE_SCAN_MESSAGES: LORE_SCAN_MESSAGES,
+    historyBudgetTokens: historyBudgetTokens,
+    modelContextTokens: modelContextTokens,
+    rememberModelWindows: rememberModelWindows,
+    DEFAULT_HISTORY_TOKENS: DEFAULT_HISTORY_TOKENS,
+    DEFAULT_MAX_TOKENS: DEFAULT_MAX_TOKENS,
+    maxTokensOf: maxTokensOf,
+    _examplesToMessages: examplesToMessages
   };
 })(window);

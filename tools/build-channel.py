@@ -19,6 +19,7 @@ import hashlib
 import io
 import json
 import os
+import subprocess
 import re
 import shutil
 import sys
@@ -156,6 +157,10 @@ def zip_entry(z, arcname, data):
 
 
 def main():
+    # the browser cannot read the manifest, so the two copies it needs are
+    # stamped from it before anything is hashed or copied (see stamp-version.py)
+    subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                 "stamp-version.py")], check=True)
     url = pages_url()
     moved = bake_default_url(url)
 

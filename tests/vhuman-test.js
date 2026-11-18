@@ -80,7 +80,7 @@ function tick(c, rand) {
 console.log('\nauthored people survive untouched');
 
 var c1 = life({ people: [
-  { id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.8 },
+  { id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.8 },
   { id: 'p2', name: 'Old Pete', relation: 'landlord', closeness: -0.4 }
 ] });
 tick(c1);
@@ -92,7 +92,7 @@ console.log('\nsilence fades only what was earned');
 
 var c2 = life({
   autonomy: 'low', perms: NO_TRAVEL, sleep: AWAKE,
-  people: [{ id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.8, lastContact: NOW - 30 * DAY }]
+  people: [{ id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.8, lastContact: NOW - 30 * DAY }]
 });
 var r2 = tick(c2, 0.99);
 var met = c2.vh.people[0];
@@ -101,14 +101,14 @@ ok('…gently (2 hours is not a week)', met.closeness > 0.79, met.closeness);
 
 var c3 = life({
   autonomy: 'low', perms: NO_TRAVEL, sleep: AWAKE,
-  people: [{ id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.8 }]
+  people: [{ id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.8 }]
 });
 tick(c3, 0.99);
 eq('a never-met person does not drift', c3.vh.people[0].closeness, 0.8);
 
 var c4 = life({
   autonomy: 'off', perms: NO_TRAVEL, sleep: AWAKE,
-  people: [{ id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.005, lastContact: NOW - 30 * DAY }]
+  people: [{ id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.005, lastContact: NOW - 30 * DAY }]
 }, 36);
 tick(c4, 0.99);
 eq('drift stops at neutral, never crosses it', c4.vh.people[0].closeness, 0);
@@ -118,13 +118,13 @@ console.log('\ncompleted time together moves closeness');
 var c5 = life({
   autonomy: 'high', perms: NO_TRAVEL, sleep: AWAKE,
   needs: { energy: 0.8, hunger: 0.25, social: 0.8, comfort: 0.7 },
-  people: [{ id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.2 }]
+  people: [{ id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.2 }]
 }, 24);
 var r5 = tick(c5, 0);   /* guaranteed: 24h at high autonomy always passes the roll */
 var m5 = c5.vh.people[0];
 ok('the meeting is recorded', m5.lastContact === NOW, String(m5.lastContact));
 ok('a warm meeting warms the bond', m5.closeness > 0.2, m5.closeness);
-ok('the day remembers it', r5.beats.some(function (b) { return b.text === 'spent time with Mara'; }),
+ok('the day remembers it', r5.beats.some(function (b) { return b.text === 'spent time with Olive'; }),
   JSON.stringify(r5.beats.map(function (b) { return b.text; })));
 
 var c6 = life({
@@ -140,7 +140,7 @@ console.log('\nno contact at the wrong times');
 var c7 = life({
   autonomy: 'high', perms: NO_TRAVEL, sleep: ASLEEP,
   needs: { energy: 0.8, hunger: 0.25, social: 0.8, comfort: 0.7 },
-  people: [{ id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.2 }]
+  people: [{ id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.2 }]
 }, 24);
 var r7 = tick(c7, 0);
 ok('asleep: no meeting', !c7.vh.people[0].lastContact);
@@ -148,14 +148,14 @@ ok('asleep: no contact beat', !r7.beats.some(function (b) { return b.text.indexO
 
 var c8 = life({
   autonomy: 'off', perms: NO_TRAVEL, sleep: AWAKE,
-  people: [{ id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.2 }]
+  people: [{ id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.2 }]
 }, 24);
 tick(c8, 0);
 ok('autonomy off: no meeting', !c8.vh.people[0].lastContact);
 
 var c9 = life({
   autonomy: 'low', perms: NO_TRAVEL, sleep: AWAKE,
-  people: [{ id: 'p1', name: 'Mara', relation: 'sister', closeness: 0.3 }]
+  people: [{ id: 'p1', name: 'Olive', relation: 'sister', closeness: 0.3 }]
 });
 tick(c9, 0.99);   /* low autonomy for 2 hours: the roll fails */
 eq('the roll usually fails — nothing happens', c9.vh.people[0].closeness, 0.3);

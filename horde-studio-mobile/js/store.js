@@ -2,16 +2,19 @@
 (function (global) {
   'use strict';
 
-  /* The pre-v1.16.0 default, kept verbatim for the one-time migration in
-     init: existing installs hold whatever default they were given, and we
-     only upgrade the ones that never saw an edit. */
+  /* Both previous defaults, kept verbatim so init can upgrade an install that
+     never edited its prompt. An edited prompt (even by one character) is never
+     touched: that is the user's own text and not ours to decide about. */
   var LEGACY_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
     'advancing the scene with concrete detail, action and dialogue. Never speak for {{user}}. ' +
     'Keep replies focused on what just happened and leave room for {{user}} to respond. ' +
     'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
     'outlines, or commentary about the prompt or the character card.';
-
-  var DEFAULT_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
+  /* v1.39.108: this one asked for asterisks. "Asterisk italics for thoughts
+     and actions" is read by the model as its own house style, so a narrator
+     began marking every word - and long chats then amplified it out of the
+     transcript until replies were unreadable. The request is simply gone. */
+  var LEGACY_SYSTEM_STARRED = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
     'advancing the scene with concrete detail, action and dialogue. Use double quotes for ' +
     'spoken dialogue and asterisk italics (*like this*) for thoughts and actions. ' +
     'Never speak for {{user}}. ' +
@@ -19,8 +22,28 @@
     'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
     'outlines, or commentary about the prompt or the character card.';
 
+  /* v1.39.108: no asterisks. The old line asked for them, and the model read
+     that as licence to mark its own narration - first every second word, then
+     nearly every word in a long chat, because each starred reply was fed back
+     as an example for the next one. Plain prose, dialogue in quotes. */
+  var DEFAULT_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
+    'advancing the scene with concrete detail, action and dialogue. ' +
+    'Write narration and action as plain prose with no markers of any kind: no asterisks, ' +
+    'no underscores, no brackets, no bold. Write spoken dialogue inside double quotation marks. ' +
+    'If earlier replies in this chat use asterisks, do not imitate them: the transcript is not ' +
+    'a style guide. ' +
+    'Never speak for {{user}}. ' +
+    'Keep replies focused on what just happened and leave room for {{user}} to respond. ' +
+    'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
+    'outlines, or commentary about the prompt or the character card.';
+
   /* Bumped with each release; the wrapper reports the real one when it is there. */
-  var VERSION = '1.39.51';
+  function isProbablyJson(text) {
+    var t = String(text || '').trim();
+    return t.charAt(0) === '{' || t.charAt(0) === '[';
+  }
+
+  var VERSION = '1.39.109';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -46,6 +69,10 @@
     topK: 0,
     repPen: 1.1,
     contextMessages: 40,
+    /* v1.39.82: how many tokens of transcript to send. Visible and editable
+       now — it used to be a 26 000-character literal inside api.js that
+       silently outranked the message-count slider above. */
+    historyTokens: 6000,
     systemPrompt: DEFAULT_SYSTEM,
     userName: 'You',
     userPersona: '',
@@ -136,7 +163,7 @@
            dialogue/thought formatting line. Give it to users who still hold
            the old default verbatim; anyone who ever edited the prompt (even
            one character) is left untouched. */
-        if (s.systemPrompt === LEGACY_SYSTEM) {
+        if (s.systemPrompt === LEGACY_SYSTEM || s.systemPrompt === LEGACY_SYSTEM_STARRED) {
           s.systemPrompt = DEFAULT_SYSTEM;
           dirty = true;
         }
@@ -512,7 +539,12 @@
         || card.character_book || null;
       var entries = book && book.entries;
       return Array.isArray(entries) ? entries.map(function (e) {
-        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
+        /* C1 (v1.39.70): `constant` is the field authors rely on most — an
+           entry that must always be in context. It used to be dropped here, so
+           a card relying on it silently got nothing. */
+        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '',
+          enabled: e.enabled !== false, stage: e.stage || '',
+          constant: e.constant === true };
       }) : [];
     },
 
@@ -545,19 +577,42 @@
       }).filter(function (e) { return e.src && (e.label || e.keys.length); }).slice(0, 12);
     },
 
+    /* A card's fields, top level and `data` merged with `data` winning.
+       The card object itself must not survive in the result: `card.data`
+       would come along as a `data` property and the image scanner would walk
+       it again, importing every picture twice under a "data_" name. */
+    mergeCardData: function (card) {
+      var out = Object.assign({}, card, card.data);
+      delete out.data;
+      return out;
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       /* v1.39.16: a V2 card MAY keep its fields only under data (the spec
          asks for both top level and data; plenty of tools write just data).
          Merge with data winning so either packing imports whole. */
       if ((card.spec === 'chara_card_v2' || card.spec === 'chara_card_v3') && card.data) {
-        data = Object.assign({}, card, card.data);
+        data = Store.mergeCardData(card);
       }
       if (card.spec === 'chara_card_v3' && card.data) {
-        data = card.data;
+        /* K4 (v1.39.76): the V3 branch reads `data` alone, so a V3 card whose
+           fields sit at the TOP level (no `data`, or a `data` holding only the
+           name) imported as an empty character with no warning. Merge the two
+           with `data` winning — the same rule the V2 branch has always used,
+           and what the spec's own "prefer data" wording amounts to. A card
+           that was already correct reads identically: every field it uses
+           comes from `data`. */
+        data = Store.mergeCardData(card);
         var slist = Store.scenarioList(data);
         var main = (data.scenario || '').trim();
-        var desc = [data.description || '', data.personality || '', data.scenario || ''].filter(Boolean).join('\n\n');
+        /* A1 (v1.39.69): the scenario is NOT folded in. It used to be, back
+           when `scenario` was imported as '' — v1.11.0 started using the field
+           separately and left the fold behind, so a V3 card paid for its
+           scenario twice on every turn (once here, once as
+           "Current situation:"). The V2 branch never folded, which is the
+           proof it is not needed. */
+        var desc = [data.description || '', data.personality || ''].filter(Boolean).join('\n\n');
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
           tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -572,6 +627,10 @@
           examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
           lorebook: Store.bookFromCard(card, data),
+          /* A2 (v1.39.70): the V3 branch never set this, so a V3 card's
+             expression portraits imported as undefined and re-exported
+             without them — a round trip through the app deleted them. */
+          expressionPortraits: Store.expressionPortraitsFromCard(data, card),
           alternateGreetings: Store.altGreetingsFromCard(card, data),
           createdAt: Date.now(), updatedAt: Date.now()
         };
@@ -595,14 +654,53 @@
       };
     },
 
+    /* H1 (v1.39.69): before that fix, every V3 import baked the scenario into
+       the persona, and the exporter wrote that persona into `description`
+       while ALSO writing `scenario` — so the duplication became permanent and
+       survived re-import. Strip a scenario that duplicates the scenario field
+       exactly, as a trailing block.
+
+       Deliberately narrow: an exact trailing match only, never a fuzzy or
+       shape-based strip, so a persona that merely mentions the scenario keeps
+       its text. Nothing is lost either way, because the scenario is written to
+       its own field in the same export. */
+    stripDuplicateScenario: function (persona, scenario) {
+      var p = String(persona == null ? '' : persona);
+      var sc = String(scenario == null ? '' : scenario).trim();
+      if (!p || !sc) return p;
+      var tail = p.replace(/\s+$/, '');
+      if (tail === sc) return '';                       /* pure duplicate */
+      if (tail.length > sc.length + 2 &&
+          tail.slice(-sc.length) === sc &&
+          /\n\n$/.test(tail.slice(0, tail.length - sc.length))) {
+        return tail.slice(0, tail.length - sc.length).replace(/\s+$/, '');
+      }
+      return p;
+    },
+
     characterToCard: function (c) {
       var card = {
-        name: c.name, description: c.persona || '', personality: '',
+        name: c.name,
+        description: Store.stripDuplicateScenario(c.persona || '', c.scenario || ''),
+        personality: '',
         scenario: c.scenario || '', first_mes: c.greeting || '', mes_example: c.examples || '',
         creatorcomment: 'Exported from Horde Studio Mobile',
         tags: c.tags || [], talkativeness: '0.5', fav: false,
         spec: 'chara_card_v2', spec_version: '2.0', data: { name: c.name }
       };
+      /* H2 (v1.39.73): the V2 spec asks for the character fields BOTH at the
+         top level and under `data`, and other tools read only one of the two.
+         We used to write them top level and leave `data` with nothing but the
+         name, so a card exported here looked truncated elsewhere. The values
+         are identical, so our own import (which merges with `data` winning)
+         reads the same text it always did. `personality` stays empty on
+         purpose: this app keeps one persona string, and copying it into
+         `personality` too would double the sheet for any tool that joins the
+         two fields. */
+      ['description', 'personality', 'scenario', 'first_mes', 'mes_example',
+       'creatorcomment', 'tags', 'talkativeness', 'fav'].forEach(function (k) {
+        card.data[k] = card[k];
+      });
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
       if (c.postHistory) card.data.post_history_instructions = c.postHistory;
       /* the embedded lorebook rides along: exporting used to drop it, so a
@@ -611,7 +709,9 @@
         card.data.character_book = {
           name: (c.name || 'character') + ' lorebook',
           entries: c.lorebook.map(function (e) {
-            return { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
+            var out = { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
+            if (e.constant) out.constant = true;
+            return out;
           })
         };
       }
@@ -650,8 +750,104 @@
       return 'data:' + (mime || 'application/octet-stream') + ';base64,' + btoa(bin);
     },
 
-    /* Pull the embedded card out of PNG bytes (the chara/ccv3 tEXt chunks).
-       Shared by file import and URL import, so both read cards the same way. */
+    /* ---- PNG card containers (K1-K3, v1.39.76) ---------------------------
+       A card PNG carries its JSON in a text chunk. Four things are legal and
+       all four appear in the wild:
+
+         tEXt      keyword \0 text
+         zTXt      keyword \0 method(1) zlib(text)
+         iTXt      keyword \0 flag(1) method(1) lang \0 translated \0 text
+         (iTXt with flag = 1 compresses that text)
+
+       and the card itself is base64 in `chara` (V2) or `ccv3` (V3) — the V3
+       spec says `ccv3` is base64 UTF-8 JSON, and says an application should
+       prefer it when both are present. This reader used to: parse every chunk
+       as plain text, parse `ccv3` as raw JSON (never decoding it), take the
+       first chunk in file order, and give up on anything compressed. It now
+       does the opposite of all four. */
+
+    /* zlib inflate for a compressed chunk. The browser primitive is not
+       present in very old WebViews, so its absence is reported as a fact
+       rather than crashing the import. */
+    inflateBytes: function (bytes) {
+      if (typeof global.DecompressionStream !== 'function' || typeof global.Response !== 'function') {
+        return Promise.reject(new Error('This card\'s text is compressed, and this Android WebView is too old to unpack it. Update Android System WebView (Play Store) — or import the .json version of the card.'));
+      }
+      try {
+        var stream = new Blob([bytes]).stream()
+          .pipeThrough(new global.DecompressionStream('deflate'));
+        return new global.Response(stream).arrayBuffer().then(function (b) {
+          return new Uint8Array(b);
+        });
+      } catch (e) {
+        return Promise.reject(new Error('This card\'s text is compressed and could not be unpacked: ' + (e && e.message)));
+      }
+    },
+
+    /* One chunk -> { key, text }, or null if it is not a text chunk we know.
+       Async only because zTXt/compressed iTXt have to be inflated. */
+    pngTextChunk: function (ch) {
+      var bytes = new Uint8Array(ch.data);
+      var nul = bytes.indexOf(0);
+      if (nul < 0) return Promise.resolve(null);
+      var key = String.fromCharCode.apply(null, Array.prototype.slice.call(bytes.subarray(0, nul)));
+      var rest = bytes.subarray(nul + 1);
+      var utf8 = function (b) { return new TextDecoder().decode(b); };
+
+      if (ch.type === 'zTXt') {
+        /* keyword \0 method(1) compressed */
+        return Store.inflateBytes(rest.subarray(1))
+          .then(function (out) { return { key: key, text: utf8(out) }; })
+          .catch(function (e) { return Promise.reject(e); });
+      }
+      if (ch.type === 'iTXt') {
+        /* keyword \0 flag(1) method(1) lang \0 translated \0 text */
+        var flag = rest[0], p = 2;
+        while (p < rest.length && rest[p] !== 0) p++;
+        p++;
+        while (p < rest.length && rest[p] !== 0) p++;
+        p++;
+        var body = rest.subarray(p);
+        if (flag === 1) {
+          return Store.inflateBytes(body)
+            .then(function (out) { return { key: key, text: utf8(out) }; })
+            .catch(function (e) { return Promise.reject(e); });
+        }
+        return Promise.resolve({ key: key, text: utf8(body) });
+      }
+      /* tEXt: the payload is Latin-1 in the spec, but every card writer puts
+         UTF-8 JSON there and every reader treats it as UTF-8. Do the same. */
+      return Promise.resolve({ key: key, text: utf8(rest) });
+    },
+
+    /* A chunk's text -> the card object inside it, or null.
+       K1: `ccv3` is base64 per the spec — decode it first. Raw JSON is
+       accepted after that because it costs nothing and old local fixtures
+       were written that way. `chara` is always base64, but a bare JSON
+       payload there is accepted for the same reason. */
+    cardFromChunkText: function (key, text) {
+      var decodeBase64Json = function (b64) {
+        try {
+          var bin = atob(String(b64).replace(/\s+/g, ''));
+          var bytes = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
+          return JSON.parse(new TextDecoder().decode(bytes));
+        } catch (e) { return null; }
+      };
+      var parseRaw = function (t) {
+        try { return JSON.parse(String(t).replace(/^\uFEFF/, '').trim()); } catch (e) { return null; }
+      };
+      var looksBase64 = /^[A-Za-z0-9+/=\s]+$/.test(String(text).slice(0, 200)) && String(text).trim().length > 8;
+      if (key === 'ccv3') {
+        /* base64 first (the spec), raw second */
+        return (looksBase64 ? decodeBase64Json(text) : null) || parseRaw(text);
+      }
+      /* chara: SillyTavern has always written base64 here */
+      return decodeBase64Json(text) || parseRaw(text);
+    },
+
+    /* Pull the embedded card out of PNG bytes. Shared by file import and URL
+       import, so both read cards the same way. */
     cardFromPngBytes: function (buf) {
       return new Promise(function (resolve, reject) {
         try {
@@ -668,52 +864,44 @@
             off += 12 + len;
             if (type === 'IEND') break;
           }
-          var card = null;
-          chunks.forEach(function (ch) {
-            if (card) return;
-            var bytes = new Uint8Array(ch.data);
-            var nul = bytes.indexOf(0);
-            var key = String.fromCharCode.apply(null, bytes.subarray(0, nul));
-            var rest = bytes.subarray(nul + 1);
-            if (key === 'ccv3') {
-              var text = '';
-              if (ch.type === 'iTXt') {
-                // iTXt: compression flag, compression method, lang tag, translated keyword, then text
-                var p = 2;
-                while (rest[p] !== 0) p++;
-                p++;
-                while (rest[p] !== 0) p++;
-                p++;
-                text = new TextDecoder().decode(rest.subarray(p));
-              } else {
-                text = new TextDecoder().decode(rest);
-              }
-              try { card = JSON.parse(text); } catch (e) {}
-            } else if (key === 'chara') {
-              var b64 = new TextDecoder().decode(rest);
-              /* atob gives a BINARY string - bytes as chars. Parsing that
-                 directly mangles every multibyte sequence (emoji, dashes,
-                 curly quotes, accents - everything that is not ASCII).
-                 Decode the bytes as UTF-8, like the ccv3 branch above
-                 already does. */
-              try {
-                var bin = atob(b64);
-                var utf = new Uint8Array(bin.length);
-                for (var bi = 0; bi < bin.length; bi++) utf[bi] = bin.charCodeAt(bi) & 0xff;
-                card = JSON.parse(new TextDecoder().decode(utf));
-              } catch (e) {}
+          if (!chunks.length) throw new Error('No character data embedded in this PNG');
+
+          /* Read every chunk, then choose. K2: `ccv3` wins over `chara`
+             regardless of file order — a stale V2 copy in `chara` must not
+             shadow the real V3 card. */
+          Promise.all(chunks.map(function (ch) {
+            return Store.pngTextChunk(ch)
+              .then(function (t) {
+                if (!t || (t.key !== 'ccv3' && t.key !== 'chara')) return null;
+                var card = Store.cardFromChunkText(t.key, t.text);
+                return card && typeof card === 'object' ? { key: t.key, card: card } : null;
+              })
+              .catch(function (e) { return { error: e }; });
+          })).then(function (found) {
+            var usable = found.filter(function (f) { return f && f.card; });
+            var card = null;
+            for (var k = 0; k < usable.length; k++) {
+              if (usable[k].key === 'ccv3') { card = usable[k].card; break; }
             }
-          });
-          if (!card) throw new Error('No character data embedded in this PNG');
-          /* A PNG-embedded card IS its own avatar: SillyTavern stores the
-             picture in the file, not in the JSON. Attach the file itself
-             when the embedded JSON carries no usable char_x of its own.
-             (v3 cards keep char_x inside `data`.) */
-          var target = (card.spec === 'chara_card_v3' && card.data) ? card.data : card;
-          if (!Store.cardAvatar(target.char_x)) {
-            target.char_x = Store.bytesToDataUrl(buf, 'image/png');
-          }
-          resolve(card);
+            if (!card && usable.length) card = usable[0].card;
+            if (!card) {
+              /* A compressed chunk that could not be inflated is a different
+                 failure from "there was no card here", and the person holding
+                 the phone can act on the first and not the second. */
+              var err = found.filter(function (f) { return f && f.error; })[0];
+              if (err) throw err.error;
+              throw new Error('No character data embedded in this PNG');
+            }
+            /* A PNG-embedded card IS its own avatar: SillyTavern stores the
+               picture in the file, not in the JSON. Attach the file itself
+               when the embedded JSON carries no usable char_x of its own.
+               (v3 cards keep char_x inside `data`.) */
+            var target = (card.spec === 'chara_card_v3' && card.data) ? card.data : card;
+            if (!Store.cardAvatar(target.char_x)) {
+              target.char_x = Store.bytesToDataUrl(buf, 'image/png');
+            }
+            resolve(card);
+          }).catch(reject);
         } catch (e) { reject(e); }
       });
     },
@@ -759,20 +947,40 @@
     },
 
     /* A picked file -> every card it carries (usually one). */
+    /* K5 (v1.39.76): the reader used to be chosen by FILE NAME, so a PNG
+       saved as .json said "Invalid JSON" and a JSON saved as .png said "Not a
+       PNG character card" — both of which are the app describing its own
+       guesswork as your mistake. Sniff the bytes instead: every PNG opens with
+       the same eight, and anything else is text. */
     readCardsFile: function (file) {
       return new Promise(function (resolve, reject) {
         var fr = new FileReader();
-        if (/\.json$/i.test(file.name) || file.type === 'application/json') {
-          fr.onload = function () {
-            try { resolve(Store.cardsFromRaw(JSON.parse(fr.result))); }
-            catch (e) { reject(new Error('Invalid JSON')); }
-          };
-          fr.readAsText(file);
-          return;
-        }
         fr.onload = function () {
-          Store.cardFromPngBytes(fr.result).then(function (card) { resolve([card]); }, reject);
+          var buf = fr.result;
+          var head = new Uint8Array(buf, 0, Math.min(8, buf.byteLength));
+          var isPng = head.length === 8 && head[0] === 0x89 && head[1] === 0x50 &&
+            head[2] === 0x4e && head[3] === 0x47 && head[4] === 0x0d &&
+            head[5] === 0x0a && head[6] === 0x1a && head[7] === 0x0a;
+          if (isPng) {
+            Store.cardFromPngBytes(buf).then(function (card) { resolve([card]); }, reject);
+            return;
+          }
+          var text;
+          try { text = new TextDecoder().decode(buf); }
+          catch (e) { reject(new Error('That file is neither a PNG card nor readable text')); return; }
+          /* a text file that is not JSON gets the honest error, and says what
+             it actually is rather than blaming the extension */
+          var parsed;
+          try { parsed = JSON.parse(text.replace(/^\uFEFF/, '')); }
+          catch (e) {
+            reject(new Error(isProbablyJson(text) ? 'That file looks like JSON but will not parse — it may be truncated.'
+              : 'That file is not a character card (no JSON and no PNG data in it).'));
+            return;
+          }
+          try { resolve(Store.cardsFromRaw(parsed)); }
+          catch (e) { reject(e); }
         };
+        fr.onerror = function () { reject(new Error('That file could not be read')); };
         fr.readAsArrayBuffer(file);
       });
     },

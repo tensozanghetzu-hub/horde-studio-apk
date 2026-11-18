@@ -52,9 +52,9 @@ const BOOK = { name: 'Millow Ridge', entries: [
 
 function v2Card() {
   return {
-    name: 'Miriam Voss', description: 'A claim adjuster who audits miracles.',
+    name: 'Miriam Okafor', description: 'A claim adjuster who audits miracles.',
     first_mes: 'Sign here.', spec: 'chara_card_v2', spec_version: '2.0',
-    data: { name: 'Miriam Voss', character_book: JSON.parse(JSON.stringify(BOOK)) },
+    data: { name: 'Miriam Okafor', character_book: JSON.parse(JSON.stringify(BOOK)) },
   };
 }
 function v3Card() {

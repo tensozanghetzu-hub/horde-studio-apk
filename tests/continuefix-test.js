@@ -114,8 +114,17 @@ function B(continueFromMissing) {
     var lastM = msgs[msgs.length - 1];
     ok('wire ends with the seed as assistant prefix',
       lastM.role === 'assistant' && lastM.content === SEED, JSON.stringify(lastM));
-    var seedCount = msgs.filter(function (m) { return String(m.content).indexOf('don\'') !== -1; }).length;
-    ok('the cut text appears exactly once in context (no duplication)', seedCount === 1, seedCount);
+    /* Count only CONVERSATION. The seam system note deliberately quotes the
+       cut tail ("The text stops at these exact words: \"...don'\"") — that is
+       an instruction to the model, not duplicated content. The thing that must
+       appear once is the reply itself. */
+    var seedCount = msgs.filter(function (m) {
+      return (m.role === 'user' || m.role === 'assistant') &&
+        String(m.content).indexOf('don\'') !== -1;
+    }).length;
+    ok('the cut text appears exactly once in conversation (no duplication)', seedCount === 1, seedCount);
+    ok('the seam note may quote the cut tail, but only as instructions',
+      msgs.filter(function (m) { return m.role === 'system' && String(m.content).indexOf('don\'') !== -1; }).length <= 1);
     /* v1.39.30 re-pin: prefill-blind endpoints used to treat the trailing
        assistant seed as a finished turn and answered Continue with a fresh
        beat; a system nudge now sits between the user's turn and the seed to
