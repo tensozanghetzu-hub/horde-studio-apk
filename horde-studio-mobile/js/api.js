@@ -215,10 +215,20 @@
     (entries || []).forEach(function (e, i) {
       var row = { keys: e.keys || [], content: e.content || '', matched: false, reason: '', rank: -1 };
       var r = byIndex[i];
+      row.stage = String(e.stage || '').trim();
       if (e.enabled === false) { row.reason = 'disabled'; rows.push(row); return; }
       var need = String(e.stage || '').trim().toLowerCase();
       if (need && need !== '*' && (!activeStage || need !== activeStage)) {
-        row.reason = 'wrong stage (' + (e.stage || '') + ')'; rows.push(row); return;
+        /* v1.39.110: distinguish "this chat is in a different act" from "this
+           chat has no act at all". They are different fixes for the author:
+           the first is expected, the second means the entry is dark in every
+           chat until a stage is set - which is the default state. */
+        row.stageDark = true;
+        row.noStage = !activeStage;
+        row.reason = activeStage
+          ? 'wrong stage (entry needs "' + row.stage + '", chat is "' + activeStage + '")'
+          : 'needs stage "' + row.stage + '" - this chat has no stage set, so it is dark';
+        rows.push(row); return;
       }
       if (!r) { row.reason = 'no keyword matched in the recent messages'; rows.push(row); return; }
       row.matched = true;
@@ -233,7 +243,19 @@
       }
       rows.push(row);
     });
-    return { rows: rows, used: used, cap: cap, admitted: admitted, limit: max };
+    /* How many entries are in the dark because of staging, and how many of
+       those are dark only because the chat has no stage at all. The Lore
+       screen surfaces both, because a blank stage silently hides a staged
+       book and looks exactly like a broken lorebook. */
+    var stageSkipped = 0, stageDimForNoStage = 0;
+    rows.forEach(function (r) {
+      if (!r.stageDark) return;
+      stageSkipped++;
+      if (r.noStage) stageDimForNoStage++;
+    });
+    return { rows: rows, used: used, cap: cap, admitted: admitted, limit: max,
+      stage: activeStage, stageSkipped: stageSkipped, stageBlank: !activeStage,
+      stageDarkWithoutStage: stageDimForNoStage };
   }
 
   /* v1.39.109: how much of a book may reach one prompt.
