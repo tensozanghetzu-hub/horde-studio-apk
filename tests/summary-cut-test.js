@@ -143,6 +143,24 @@ ok('...and it keeps the sentences that were whole',
 ok('...and a complete answer is not marked',
   !/\u2026$/.test(API.parseMemory('Here is the summary:\n' + TRUNCATED).summary));
 
+console.log('\nordinary prose that merely says "summary" is never eaten');
+
+/* These were all stored correctly before the fix and were briefly rejected by
+   its first version - the signal is a brace or a fence, not the word. */
+[
+  'Summary: they argued at the mill and she left before dawn.',
+  'Here is a summary: the mill burned and the yard went quiet.',
+  'The summary they gave the warden did not match the ledger at all.',
+  'In summary, the two of them never spoke again after the ferry crossing.',
+  'She read the line that began "summary:" and stopped reading.'
+].forEach(function (prose) {
+  var got = API.parseMemory(prose);
+  ok('prose survives: ' + JSON.stringify(prose.slice(0, 28)),
+    got.ok === true && got.summary === prose, JSON.stringify(got.summary));
+});
+eq('...and is never mistaken for wreckage by the helper itself',
+  API.proseOnly('Here is a summary: the mill burned.'), 'Here is a summary: the mill burned.');
+
 console.log('\nbut prose is still prose');
 
 var plain = 'They crossed the yard in silence and the lamps were already lit.';

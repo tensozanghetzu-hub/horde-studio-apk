@@ -2491,8 +2491,20 @@
      Prose that never mentions a summary key is returned unchanged. */
   function proseOnly(text) {
     var t = String(text || '').trim();
-    if (!/["\u201c]?summary["\u201d]?\s*:/.test(t)) return t;
-    var m = /["\u201c]summary["\u201d]\s*:\s*["\u201c]?((?:[^"\\\n\u201d]|\\.)*)/.exec(t);
+    /* Only an answer that is demonstrably JSON-shaped can be wreckage. The
+       first cut of this looked for the word "summary:" anywhere, and so ate
+       ordinary prose like "Here is a summary: the mill burned" and a sentence
+       that merely quoted the word - both were stored as memories before and
+       were rejected by that version. A brace, a bracket or a fence is the
+       evidence; the word alone is not. */
+    var jsonish = /^[\[{]/.test(t) || /^```/.test(t) || /\{\s*["\u201c]?summary["\u201d]?\s*:/.test(t);
+    if (!jsonish) return t;
+    /* Take the *quoted* key first. A single regex with optional quotes matched
+       the word inside a preamble ("Here is the summary: {"summary":"...") and
+       captured nothing, because the quote after the colon belongs to the key
+       one character later. */
+    var m = /["\u201c]summary["\u201d]\s*:\s*["\u201c]?((?:[^"\\\n\u201d]|\\.)*)/.exec(t) ||
+            /(?:^|[\s{,\[])summary\s*:\s*["\u201c]?((?:[^"\\\n\u201d]|\\.)*)/i.exec(t);
     if (!m) return '';
     var body = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\'/g, "'").trim();
     /* The JSON never closed, so whatever was recovered is the end of a

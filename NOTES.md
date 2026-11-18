@@ -1,5 +1,29 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.107 — the summary fix stops eating ordinary prose (2026-11-17)
+
+v1.39.106 detected a wrecked memory answer by looking for the word `summary:`
+anywhere in it. That was too broad, and it rejected prose that had always been
+stored correctly:
+
+- `Here is a summary: the mill burned and the yard went quiet.`
+- `She read the line that began "summary:" and stopped reading.`
+
+Both reverted to stored memories now. The evidence of wreckage is a brace, a
+bracket or a fence — never the word. The quoted key is taken before an
+unquoted one, so a preamble containing "the summary:" no longer captures
+nothing.
+
+Verified by diffing the parser against v1.39.105 across thirteen shapes: the
+only three that change are the three that were broken (a bare cut fragment,
+a prefixed cut fragment, a fenced cut fragment). Complete JSON, `changed`
+lists, plain prose, over-long prose, refusals, stubs and empty replies are
+byte-identical. `tests/summary-cut-test.js` is 49 checks and now pins the
+prose cases too.
+
+- Found by testing rather than by report: the first version of 1.39.106 broke
+  two shapes while fixing three.
+
 ## v1.39.106 — a summary that was JSON wreckage is recovered (2026-11-17)
 
 Reported from a real 66-turn chat whose exported memory read
