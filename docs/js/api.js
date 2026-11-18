@@ -272,11 +272,63 @@
      the entire story: every proper noun ever mentioned still matched, every
      entry fired, and the budget was spent on whatever was listed first. Every
      engine descended from World Info scans a small window for exactly this
-     reason. Four messages covers the player's turn and the reply it answered. */
-  var LORE_SCAN_MESSAGES = 20;
+     reason.
+
+     v1.39.111: the window is counted in TURNS, not messages, and it is
+     computed once per request for every consumer.
+     - A message is not a unit of story. Messages-per-turn drifts as a chat
+       runs (multi-bubble replies, regenerations), so a constant in messages
+       covered 19 turns at the start of the reported chat and 4 at the end of
+       the same chat. 20 messages is 4 player turns there; LORE_SCAN_TURNS is
+       what the number was always trying to say.
+     - buildChat opened three separate windows on one history: lore over 20
+       messages, the transcript trimmed to 8 by budget, and styleLock over
+       those 8. The lore selector was choosing which facts to inject from a
+       stretch of story the request had already cut, and styleLock was sizing
+       a habit from however much history happened to fit. requestWindow()
+       answers "what is recent" once; lore, the transcript and the style lock
+       all read it. */
+  /* Why 6: measured on the reported 160-message chat, windows of 4, 10, 20 and
+     40 messages all admitted the entry the scene was about, so the smallest
+     window that did the job was 4 turns' worth. 6 was taken for headroom - a
+     player may speak twice before something is answered, and an entry keyed to
+     the previous beat should not fall out between them. Larger buys nothing:
+     past a few turns the scan text grows and the ranking, not the window, is
+     what decides. */
+  var LORE_SCAN_TURNS = 6;
+
+  /** The last `turns` player turns of a history, inclusive of the reply they
+   *  answered. A turn starts at a user message; if the window would begin
+   *  mid-turn it is extended back to the turn's opening message. */
+  function lastTurns(history, turns) {
+    var list = history || [];
+    var n = parseInt(turns, 10);
+    if (!(n > 0)) return list.slice();
+    var seen = 0, start = 0;
+    for (var i = list.length - 1; i >= 0; i--) {
+      if (list[i] && list[i].role === 'user') {
+        seen++;
+        if (seen >= n) { start = i; break; }
+      }
+    }
+    return list.slice(start);
+  }
+
+  /** The one answer to "what is recent", for the whole request.
+   *  Both shapes are returned because the consumers want different things:
+   *  `sample` is what the lore scanner reads, `messages` is what the
+   *  transcript may carry (already mapped to {role, content} and trimmed). */
+  function requestWindow(history, s) {
+    var list = history || [];
+    var windowed = lastTurns(list, LORE_SCAN_TURNS);
+    return { sample: loreSample(windowed), messages: windowed, turns: LORE_SCAN_TURNS };
+  }
+
   function loreSample(history) {
     var list = history || [];
-    var window = list.slice(-LORE_SCAN_MESSAGES);
+    /* Turns, then the message cap is only a backstop for a history with no
+       user messages at all. */
+    var window = lastTurns(list, LORE_SCAN_TURNS);
     var parts = window.map(function (m) { return String(m.text || ''); });
     var text = parts.join('\n');
     /* The newest turn is carried separately: an entry whose key the player has
@@ -950,7 +1002,10 @@
 
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note, finalNote) {
-    var recent = loreSample(history);
+    /* v1.39.111: one window for the whole request. Lore, the transcript and
+       the style lock all read `win`; nothing opens its own. */
+    var win = requestWindow(history, s);
+    var recent = win.sample;
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     /* A world run (and any caller that knows better) supplies character.systemPrompt
        with the narrator rules plus live state. Fall back to the global prompt. */
@@ -973,8 +1028,16 @@
        voice and format; they are labelled as such and kept out of the
        transcript. */
     var ex = examplesToMessages(character.examples, character, s);
+    /* v1.39.111: an assistant example keeps the speaker the card names for it.
+       Every card writing a multi-speaker example uses inline labels - it is the
+       only way to write them - and this block used to prefix each one with the
+       card's own name while leaving the label in place, so a narrator card
+       reached the model as "The Narrator: Mara: ...". The card reads correctly
+       in every other viewer, which is why the author never sees it. */
     var exText = ex.map(function (m) {
-      return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
+      if (m.role === 'user') return s.userName + ': ' + m.content;
+      var inline = labelledName(m.content);
+      return inline ? m.content : character.name + ': ' + m.content;
     }).join('\n');
     if (exText) {
       system += '\n\nExample dialogue — a sample of the intended voice, length and format. ' +
@@ -988,18 +1051,29 @@
        greeting, a model reply that imitated the card's mojibake) so the
        model stops reading — and imitating — it. */
     var castNow = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
-    var hist = history.map(function (m) {
+    var hist = win.messages.map(function (m) {
       var content = repairMojibake(m.text || '');
       /* v1.39.0: a player's photo degrades to the caption they wrote for
          it - text models never see pixels, so the caption IS the photo. */
       if (m.imageCaption && m.role === 'user') content += '\n[photo: ' + m.imageCaption + ']';
-      if (m.role !== 'user' && castNow.length >= 2) {
+      if (m.role !== 'user') {
         /* v1.39.86: a chat-format provider sends bare turns, so a card with
            three speakers reached the model as an unattributed wall — and every
            reply looked like it belonged to the card's own name. The speaker is
-           named, the way the examples do it. */
+           named, the way the examples do it.
+           v1.39.111: labelling used to be gated on the session cast having two
+           names, so before the cast was detected a reply carrying its own
+           "Mara:" label came out as "The Narrator: Mara: ..." - the same stacked
+           label the examples had. Now a line that already names a speaker is
+           left alone, and a bare line is labelled with the card's name only if
+           the card has one voice to attribute it to. */
         var sp = splitSpeaker(character, session, content);
-        content = sp.name + ': ' + sp.text;
+        content = labelledName(sp.text) ? sp.text : sp.name + ': ' + sp.text;
+        /* A single-voice card's own turns stay bare: the provider already knows
+           who is speaking, and every existing transcript test - and every card
+           that has ever worked - expects an unprefixed line. Labelling is a
+           multi-speaker affordance, so it stays one. */
+        if (castNow.length < 2 && sp.name === fallbackName(character)) content = sp.text;
       }
       return { role: m.role === 'user' ? 'user' : 'assistant', content: content };
     }).filter(function (m) { return m.content.trim(); });
@@ -1019,7 +1093,12 @@
        them teaches the habit far better than a system message can forbid it.
        An instruction that sits AFTER the transcript is the one the model is
        still holding when it writes. */
-    var tail = [styleLock(hist), finalNote].filter(Boolean).join('\n\n');
+    /* v1.39.111: the lock measures the turn window, not the byte-trimmed
+       transcript. Sizing the evidence from `hist` made the window a function of
+       reply length: long replies hit trimHistory's floor of four, the star count
+       fell with the message count, and an identical habit went unnoticed on
+       exactly the cards that write long replies. */
+    var tail = [styleLock(win.messages), finalNote].filter(Boolean).join('\n\n');
     if (tail) msgs.push({ role: 'system', content: tail });
 
     msgs = fitContext(msgs, 1 + ex.length);
@@ -1038,6 +1117,56 @@
      the card's name. A reply usually opens with its own speaker label; when it
      names someone in the scene cast, that is the speaker: it wins, and the
      label is removed so it is not sent back twice. */
+  /* v1.39.111: who is speaking, without needing a chat to have started.
+   *
+   * `splitSpeaker` below answers the same question but reads its roster from
+   * session.sceneCast, which is empty until the cast has been detected - and an
+   * example block is assembled from card data before any chat exists. So the
+   * examples went out every assistant line labelled with the card's own name,
+   * stacked on top of whatever inline label the author had written:
+   *
+   *   The Narrator: Aston Ashworth: "You are a lifesaver, buddy."
+   *
+   * These are the two halves that do not depend on session state:
+   *   speakerNames()  - who the card names, from its own examples
+   *   labelledName()  - the label at the head of a line, if it is a name
+   */
+
+  /* A capitalised word, or two joined words, the way cards name people:
+     "Mara", "Aston Ashworth", "McDonald", "O'Brien", "van der Berg". */
+  var SPEAKER_NAME_RE = /^[A-Z][\w'\u2019-]*(?:\s+(?:[A-Z][\w'\u2019-]*|van|von|de|der|da|di|al|bin)){0,3}$/;
+
+  /** The label at the head of a line ("Mara: ..." -> "Mara"), or ''. */
+  function fallbackName(character) {
+    return (character && character.name) || 'Assistant';
+  }
+
+  function labelledName(line) {
+    /* trailing markup is allowed before the colon: **Mara:** */
+    /* markup is allowed on both sides of the colon: **Mara:** is bold around
+       the whole label, so the closing asterisks sit after the colon. */
+    var m = /^[\s>*_#]*([^\n:()\[\]]{1,40}?)[\s*_#]*:[\s*_#]*/.exec(String(line == null ? '' : line));
+    if (!m) return '';
+    /* **Mara:** and _Mara:_ are common in cards; the markup is not the name. */
+    var label = String(m[1]).trim().replace(/^[*_#\s]+/, '').replace(/[*_#\s]+$/, '');
+    /* A bare capitalised name. "It was late: he said" is prose that happens to
+       carry a colon, and must not be read as a speaker. */
+    return SPEAKER_NAME_RE.test(label) ? label : '';
+  }
+
+  /** Every distinct speaker label the card's own examples use, in order. */
+  function speakerNames(character) {
+    var raw = String((character && character.examples) || '');
+    if (!raw) return [];
+    var out = [];
+    raw.split(/\r?\n|<\s*START\s*>/i).forEach(function (line) {
+      var name = labelledName(line);
+      if (!name || out.indexOf(name) !== -1) return;
+      out.push(name);
+    });
+    return out;
+  }
+
   function splitSpeaker(character, session, text) {
     var fallback = (character && character.name) || 'Assistant';
     var body = String(text == null ? '' : text);
@@ -1078,7 +1207,10 @@
   }
 
   function buildPrompt(character, session, history, s, note, budgetTokens, finalNote) {
-    var recent = loreSample(history);
+    /* v1.39.111: the prompt format reads the same one window as the chat
+       format, so the two cannot disagree about what is recent. */
+    var win = requestWindow(history, s);
+    var recent = win.sample;
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
       '\n\n' + charSheet(character, s, session, recent, assistantTurns);
@@ -1089,9 +1221,11 @@
     var sceneCast = sceneCastPrompt(session, s.userName);
     if (sceneCast) head += '\n\n' + sceneCast;
     var ex = examplesToMessages(character.examples, character, s).map(function (m) {
-      return (m.role === 'user' ? s.userName : character.name) + ': ' + m.content;
+      if (m.role === 'user') return s.userName + ': ' + m.content;
+      var inline = labelledName(m.content);
+      return inline ? m.content : character.name + ': ' + m.content;
     }).join('\n');
-    var hist = history.map(function (m) {
+    var hist = win.messages.map(function (m) {
       if (m.role === 'user') {
         var mine = repairMojibake(m.text || '');
         if (m.imageCaption) mine += '\n[photo: ' + m.imageCaption + ']';
@@ -1107,7 +1241,7 @@
         /* v1.39.99: finalNote is read here too, so a state reminder supplied
            by a world run lands after the transcript and immediately before
            the cue to answer — the same position the chat format gives it. */
-        finalNote || '', styleLock(history), character.name + ':'].filter(Boolean).join('\n\n');
+        finalNote || '', styleLock(win.messages), character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */
     /* Drop the OLDEST turns first, so the newest thing you typed always survives.
@@ -3200,7 +3334,9 @@
     loreDiagnostics: loreDiagnostics,
     loreSample: loreSample,
     loreRanks: loreRanks,
-    LORE_LIMIT: LORE_LIMIT, LORE_BUDGET: LORE_BUDGET, LORE_SCAN_MESSAGES: LORE_SCAN_MESSAGES,
+    LORE_LIMIT: LORE_LIMIT, LORE_BUDGET: LORE_BUDGET, LORE_SCAN_TURNS: LORE_SCAN_TURNS,
+    requestWindow: requestWindow, lastTurns: lastTurns, labelledName: labelledName,
+    speakerNames: speakerNames,
     historyBudgetTokens: historyBudgetTokens,
     modelContextTokens: modelContextTokens,
     rememberModelWindows: rememberModelWindows,

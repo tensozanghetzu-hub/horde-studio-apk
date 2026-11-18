@@ -140,7 +140,12 @@ console.log('\nC2 (v1.39.74) — what can trigger, and C3 (v1.39.109) — what i
 
 var hist = [];
 for (var h = 0; h < 20; h++) {
-  hist.push({ role: h % 2 ? 'assistant' : 'user', text: h === 0 ? 'We reached the ridge at dusk.' : 'Filler ' + h + '.' });
+  /* v1.39.111: the ridge is mentioned inside the window but NOT in the newest
+     message. C2's guarantee is that a mention earlier in the window is still
+     live — not that an arbitrary distance is scanned forever. At h === 0 it was
+     ten messages back, which is outside a six-turn window, and the guarantee
+     being tested was never "any distance". */
+  hist.push({ role: h % 2 ? 'assistant' : 'user', text: h === 9 ? 'We reached the ridge at dusk.' : 'Filler ' + h + '.' });
 }
 var sample = API.loreSample(hist);
 /* C2's guarantee, kept: an entry keyed to something said earlier in the
@@ -155,11 +160,13 @@ same('…and the readout agrees',
 same('it is scored as an old mention', API.loreRanks(worn, sample, '')[0].recency > 0, true);
 
 /* The window is bounded, so a very long chat does not scan itself. */
-ok('the scan is bounded to a window, not the whole chat', API.LORE_SCAN_MESSAGES <= 40, API.LORE_SCAN_MESSAGES);
+ok('the scan is bounded to a window, not the whole chat', API.LORE_SCAN_TURNS <= 12, API.LORE_SCAN_TURNS);
 var huge = [];
 for (var q = 0; q < 200; q++) huge.push({ role: 'user', text: 'line ' + q });
+/* v1.39.111: the window is counted in player turns. With one message per turn
+   that is exactly LORE_SCAN_TURNS messages; the point is that it is bounded. */
 same('a 200-message chat scans only the window',
-  API.loreSample(huge).parts.length, Math.min(200, API.LORE_SCAN_MESSAGES));
+  API.loreSample(huge).parts.length, API.LORE_SCAN_TURNS);
 
 /* Widening what can trigger must not widen what is sent. */
 var many = [];

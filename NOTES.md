@@ -1,5 +1,47 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.111 — who is speaking, and what counts as recent (2026-11-18)
+
+Four general fixes, in the order they matter. None is card-specific; all four
+reproduce on invented cards.
+
+- **An example keeps its own speaker.** Every card that writes a multi-speaker
+  example uses inline labels — it is the only way to write one — and the block
+  prefixed each assistant line with the card's own name while leaving the label
+  in place, so a narrator card reached the model as `The Narrator: Mara: "..."`.
+  It reads correctly in every other viewer, which is why the author never sees
+  it. An assistant example now keeps the speaker the card names for it, and a
+  bare line is still attributed to the card.
+- **The transcript path had the same fault.** Assistant history was labelled
+  only when the detected cast had two names, so before the cast existed a reply
+  carrying its own label came out double-labelled too. A line that already names
+  a speaker is now left alone; a single-voice card's turns stay bare.
+- **The scene address stands.** "Speaking to" was a one-shot, cleared the moment
+  it was read — so nothing carried who was being spoken to from one turn to the
+  next, and a reply could re-stage a room the player had already left. It now
+  holds until the player changes it, `lastSpeaker` rides beside it, and both are
+  cleared by the events that remove someone from the cast. A picker no longer
+  promises a reset that no longer happens.
+- **One window per request, counted in turns.** `buildChat` opened three
+  windows on one history: the lore scan over 20 messages, the transcript trimmed
+  to 8 by budget, and the style lock over those 8. The lore selector was
+  choosing which facts to inject from story the request had already dropped, and
+  the style lock was sizing a habit from however much history happened to fit.
+  `requestWindow()` answers "what is recent" once; all three read it.
+- **…and it is counted in turns.** Messages-per-turn drifts as a chat runs, so a
+  constant in messages covered 19 player turns early in the reported chat and 4
+  at the end of the same chat. `LORE_SCAN_TURNS = 6` says what the number was
+  always trying to say, and is stable across card shapes.
+- **A consequence worth naming:** sizing the style lock by reply length meant an
+  identical habit went unnoticed on long-reply cards. Long replies hit the
+  trim's floor of four messages, the star count fell with the message count, and
+  the lock went quiet — on exactly the cards the lock exists for. Pinned now at
+  reply lengths from 407 to 21,400 characters.
+- The stale "four messages" comment is gone; its reasoning is in the code.
+- `tests/labels-and-window-test.js` is new — 38 checks over labelling, label
+  detection, the standing address, window coherence, the style-lock regression
+  and turn accounting.
+
 ## v1.39.110 — a dark entry says why it is dark (2026-11-17)
 
 Reported as a general finding: a stage-gated entry is invisible in every chat
