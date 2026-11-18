@@ -807,6 +807,33 @@
     return out;
   }
 
+  /* v1.39.108: one line, only when the transcript it follows actually shows
+     the habit. A chat that never used asterisks gets no extra instruction, so
+     nothing changes for it; a chat that did gets told, at the point of
+     generation, not to copy what it can see. Underscores are not mentioned -
+     they are common in ordinary prose and would be a false positive. */
+  function styleLock(history) {
+    var total = 0, worst = 0;
+    (history || []).forEach(function (m) {
+      if (!m || m.role !== 'assistant') return;
+      /* buildPrompt sees the stored shape (text); buildChat has already mapped
+         it to wire shape (content). Accept either. */
+      var body = String(m.text != null ? m.text : (m.content != null ? m.content : ''));
+      var n = (body.match(/\*/g) || []).length;
+      total += n;
+      if (n > worst) worst = n;
+    });
+    /* A greeting that italicises one line is not a habit. Measured against the
+       reported export: a normal early reply carries a handful, a reply that has
+       started degenerating carries dozens (51, then 302 as it ran away). Only
+       these two shapes earn the instruction - a first turn is never told to
+       break a habit it does not have. */
+    if (total < 20 && worst < 12) return '';
+    return 'FORMAT FOR THIS REPLY: write plain prose and quoted dialogue, with no asterisks ' +
+      'anywhere - not on words, not between them. Earlier replies above use them; that is the ' +
+      'habit to break, not a style to match. Do not mention or apologise for the change.';
+  }
+
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note, finalNote) {
     var recent = loreSample(history);
@@ -872,7 +899,14 @@
        transcript. Buried in the system block it argued with the card from a
        weaker position and lost; here it is the final thing read before the
        reply, which is where a model actually takes its orders from. */
-    if (finalNote) msgs.push({ role: 'system', content: finalNote });
+    /* v1.39.108: the style lock rides here for the same reason, and it is the
+       only thing that survives a long chat. The default system prompt used to
+       request asterisks; even with that gone, a history carrying thousands of
+       them teaches the habit far better than a system message can forbid it.
+       An instruction that sits AFTER the transcript is the one the model is
+       still holding when it writes. */
+    var tail = [styleLock(hist), finalNote].filter(Boolean).join('\n\n');
+    if (tail) msgs.push({ role: 'system', content: tail });
 
     msgs = fitContext(msgs, 1 + ex.length);
     if (totalBytes(msgs) > CONTEXT_CAP && ex.length) {
@@ -959,7 +993,7 @@
         /* v1.39.99: finalNote is read here too, so a state reminder supplied
            by a world run lands after the transcript and immediately before
            the cue to answer — the same position the chat format gives it. */
-        finalNote || '', character.name + ':'].filter(Boolean).join('\n\n');
+        finalNote || '', styleLock(history), character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */
     /* Drop the OLDEST turns first, so the newest thing you typed always survives.
@@ -3017,6 +3051,7 @@
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     splitSpeaker: splitSpeaker, parseMemory: parseMemory, memoryLooksBroken: memoryLooksBroken,
     clipProse: clipProse, continuityHasState: continuityHasState, proseOnly: proseOnly,
+    styleLock: styleLock,
     providerError: providerError,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
     parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,

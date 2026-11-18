@@ -1,0 +1,16 @@
+var fs=require('fs'),vm=require('vm');
+var Store={settings:{plainEmphasis:false}};
+var sb={console:console,document:{getElementById:function(){return {classList:{add(){},remove(){},contains(){return false}},style:{},innerHTML:'',textContent:'',hidden:false};}},Store:Store,String:String,RegExp:RegExp};
+sb.window=sb;
+vm.runInNewContext(fs.readFileSync('/home/user/horde-studio-mobile/js/ui.js','utf8'),sb,{filename:'ui.js'});
+var chat=JSON.parse(fs.readFileSync('/home/user/uploads/The Narrator — Hogwarts_ Book One-Meeting Neville on the Hogwarts Express.hordechat.json','utf8'));
+var A=chat.messages.filter(function(x){return x.role==='assistant';}).map(function(x){return x.text;});
+var t=A[89];
+console.log('RAW (first 200):'); console.log(t.slice(0,200));
+console.log();
+var html=sb.UI.md(t);
+console.log('RENDERED (first 400 of html):'); console.log(html.slice(0,400));
+var stray=(html.match(/\*/g)||[]).length;
+console.log();
+console.log('visible stray asterisks left on screen:',stray);
+console.log('italic spans:',(html.match(/<em>/g)||[]).length);

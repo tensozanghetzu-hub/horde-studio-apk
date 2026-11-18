@@ -1,5 +1,34 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.108 — stop the asterisks being written (2026-11-17)
+
+Reported: asterisks get denser the longer a chat runs until replies are
+unreadable — in one export, 55 of 94 replies carried more asterisks than words,
+and the chats were being deleted rather than finished. The previously offered
+answer hid them; this removes the request and resists the amplification.
+
+- **The default system prompt asked for them.** "Use asterisk italics
+  (\*like this\*) for thoughts and actions" is read by the model as its own
+  house style, so a narrator began marking its prose. That line is gone; the
+  default now asks for plain prose with no markers and dialogue in quotes.
+- **Installs holding the old default are upgraded.** The migration now compares
+  against both previous defaults. A prompt the user has edited by even one
+  character is never touched — that is their text, not ours.
+- **A style lock after the transcript.** A plain-prose instruction now rides in
+  the tail turn, after the card, the examples and the history. This is the only
+  position that survives a long chat: 6,000 characters of starred replies teach
+  the habit far better than a system message read before them can forbid it.
+- **It only fires when the habit is really there.** A greeting that italicises
+  one line, or a handful of italic beats, gets no instruction at all — nothing
+  changes for a chat that was never afflicted. The trigger is a reply carrying
+  a dozen or more, or twenty across the window.
+- **Both request paths carry it**, chat-format and prompt-format, so the fix
+  does not hold on one provider and fail on another.
+- `tests/style-lock-test.js` is new — 36 checks over the default text, the
+  migration's exact-match rule, the trigger threshold in both directions, and
+  the lock's position as the last thing read. Three suites that pinned the old
+  behaviour were updated to the new one rather than deleted.
+
 ## v1.39.107 — the summary fix stops eating ordinary prose (2026-11-17)
 
 v1.39.106 detected a wrecked memory answer by looking for the word `summary:`

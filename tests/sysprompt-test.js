@@ -39,7 +39,12 @@ var LEGACY = 'You are {{char}}. Stay in character at all times. Write in a natur
   'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
   'outlines, or commentary about the prompt or the character card.';
 
-var FMT_LINE = 'Use double quotes for spoken dialogue and asterisk italics (*like this*) for thoughts and actions.';
+/* v1.39.108: the formatting line inverted. Asking for asterisks taught the
+   model to mark every word and made long chats unreadable, so the default now
+   forbids markers. The rules this file exists to protect - one prompt, edited
+   copies untouched, upgrades persisted - are unchanged. */
+var FMT_LINE = 'no asterisks';
+var OLD_FMT_LINE = 'asterisk italics (*like this*)';
 
 /* ---------------- fake IndexedDB (same shape as persona-test) ------------- */
 function makeDb() {

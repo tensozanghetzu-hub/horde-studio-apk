@@ -2,18 +2,36 @@
 (function (global) {
   'use strict';
 
-  /* The pre-v1.16.0 default, kept verbatim for the one-time migration in
-     init: existing installs hold whatever default they were given, and we
-     only upgrade the ones that never saw an edit. */
+  /* Both previous defaults, kept verbatim so init can upgrade an install that
+     never edited its prompt. An edited prompt (even by one character) is never
+     touched: that is the user's own text and not ours to decide about. */
   var LEGACY_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
     'advancing the scene with concrete detail, action and dialogue. Never speak for {{user}}. ' +
     'Keep replies focused on what just happened and leave room for {{user}} to respond. ' +
     'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
     'outlines, or commentary about the prompt or the character card.';
-
-  var DEFAULT_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
+  /* v1.39.108: this one asked for asterisks. "Asterisk italics for thoughts
+     and actions" is read by the model as its own house style, so a narrator
+     began marking every word - and long chats then amplified it out of the
+     transcript until replies were unreadable. The request is simply gone. */
+  var LEGACY_SYSTEM_STARRED = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
     'advancing the scene with concrete detail, action and dialogue. Use double quotes for ' +
     'spoken dialogue and asterisk italics (*like this*) for thoughts and actions. ' +
+    'Never speak for {{user}}. ' +
+    'Keep replies focused on what just happened and leave room for {{user}} to respond. ' +
+    'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
+    'outlines, or commentary about the prompt or the character card.';
+
+  /* v1.39.108: no asterisks. The old line asked for them, and the model read
+     that as licence to mark its own narration - first every second word, then
+     nearly every word in a long chat, because each starred reply was fed back
+     as an example for the next one. Plain prose, dialogue in quotes. */
+  var DEFAULT_SYSTEM = 'You are {{char}}. Stay in character at all times. Write in a natural, immersive style, ' +
+    'advancing the scene with concrete detail, action and dialogue. ' +
+    'Write narration and action as plain prose with no markers of any kind: no asterisks, ' +
+    'no underscores, no brackets, no bold. Write spoken dialogue inside double quotation marks. ' +
+    'If earlier replies in this chat use asterisks, do not imitate them: the transcript is not ' +
+    'a style guide. ' +
     'Never speak for {{user}}. ' +
     'Keep replies focused on what just happened and leave room for {{user}} to respond. ' +
     'Write only what {{char}} does and says: never include reasoning, planning, notes, ' +
@@ -25,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.39.107';
+  var VERSION = '1.39.108';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -145,7 +163,7 @@
            dialogue/thought formatting line. Give it to users who still hold
            the old default verbatim; anyone who ever edited the prompt (even
            one character) is left untouched. */
-        if (s.systemPrompt === LEGACY_SYSTEM) {
+        if (s.systemPrompt === LEGACY_SYSTEM || s.systemPrompt === LEGACY_SYSTEM_STARRED) {
           s.systemPrompt = DEFAULT_SYSTEM;
           dirty = true;
         }
