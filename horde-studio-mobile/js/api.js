@@ -2478,6 +2478,34 @@
     return body.replace(/[\s,;:\-]+$/, '') + ' \u2026';
   }
 
+  /* v1.39.106: is this answer only the wreckage of JSON, or is there prose
+     worth keeping? A model that opens its memory answer with a short sentence
+     of its own ("Here is the summary:") and is then cut off by the token
+     ceiling leaves `Here is the summary: {"summary":"...` with no closing
+     brace. The unfinished-JSON guard only refused answers that START with a
+     brace, so that shape sailed through and the raw wrapper was stored as the
+     chat's permanent memory of its own past - read back on every later turn.
+
+     Anything holding the shape of a JSON summary key is treated as wreckage
+     no matter what precedes it, and recovery is attempted from the fragment.
+     Prose that never mentions a summary key is returned unchanged. */
+  function proseOnly(text) {
+    var t = String(text || '').trim();
+    if (!/["\u201c]?summary["\u201d]?\s*:/.test(t)) return t;
+    var m = /["\u201c]summary["\u201d]\s*:\s*["\u201c]?((?:[^"\\\n\u201d]|\\.)*)/.exec(t);
+    if (!m) return '';
+    var body = m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\'/g, "'").trim();
+    /* The JSON never closed, so whatever was recovered is the end of a
+       sentence the model did not finish - even when it is short enough not to
+       need clipping. Say so, or the next prompt reads it as a thought that
+       simply stopped. */
+    if (body && !/[.!?]["'\u201d\u2019)\]]*$/.test(body)) {
+      body = clipProse(body, 800);
+      if (!/\u2026$/.test(body)) body = body.replace(/[\s,;:\-]+$/, '') + ' \u2026';
+    }
+    return body;
+  }
+
   function parseMemory(text) {
     var out = { summary: '', facts: [], changed: [], ok: false, reason: '' };
     var raw = String(text || '').trim();
@@ -2522,9 +2550,13 @@
     }
     /* No usable JSON: only accept plain prose that reads like a summary. */
     if (!body && !out.ok) {
-      body = clipProse(raw, 800);
+      var wreck = /["\u201c]?summary["\u201d]?\s*:/.test(raw);
+      body = clipProse(proseOnly(raw), 800);
       if (MEMORY_REFUSAL.test(body)) { out.reason = 'the model refused'; return out; }
-      if (/^[\[{]/.test(body)) { out.reason = 'the model returned unfinished JSON'; return out; }
+      /* An answer that carried a summary key but yielded nothing usable was a
+         JSON attempt that did not finish - say that, rather than blaming its
+         length. The too-short floor is for prose replies. */
+      if (!body || (wreck && body.length < 40)) { out.reason = 'the model returned unfinished JSON'; return out; }
       if (body.length < 40) { out.reason = 'the answer was too short to be a summary'; return out; }
     }
     if (!body) { out.reason = 'the model returned no summary field'; return out; }
@@ -2972,7 +3004,7 @@
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     splitSpeaker: splitSpeaker, parseMemory: parseMemory, memoryLooksBroken: memoryLooksBroken,
-    clipProse: clipProse, continuityHasState: continuityHasState,
+    clipProse: clipProse, continuityHasState: continuityHasState, proseOnly: proseOnly,
     providerError: providerError,
     parseAiJson: parseAiJson, parseAiJsonPartial: parseAiJsonPartial,
     parseLifeNotes: parseLifeNotes, parseLoreDraft: parseLoreDraft,

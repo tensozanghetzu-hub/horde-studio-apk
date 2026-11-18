@@ -98,7 +98,7 @@ ok('a wall of short sentences cuts cleanly', /\.\s*\u2026$/.test(API.clipProse(n
 console.log('\nwhere it lands in the app');
 
 var apiSrc = fs.readFileSync(path.join(ROOT, 'js', 'api.js'), 'utf8');
-ok('the prose branch uses the sentence-aware cut', /body = clipProse\(raw, 800\)/.test(apiSrc));
+ok('the prose branch uses the sentence-aware cut', /clipProse\(proseOnly\(raw\), 800\)/.test(apiSrc));
 ok('...and the raw byte slice is gone', !/raw\.slice\(0, 800\)/.test(apiSrc));
 ok('the JSON summary path is untouched by any of this',
   /body = String\(j\.summary \|\| ''\)\.trim\(\)/.test(apiSrc));
@@ -108,6 +108,51 @@ ok('a JSON summary is never truncated', (function () {
   return got.ok && got.summary.length === LONG_SENTENCE.repeat(6).trim().length;
 })());
 ok('the helper is exported for the sheet and the inspector', /clipProse: clipProse/.test(apiSrc));
+
+console.log('\na JSON answer that is cut off after saying hello');
+
+/* The case reported from a real 66-turn chat: the model prefixed its answer,
+   then ran out of tokens. The wrapper was stored as the chat's memory. */
+var STORY = 'Blu completes his second day at Hogwarts with extraordinary demonstrations across Charms and ' +
+  'Herbology, revealing abilities beyond first-year level. He perceives the Trace as physical filaments. ' +
+  'McGonagall warns him to camouflage his talent in Potions class for survival.';
+var TRUNCATED = '{"summary":"' + STORY;
+[
+  ['bare', TRUNCATED],
+  ['after a preamble', 'Here is the summary:\n' + TRUNCATED],
+  ['after a preamble with no newline', 'Sure! ' + TRUNCATED],
+  ['inside a code fence', '```json\n' + TRUNCATED]
+].forEach(function (c) {
+  var got = API.parseMemory(c[1]);
+  ok('a cut-off JSON answer ' + c[0] + ' recovers the summary',
+    got.ok === true && got.summary.indexOf('Blu completes his second day') === 0,
+    JSON.stringify((got.summary || '').slice(0, 60)));
+  ok('...and never stores the wrapper ' + c[0],
+    (got.summary || '').indexOf('{"summary"') === -1, JSON.stringify((got.summary || '').slice(0, 60)));
+});
+
+/* this one really was cut off mid-sentence - the model ran out of tokens
+   partway through a word */
+var MIDWORD = '{"summary":"Blu completes his day at Hogwarts. McGonagall warns him to camouflage ' +
+  'his talent in Potions class, and she names five potential peers among the first years who m';
+var wreck = API.parseMemory('Here is the summary:\n' + MIDWORD);
+ok('a recovered summary cut mid-sentence is marked',
+  /\u2026$/.test(wreck.summary), JSON.stringify(wreck.summary.slice(-45)));
+ok('...and it keeps the sentences that were whole',
+  wreck.summary.indexOf('Blu completes his day at Hogwarts.') === 0, wreck.summary.slice(0, 60));
+ok('...and a complete answer is not marked',
+  !/\u2026$/.test(API.parseMemory('Here is the summary:\n' + TRUNCATED).summary));
+
+console.log('\nbut prose is still prose');
+
+var plain = 'They crossed the yard in silence and the lamps were already lit.';
+eq('an answer with no summary key is untouched', API.proseOnly(plain), plain);
+eq('a short reply still reports its real reason', API.parseMemory('Okay.').reason,
+  'the answer was too short to be a summary');
+eq('a JSON stub is still named as unfinished JSON',
+  API.parseMemory('{"summary":"hi"}').summary, 'hi');
+eq('and a wrapper with nothing in it is refused, not stored',
+  API.parseMemory('{"summary":"a').ok, false);
 
 console.log('\n' + (fail ? 'FAILED' : 'ok') + ' — ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

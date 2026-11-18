@@ -1,5 +1,33 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.106 — a summary that was JSON wreckage is recovered (2026-11-17)
+
+Reported from a real 66-turn chat whose exported memory read
+`{"summary":"…who m` — the raw JSON wrapper, cut mid-word, standing in for the
+whole past of the chat.
+
+- **The unfinished-JSON guard only looked at the first character.** A model
+  that opens with a line of its own — "Here is the summary:" — and is then cut
+  off by the token ceiling produces `Here is the summary: {"summary":"…` with
+  no closing brace. Because the answer did not *start* with a brace, the guard
+  never fired, and the byte-cut prose branch stored the wrapper as the summary.
+  Every later prompt then began with `Story so far: {"summary":"…`. Such an
+  answer is now recognised by the summary key wherever it appears, and the
+  sentence is recovered from the fragment (`API.proseOnly`).
+- **A rejected JSON answer used to lose the summary it did contain.** The same
+  fragment, with no preamble, was refused outright — the memory pass wrote
+  nothing at all, which reads as "the chat simply stopped remembering". It is
+  recovered now.
+- **A recovered fragment is always marked.** If the JSON never closed, the text
+  recovered from it is the end of a sentence the model did not finish, so it
+  ends in an ellipsis the model can see — even when it is short enough not to
+  be clipped. A complete answer is not marked.
+- Prose that never mentions a summary key, a JSON stub, and the too-short floor
+  all behave exactly as before; only the wrecked answers change.
+- `tests/summary-cut-test.js` grows to 43 checks: bare, prefixed, newline-less
+  and fenced preambles all recover the sentence and never store the wrapper;
+  mid-sentence recoveries are marked; prose and stubs are untouched.
+
 ## v1.39.105 — an empty ledger keeps quiet, a cut summary says so (2026-11-17)
 
 Two more reports, both app bugs rather than card bugs. Both held up; one was
