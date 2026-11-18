@@ -200,62 +200,158 @@
      "dropped for budget" and "no keyword" are very different fixes.
      Returns one row per entry, in book order. */
   function loreDiagnostics(entries, recent, limit, budget, stage) {
-    var rows = [], text = String(recent || '').toLowerCase();
+    var max = limit || LORE_LIMIT;
+    var cap = (typeof budget === 'number' && budget > 0) ? budget : LORE_BUDGET;
+    var ranked = loreRanks(entries, recent, stage);
+    var byIndex = {};
+    ranked.forEach(function (r) { byIndex[r.index] = r; });
+    /* Decide against the ranked list, so this reports what the prompt will
+       actually contain. It used to walk the book in order, which described a
+       selection nobody used. */
+    var chosen = {};
+    loreAdmit(ranked, max, cap).forEach(function (r) { chosen[r.index] = true; });
     var activeStage = String(stage || '').trim().toLowerCase();
-    var cap = (typeof budget === 'number' && budget > 0) ? budget : 1536;
-    var max = limit || 6, used = 0, admitted = 0;
-    (entries || []).forEach(function (e) {
-      var row = { keys: e.keys || [], content: e.content || '', matched: false, reason: '' };
+    var rows = [], used = 0, admitted = 0;
+    (entries || []).forEach(function (e, i) {
+      var row = { keys: e.keys || [], content: e.content || '', matched: false, reason: '', rank: -1 };
+      var r = byIndex[i];
       if (e.enabled === false) { row.reason = 'disabled'; rows.push(row); return; }
       var need = String(e.stage || '').trim().toLowerCase();
       if (need && need !== '*' && (!activeStage || need !== activeStage)) {
         row.reason = 'wrong stage (' + (e.stage || '') + ')'; rows.push(row); return;
       }
-      var kw = e.constant === true ||
-        (e.keys || []).some(function (k) { return k && keyStands(text, k); });
-      if (!kw) {
-        row.reason = e.constant === true ? '' : 'no keyword matched in the recent messages';
-        row.matched = e.constant === true;
-        if (!row.matched) { rows.push(row); return; }
-      }
+      if (!r) { row.reason = 'no keyword matched in the recent messages'; rows.push(row); return; }
       row.matched = true;
-      if (admitted >= max) { row.reason = 'matched, but the ' + max + '-entry limit was reached'; rows.push(row); return; }
-      var cost = String(e.content || '').length;
-      if (admitted && used + cost > cap) {
-        row.reason = 'matched, but over the ' + cap + '-byte budget'; rows.push(row); return;
+      row.rank = ranked.indexOf(r);
+      if (chosen[i]) {
+        row.reason = r.constant ? 'always (constant)' : 'matched';
+        used += r.cost; admitted++;
+      } else if (admitted >= max) {
+        row.reason = 'matched, but the ' + max + '-entry limit was reached';
+      } else {
+        row.reason = 'matched, but over the ' + cap + '-byte budget';
       }
-      row.reason = e.constant === true ? 'always (constant)' : 'matched';
-      used += cost; admitted++;
       rows.push(row);
     });
     return { rows: rows, used: used, cap: cap, admitted: admitted, limit: max };
   }
 
-  function loreHits(entries, recent, limit, budget, stage) {
-    if (!entries || !entries.length) return [];
-    var text = (recent || '').toLowerCase();
+  /* v1.39.109: how much of a book may reach one prompt.
+     These were 6 / 1536. On a real 28-entry card, four fat chapter summaries
+     consumed 1,533 of 1,536 bytes, so a character entry that mattered more was
+     dropped while a scene from sixty turns ago was injected. Raised so that
+     relevance - not the size of whichever entry happens to be listed first -
+     decides what survives. */
+  var LORE_LIMIT = 10, LORE_BUDGET = 5000;
+  var LORE_CHAT_LIMIT = 6, LORE_CHAT_BUDGET = 2048;
+
+  /* v1.39.109: the window that keyword scanning reads.
+     loreSample used to return ALL of history, so on turn 66 the scan text held
+     the entire story: every proper noun ever mentioned still matched, every
+     entry fired, and the budget was spent on whatever was listed first. Every
+     engine descended from World Info scans a small window for exactly this
+     reason. Four messages covers the player's turn and the reply it answered. */
+  var LORE_SCAN_MESSAGES = 20;
+  function loreSample(history) {
+    var list = history || [];
+    var window = list.slice(-LORE_SCAN_MESSAGES);
+    var parts = window.map(function (m) { return String(m.text || ''); });
+    var text = parts.join('\n');
+    /* The newest turn is carried separately: an entry whose key the player has
+       just written is more likely to be what the reply is about than one that
+       only appeared a few messages back. */
+    var newest = parts.length ? parts[parts.length - 1] : '';
+    return { text: text, newest: newest, parts: parts };
+  }
+  /* Accept either the object loreSample returns or a plain string, so any
+     caller that already hands over the text keeps working. */
+  function scanText(sample) {
+    if (sample && typeof sample === 'object') return String(sample.text || '');
+    return String(sample || '');
+  }
+  function scanNewest(sample) {
+    if (sample && typeof sample === 'object') return String(sample.newest || '');
+    return '';
+  }
+
+  /* Rank every entry that may join this prompt, best first.
+
+     Order of precedence, and why:
+       1. constant      - the author's own "always" flag, honoured first
+       2. newest match  - key appears in the message being answered
+       3. key count     - how many of its keys matched in the window
+       4. specificity   - fewer keys on the entry means a more deliberate match
+       5. shorter       - when otherwise equal, the cheaper entry wins
+
+     Nothing here looks at book order. On a real card the chapters are listed
+     before the characters, and with a flat scan the chapters always won. */
+  function loreRanks(entries, sample, stage) {
+    var text = scanText(sample).toLowerCase();
     var activeStage = String(stage || '').trim().toLowerCase();
-    var out = [], bytes = 0;
-    /* v1.37.0: the same byte discipline the world side has - the pile
-       stops at the budget, and a lone match may exceed it alone. */
-    var cap = (typeof budget === 'number' && budget > 0) ? budget : 1536;
-    entries.forEach(function (e) {
-      if (out.length >= (limit || 6)) return;
+    /* Split the scan into messages so a match can be scored by how long ago
+       it happened. "The newest message mentions it" and "it was mentioned
+       forty turns ago" were previously the same yes/no answer, which is why a
+       wide window produced an arbitrary top ten. */
+    var lines = (sample && typeof sample === 'object' && Array.isArray(sample.parts))
+      ? sample.parts.map(function (p) { return String(p || '').toLowerCase(); })
+      : null;
+    function recencyOf(keys) {
+      if (!lines) return 0;
+      for (var back = 0; back < lines.length; back++) {
+        var line = lines[lines.length - 1 - back];
+        for (var i = 0; i < keys.length; i++) {
+          if (keys[i] && keyStands(line, keys[i])) return back;
+        }
+      }
+      return lines.length;
+    }
+    var out = [];
+    (entries || []).forEach(function (e, index) {
       if (e.enabled === false) return;
       var requiredStage = String(e.stage || '').trim().toLowerCase();
       if (requiredStage && requiredStage !== '*' && (!activeStage || requiredStage !== activeStage)) return;
-      /* C1 (v1.39.70): a `constant` entry is always in play — it does not need
-         a keyword. Still subject to `enabled`, `stage` and the byte budget,
-         so it cannot push a card's whole book into every prompt. */
-      var hit = e.constant === true ||
-        (e.keys || []).some(function (k) { return k && keyStands(text, k); });
-      if (!hit) return;
-      var cost = String(e.content || '').length;
-      if (out.length && bytes + cost > cap) return;
-      out.push(e);
-      bytes += cost;
+      var constant = e.constant === true;
+      var keys = e.keys || [];
+      var matched = keys.filter(function (k) { return k && keyStands(text, k); });
+      if (!constant && !matched.length) return;
+      out.push({
+        entry: e, index: index, constant: constant,
+        /* 0 = mentioned in the message being answered; higher = older */
+        recency: constant ? -1 : recencyOf(matched.length ? matched : keys),
+        keyCount: constant ? keys.length : matched.length,
+        keys: keys.length, cost: String(e.content || '').length
+      });
+    });
+    out.sort(function (a, b) {
+      if (a.constant !== b.constant) return a.constant ? -1 : 1;
+      if (a.recency !== b.recency) return a.recency - b.recency;
+      if (a.keyCount !== b.keyCount) return b.keyCount - a.keyCount;
+      if (a.keys !== b.keys) return a.keys - b.keys;
+      if (a.cost !== b.cost) return a.cost - b.cost;
+      return a.index - b.index;
     });
     return out;
+  }
+
+  /* Admit ranked entries until the count or the byte budget runs out. A single
+     entry larger than the whole budget is still admitted when it is first, so
+     a lone long entry is not silently dropped. */
+  function loreAdmit(ranked, limit, budget) {
+    var max = limit || LORE_LIMIT, cap = (typeof budget === 'number' && budget > 0) ? budget : LORE_BUDGET;
+    var out = [], bytes = 0;
+    ranked.forEach(function (r) {
+      if (out.length >= max) return;
+      if (out.length && bytes + r.cost > cap) return;
+      out.push(r);
+      bytes += r.cost;
+    });
+    return out;
+  }
+
+  function loreHits(entries, sample, limit, budget, stage) {
+    if (!entries || !entries.length) return [];
+    return loreAdmit(loreRanks(entries, sample, stage), limit, budget)
+      .map(function (r) { return r.entry; });
   }
 
   /* Per-chat continuity state is deliberately generic: the app stores approved
@@ -496,7 +592,7 @@
     if (sceneNote && scenePlacement === 'character') parts.push('Scene note: ' + sceneNote);
 
     var activeStage = session && session.continuity && session.continuity.enabled ? session.continuity.stage : '';
-    var lore = loreHits(char.lorebook, recent, 6, 1536, activeStage);
+    var lore = loreHits(char.lorebook, recent, LORE_LIMIT, LORE_BUDGET, activeStage);
     if (lore.length) {
       parts.push('Relevant world facts:\n' + lore.map(function (e) {
         return '- ' + macros(plainText(e.content), char, s);
@@ -506,7 +602,7 @@
        for this transcript. It is intentionally placed afterward so a
        timeline-specific fact can clarify an otherwise shared canon detail. */
     var chatLore = session && Array.isArray(session.chatLorebook)
-      ? loreHits(session.chatLorebook, recent, 4, 1024, activeStage) : [];
+      ? loreHits(session.chatLorebook, recent, LORE_CHAT_LIMIT, LORE_CHAT_BUDGET, activeStage) : [];
     if (chatLore.length) {
       parts.push('Relevant chat-only facts:\n' + chatLore.map(function (e) {
         return '- ' + macros(plainText(e.content), char, s);
@@ -793,10 +889,6 @@
      passed, already cut by trimHistory to the user's "Messages in context"
      setting. Cost does not grow — admission is still capped at 6 entries and
      1536 bytes; only what can *fire* an entry widens. */
-  function loreSample(history) {
-    return (history || []).map(function (m) { return m.text || ''; }).join('\n');
-  }
-
   function fitContext(msgs, floor) {
     var total = totalBytes(msgs);
     if (total <= CONTEXT_CAP) return msgs;
@@ -3085,6 +3177,8 @@
     _loreHits: loreHits,
     loreDiagnostics: loreDiagnostics,
     loreSample: loreSample,
+    loreRanks: loreRanks,
+    LORE_LIMIT: LORE_LIMIT, LORE_BUDGET: LORE_BUDGET, LORE_SCAN_MESSAGES: LORE_SCAN_MESSAGES,
     historyBudgetTokens: historyBudgetTokens,
     modelContextTokens: modelContextTokens,
     rememberModelWindows: rememberModelWindows,
