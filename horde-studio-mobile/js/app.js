@@ -774,6 +774,7 @@
       session.sceneCast = fresh;
       session.scenePresent = present;
       if (session.addressedTo && fresh.indexOf(session.addressedTo) === -1) session.addressedTo = '';
+      if (session.lastSpeaker && fresh.indexOf(session.lastSpeaker) === -1) session.lastSpeaker = '';
       session.castRev = CAST_REV;
       session.castFp = fp;
       session.castChecked = true;
@@ -1169,6 +1170,7 @@
     if (i === -1) present.push(name); else present.splice(i, 1);
     session.scenePresent = present;
     if (session.addressedTo === name) session.addressedTo = '';   /* they just left */
+    if (session.lastSpeaker === name) session.lastSpeaker = '';
     Store.putSession(session).then(function () { App.renderSceneCast(); });
   };
 
@@ -1177,11 +1179,15 @@
     var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast : [];
     if (!session || cast.length < 2) return;
     var rows = '<div class="opt" data-scene-to="">Everyone</div>' + cast.map(function (n) {
-      return '<div class="opt" data-scene-to="' + esc(n) + '">' + esc(n) + ((session.addressedTo === n) ? ' · next' : '') + '</div>';
+      return '<div class="opt" data-scene-to="' + esc(n) + '">' + esc(n) + ((session.addressedTo === n) ? ' · speaking' : '') + '</div>';
     }).join('');
     UI.sheet({
       title: 'Speaking to',
-      body: '<p class="hint" style="margin:0 0 8px">Only this person answers your next message. It resets after you send.</p>' + rows,
+      /* v1.39.111: this used to be a one-shot that reset after one reply. A
+         scene address is not a per-message setting — a player talking to Mara
+         across a room is still talking to Mara next turn. The model had the
+         roster and no addressee, so it re-staged rooms the player had left. */
+      body: '<p class="hint" style="margin:0 0 8px">Only this person answers, until you change it. Choose Everyone to end it.</p>' + rows,
       actions: [{ label: 'Cancel', cls: 'ghost', value: null }],
       onMount: function (b, close) {
         b.querySelectorAll('[data-scene-to]').forEach(function (row) {
@@ -1219,6 +1225,7 @@
           session.scenePresent = (session.scenePresent || []).filter(function (n) { return names.indexOf(n) !== -1; });
           names.forEach(function (n) { if (session.scenePresent.indexOf(n) === -1) session.scenePresent.push(n); });
           if (session.addressedTo && names.indexOf(session.addressedTo) === -1) session.addressedTo = '';
+          if (session.lastSpeaker && names.indexOf(session.lastSpeaker) === -1) session.lastSpeaker = '';
           session.castChecked = true;
           session.castEdited = true;      /* player's call — leave it alone */
           session.castRev = CAST_REV;
@@ -2381,15 +2388,29 @@
       if (!charSettings.frequencyPenalty) charSettings.frequencyPenalty = 0.3;
     }
 
-    /* Scene cast: a "speaking to" pick applies to this one reply only. */
-    if (session && session.addressedTo && Array.isArray(session.sceneCast) &&
-        session.sceneCast.indexOf(session.addressedTo) !== -1) {
-      var toLine = 'The user is speaking to ' + session.addressedTo + '. Only ' + session.addressedTo +
-        ' answers; others present may react briefly but do not answer for ' + session.addressedTo + '.';
-      vhNote = vhNote ? vhNote + '\n\n' + toLine : toLine;
-      session.addressedTo = '';
-      Store.putSession(session);
-      App.renderSceneCast();
+    /* Scene cast: a standing address (v1.39.111).
+       This was a one-shot, cleared the moment it was read. Nothing carried who
+       was being spoken to from one turn to the next, so a reply could end with
+       a character asking the player something and the next reply re-staged a
+       room the player had already left. The address now stands until the
+       player changes it, and `lastSpeaker` rides with it so the model knows who
+       held the floor. Both are cleared by the same events that remove someone
+       from the cast - see refreshCast. */
+    if (session && Array.isArray(session.sceneCast) && session.sceneCast.length >= 2) {
+      var lines = [];
+      if (session.addressedTo && session.sceneCast.indexOf(session.addressedTo) !== -1) {
+        lines.push('The user is speaking to ' + session.addressedTo + '. Only ' + session.addressedTo +
+          ' answers; others present may react briefly but do not answer for ' + session.addressedTo +
+          '. This holds until the user speaks to someone else.');
+      }
+      if (session.lastSpeaker && session.sceneCast.indexOf(session.lastSpeaker) !== -1 &&
+          session.lastSpeaker !== session.addressedTo) {
+        lines.push('The last voice heard was ' + session.lastSpeaker + '.');
+      }
+      if (lines.length) {
+        var toLine = lines.join('\n');
+        vhNote = vhNote ? vhNote + '\n\n' + toLine : toLine;
+      }
     }
 
     /* v1.21.0 (upstream 18.3.5): a save failure is not a provider failure.
@@ -2407,6 +2428,18 @@
         }
         throw e;
       }).then(function (result) {
+        /* v1.39.111: remember who held the floor, so the next request knows it.
+           The data was always in the transcript; nothing carried it forward, so
+           the model re-staged rooms the player had already left. */
+        if (result.saved && session && Array.isArray(session.sceneCast) && session.sceneCast.length >= 2) {
+          var heard = String(msg.text || '').split(/\r?\n/).map(function (l) {
+            return API.labelledName(l);
+          }).filter(Boolean);
+          if (heard.length) {
+            session.lastSpeaker = heard[heard.length - 1];
+            Store.putSession(session);
+          }
+        }
         if (result.saved && el && el.querySelector) {
           var actions = el.querySelector('.msg-actions');
           if (actions && msg.rpgStatusProposal && !actions.querySelector('[data-act="rpg-review"]')) {

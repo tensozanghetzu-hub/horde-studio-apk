@@ -66,8 +66,12 @@ var longHistory = msgs([
   'The gate is sealed; help me with the bar.'            // newest
 ]);
 var sample = API.loreSample(longHistory);
-ok('the window is bounded, not the whole chat', API.LORE_SCAN_MESSAGES > 0 && API.LORE_SCAN_MESSAGES <= 40,
-  API.LORE_SCAN_MESSAGES);
+/* v1.39.111: the window is named in turns. A message count drifts with reply
+   shape — multi-bubble replies and regenerations change how many messages a
+   turn occupies — so the same constant covered 19 turns early in a chat and 4
+   turns late in the same chat. */
+ok('the window is bounded, not the whole chat', API.LORE_SCAN_TURNS > 0 && API.LORE_SCAN_TURNS <= 12,
+  API.LORE_SCAN_TURNS);
 ok('the scan text holds the window', sample.text.indexOf('lantern') !== -1);
 ok('the newest turn is carried separately', sample.newest.indexOf('sealed') !== -1, sample.newest);
 ok('the per-message parts are carried for scoring', Array.isArray(sample.parts) && sample.parts.length === 8);

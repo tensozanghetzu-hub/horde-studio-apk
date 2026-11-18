@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.39.110';
+  var VERSION = '1.39.111';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -343,6 +343,10 @@
            who is currently present, and who the next message addresses.
            An empty cast keeps the feature off for this chat. */
         sceneCast: [], scenePresent: [], addressedTo: '', castChecked: false,
+        /* v1.39.111: who last held the floor. Rides with addressedTo so the
+           request knows both who is being spoken to and who spoke last; both
+           are cleared when the person leaves the cast. */
+        lastSpeaker: '',
         timeline: 'main', pending: null,
         /* v1.39.0 chatwork: pin & archive live on the session, the layer the
            list sorts and hides by. Old sessions arrive without them and
