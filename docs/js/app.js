@@ -225,6 +225,12 @@
               ? '<div class="opt" data-a="vh">' + icon('time') + ' Life & schedule</div>'
               : '<div class="opt" data-a="makevh">' + icon('time') + ' Make a virtual human</div>') +
             '<div class="opt" data-a="world">' + icon('brain') + ' Lorebook & memory</div>' +
+            /* v1.39.112: import notes are persisted on the character, so they
+               survive the toast timeout. A bulk import used to lose them
+               entirely; now every card keeps its own, readable here. */
+            (c.importNotes && c.importNotes.length
+              ? '<div class="opt" data-a="notes">' + icon('eye') + ' Import notes (' + c.importNotes.length + ')</div>'
+              : '') +
             '<div class="opt" data-a="export">' + icon('download') + ' Export as card (JSON)</div>' +
             '<div class="opt" data-a="dup">' + icon('copy') + ' Duplicate</div>' +
             '<div class="opt danger" data-a="del">' + icon('trash') + ' Delete</div>',
@@ -240,6 +246,16 @@
                 else if (a === 'all') { App.state.tag = ''; App.go('chats'); }
                 else if (a === 'edit') App.editCharacter(c);
                 else if (a === 'world') { App.state.worldChar = c.id; App.go('world'); }
+                else if (a === 'notes') {
+                  UI.sheet({
+                    title: 'Import notes — ' + (c.name || 'character'),
+                    body: '<p class="hint" style="margin:0 0 8px">What this card carries that the app does not. Nothing was blocked; these are the losses to know about.</p>' +
+                      c.importNotes.map(function (n) {
+                        return '<div class="hint" style="margin-top:4px">• ' + esc(n) + '</div>';
+                      }).join(''),
+                    actions: [{ label: 'Close', cls: 'ghost', value: null }]
+                  });
+                }
                 else if (a === 'makevh' || a === 'vh') {
                   VH.ensure(c);
                   c.vh.enabled = true;
@@ -409,9 +425,48 @@
       notes.push(ordered + ' ' + (ordered === 1 ? 'entry sets' : 'entries set') +
         ' "insertion_order" — ignored, so entries are matched in book order.');
     }
+    /* v1.39.112: the two notes above named the worst losses and left the rest
+       undocumented, so a card whose book enforces `position: before_character`
+       read exactly like a plain keys/content book. One line now names every
+       field the importer drops. Warn-only; nothing changes. */
+    var KEPT = { keys: 1, content: 1, enabled: 1, constant: 1, stage: 1, id: 1 };
+    /* Fields the two notes above already name stay on their own lines; this
+       one is for the rest, so a problem never appears twice. */
+    var NOTED = { secondary_keys: 1, selective: 1, insertion_order: 1 };
+    var dropped = {};
+    entries.forEach(function (e) {
+      Object.keys(e || {}).forEach(function (k) {
+        if (!KEPT[k] && !NOTED[k]) dropped[k] = (dropped[k] || 0) + 1;
+      });
+    });
+    var dKeys = Object.keys(dropped).sort();
+    if (dKeys.length) {
+      notes.push('The lorebook uses fields the app does not carry (' +
+        dKeys.join(', ') + ') — entries fire on keys/content/constant/stage only.');
+    }
     if (data.system_prompt) {
       notes.push('This card carries its own system prompt; the app uses the global one. ' +
         'Copy it into Settings → System prompt if you want it honoured.');
+    }
+    /* v1.39.112: a card whose greeting and examples are full of *action* donates
+       the register from turn one, and the style lock only corrects a habit once
+       it is already in the transcript — so the first corrections land on the
+       player's first replies, with no idea why. Named here, at import, where
+       the player can still act on it. Density is a risk factor, not a cause:
+       the catalogued runaway started from a card with zero asterisks. */
+    var openingLines = [];
+    [data.first_mes].concat(Array.isArray(data.alternate_greetings) ? data.alternate_greetings : [],
+      [data.mes_example]).forEach(function (t) {
+      String(t || '').split(/\r?\n/).forEach(function (l) {
+        if (l.trim()) openingLines.push(l);
+      });
+    });
+    var starred = openingLines.filter(function (l) { return /\*[^*\n]+\*/.test(l); }).length;
+    if (openingLines.length && starred / openingLines.length >= 0.15) {
+      notes.push('This card writes action in asterisks on ' + starred + ' of ' +
+        openingLines.length + ' opening lines. Replies will imitate that; the app only ' +
+        'corrects the habit once it appears, so the first corrections land on your first ' +
+        'replies. Strip the `*` pairs in the card editor if you want plain-prose replies.');
     }
     /* A2 (v1.39.71): portraits import on both branches; the old note was
        reporting a loss the code no longer makes. */
@@ -502,7 +557,17 @@
         return p.then(function () { return Store.putCharacter(c); });
       }, Promise.resolve()).then(function () {
         App.go('characters');
-        UI.toast('Imported ' + chars.length + ' characters');
+        /* v1.39.112: the notes were computed for every card and then dropped
+           on the floor — the bulk path never rendered them, so a folder of
+           normal cards imported with every compatibility note silent. The
+           notes are persisted on each character and readable from its menu;
+           this toast is the pointer. */
+        var withNotes = chars.filter(function (c) { return c.importNotes && c.importNotes.length; });
+        if (withNotes.length) {
+          UI.toast(withNotes.length + ' of ' + chars.length + ' cards carry import notes — open each character to read them', 6000);
+        } else {
+          UI.toast('Imported ' + chars.length + ' characters');
+        }
       });
     });
   };
@@ -2486,6 +2551,27 @@
       'already appears in the transcript above, and must not run the same sequence again (arrival, ' +
       'instruction, training, dismissal, rest). Change what happens next: move time, place, or the ' +
       'situation forward in a way the story has not used yet. Say something new.';
+
+    /* v1.39.112: the style lock's corrective used to land in the prompt with no
+       surface at all, so a player whose replies abruptly went plain-prose had
+       no way to know it was the app. One toast per chat, saying what happened
+       and nothing about whose fault it was — the register is observed starting
+       from cards with zero asterisks, so the app cannot attribute it. */
+    if (session && !session.styleLockNotified && typeof API.styleLock === 'function' &&
+        typeof API.requestWindow === 'function') {
+      var lockWin = API.requestWindow(history, s).messages;
+      if (API.styleLock(lockWin)) {
+        var lockStars = 0;
+        lockWin.forEach(function (m) {
+          if (m && m.role === 'assistant') {
+            lockStars += (String(m.text != null ? m.text : (m.content != null ? m.content : '')).match(/\*/g) || []).length;
+          }
+        });
+        session.styleLockNotified = true;
+        Store.putSession(session);
+        UI.toast('Style lock: recent replies carried ' + lockStars + ' asterisks, so this reply was asked for in plain prose.', 6000);
+      }
+    }
 
     var loopTries = 0, bestText = '', bestScore = 2;
     function generateOnce() {

@@ -1,5 +1,58 @@
 # Horde Studio Mobile — release notes
 
+## v1.39.112 — what the importer tells you (2026-11-20)
+
+Five fixes from a user report about importing cards. Each one is a
+*warning* problem, not a correctness problem: the app was doing the right
+thing with what it understood and saying nothing about what it did not.
+
+- **Bulk import keeps its notes.** `importMany` ran each card through
+  `prepareImportedCharacter`, which computed loss notes and threw them away
+  — the single-import path showed them, the batch path did not, so importing
+  twenty cards hid every warning those cards had generated. The toast now
+  counts the cards that carry notes ("2 of 3 cards carry import notes —
+  open each character to read them"), and each character's menu grows an
+  "Import notes (N)" row that shows them whenever you want to reread them.
+  A clean batch keeps the plain "Imported N characters" toast.
+- **Discarded lorebook fields are named.** `bookFromCard` keeps only
+  `id/keys/content/enabled/constant/stage` — the engine genuinely has no use
+  for more — but the import note only mentioned `secondary_keys`, `selective`
+  and `insertion_order`. Everything else (`position`, `priority`,
+  `scan_depth`, `use_regex`, `comment`) vanished silently. The importer now
+  scans every entry's fields, subtracts what it keeps and what it already
+  named, and lists whatever is left with counts.
+- **The asterisk register is named at import.** A card whose example lines
+  are written in the *action-register* style teaches that style; nothing in
+  the prompt asks for it, but the pattern is a strong prior. When at least
+  15% of a card's opening lines (`first_mes` + `alternate_greetings` +
+  `mes_example`) contain a `*...*` pair, the import note says so, counts it
+  ("This card writes action in asterisks on 8 of 10 opening lines"), and says
+  where to fix it: strip the `*` pairs in the card editor.
+- **`{{original}}` resolves.** It is SillyTavern's name for the user's own
+  global system prompt. Our `macros()` chain had no rule for it, so a card
+  carrying `{{original}}` reached the model as a literal string — and because
+  no prompt ever *did* carry it, every card author who used it got the braces.
+  `{{original}}` now substitutes the global `systemPrompt` at prompt-build
+  time. It is read from the settings, not frozen into the card, which is the
+  same contract SillyTavern uses.
+- **The style lock announces itself.** When the recent window is
+  asterisk-heavy (20+ in total, or one reply with 12+), `styleLock` appends a
+  "FORMAT FOR THIS REPLY: write plain prose and quoted dialogue, with no
+  asterisks anywhere" line after the transcript. That has been firing
+  silently since v1.39.108 — a user watching the tell happen had no way to
+  know the app had already corrected it. It now toasts once per chat, only
+  when the lock actually fires, with the count from the same window it
+  measured ("Style lock: recent replies carried 60 asterisks, so this reply
+  was asked for in plain prose."). The flag lives on the session
+  (`styleLockNotified`), not in memory, so a reload does not re-announce.
+  The wording says what the app did and does not blame the card: in the
+  reported case the card's greeting, examples and description carried zero
+  asterisks between them, so the habit the lock is correcting is the model's,
+  not the author's.
+
+Test coverage is `tests/import-warnings-test.js` (33 checks), written on the
+same rule as the rest of the suite: invented cards only, nothing real.
+
 ## v1.39.111 — who is speaking, and what counts as recent (2026-11-18)
 
 Four general fixes, in the order they matter. None is card-specific; all four

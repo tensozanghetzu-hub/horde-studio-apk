@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.39.111';
+  var VERSION = '1.39.112';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -347,6 +347,8 @@
            request knows both who is being spoken to and who spoke last; both
            are cleared when the person leaves the cast. */
         lastSpeaker: '',
+        /* v1.39.112: one-shot flag so the style-lock toast fires once per chat. */
+        styleLockNotified: false,
         timeline: 'main', pending: null,
         /* v1.39.0 chatwork: pin & archive live on the session, the layer the
            list sorts and hides by. Old sessions arrive without them and
