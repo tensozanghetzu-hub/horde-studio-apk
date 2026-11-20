@@ -48,7 +48,15 @@
       .replace(/\{\{personality\}\}/gi, (char && char.persona) || '')
       .replace(/\{\{description\}\}/gi, (char && char.persona) || '')
       .replace(/\{\{scenario\}\}/gi, (char && char.scenario) || '')
-      .replace(/\{\{persona\}\}/gi, (s && s.userPersona) || '');
+      .replace(/\{\{persona\}\}/gi, (s && s.userPersona) || '')
+      /* v1.39.112: SillyTavern's {{original}} means "the unmodified system
+         prompt". There was no such macro here, so the braces reached the model
+         as-is — typically in post_history_instructions, where the card says
+         "{{original}}, [Use * for narration…]". Resolved at prompt-build time
+         rather than baked in at import, so it always means the prompt the
+         player currently has, and cards imported before this fix work too.
+         A function replacer, so a $ in the prompt is not read as a pattern. */
+      .replace(/\{\{\s*original\s*\}\}/gi, function () { return (s && s.systemPrompt) || ''; });
     return out;
   }
 
