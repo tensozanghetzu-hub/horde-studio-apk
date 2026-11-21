@@ -262,8 +262,20 @@
                   App.persistVH(c).then(function () { App.editCharacter(c); });
                 }
                 else if (a === 'export') {
+                  var exported = Store.characterToCard(c);
+                  /* Item 1 of the compatibility letter: never claim a lossless
+                     conversion. Text survives whole now, but a picture the app
+                     never imported (a background, a lorebook entry image) has
+                     nowhere to come back from, and saying nothing about that
+                     would be a false promise. */
+                  var lost = Store.cardUnrestoredImages(c, exported);
+                  if (lost.length) {
+                    UI.toast(lost.length + ' embedded image' + (lost.length === 1 ? '' : 's') +
+                      ' in the card is not carried into this export — the text is complete, ' +
+                      'the pictures are not', 6000);
+                  }
                   UI.download((c.name || 'character').replace(/[^\w\-]+/g, '_') + '.json',
-                    JSON.stringify(Store.characterToCard(c), null, 2));
+                    JSON.stringify(exported, null, 2));
                 } else if (a === 'dup') {
                   var d = Object.assign({}, c, { id: UI.uid('c'), name: (c.name || '') + ' (copy)', createdAt: Date.now() });
                   Store.putCharacter(d).then(function () { App.go('characters'); UI.toast('Duplicated'); });
@@ -410,29 +422,66 @@
     /* v1.39.72: `constant` is honoured since v1.39.70, so an entry that uses
        it was no longer a loss and the note had become a lie. Portraits are
        carried on both import branches since v1.39.70 for the same reason. */
-    var secondary = entries.filter(function (e) {
-      return e && ((e.secondary_keys && e.secondary_keys.length) || e.selective);
-    }).length;
-    if (secondary) {
-      notes.push(secondary + ' ' + (secondary === 1 ? 'entry uses' : 'entries use') +
-        ' secondary keys or "selective" filtering — ignored, so ' +
-        (secondary === 1 ? 'it' : 'they') + ' may fire more often than the author intended.');
+    /* v1.40.0: `selective` and `secondary_keys` ARE matched on now, so this is no
+       longer a loss note. What is left is the SillyTavern-only `selectiveLogic`,
+       which no card spec defines, and values that are not the boolean the spec
+       describes. Both get named per entry on the Lore screen as well, because a
+       note shown once at import is a note nobody re-reads after a week of chat. */
+    var logic = 0, malformed = 0;
+    entries.forEach(function (e) {
+      if (!e) return;
+      if (e.selectiveLogic !== undefined) logic++;
+      if ((e.selective !== undefined && e.selective !== true && e.selective !== false) ||
+        (e.case_sensitive !== undefined && e.case_sensitive !== true && e.case_sensitive !== false)) malformed++;
+    });
+    if (logic) {
+      notes.push(logic + ' ' + (logic === 1 ? 'entry sets' : 'entries set') +
+        ' "selectiveLogic", a SillyTavern setting with no definition in the V2 or V3 card spec. This app ' +
+        'follows the spec instead: "selective": true needs a key from both lists, and the secondary list is ' +
+        'ignored when selective is not true. The value stays in your card, so SillyTavern still reads it ' +
+        'the way you left it; only the matching here differs.');
+    }
+    if (malformed) {
+      notes.push(malformed + ' ' + (malformed === 1 ? 'entry has a malformed' : 'entries have a malformed') +
+        ' "selective" or "case_sensitive" value (neither true nor false). The spec treats those as absent, ' +
+        'so the entry matches on its primary keys, ignoring case. The Lore screen names the field.');
     }
     var ordered = entries.filter(function (e) {
       return e && typeof e.insertion_order === 'number';
     }).length;
     if (ordered) {
       notes.push(ordered + ' ' + (ordered === 1 ? 'entry sets' : 'entries set') +
-        ' "insertion_order" — ignored, so entries are matched in book order.');
+        ' "insertion_order". Horde picks which entries to inject by how recently their keys ' +
+        'appeared, so that field changes nothing until you turn on "Follow the card\'s lore ' +
+        'order" on this character — which then uses it, and "position", to order and place the ' +
+        'entries that were admitted. The value is kept in the card either way.');
     }
+    /* `position` gets its own line rather than a spot in the "not used" list,
+       because it is not unused: it decides placement as soon as the card's lore
+       order is switched on. Saying "not carried" would promise a loss that does
+       not happen; saying nothing hides a field the author set deliberately. */
+    var placed = entries.filter(function (e) { return e && e.position; }).length;
+    if (placed && !ordered) {
+      notes.push(placed + ' ' + (placed === 1 ? 'entry sets' : 'entries set') +
+        ' "position" (before or after the character). Horde keeps world facts in one place inside the ' +
+        'character sheet, so that field changes nothing until you turn on "Follow the card\'s lore order" ' +
+        'on this character. The value is kept in the card either way.');
+    }
+
     /* v1.39.112: the two notes above named the worst losses and left the rest
        undocumented, so a card whose book enforces `position: before_character`
        read exactly like a plain keys/content book. One line now names every
        field the importer drops. Warn-only; nothing changes. */
-    var KEPT = { keys: 1, content: 1, enabled: 1, constant: 1, stage: 1, id: 1 };
+    /* v1.40.0: the book fields this app models grew — everything the matcher
+       reads now — so this list is the honest boundary and not a smaller one. */
+    var KEPT = {
+      keys: 1, content: 1, enabled: 1, constant: 1, stage: 1, id: 1,
+      selective: 1, case_sensitive: 1, position: 1, insertion_order: 1, priority: 1,
+      extensions: 1
+    };
     /* Fields the two notes above already name stay on their own lines; this
        one is for the rest, so a problem never appears twice. */
-    var NOTED = { secondary_keys: 1, selective: 1, insertion_order: 1 };
+    var NOTED = { secondary_keys: 1, selective: 1, insertion_order: 1, selectiveLogic: 1 };
     var dropped = {};
     entries.forEach(function (e) {
       Object.keys(e || {}).forEach(function (k) {
@@ -441,12 +490,19 @@
     });
     var dKeys = Object.keys(dropped).sort();
     if (dKeys.length) {
-      notes.push('The lorebook uses fields the app does not carry (' +
-        dKeys.join(', ') + ') — entries fire on keys/content/constant/stage only.');
+      /* v1.39.113: these stopped being losses the moment the source copy was
+         kept. Saying "the app does not carry" promised an export would drop them
+         too, and it no longer does, which is a different and better warning. */
+      notes.push('The lorebook sets fields this app does not use (' +
+        dKeys.join(', ') + ') — matching here reads keys, content, constant, stage, ' +
+        'case_sensitive, selective and secondary_keys. ' +
+        'The fields stay in the card, so an export carries them back out.');
     }
     if (data.system_prompt) {
-      notes.push('This card carries its own system prompt; the app uses the global one. ' +
-        'Copy it into Settings → System prompt if you want it honoured.');
+      notes.push('This card carries its own system prompt. Horde\'s global prompt stays in charge by ' +
+        'default — it carries the rules this app needs — but the card\'s text is imported and shown in ' +
+        'full on the character, where you can switch it to "the card\'s" or "both". The V2 spec asks ' +
+        'apps to replace the global prompt; this one makes that a choice you can see instead.');
     }
     /* v1.39.112: a card whose greeting and examples are full of *action* donates
        the register from turn one, and the style lock only corrects a habit once
@@ -468,14 +524,63 @@
         'corrects the habit once it appears, so the first corrections land on your first ' +
         'replies. Strip the `*` pairs in the card editor if you want plain-prose replies.');
     }
-    /* A2 (v1.39.71): portraits import on both branches; the old note was
-       reporting a loss the code no longer makes. */
+    /* v1.40.0 (item 5): a card full of macros this app does not know used to
+       reach the model as literal double braces — the reader then treats `{{setvar::x}}`
+       as part of the fiction. Which names resolve is asked of the resolver itself
+       (api.js `unresolvedMacros`), so this note cannot claim a macro is unknown
+       after the app has grown it, and cannot stay silent about one it dropped.
+       Nothing is rewritten: the card keeps its text, and the note says what will
+       happen rather than promising to fix it. */
+    var FIELD = {
+      description: 'description', personality: 'personality', scenario: 'scenario',
+      first_mes: 'greeting', mes_example: 'example dialogue',
+      post_history_instructions: 'post-history instructions', system_prompt: 'system prompt'
+    };
+    var names = {}, where = {};
+    Object.keys(FIELD).forEach(function (k) {
+      var t = data[k];
+      if (typeof t !== 'string' || t.indexOf('{{') === -1) return;
+      ((typeof API !== 'undefined' && API.unresolvedMacros) ? API.unresolvedMacros(t) : []).forEach(function (n) {
+        names[n] = 1;
+        if (!where[n]) where[n] = FIELD[k];
+      });
+    });
+    /* v1.40.0: what this app carries is bounded, so a field longer than the
+       bound is shortened HERE and the card is left alone. Said out loud rather
+       than discovered two weeks later as "where did my text go". */
+    var carried = (typeof Store !== 'undefined' && Store && Store.cardCarryOver)
+      ? Store.cardCarryOver(data, card) : 0;
+    if (carried) {
+      notes.push(carried + ' ' + (carried === 1 ? 'field is' : 'fields are') + ' longer than the ' +
+        ((typeof Store !== 'undefined' && Store.CARRY_CAP) ? Store.CARRY_CAP : 4000) +
+        ' characters this app carries (the card’s system prompt or its ' +
+        'Horde instructions). The character here is shortened; the card keeps its full text, and an ' +
+        'export returns it unchanged.');
+    }
+    var found = Object.keys(names).sort().slice(0, 8);
+    if (found.length) {
+      notes.push('This card asks for macros this app does not implement: ' +
+        found.map(function (n) { return '{{' + n + '}}'; }).join(', ') +
+        ' (in the ' + found.map(function (n) { return where[n]; }).join(', ') + '). ' +
+        'They are passed through as written, so the model sees the braces. Implemented here: ' +
+        '{{char}}, {{user}}, {{name}}, {{personality}}, {{description}}, {{scenario}}, {{persona}}, ' +
+        '{{original}} and the pronoun macros — plus <START> and the {{char}}:/{{user}}: line labels in ' +
+        'example dialogue, which are parsed. Nothing in the card was changed to make it fit.');
+    }
     return notes;
   };
 
   App.prepareImportedCharacter = function (card) {
     var c = Store.cardToCharacter(card);
     c.importNotes = App.importLossNotes(card);
+    /* The notes above promise that an unused field still stays in the card.
+       That is only true when the source copy fitted, so say plainly when it did
+       not, rather than leave a reassurance that does not hold. */
+    if (!c.cardSource) {
+      c.importNotes.push('This card is too large for the app to keep a copy of its source, so ' +
+        'anything above is a real loss on export and not just an unused setting. Re-import the ' +
+        'original file if you want them back.');
+    }
     var shapeNote = App.v3ShapeNote(card);
     if (shapeNote) c.importNotes.unshift(shapeNote);
     /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor
@@ -5189,8 +5294,20 @@
   };
 
   App.editLore = function (char, idx) {
-    var entry = idx === null ? { id: UI.uid('l'), keys: [], content: '', enabled: true, stage: '' }
+    var entry = idx === null
+      ? { id: UI.uid('l'), keys: [], content: '', enabled: true, stage: '',
+          /* a new entry starts with nothing declared: no position, no order, no
+             priority — so it never writes a spec field the author did not choose */
+          constant: false, essential: false, selective: false, secondaryKeys: [], caseSensitive: false }
       : char.lorebook[idx];
+    /* v1.40.0: the fields the matcher now honours are editable, not just
+       importable. A card that arrived with them keeps exactly what it had (they
+       are mirrored on import); this is for entries written here. */
+    function chk(id, label, hint, on) {
+      return '<div class="field compact"><label>' + label + '</label>' +
+        '<div class="toggle' + (on ? ' on' : '') + '" id="' + id + '"></div>' +
+        (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
+    }
     UI.sheet({
       title: idx === null ? 'New lore entry' : 'Edit lore entry',
       body: '<div class="field"><div class="field-head"><label>Trigger keywords</label></div>' +
@@ -5199,7 +5316,45 @@
         '<textarea id="lc" class="tall">' + esc(entry.content || '') + '</textarea>' +
         '<div class="hint">Injected whenever any keyword appears in recent messages.</div></div>' +
         '<div class="field"><label>Timeline stage (optional, exact match)</label><input type="text" id="ls" maxlength="100" value="' + esc(entry.stage || '') + '" placeholder="e.g. Before the trial"><div class="hint">Requires the same active stage in Chat continuity. Leave blank for stage-independent lore; use * to always allow.</div></div>' +
-        '<div class="field compact"><label>Enabled</label><div class="toggle' + (entry.enabled !== false ? ' on' : '') + '" id="le"></div></div>',
+        '<div class="field compact"><label>Enabled</label><div class="toggle' + (entry.enabled !== false ? ' on' : '') + '" id="le"></div></div>' +
+        chk('lcn', 'Always in the prompt', 'The card\'s <code>constant</code>: sent whether or not a keyword appears, while the budget lasts.', entry.constant === true) +
+        chk('les', 'Treat as essential',
+          'Horde\'s own flag (stored in the card\'s <code>extensions.horde_studio</code>): an essential entry is ' +
+          'admitted ahead of any that is not always-on, so a tight budget spends itself on what the story ' +
+          'cannot do without. It does not lift the byte limit.', entry.essential === true) +
+        chk('lca', 'Match keys case-sensitively',
+          'The V2/V3 <code>case_sensitive</code>: a key written with capitals only matches those capitals.',
+          entry.caseSensitive === true) +
+        chk('lse', 'Also require a second key',
+          'The V2 <code>selective</code>: the entry needs a key from both lists before it fires — a primary ' +
+          'keyword AND one from the list below. Secondary keys alone never wake an entry.',
+          entry.selective === true) +
+        '<div class="field"' + (entry.selective === true ? '' : ' hidden') + ' id="lsec-wrap">' +
+          '<div class="field-head"><label>Second keys</label></div>' +
+          '<input type="text" id="lsek" value="' + esc((entry.secondaryKeys || []).join(', ')) + '" placeholder="and any of these">' +
+        '</div>' +
+        '<div class="field"><div class="field-head"><label>Placement and order</label></div>' +
+          '<input type="text" id="lpos" maxlength="11" value="' + esc(entry.position || '') + '" placeholder="before_char or after_char">' +
+          '<input type="text" id="lior" maxlength="6" value="' + (entry.insertionOrder === null || entry.insertionOrder === undefined ? '' : entry.insertionOrder) + '" placeholder="insertion_order, e.g. 5">' +
+          '<div class="hint">Both are the card\'s fields and both are applied only when the character has ' +
+          '“Follow the card\'s lore order” on: placement says where an admitted entry sits relative to the ' +
+          'character, and a lower order number means higher up. Leave blank to say nothing.</div></div>' +
+        (entry.selectiveLogic !== undefined
+          ? '<div class="hint" style="color:var(--warn,#fbbf24)">This entry carries SillyTavern\'s ' +
+            '<code>selectiveLogic</code> (' + esc(String(entry.selectiveLogic)) + '), which no card spec ' +
+            'defines. Horde matches the documented boolean rule instead; the value stays in the card.</div>'
+          : '') +
+        ((entry.selective !== undefined && entry.selective !== true && entry.selective !== false) ||
+         (entry.caseSensitive !== undefined && entry.caseSensitive !== true && entry.caseSensitive !== false)
+          ? '<div class="hint" style="color:var(--warn,#fbbf24)">A <code>selective</code> or ' +
+            '<code>case_sensitive</code> on this entry is not true or false, so the spec treats it as absent. ' +
+            'Flipping the switch here writes a real boolean.</div>'
+          : '') +
+        (typeof entry.priority === 'number'
+          ? '<div class="hint">The card also set <code>priority: ' + esc(String(entry.priority)) + '</code> — ' +
+            'read only in “follow the card\'s lore order” mode, where the lowest numbers are the first to be ' +
+            'dropped when the book runs past its own token budget.</div>'
+          : ''),
       actions: [
         { label: 'Cancel', cls: 'ghost', value: null },
         (idx === null ? null : { label: 'Delete', cls: 'danger', onClick: function () {
@@ -5210,6 +5365,21 @@
             entry.keys = b.querySelector('#lk').value.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
             entry.content = b.querySelector('#lc').value;
             entry.stage = b.querySelector('#ls').value.trim().slice(0, 100);
+            function flag(id) { return !!b.querySelector('#' + id).classList.contains('on'); }
+            entry.constant = flag('lcn');
+            entry.essential = flag('les');
+            entry.caseSensitive = flag('lca');
+            entry.selective = flag('lse');
+            entry.secondaryKeys = entry.selective
+              ? b.querySelector('#lsek').value.split(',').map(function (k) { return k.trim(); }).filter(Boolean).slice(0, 12)
+              : [];
+            /* blank means "say nothing", which is not the same as either of the
+               two spellings — an entry that never mentioned placement must not
+               export a placement */
+            var pos = b.querySelector('#lpos').value.trim();
+            entry.position = (pos === 'before_char' || pos === 'after_char') ? pos : '';
+            var ior = b.querySelector('#lior').value.trim();
+            entry.insertionOrder = ior === '' || !isFinite(Number(ior)) ? null : Math.round(Number(ior));
             if (idx === null) char.lorebook.push(entry);
             Store.putCharacter(char).then(function () { Views.world($('.screen')); UI.toast('Saved'); });
           } }
@@ -5219,6 +5389,21 @@
           entry.enabled = entry.enabled === false;
           this.classList.toggle('on', entry.enabled !== false);
         };
+        [['lcn', 'constant'], ['les', 'essential'], ['lca', 'caseSensitive'], ['lse', 'selective']].forEach(function (pair) {
+          var el = b.querySelector('#' + pair[0]);
+          el.onclick = function () {
+            entry[pair[1]] = !entry[pair[1]];
+            el.classList.toggle('on', entry[pair[1]] === true);
+            /* the second-key list only means something to a selective entry, and
+               a card that reads this file back should not see a list that nothing
+               asks about - so clearing the switch hides and empties it */
+            if (pair[1] === 'selective') {
+              var w = b.querySelector('#lsec-wrap');
+              if (w) w.hidden = entry.selective !== true;
+              if (!entry.selective) b.querySelector('#lsek').value = '';
+            }
+          };
+        });
       }
     });
   };

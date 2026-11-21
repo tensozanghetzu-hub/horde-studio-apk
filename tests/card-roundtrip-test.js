@@ -255,9 +255,17 @@ var reminted = await roundTrip(odd, function (c) {
 var re = reminted.out.data.character_book.entries;
 same('a re-minted id keeps the app fields of its own entry',
   re.map(function (e) { return e.content; }), ['Runs late.', 'Checked.', 'Lost.']);
+/* v1.40.0 changed what "its own" includes: position, insertion_order, priority,
+   selective, secondary_keys and case_sensitive are now MODELLED (the matcher
+   reads them), so they live on the entry itself and survive a re-minted id.
+   What must never happen is an entry receiving a field the card put on a
+   neighbour - `comment` is the proof, since the app has no use for it and so
+   cannot invent one for anyone. */
 ok('…and takes no author fields from anywhere else',
-  re.every(function (e) { return e.comment === undefined && e.position === undefined && e.priority === undefined; }),
-  JSON.stringify(re[0]));
+  re.every(function (e) { return e.comment === undefined; }) &&
+  re[0].position === 'before_char' &&
+  re.slice(1).every(function (e) { return e.position === undefined && e.priority === undefined; }),
+  JSON.stringify(re));
 ok('…but the book itself is still intact', reminted.out.data.character_book.token_budget, 900);
 
 console.log('\n4 — a top level / data disagreement');
@@ -369,12 +377,16 @@ console.log('\nthe notes tell the truth about all of this');
 
 var notes = withSource.importNotes.join(' | ');
 ok('an unused-but-kept field is not called a loss',
-  notes.indexOf('does not use when matching') !== -1, notes.slice(0, 160));
+  notes.indexOf('does not use (') !== -1, notes.slice(0, 160));
 ok('…and says the export carries it back', notes.indexOf('carries them back out') !== -1, '');
-ok('the card system prompt is described as kept, not applied',
-  /kept in the file but not applied/.test(notes), '');
-ok('secondary keys are named as ignored here but preserved in the card',
-  /The card keeps the setting/.test(notes), '');
+/* v1.40.0 turned both of these from "kept but ignored" into something the
+   player can act on: the card's prompt is imported and switchable, and
+   selective + secondary_keys are matched. A note still calling them ignored
+   would now be the false statement. */
+ok('the card system prompt is described as imported and switchable',
+  /shown in full on the character/.test(notes), notes.slice(0, 200));
+ok('secondary keys are no longer reported as ignored',
+  notes.indexOf('The card keeps the setting') === -1 && notes.indexOf('does not match on') === -1, '');
 
 Store.SOURCE_CAP = 200;
 var tooBig = await importCard(v2({ description: 'x'.repeat(500) }));

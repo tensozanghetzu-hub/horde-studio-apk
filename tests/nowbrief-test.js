@@ -170,12 +170,15 @@ var joined = 'Chat history:\\n' + "' + h.join('\\n'),";
 /* v1.39.111: the style lock reads the one request window, so its argument is
    styleLock(win.messages). Position is what this asserts, not the argument. */
 var joinAt = api.indexOf(joined), noteAt = api.indexOf("finalNote || '', styleLock(win.messages), character.name + ':'");
-var tailAt = api.indexOf("var tail = [styleLock(win.messages), finalNote].filter(Boolean).join");
+/* v1.40.0: the card's post-history text may now sit in this tail as well, so
+   the check is on the shape of the expression - style lock, then optionally the
+   card's instructions, then the note - not on two adjacent literals. */
+var tailAt = api.indexOf("var tail = [styleLock(win.messages),");
 ok('a prompt-format provider joins it after the transcript',
   joinAt !== -1 && noteAt !== -1 && noteAt > joinAt, joinAt + ' / ' + noteAt);
 ok('a chat-format provider appends it as a trailing system turn',
   tailAt !== -1 && /if \(tail\) msgs\.push\(\{ role: 'system', content: tail \}\)/.test(api));
-ok('...and the note is still part of that tail', /styleLock\(win\.messages\), finalNote/.test(api));
+ok('...and the note is still part of that tail', /styleLock\(win\.messages\), (tailPost, )?finalNote/.test(api));
 
 console.log('\n' + (fail ? 'FAILED' : 'ok') + ' — ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

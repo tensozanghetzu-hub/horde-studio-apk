@@ -120,22 +120,37 @@ var notes = App.importLossNotes(cardWith([
   { keys: ['a'], content: 'x', position: 'before_character', priority: 5, scan_depth: 3 },
   { keys: ['b'], content: 'y', use_regex: true, comment: 'hi' }
 ]));
-var droppedNote = notes.filter(function (n) { return n.indexOf('does not use when matching') !== -1; })[0];
+var droppedNote = notes.filter(function (n) { return n.indexOf('does not use (') !== -1; })[0];
 ok('a note names the dropped fields', !!droppedNote, JSON.stringify(notes));
-ok('...including position', droppedNote && droppedNote.indexOf('position') !== -1, droppedNote);
-ok('...priority', droppedNote && droppedNote.indexOf('priority') !== -1, droppedNote);
+/* v1.40.0: position and priority are READ now (placement and the compat-mode
+   budget cut), so naming them as unused would be a false warning. The fields
+   still unread are the ones the note must keep naming. */
+ok('...but position is read now, so it is not listed',
+  droppedNote && droppedNote.indexOf('position') === -1, droppedNote);
+ok('...nor priority', droppedNote && droppedNote.indexOf('priority') === -1, droppedNote);
 ok('...scan_depth', droppedNote && droppedNote.indexOf('scan_depth') !== -1, droppedNote);
 ok('...use_regex', droppedNote && droppedNote.indexOf('use_regex') !== -1, droppedNote);
-ok('...and says what entries fire on', droppedNote && droppedNote.indexOf('keys/content/constant/stage only') !== -1, droppedNote);
+ok('...comment', droppedNote && droppedNote.indexOf('comment') !== -1, droppedNote);
+ok('...and says what entries fire on',
+  droppedNote && droppedNote.indexOf('keys, content, constant, stage') !== -1, droppedNote);
 
 var plainNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', enabled: true }]));
 ok('a plain keys/content book gets no dropped-fields note',
-  !plainNotes.some(function (n) { return n.indexOf('does not use when matching') !== -1; }),
+  !plainNotes.some(function (n) { return n.indexOf('does not use (') !== -1; }),
   JSON.stringify(plainNotes));
 
-var secNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', secondary_keys: ['b'] }]));
-ok('the secondary-keys note still fires', secNotes.some(function (n) { return n.indexOf('secondary keys') !== -1; }),
-  JSON.stringify(secNotes));
+var secNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', secondary_keys: ['b'], selective: true }]));
+ok('secondary keys are matched now, so they are no longer a warning',
+  !secNotes.some(function (n) { return n.indexOf('secondary') !== -1; }), JSON.stringify(secNotes));
+var logicNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', selective: true, selectiveLogic: 2 }]));
+var logicNote = logicNotes.filter(function (n) { return n.indexOf('selectiveLogic') !== -1; })[0];
+ok('selectiveLogic — a SillyTavern field with no spec definition — is named',
+  !!logicNote, JSON.stringify(logicNotes));
+ok('...and the note states the rule applied instead',
+  logicNote && logicNote.indexOf('key from both lists') !== -1, logicNote);
+var malformedNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', selective: 'true' }]));
+ok('a non-boolean selective is called malformed, not silently off',
+  malformedNotes.some(function (n) { return n.indexOf('malformed') !== -1; }), JSON.stringify(malformedNotes));
 
 console.log('\n3 — the asterisk register is named at import');
 
@@ -183,7 +198,9 @@ console.log('\n1 — bulk import keeps its notes');
 
 toasts = [];
 var batch = [
-  cardWith([{ keys: ['a'], content: 'x', position: 'before_character' }]),
+  /* v1.40.0: `position` is modelled now, so it is no longer a silent loss. This
+     card keeps a note by carrying a field the app genuinely does not read. */
+  cardWith([{ keys: ['a'], content: 'x', scan_depth: 2 }]),
   cardWith([], { system_prompt: 'own prompt' }),
   cardWith([])
 ];

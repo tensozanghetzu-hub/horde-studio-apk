@@ -98,7 +98,8 @@ eq('...even though the chat is blank', p.stageBlank, true);
 console.log('\nthe Lore screen reports it');
 
 ok('the screen reads the ceilings from the engine',
-  /API\.loreDiagnostics\(c\.lorebook \|\| \[\], sample, API\.LORE_LIMIT, API\.LORE_BUDGET, stage\)/.test(viewsSrc));
+  /API\.loreDiagnostics\(c\.lorebook \|\| \[\], sample, API\.LORE_LIMIT, API\.LORE_BUDGET,\s*\n?\s*stage, API\.loreOpts\(c\)\)/.test(viewsSrc),
+  (viewsSrc.match(/API\.loreDiagnostics\([^;]*/) || [''])[0]);
 ok('...and no longer carries its own copies', !/loreDiagnostics\(c\.lorebook \|\| \[\], sample, 6, 1536/.test(viewsSrc));
 ok('it reports entries hidden by staging', /diag\.stageSkipped/.test(viewsSrc));
 ok('it distinguishes a blank stage from a wrong one', /diag\.stageBlank/.test(viewsSrc));

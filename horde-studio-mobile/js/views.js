@@ -618,13 +618,18 @@
       return Store.getMessages(newest.id).then(function (msgs) {
         /* v1.39.74: the same window the request uses — loreSample over the
            stored history — so the readout and the prompt cannot disagree. */
-        var sample = API.loreSample(msgs || []);
+        /* v1.40.0: the readout uses the character's own window and the
+           character's own matching options, so what this screen reports is the
+           request - not a recomputation with app defaults that a card-with-
+           settings character never uses. */
+        var sample = API.loreSample(msgs || [], API.loreScanTurns(c));
         var stage = newest.continuity && newest.continuity.enabled ? newest.continuity.stage : '';
         /* v1.39.110: read the ceilings from the engine. These were literals
            here, so when the prompt moved to 10 entries / 5000 bytes this
            screen kept reporting 6 / 1536 - it told the author that entries
            were "over the byte budget" which the request was happily sending. */
-        var diag = API.loreDiagnostics(c.lorebook || [], sample, API.LORE_LIMIT, API.LORE_BUDGET, stage);
+        var diag = API.loreDiagnostics(c.lorebook || [], sample, API.LORE_LIMIT, API.LORE_BUDGET,
+          stage, API.loreOpts(c));
         var stageNote = '';
         if (diag.stageSkipped) {
           /* A staged book with no stage set is dark in every chat. Without
@@ -641,16 +646,47 @@
                 '(this chat is in <b>' + esc(diag.stage || '') + '</b>).') +
             '</div>';
         }
+        /* the window and the mode are part of the answer. Without them a reader
+           comparing two characters sees the same ceiling and concludes the
+           matcher is inconsistent. */
+        var modeNote = ' Scanning the last <b>' + diag.turns + '</b> ' +
+          (diag.turns === 1 ? 'turn' : 'turns') + (diag.compat
+            ? ', in the card’s own lore order' : '') + '.';
+        var cutNote = '';
+        if (diag.droppedByBudget) {
+          cutNote = ' <b>' + diag.droppedByBudget + '</b> ' +
+            (diag.droppedByBudget === 1 ? 'entry matched but did' : 'entries matched but did') +
+            ' not fit the byte budget' +
+            (diag.droppedEssential
+              ? ' — including <b>' + diag.droppedEssential + '</b> marked essential, which the budget ' +
+                'cannot exempt: an entry that must be present belongs in the character sheet, not the lorebook'
+              : '') + '.';
+        } else if (diag.droppedByLimit) {
+          cutNote = ' <b>' + diag.droppedByLimit + '</b> ' +
+            (diag.droppedByLimit === 1 ? 'entry matched but' : 'entries matched but') +
+            ' passed the ' + diag.limit + '-entry limit.';
+        }
         summary.innerHTML = 'Checking the conversation “' + esc(newest.title || 'New chat') +
           '”. <b>' + diag.admitted + ' of ' + diag.rows.length + '</b> ' +
           (diag.rows.length === 1 ? 'entry is' : 'entries are') + ' in the prompt now · ' +
-          diag.used + ' of ' + diag.cap + ' bytes used.' + stageNote;
+          diag.used + ' of ' + diag.cap + ' bytes used.' + modeNote + cutNote + stageNote;
         list.innerHTML = diag.rows.length ? diag.rows.map(function (r, i) {
           return '<div class="kv" data-lore="' + i + '" style="cursor:pointer;align-items:flex-start">' +
             '<span style="flex:1">' +
               '<b style="display:block;color:' + (r.matched ? 'var(--text)' : 'var(--dim)') + '">' +
                 esc((r.keys || []).join(', ') || '(no keys)') + '</b>' +
               '<span style="font-size:12px">' + esc((r.content || '').slice(0, 70)) + '</span>' +
+              /* v1.40.0: the flags the matcher now reads, on the row that made
+                 the entry behave that way, plus the one field it cannot read. */
+              (r.essential || r.caseSensitive || r.selective || r.ignored || r.insertionOrder !== null
+                ? '<span style="display:block;font-size:11px;margin-top:2px;color:var(--dim)">' +
+                  [r.essential ? 'essential' : '', r.caseSensitive ? 'case-sensitive' : '',
+                   r.selective ? 'needs a second key' : '',
+                   r.insertionOrder !== null ? 'order ' + esc(String(r.insertionOrder)) : '',
+                   r.position ? esc(r.position) : '',
+                   r.ignored ? '<span style="color:var(--warn,#fbbf24)">' + esc(r.ignored) + ' not applied</span>' : ''
+                  ].filter(Boolean).join(' · ') + '</span>'
+                : '') +
               '<span style="display:block;font-size:11.5px;margin-top:2px;color:' +
                 (r.matched ? 'var(--ok,#4ade80)' : 'var(--dim)') + '">' +
                 (r.matched ? '✓ ' : '✕ ') + esc(r.reason || '') + '</span>' +
@@ -1706,6 +1742,43 @@
         '<span>' + esc(label) + '</span><span id="' + id + '-v">' + (val || 0).toFixed(2) + '</span></div>' +
         '<input type="range" id="' + id + '" min="-100" max="100" step="5" value="' + Math.round((val || 0) * 100) + '" style="width:100%"></div>';
     }
+    /* v1.40.0: the three card-prompt/placement choices, each read with the app's
+       own default so a character from before this version needs no migration. */
+    var SYS_SRC_LABEL = { app: 'Your prompt', card: "The card's", combine: 'Both' };
+    var POST_PLACE_LABEL = { sheet: 'End of the sheet', tail: 'After the history', off: 'Not sent' };
+    var cardPrompt = String(char.cardSystemPrompt || '');
+    var sysSrc = ['app', 'card', 'combine'];
+    var sysSrcOn = sysSrc.indexOf(char.systemPromptSource) >= 0 ? char.systemPromptSource : 'app';
+    var postPlace = ['sheet', 'tail', 'off'];
+    var postPlaceOn = postPlace.indexOf(char.postHistoryPlacement) >= 0 ? char.postHistoryPlacement : 'sheet';
+    var LORE_SCAN_MIN = API.LORE_SCAN_MIN, LORE_SCAN_MAX = API.LORE_SCAN_MAX,
+        LORE_SCAN_DEFAULT = API.LORE_SCAN_DEFAULT;
+    /* The slider carries the number the PLAYER chose, not the effective window:
+       with the card's lore order on, the book's own scan_depth may narrow it, and
+       writing that narrowed figure back would keep the window small even after the
+       mode is switched off again. */
+    var loreScan = parseInt(char.loreScanTurns, 10) > 0 ? parseInt(char.loreScanTurns, 10) : LORE_SCAN_DEFAULT;
+    var loreScanEff = API.loreScanTurns(char);
+    var unreadLore = (char.lorebook || []).filter(function (e) {
+      return e && (e.selectiveLogic !== undefined ||
+        (e.selective !== undefined && e.selective !== true && e.selective !== false) ||
+        (e.caseSensitive !== undefined && e.caseSensitive !== true && e.caseSensitive !== false));
+    }).length;
+    /* the six Horde-only fields, generated from the same list the prompt uses so
+       the editor can never offer a field the sheet ignores, or omit one it reads */
+    var DIR_CAP = (typeof Store.CARRY_CAP === 'number') ? Store.CARRY_CAP : 4000;
+    var DIR_PROMPT = 600;
+    var dirFields = (API.CARD_DIRECTIVES || []).map(function (pair) {
+      var d = (char.directives || {})[pair[0]] || '';
+      return '<div class="field"><div class="field-head"><label>' + pair[1] + '</label>' +
+        '<span class="spacer"></span><span class="val" id="e-dir-' + pair[0] + '-n">' + d.length + ' / ' + DIR_CAP + '</span></div>' +
+        '<textarea id="e-dir-' + pair[0] + '" maxlength="' + DIR_CAP + '" placeholder="">' + esc(d) + '</textarea>' +
+        (d.length > DIR_PROMPT
+          ? '<div class="hint">Only the first ' + DIR_PROMPT + ' characters of this reach the prompt. ' +
+            'The rest stays in the card, so nothing you wrote is lost — it is simply not repeated to the ' +
+            'model, which will not read past the budget anyway.</div>'
+          : '') + '</div>';
+    }).join('');
     $('#editor-body').innerHTML =
       '<div class="group">' +
         '<div class="field"><div class="avatar-edit" id="av-wrap">' +
@@ -1796,6 +1869,71 @@
    authors the wrong thing is how a card ends up with its most important rule
    sitting where the model weighs it least. */
 '<textarea id="e-post" placeholder="Joins the end of the character sheet, above the examples and the chat history.">' + esc(char.postHistory) + '</textarea></div>' +
+      '</div>' +
+
+      /* ---------------- v1.40.0: the four things a card asks the app to do
+         differently, each one a choice the player can see. Everything here
+         starts at what this app has always done, so opening a card changes
+         nothing until you say so. ---------------- */
+      '<div class="group">' +
+        '<div class="group-title">Card prompts and placement</div>' +
+        '<div class="field"><div class="field-head"><label>System prompt</label>' +
+          '<span class="spacer"></span><span class="val">' +
+            (cardPrompt ? cardPrompt.length + ' characters in the card' : 'none in this card') + '</span></div>' +
+          '<div class="seg" id="e-sys-src">' + sysSrc.map(function (k) {
+            return '<button data-a="' + k + '"' + (sysSrcOn === k ? ' class="on"' : '') + '>' + SYS_SRC_LABEL[k] + '</button>';
+          }).join('') + '</div>' +
+          '<div class="hint">' +
+            (cardPrompt
+              ? 'Your text only. The card’s own prompt is shown below and used only if you pick it or “both”.'
+              : 'This card carries no prompt, so every choice here gives the same result.') +
+            ' A card that can replace the prompt can also delete the rules this app needs — plain prose, ' +
+            'never narrating for you — so “the card’s” is deliberately not the default.</div>' +
+          (cardPrompt
+            ? '<details style="margin-top:8px"><summary class="hint" style="margin:0">Read the card’s prompt</summary>' +
+                '<div class="hint" style="white-space:pre-wrap;margin-top:6px;max-height:14em;overflow:auto">' + esc(cardPrompt) + '</div>' +
+                '<button class="chip" data-act="sys-use-card" style="margin-top:6px">Copy into my prompt</button></details>'
+            : '') +
+        '</div>' +
+        '<div class="field"><div class="field-head"><label>Always-remember note</label></div>' +
+          '<div class="seg" id="e-post-place">' + postPlace.map(function (k) {
+            return '<button data-a="' + k + '"' + (postPlaceOn === k ? ' class="on"' : '') + '>' + POST_PLACE_LABEL[k] + '</button>';
+          }).join('') + '</div>' +
+          '<div class="hint">Where the text in that box goes. End of the character sheet is what this app ' +
+          'has always done, and what most cards written for it expect; after the history puts it last, ' +
+          'which some cards ask for. It is never sent twice.</div></div>' +
+        '<div class="field compact"><label>Follow the card’s lore order</label>' +
+          '<div class="toggle' + (char.loreCompat === true ? ' on' : '') + '" id="e-lore-compat"></div></div>' +
+        '<div class="hint">Off, this app picks world facts by how recently their keywords appeared. On, the ' +
+          'lorebook’s own <code>insertion_order</code> and <code>position</code> decide where each admitted ' +
+          'entry sits, and <code>priority</code> decides what the card’s <code>token_budget</code> discards. ' +
+          'Which entries get in stays the same either way.</div>' +
+        '<div class="field"><div class="field-head"><label>Lore keyword window</label>' +
+          '<span class="spacer"></span><span class="val" id="e-lore-scan-v">' + loreScan + ' turns back</span></div>' +
+          '<div class="range-row"><input type="range" id="e-lore-scan" min="' + LORE_SCAN_MIN + '" max="' + LORE_SCAN_MAX +
+            '" step="1" value="' + loreScan + '"><button class="chip" id="e-lore-scan-clear">default</button></div>' +
+          '<div class="hint">How far back a trigger keyword is looked for. ' + LORE_SCAN_DEFAULT + ' turns is what ' +
+          'this app measures, and widening it only lets more entries be <i>noticed</i> — the entry budget still ' +
+          'decides what is sent. Bounded at ' + LORE_SCAN_MAX + '.' +
+          (loreScanEff !== loreScan
+            ? ' <b>This character is using ' + loreScanEff + '</b>: “follow the card’s lore order” lets the ' +
+              'card’s own <code>scan_depth</code> shorten the window, never lengthen it.'
+            : '') + '</div></div>' +
+        (unreadLore ? '<div class="field"><div class="hint" style="color:var(--warn,#fbbf24);margin:0">' +
+            unreadLore + ' ' + (unreadLore === 1 ? 'entry sets' : 'entries set') +
+            ' a lorebook matching option this app cannot read (SillyTavern’s <code>selectiveLogic</code>, or ' +
+            '<code>selective</code>/<code>case_sensitive</code> set to something other than true or false). ' +
+            'The value stays in the card; matching here falls back to the documented rule. The Lore screen ' +
+            'names the field on each entry.</div></div>' : '') +
+      '</div>' +
+
+      '<div class="group">' +
+        '<div class="group-title">Instructions to this app</div>' +
+        '<div class="hint">Six notes a card can leave for Horde Studio specifically. Every one is optional and ' +
+          'off by default: left blank, nothing is added to the prompt at all. Written here, each one becomes a ' +
+          'labelled line at the end of the character sheet, and they are stored in the card under ' +
+          '<code>extensions.horde_studio</code> — so they survive an export and an import by another app.</div>' +
+        dirFields +
       '</div>' +
 
       '<div class="group">' +
@@ -2001,6 +2139,50 @@
     });
     /* The swipeable intro stack for the Greeting field — slots copy the
        texts, so browsing around never touches the sheet until collect(). */
+    /* v1.40.0 handlers. Segmented controls keep the vh-auto idiom: the choice
+       lives on `draft` only when collect() runs, so cancelling the sheet cannot
+       leave a half-applied placement behind. */
+    function segWire(id, set) {
+      var el = $('#' + id, body);
+      if (!el) return;
+      el.onclick = function (e) {
+        var b = e.target.closest('button'); if (!b) return;
+        set(b.getAttribute('data-a'));
+        this.querySelectorAll('button').forEach(function (x) { x.classList.remove('on'); });
+        b.classList.add('on');
+      };
+    }
+    segWire('e-sys-src', function (v) { sysSrcOn = v; });
+    segWire('e-post-place', function (v) { postPlaceOn = v; });
+    var loreCompatEl = $('#e-lore-compat', body);
+    if (loreCompatEl) loreCompatEl.onclick = function () {
+      this.classList.toggle('on');
+    };
+    var loreScanEl = $('#e-lore-scan', body), loreScanV = $('#e-lore-scan-v', body);
+    if (loreScanEl) loreScanEl.oninput = function () {
+      loreScanV.textContent = loreScanEl.value + ' turns back';
+    };
+    var loreScanClear = $('#e-lore-scan-clear', body);
+    if (loreScanClear) loreScanClear.onclick = function () {
+      loreScanEl.value = API.LORE_SCAN_DEFAULT;
+      loreScanV.textContent = API.LORE_SCAN_DEFAULT + ' turns back';
+    };
+    var useCard = body.querySelector('[data-act=sys-use-card]');
+    if (useCard) useCard.onclick = function () {
+      var box = $('#e-sys', body);
+      if (!box) return;
+      var cur = String(box.value || '').trim();
+      /* appending, not replacing: the override box may already hold the player's
+         own rules, and a card prompt is not a reason to lose them */
+      box.value = (cur ? cur + '\n\n' : '') + cardPrompt;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      UI.toast('Card prompt added to your override');
+    };
+    (API.CARD_DIRECTIVES || []).forEach(function (pair) {
+      var el = $('#e-dir-' + pair[0], body), n = $('#e-dir-' + pair[0] + '-n', body);
+      if (el) el.oninput = function () { n.textContent = el.value.length + ' / ' + DIR_CAP; };
+    });
+
     var introNav = Views.introNavModel(draft);
     function introPaint() {
       var g = $('#e-greeting', body), pos = $('#e-intro-pos', body), del = $('#e-intro-del', body);
@@ -2022,6 +2204,20 @@
       draft.examples = $('#e-examples', body).value;
       draft.postHistory = $('#e-post', body).value;
       draft.systemPrompt = $('#e-sys', body).value;
+      /* v1.40.0: the placement choices and the six Horde instructions. The
+         directives are trimmed here as well as at import, so a character created
+         in the app carries the same limits as a card that arrived with them. */
+      draft.postHistoryPlacement = postPlaceOn;
+      draft.systemPromptSource = sysSrcOn === 'app' ? '' : sysSrcOn;
+      draft.loreCompat = !!($('#e-lore-compat', body) && $('#e-lore-compat', body).classList.contains('on'));
+      draft.loreScanTurns = parseInt(($('#e-lore-scan', body) || {}).value, 10) || 0;
+      if (draft.loreScanTurns === API.LORE_SCAN_DEFAULT) draft.loreScanTurns = 0;
+      draft.loreScanTurns = Math.min(API.LORE_SCAN_MAX, Math.max(0, draft.loreScanTurns));
+      draft.directives = {};
+      (API.CARD_DIRECTIVES || []).forEach(function (pair) {
+        var el = $('#e-dir-' + pair[0], body);
+        draft.directives[pair[0]] = el ? String(el.value || '').trim().slice(0, DIR_CAP) : '';
+      });
       draft.expressionPortraits = draft.expressionPortraits.filter(function (e) {
         return !!String(e.src || '').trim() && (!!String(e.label || '').trim() || (e.keys && e.keys.length));
       }).map(function (e) {

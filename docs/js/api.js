@@ -30,6 +30,62 @@
     return /^[A-Z][a-z]*$/.test(raw) ? cap(word) : word;
   }
 
+  /* v1.40.0 (compatibility letter, item 3): where the system prompt comes from.
+     Three modes per character, and the app's own prompt stays the default.
+
+       'app'     the global prompt, or this character's own prompt box - exactly
+                 what every version of this app has done, and what a card with no
+                 prompt falls back to in every mode.
+       'card'    the card's `system_prompt` replaces it. That is what the V2
+                 spec actually asks of a frontend ("default behavior MUST be to
+                 replace ... the value inside this field"), and this app does not
+                 do it by default: the global prompt carries rules that keep the
+                 mobile build working - plain prose, no narration in the
+                 player's voice - and a card silently deleting them is a worse
+                 surprise than a card whose extra rules go unread. The mode is
+                 one tap away, and a Settings-wide default turns it on for every
+                 card. The divergence is deliberate and documented.
+       'combine' the global prompt, then the card's. An author can add, not take
+                 away - so card text can never outvote the player's controls.
+
+     `{{original}}` means the app/global prompt in all three modes, so a card can
+     never redefine the macro that points back at the player's own text, and the
+     substitution runs once with no recursion. */
+  function systemTextOf(char, s) {
+    var app = String((char && char.systemPrompt) || (s && s.systemPrompt) || '');
+    var card = String((char && char.cardSystemPrompt) || '').trim();
+    if (!card) return app;                       /* the spec's own empty-field case */
+    var mode = String((char && char.systemPromptSource) || '');
+    if (!mode && s && s.honorCardSystemPrompt) mode = 'card';
+    if (mode === 'card') return card;
+    if (mode === 'combine') {
+      /* `{{original}}` means "the prompt the frontend would have used if this
+         card's were not there". In this mode that prompt is already in front of
+         the card's text, so the reference is satisfied by what is being sent and
+         the macro resolves to nothing — one copy of the player's prompt, never
+         two. The clause an author wrapped around it keeps its own words. */
+      var body = card.replace(/\{\{\s*original\s*\}\}/gi, '')
+        .replace(/^\s*([,;:.\-])\s*/, '').trim();
+      if (!body) return app;
+      return app ? app + '\n\n' + body : body;
+    }
+    return app;
+  }
+
+  /* v1.40.0 (item 2): where `post_history_instructions` is put. Default 'sheet'
+     is what the app has always done - the text joins the end of the character
+     sheet, above the examples and the transcript. 'tail' moves it after the
+     history, where the model is still holding it when it writes; 'off' omits it
+     entirely. It is never sent twice: charSheet reads the mode and steps aside. */
+  function postHistoryMode(char) {
+    var m = String((char && char.postHistoryPlacement) || '');
+    return m === 'tail' || m === 'off' ? m : 'sheet';
+  }
+  function postHistoryText(char, s) {
+    var raw = String((char && char.postHistory) || '').trim();
+    return raw ? macros(plainText(raw), char, s) : '';
+  }
+
   function macros(text, char, s) {
     if (!text) return '';
     var name = (char && char.name) || 'Assistant';
@@ -179,11 +235,31 @@
       if (!line) return;
       /* the recovered separator, plus the other common convention */
       if (line === START || /^-{3,}$/.test(line)) { cur = null; return; }
-      var isUser = /^\{\{user\}\}\s*:/i.test(line);
-      var isChar = /^\{\{char\}\}\s*:/i.test(line) ||
-        new RegExp('^' + (char && char.name ? char.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : 'char') + '\\s*:', 'i').test(line);
-      if (isUser) { out.push({ role: 'user', content: line.replace(/^[^\s:]*\s*:\s*/, '') }); cur = out[out.length - 1]; }
-      else if (isChar) { out.push({ role: 'assistant', content: line.replace(/^[^\s:]*\s*:\s*/, '') }); cur = out[out.length - 1]; }
+      /* v1.40.0 (item 5): a label decorated the way card guides write one is
+         still a label. Cards put `<START>` between turns, bullets in front of
+         them, and the speaker's name inside `**emphasis**` — all three at once,
+         sometimes. The decoration is stripped from a PROBE so the label can be
+         recognised; the text that goes into the turn is cut from the author's
+         own line at the label's colon, so nothing inside it is rewritten or
+         dropped. An unrecognised line still joins the turn above it, which is
+         the rule that keeps a multiline turn in one piece. */
+      var probe = line.replace(/^[-*>•\s]+/, '')
+        .replace(/^([*_]{1,3})\s*/, '')
+        .replace(/\s*([*_]{1,3}):/, ':');
+      var decorated = probe !== line;
+      var isUser = /^\{\{user\}\}\s*:/i.test(probe);
+      var isChar = /^\{\{char\}\}\s*:/i.test(probe) ||
+        new RegExp('^' + (char && char.name ? char.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : 'char') + '\\s*:', 'i').test(probe);
+      function labelled() {
+        var cut = line.indexOf(':');
+        var text = cut >= 0 ? line.slice(cut + 1) : line;
+        /* the closing half of an emphasis run belongs to the label, not to the
+           reply: `**{{char}}:** Hello` starts its content with `**` */
+        if (decorated) text = text.replace(/^[*_]{1,3}\s*/, '');
+        return text.trim();
+      }
+      if (isUser) { out.push({ role: 'user', content: labelled() }); cur = out[out.length - 1]; }
+      else if (isChar) { out.push({ role: 'assistant', content: labelled() }); cur = out[out.length - 1]; }
       else if (cur) { cur.content += '\n' + line; }
     });
     return out.filter(function (m) { return m.content && m.content.trim(); })
@@ -196,18 +272,45 @@
    *  ("gossips" finds "gossip"). Match-time regex only; stored keys
    *  untouched, and the character policy keeps its no-length-floor rule
    *  since word edges already blunt the short-key risk. */
-  function keyStands(text, key) {
-    var k = String(key || '').toLowerCase().trim();
+  /* `caseSensitive` is the V2/V3 entry flag of the same name, honoured since
+     v1.40.0: a key that is written with capitals only matches those capitals.
+     Note the word-edge class has to grow when the text is not lowercased, or
+     "Door" stops matching at "Door" because 'D' is not in [a-z0-9]. The plural
+     allowance stays in both modes - a key for "gossip" has always also found
+     "gossips", and that is documented in the Lore screen rather than changed. */
+  function keyStands(text, key, caseSensitive) {
+    var k = String(key || '').trim();
     if (!k) return false;
-    var re = new RegExp('(^|[^a-z0-9])' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?:s|es)?(?=$|[^a-z0-9])');
+    if (!caseSensitive) k = k.toLowerCase();
+    var edge = caseSensitive ? 'A-Za-z0-9' : 'a-z0-9';
+    var re = new RegExp('(^|[^' + edge + '])' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+      '(?:s|es)?(?=$|[^' + edge + '])');
     return re.test(text);
+  }
+
+  /* v1.40.0 (item 5): which macros a card uses that this app will not resolve.
+     Asked of the resolver rather than of a list, so it cannot drift: a name is
+     unsupported exactly when handing `{{name}}` to macros() gives `{{name}}`
+     back. Nothing here invents a meaning for a macro it has not implemented. */
+  var MACRO_SEEN = /\{\{\s*([^{}]{1,40}?)\s*\}\}/g;
+  function unresolvedMacros(text, char, s) {
+    var found = [], seen = {};
+    var m, src = String(text || '');
+    MACRO_SEEN.lastIndex = 0;
+    while ((m = MACRO_SEEN.exec(src))) {
+      var name = m[1].trim();
+      if (!name || seen[name]) continue;
+      seen[name] = 1;
+      if (/\{\{/.test(macros('{{' + name + '}}', char, s))) found.push(name);
+    }
+    return found;
   }
 
   /* C2 (v1.39.71): why each entry did or did not join the prompt. loreHits
      answers yes/no; an author whose entry never fires needs the reason, and
      "dropped for budget" and "no keyword" are very different fixes.
      Returns one row per entry, in book order. */
-  function loreDiagnostics(entries, recent, limit, budget, stage) {
+  function loreDiagnostics(entries, recent, limit, budget, stage, opts) {
     var max = limit || LORE_LIMIT;
     var cap = (typeof budget === 'number' && budget > 0) ? budget : LORE_BUDGET;
     var ranked = loreRanks(entries, recent, stage);
@@ -217,11 +320,35 @@
        actually contain. It used to walk the book in order, which described a
        selection nobody used. */
     var chosen = {};
-    loreAdmit(ranked, max, cap).forEach(function (r) { chosen[r.index] = true; });
+    /* v1.40.0: the same options the prompt path uses, so what this reports is
+       what the request does - including compat mode's priority-ordered cuts. */
+    loreAdmit(ranked, max, cap, opts).forEach(function (r) { chosen[r.index] = true; });
     var activeStage = String(stage || '').trim().toLowerCase();
     var rows = [], used = 0, admitted = 0;
+    /* v1.40.0: what the ceiling cost. An author who marked an entry essential
+       needs to be told when even that was not enough, and a compat-mode book
+       trimmed by its own token_budget looks identical to one trimmed by the app
+       unless the readout says which ceiling was in force. */
+    var droppedByLimit = 0, droppedByBudget = 0, droppedEssential = 0;
     (entries || []).forEach(function (e, i) {
-      var row = { keys: e.keys || [], content: e.content || '', matched: false, reason: '', rank: -1 };
+      var row = { keys: e.keys || [], content: e.content || '', matched: false, reason: '', rank: -1,
+        /* v1.40.0: the author-controlled flags the matcher now reads, reported
+           per entry so the Lore screen can say WHY an entry behaved as written */
+        essential: e.essential === true,
+        caseSensitive: e.caseSensitive === true,
+        selective: e.selective === true,
+        insertionOrder: e.insertionOrder === undefined ? null : e.insertionOrder,
+        position: e.position || '',
+        /* v1.40.0 (item 4a): the entry says something about matching that this
+           app cannot read. `selectiveLogic` is SillyTavern's, not in either
+           spec, so the boolean `selective` rule is applied in its place; a
+           `selective` or `case_sensitive` that is not a real boolean is treated
+           as absent. Named on the row, so an author is never left guessing why a
+           well-written entry stays quiet. */
+        ignored: e.selectiveLogic !== undefined ? 'selectiveLogic'
+          : (e.selective !== undefined && e.selective !== true && e.selective !== false ? 'selective'
+            : (e.caseSensitive !== undefined && e.caseSensitive !== true && e.caseSensitive !== false
+              ? 'case_sensitive' : '')) };
       var r = byIndex[i];
       row.stage = String(e.stage || '').trim();
       if (e.enabled === false) { row.reason = 'disabled'; rows.push(row); return; }
@@ -246,8 +373,11 @@
         used += r.cost; admitted++;
       } else if (admitted >= max) {
         row.reason = 'matched, but the ' + max + '-entry limit was reached';
+        droppedByLimit++;
       } else {
         row.reason = 'matched, but over the ' + cap + '-byte budget';
+        droppedByBudget++;
+        if (r.essential) droppedEssential++;
       }
       rows.push(row);
     });
@@ -263,7 +393,12 @@
     });
     return { rows: rows, used: used, cap: cap, admitted: admitted, limit: max,
       stage: activeStage, stageSkipped: stageSkipped, stageBlank: !activeStage,
-      stageDarkWithoutStage: stageDimForNoStage };
+      stageDarkWithoutStage: stageDimForNoStage,
+      droppedByLimit: droppedByLimit, droppedByBudget: droppedByBudget,
+      droppedEssential: droppedEssential,
+      /* the settings the matcher ran with, so the screen can name them instead of
+         the reader having to remember which mode this character is in */
+      compat: !!(opts && opts.compat), turns: (opts && opts.turns) || LORE_SCAN_TURNS };
   }
 
   /* v1.39.109: how much of a book may reach one prompt.
@@ -332,11 +467,49 @@
     return { sample: loreSample(windowed), messages: windowed, turns: LORE_SCAN_TURNS };
   }
 
-  function loreSample(history) {
+  /* v1.40.0 (item 4c): how far back the keyword scan reads, per character. The
+     6-turn default is the number v1.39.111 measured, and it is the window the
+     transcript and the style lock read too - so this override applies to the
+     LORE scan alone. Widening it can therefore never change how much history is
+     sent, only which entry the scanner is allowed to notice. Bounded at 24
+     turns: past that the ranking stops meaning "recent", the whole book fires,
+     and the budget is spent on whichever entry is shortest.
+     Compat mode lets a card NARROW the window with its own `scan_depth`, which
+     the books count in MESSAGES - halved into turns here, because a message is
+     not a unit of story (that is exactly why this app measures in turns). The
+     conversion is stated rather than hidden: a book asking for 8 reads as 4. */
+  var LORE_SCAN_MIN = 1, LORE_SCAN_MAX = 24;
+  function loreScanTurns(char) {
+    var n = parseInt(char && char.loreScanTurns, 10);
+    if (!(n > 0)) n = LORE_SCAN_TURNS;
+    var book = parseInt(char && char.loreBookScan, 10);
+    if (char && char.loreCompat && book > 0) n = Math.min(n, Math.ceil(book / 2));
+    return Math.max(LORE_SCAN_MIN, Math.min(LORE_SCAN_MAX, n));
+  }
+  /** The options the lore matcher runs with for this character. */
+  function loreOpts(char) {
+    var budget = parseInt(char && char.loreBookBudget, 10);
+    return {
+      compat: !!(char && char.loreCompat),
+      turns: loreScanTurns(char),
+      /* the book's own token_budget, read only in compat mode, and only ever to
+         narrow what the app allows - a card may tighten, never spend past the cap
+         the Lore screen shows */
+      tokenBudget: (char && char.loreCompat && budget > 0) ? budget : 0
+    };
+  }
+  /** This character's scan window, or the shared one when they take the default. */
+  function loreWindow(char, history, win) {
+    var turns = loreScanTurns(char);
+    if (win && turns === win.turns) return win.sample;
+    return loreSample(history || [], turns);
+  }
+
+  function loreSample(history, turns) {
     var list = history || [];
     /* Turns, then the message cap is only a backstop for a history with no
        user messages at all. */
-    var window = lastTurns(list, LORE_SCAN_TURNS);
+    var window = lastTurns(list, turns > 0 ? turns : LORE_SCAN_TURNS);
     var parts = window.map(function (m) { return String(m.text || ''); });
     var text = parts.join('\n');
     /* The newest turn is carried separately: an entry whose key the player has
@@ -368,7 +541,8 @@
      Nothing here looks at book order. On a real card the chapters are listed
      before the characters, and with a flat scan the chapters always won. */
   function loreRanks(entries, sample, stage) {
-    var text = scanText(sample).toLowerCase();
+    var raw = scanText(sample);
+    var text = raw.toLowerCase();
     var activeStage = String(stage || '').trim().toLowerCase();
     /* Split the scan into messages so a match can be scored by how long ago
        it happened. "The newest message mentions it" and "it was mentioned
@@ -377,15 +551,17 @@
     var lines = (sample && typeof sample === 'object' && Array.isArray(sample.parts))
       ? sample.parts.map(function (p) { return String(p || '').toLowerCase(); })
       : null;
-    function recencyOf(keys) {
+    var rawLines = lines && (sample.parts || []).map(function (p) { return String(p || ''); });
+    function recencyOf(keys, cs) {
       if (!lines) return 0;
-      for (var back = 0; back < lines.length; back++) {
-        var line = lines[lines.length - 1 - back];
+      var where = cs ? rawLines : lines;
+      for (var back = 0; back < where.length; back++) {
+        var line = where[where.length - 1 - back];
         for (var i = 0; i < keys.length; i++) {
-          if (keys[i] && keyStands(line, keys[i])) return back;
+          if (keys[i] && keyStands(line, keys[i], cs)) return back;
         }
       }
-      return lines.length;
+      return where.length;
     }
     var out = [];
     (entries || []).forEach(function (e, index) {
@@ -394,18 +570,40 @@
       if (requiredStage && requiredStage !== '*' && (!activeStage || requiredStage !== activeStage)) return;
       var constant = e.constant === true;
       var keys = e.keys || [];
-      var matched = keys.filter(function (k) { return k && keyStands(text, k); });
+      /* `case_sensitive` (V2/V3) decides which casing of the scan window the
+         keys are looked for in. Everything else in the ranking is unaffected. */
+      var cs = e.caseSensitive === true;
+      var hay = cs ? raw : text;
+      var matched = keys.filter(function (k) { return k && keyStands(hay, k, cs); });
       if (!constant && !matched.length) return;
+      /* `selective` + `secondary_keys`, the V2 pair, honoured since v1.40.0.
+         The spec is exact, and this follows it word for word: `selective: true`
+         requires a key from `keys` AND a key from `secondary_keys`; with
+         `selective` false or absent the secondary list is IGNORED, so an entry
+         that does not opt in keeps the ordinary primary-key behaviour it has
+         always had. Secondary keys alone never wake an entry - the primary match
+         is always required. A `selectiveLogic` (a SillyTavern field, not a spec
+         one) is not implemented: its four variants are that client's meaning,
+         not a meaning verified here, so the entry falls back to the boolean
+         rule above and the import note says so rather than guessing. */
+      var sec = (e.selective === true && Array.isArray(e.secondaryKeys))
+        ? e.secondaryKeys.filter(function (k) { return !!k; }) : [];
+      if (sec.length && !sec.some(function (k) { return keyStands(hay, k, cs); })) return;
       out.push({
         entry: e, index: index, constant: constant,
+        /* v1.40.0 (item 6.6): an entry the author marked essential is admitted
+           ahead of everything that is not constant, so a tight budget spends
+           itself on what the card says the story cannot do without. */
+        essential: e.essential === true,
         /* 0 = mentioned in the message being answered; higher = older */
-        recency: constant ? -1 : recencyOf(matched.length ? matched : keys),
+        recency: constant ? -1 : recencyOf(matched.length ? matched : keys, cs),
         keyCount: constant ? keys.length : matched.length,
         keys: keys.length, cost: String(e.content || '').length
       });
     });
     out.sort(function (a, b) {
       if (a.constant !== b.constant) return a.constant ? -1 : 1;
+      if (a.essential !== b.essential) return a.essential ? -1 : 1;
       if (a.recency !== b.recency) return a.recency - b.recency;
       if (a.keyCount !== b.keyCount) return b.keyCount - a.keyCount;
       if (a.keys !== b.keys) return a.keys - b.keys;
@@ -418,21 +616,92 @@
   /* Admit ranked entries until the count or the byte budget runs out. A single
      entry larger than the whole budget is still admitted when it is first, so
      a lone long entry is not silently dropped. */
-  function loreAdmit(ranked, limit, budget) {
+  function loreAdmit(ranked, limit, budget, opts) {
     var max = limit || LORE_LIMIT, cap = (typeof budget === 'number' && budget > 0) ? budget : LORE_BUDGET;
+    /* Compat mode (item 4b) also reads the book's own budget, and drops by the
+       spec's rule - V3: "remove the lowest priority lorebook fields if the total
+       token count exceeds token_budget". Priority and insertion_order are only
+       ever read here, never as a substitute for relevance ranking. */
+    var o = opts || {};
+    if (o.compat && o.tokenBudget > 0) cap = Math.min(cap, o.tokenBudget * 4);
     var out = [], bytes = 0;
-    ranked.forEach(function (r) {
+    var list = ranked;
+    if (o.compat) {
+      /* Only the cut changes: the candidate set is still the entries the scan
+         matched, and `insertion_order` still only decides where an admitted
+         entry is put. What compat mode asks for is the book's own rule for WHO
+         loses when the budget runs out - V3: "remove the lowest priority
+         lorebook fields if the total token count exceeds token_budget". So the
+         HIGH priority number is admitted first and the low one is what falls
+         off the end, which is the same outcome arrived at from the other side. */
+      list = ranked.slice().sort(function (a, b) {
+        if (a.constant !== b.constant) return a.constant ? -1 : 1;
+        if (a.essential !== b.essential) return a.essential ? -1 : 1;
+        var pa = numField(a.entry.priority, 50), pb = numField(b.entry.priority, 50);
+        if (pa !== pb) return pb - pa;      /* highest priority admitted first */
+        if (a.recency !== b.recency) return a.recency - b.recency;
+        return a.index - b.index;
+      });
+    }
+    list.forEach(function (r) {
       if (out.length >= max) return;
       if (out.length && bytes + r.cost > cap) return;
       out.push(r);
       bytes += r.cost;
     });
+    /* Deterministic, and reported by loreDiagnostics rather than remembered
+       here: an entry the author called essential outranks the rest, and if the
+       essentials alone fill the budget the others are cut. No counter is kept on
+       the function - this runs once per request, and a tally that survives from
+       one request to the next is a bug waiting for a second chat. */
     return out;
   }
 
-  function loreHits(entries, sample, limit, budget, stage) {
+  /* Item 4b: the order and the place an admitted entry is put, which is a
+     different question from which entries got in. Only in compat mode, because
+     Horde ranks by relevance and a card that sorts by book order would lose the
+     fix in v1.39.109 that stopped chapters crowding out the scene. */
+  /* The card's numbers are read loosely - an `insertion_order` written as "10"
+     is still 10 - and a value that is not a number at all falls back to the
+     default the engines ship (100 for order, 50 for priority). Loose reading is
+     only ever for matching: the entry keeps the bytes it arrived with. */
+  function numField(v, dflt) {
+    if (v === '' || v === null || v === undefined) return dflt;
+    var n = Number(v);
+    return isFinite(n) ? n : dflt;
+  }
+
+  function lorePlacements(hits, opts) {
+    var groups = { before: [], middle: [], after: [] };
+    (hits || []).forEach(function (e) { groups.middle.push(e); });
+    if (!opts || !opts.compat) return groups;
+    /* Wrapped in {e, i} so the book position can be the last tiebreak without
+       a scratch property being written onto the stored entry. */
+    var items = (hits || []).map(function (e, i) { return { e: e, i: i }; });
+    groups.before = []; groups.middle = []; groups.after = [];
+    items.forEach(function (it) {
+      /* V2 spells the two values `before_char` / `after_char`; anything else,
+         including `before_character` from a hand-edited card, stays in the
+         sheet's own world-facts block rather than being guessed at. */
+      if (it.e.position === 'before_char') groups.before.push(it);
+      else if (it.e.position === 'after_char') groups.after.push(it);
+      else groups.middle.push(it);
+    });
+    function byOrder(a, b) {
+      var oa = numField(a.e.insertionOrder, 100), ob = numField(b.e.insertionOrder, 100);
+      /* lower insertion_order = inserted higher, per the V2 field comment */
+      return oa !== ob ? oa - ob : a.i - b.i;
+    }
+    groups.before.sort(byOrder); groups.middle.sort(byOrder); groups.after.sort(byOrder);
+    ['before', 'middle', 'after'].forEach(function (k) {
+      groups[k] = groups[k].map(function (it) { return it.e; });
+    });
+    return groups;
+  }
+
+  function loreHits(entries, sample, limit, budget, stage, opts) {
     if (!entries || !entries.length) return [];
-    return loreAdmit(loreRanks(entries, sample, stage), limit, budget)
+    return loreAdmit(loreRanks(entries, sample, stage), limit, budget, opts)
       .map(function (r) { return r.entry; });
   }
 
@@ -653,8 +922,53 @@
       ' Never write ' + userName + "'s words, thoughts or actions — leave them to the player.";
   }
 
-  function charSheet(char, s, session, recent, assistantTurns) {
-    var parts = [];
+  /* v1.40.0 (item 6): the fields Horde Studio owns, in
+     `extensions.horde_studio.*`. All optional, all read only when present, and
+     each one is a HEADING over content the model previously had to infer from
+     raw prose. Nothing here invents an instruction for a card that does not ask
+     for one - the block simply does not exist for such a card. Every field is
+     plainText()'d and capped at import (store.js, `cardDirectives`), so these
+     cannot smuggle an essay into the head of the request, and what does land is
+     part of the character sheet, which cardTokens() counts. */
+  var DIRECTIVES = [
+    /* how much the player may tell the character's head */
+    ['agency', 'Player agency'],
+    /* how the prose should read */
+    ['style', 'Narration and style'],
+    /* what the card treats as settled */
+    ['canon', 'Canon boundaries'],
+    /* how the story is meant to move */
+    ['progression', 'Story progression'],
+    /* slow-burn gates, if the card declares any */
+    ['stages', 'Stage controls'],
+    /* what must survive the budget */
+    ['priority', 'Essential information']
+  ];
+  /* What one instruction line may cost in the prompt. The character's own copy is
+     carried in full (store.js CARRY_CAP) so nothing is lost from the card, but a
+     sheet that grew because a player pasted a manifesto would squeeze the
+     transcript out of the request. 600 characters per field is about 150 tokens -
+     more than most cards want and far less than most players paste. */
+  var DIRECTIVE_CHARS = 600;
+  function directiveBlock(char, s) {
+    var d = (char && char.directives) || {};
+    var lines = [];
+    DIRECTIVES.forEach(function (pair) {
+      var txt = plainText(String(d[pair[0]] || '')).replace(/\s+/g, ' ').trim();
+      if (!txt) return;
+      var cut = txt.length > DIRECTIVE_CHARS;
+      if (cut) txt = txt.slice(0, DIRECTIVE_CHARS).replace(/\s+$/, '') + ' …';
+      /* expanded like every other piece of card-authored text, so an author can
+         write {{char}}/{{user}} here and does not have to know which fields this
+         app runs macros through */
+      lines.push(pair[1] + ': ' + macros(txt, char, s) + (cut ? ' [truncated by Horde at ' + DIRECTIVE_CHARS + ' characters]' : ''));
+    });
+    return lines.length ? 'CARD INSTRUCTIONS FOR HORDE STUDIO:\n' + lines.join('\n') : '';
+  }
+
+  function charSheet(char, s, session, recent, assistantTurns, opts) {
+    var lo = opts || loreOpts(char);
+    var head = [], parts = [];
     var persona = macros(plainText(char.persona), char, s);
     if (persona) parts.push(persona);
     var scenario = macros(plainText(char.scenario), char, s);
@@ -674,7 +988,21 @@
     if (sceneNote && scenePlacement === 'character') parts.push('Scene note: ' + sceneNote);
 
     var activeStage = session && session.continuity && session.continuity.enabled ? session.continuity.stage : '';
-    var lore = loreHits(char.lorebook, recent, LORE_LIMIT, LORE_BUDGET, activeStage);
+    var lore = loreHits(char.lorebook, recent, LORE_LIMIT, LORE_BUDGET, activeStage, lo);
+    /* Item 4b: `position` and `insertion_order` decide where an ADMITTED entry
+       goes, which is a different question from which entries got in - that stays
+       relevance-ranked in every mode. Horde's layout has one place for world
+       facts, so by default the book's own ordering is preserved and not applied.
+       Turning on the card's lore ordering puts `before_char` entries ahead of the
+       sheet and `after_char` entries after it, each group sorted by
+       `insertion_order`. */
+    var groups = lorePlacements(lore, lo);
+    lore = groups.middle;
+    if (groups.before.length) {
+      head.push('World facts (before the character):\n' + groups.before.map(function (e) {
+        return '- ' + macros(plainText(e.content), char, s);
+      }).join('\n'));
+    }
     if (lore.length) {
       parts.push('Relevant world facts:\n' + lore.map(function (e) {
         return '- ' + macros(plainText(e.content), char, s);
@@ -708,10 +1036,21 @@
     if (sceneNote && scenePlacement === 'memory') parts.push('Scene note: ' + sceneNote);
     var continuity = continuityPrompt(session);
     if (continuity) parts.push(continuity);
-    var post = macros(plainText(char.postHistory), char, s);
+    var post = postHistoryMode(char) === 'sheet' ? postHistoryText(char, s) : '';
     if (post) parts.push(post);
     if (sceneNote && scenePlacement !== 'character' && scenePlacement !== 'memory') parts.push('Scene note: ' + sceneNote);
-    return parts.join('\n\n');
+    if (groups.after.length) {
+      parts.push('World facts (after the character):\n' + groups.after.map(function (e) {
+        return '- ' + macros(plainText(e.content), char, s);
+      }).join('\n'));
+    }
+    var dirs = directiveBlock(char, s);
+    /* Labelled rather than appended bare: the sheet is a list of things the
+       model is told, and an instruction with no heading is the kind of line a
+       model reads as fiction. It sits last inside the sheet, above the examples
+       and the transcript. */
+    if (dirs) parts.push(dirs);
+    return head.concat(parts.filter(Boolean)).join('\n\n');
   }
 
   /* ---------------- per-chat player RPG ledger ---------------- */
@@ -1013,13 +1352,13 @@
     /* v1.39.111: one window for the whole request. Lore, the transcript and
        the style lock all read `win`; nothing opens its own. */
     var win = requestWindow(history, s);
-    var recent = win.sample;
+    var recent = loreWindow(character, history, win);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     /* A world run (and any caller that knows better) supplies character.systemPrompt
        with the narrator rules plus live state. Fall back to the global prompt. */
-    var system = macros(character.systemPrompt || s.systemPrompt, character, s);
+    var system = macros(systemTextOf(character, s), character, s);
     system += '\n' + macros(OOC_RULE, character, s);
-    var sheet = charSheet(character, s, session, recent, assistantTurns);
+    var sheet = charSheet(character, s, session, recent, assistantTurns, loreOpts(character));
     if (sheet) system += '\n\n' + sheet;
     var rpg = rpgStatusPrompt(session);
     if (rpg) system += '\n\n' + rpg;
@@ -1106,7 +1445,12 @@
        reply length: long replies hit trimHistory's floor of four, the star count
        fell with the message count, and an identical habit went unnoticed on
        exactly the cards that write long replies. */
-    var tail = [styleLock(win.messages), finalNote].filter(Boolean).join('\n\n');
+    /* the card's own instruction lands after the history and BEFORE the
+       app's continuation/reroll note, so it cannot be read as the last order in
+       the request - that stays the app's, and it is the one that has to survive
+       a reroll. */
+    var tailPost = postHistoryMode(character) === 'tail' ? postHistoryText(character, s) : '';
+    var tail = [styleLock(win.messages), tailPost, finalNote].filter(Boolean).join('\n\n');
     if (tail) msgs.push({ role: 'system', content: tail });
 
     msgs = fitContext(msgs, 1 + ex.length);
@@ -1218,10 +1562,10 @@
     /* v1.39.111: the prompt format reads the same one window as the chat
        format, so the two cannot disagree about what is recent. */
     var win = requestWindow(history, s);
-    var recent = win.sample;
+    var recent = loreWindow(character, history, win);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
-    var head = macros(character.systemPrompt || s.systemPrompt, character, s) +
-      '\n\n' + charSheet(character, s, session, recent, assistantTurns);
+    var head = macros(systemTextOf(character, s), character, s) +
+      '\n\n' + charSheet(character, s, session, recent, assistantTurns, loreOpts(character));
     var rpg = rpgStatusPrompt(session);
     if (rpg) head += '\n\n' + rpg;
     if (note) head += '\n\n' + note;
@@ -1249,6 +1593,7 @@
         /* v1.39.99: finalNote is read here too, so a state reminder supplied
            by a world run lands after the transcript and immediately before
            the cue to answer — the same position the chat format gives it. */
+        postHistoryMode(character) === 'tail' ? postHistoryText(character, s) : '',
         finalNote || '', styleLock(win.messages), character.name + ':'].filter(Boolean).join('\n\n');
     };
     /* head holds the character sheet and the life snapshot — trim history, never that */
@@ -3292,6 +3637,8 @@
     generateFree: generateFree,
     macros: macros, pronounPresets: PRONOUN_PRESETS, pronounsFor: pronounsFor,
     buildChat: buildChat, buildPrompt: buildPrompt, generate: generate,
+    /* the tests read the assembled character sheet directly; the app never does */
+    _charSheet: charSheet,
     cleanReply: cleanReply, looksTruncated: looksTruncated,
     splitBurst: splitBurst,
     stripThinking: stripThinking,
@@ -3341,6 +3688,19 @@
     _loreHits: loreHits,
     loreDiagnostics: loreDiagnostics,
     loreSample: loreSample,
+    /* v1.40.0: the screens and the tests read the matcher's own settings back
+       from here, so the Lore screen can never disagree with the request. */
+    loreOpts: loreOpts, loreScanTurns: loreScanTurns,
+    LORE_SCAN_DEFAULT: LORE_SCAN_TURNS, LORE_SCAN_MIN: LORE_SCAN_MIN, LORE_SCAN_MAX: LORE_SCAN_MAX,
+    /* items 2 and 3: the two choices, and the resolver the prompt uses, so the
+       editor can show the same text the request sends */
+    systemTextOf: systemTextOf, postHistoryMode: postHistoryMode,
+    postHistoryText: postHistoryText,
+    /* item 5: which macros a card asks for that this app will not resolve */
+    unresolvedMacros: unresolvedMacros,
+    /* item 6: the authoring fields, in the order the sheet prints them */
+    CARD_DIRECTIVES: DIRECTIVES,
+    directiveBlock: directiveBlock,
     loreRanks: loreRanks,
     LORE_LIMIT: LORE_LIMIT, LORE_BUDGET: LORE_BUDGET, LORE_SCAN_TURNS: LORE_SCAN_TURNS,
     requestWindow: requestWindow, lastTurns: lastTurns, labelledName: labelledName,

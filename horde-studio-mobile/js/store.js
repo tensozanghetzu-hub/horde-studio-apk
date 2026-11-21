@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.39.112';
+  var VERSION = '1.40.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -194,6 +194,20 @@
           id: UI.uid('c'), name: '', tagline: '', avatar: '',
           persona: '', scenario: '', greeting: '', examples: '',
           postHistory: '', tags: [], systemPrompt: '',
+          /* v1.40.0 (compatibility letter, items 2, 3, 4, 6). Every one of these
+             defaults to "what this app has always done", so an existing or
+             hand-made character is unaffected until the player chooses.
+               postHistoryPlacement  'sheet' | 'tail' | 'off'  (item 2)
+               systemPromptSource    '' (= app) | 'card' | 'combine'  (item 3)
+               cardSystemPrompt      the card's own text, kept and SHOWN, applied
+                                     only when systemPromptSource says so
+               loreCompat            honour the book's own ordering and budget
+               loreScanTurns         0 = the app's 6-turn window (item 4c)
+               loreBookScan/Budget   the card's own numbers, read in compat mode
+               directives            `extensions.horde_studio.*` (item 6) */
+          postHistoryPlacement: 'sheet', systemPromptSource: '', cardSystemPrompt: '',
+          loreCompat: false, loreScanTurns: 0, loreBookScan: 0, loreBookBudget: 0,
+          directives: { agency: '', style: '', canon: '', progression: '', stages: '', priority: '' },
           temperature: null, maxTokens: null,
           lorebook: [], expressionPortraits: [], vh: (global.VH ? VH.defaults() : null),
           /* v1.13.0: internal state — off by default, so existing and new
@@ -536,6 +550,94 @@
       return out;
     },
 
+    /* v1.40.0 (items 3, 4c, 6): three small reads that both import branches
+       need, kept here so the two cannot drift apart.
+       - the card's own `system_prompt`, kept verbatim for display and only
+         applied if the character says so (see API.systemTextOf)
+       - the book's `scan_depth` / `token_budget`, which the app treats as
+         limits it may NARROW, never widen, and only in compat mode
+       - `extensions.horde_studio.*`, the fields Horde owns: read only when the
+         card actually sets them, capped so a card cannot use them to grow the
+         prompt past the editor's own limits */
+    cardSystemPromptOf: function (data) {
+      var sp = data && data.system_prompt;
+      return (sp == null ? '' : String(sp)).trim().slice(0, Store.CARRY_CAP);
+    },
+    bookLimitsOf: function (card, data) {
+      var book = (data && data.character_book) || (card && card.data && card.data.character_book) ||
+        (card && card.character_book) || null;
+      function num(v) { var n = Number(v); return (isFinite(n) && n > 0) ? n : 0; }
+      return { scan: book ? num(book.scan_depth) : 0, budget: book ? num(book.token_budget) : 0 };
+    },
+    /* The six fields are CARRIED whole (up to a storage bound) and BUDGETED at
+       the point of use, in api.js. Truncating on import would mean an export
+       from here returned a shorter text than the card had, which is the one
+       thing item 1 rules out; a prompt that grows without limit is a different
+       problem, and it is solved where the prompt is built. */
+    CARRY_CAP: 4000,
+    cardDirectives: function (data, card) {
+      var ext = (data && data.extensions) || (card && card.extensions) ||
+        (card && card.data && card.data.extensions) || {};
+      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var out = {};
+      ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
+        var v = hx[k];
+        v = (v == null ? '' : String(v)).trim();
+        out[k] = v ? v.slice(0, Store.CARRY_CAP) : '';
+      });
+      return out;
+    },
+    /* how much of the card's text this app carries, so the importer can say so
+       when it had to cut - the card keeps its own copy either way */
+    cardCarryOver: function (data, card) {
+      var ext = (data && data.extensions) || (card && card.extensions) ||
+        (card && card.data && card.data.extensions) || {};
+      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var over = 0;
+      ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
+        if (String(hx[k] == null ? '' : hx[k]).trim().length > Store.CARRY_CAP) over++;
+      });
+      if (String(data && data.system_prompt ? data.system_prompt : '').trim().length > Store.CARRY_CAP) over++;
+      return over;
+    },
+
+    /* What this app ADDS to a card's `extensions.horde_studio` (item 6): the
+       six authoring fields, plus the per-character choices that have no home
+       anywhere else in the spec. Keys are written only when they carry a value,
+       so a character that decided nothing exports the extensions object it came
+       in with - an export is never the moment a card grows fields. */
+    hordeCardFields: function (c) {
+      var out = {};
+      ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
+        var v = String((c.directives && c.directives[k]) || '').trim();
+        if (v) out[k] = v;
+      });
+      if (c.postHistoryPlacement && c.postHistoryPlacement !== 'sheet') out.post_history_placement = c.postHistoryPlacement;
+      if (c.systemPromptSource) out.system_prompt_source = c.systemPromptSource;
+      if (c.loreCompat === true) out.lore_compat = true;
+      var t = parseInt(c.loreScanTurns, 10);
+      if (t > 0) out.lore_scan_turns = Math.min(24, t);
+      return out;
+    },
+    /* The same keys read back, with every unknown value falling to the app's own
+       default rather than to a guess: a card that says `post_history_placement:
+       "middle"` gets the sheet placement, which is what it had before this
+       feature existed at all. */
+    hordeCardChoices: function (data, card) {
+      var ext = (data && data.extensions) || (card && card.extensions) ||
+        (card && card.data && card.data.extensions) || {};
+      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var PL = { sheet: 'sheet', tail: 'tail', off: 'off' };
+      var SRC = { app: 'app', card: 'card', combine: 'combine' };
+      var turns = parseInt(hx.lore_scan_turns, 10);
+      return {
+        postHistoryPlacement: PL[hx.post_history_placement] || 'sheet',
+        systemPromptSource: SRC[hx.system_prompt_source] || '',
+        loreCompat: hx.lore_compat === true,
+        loreScanTurns: turns > 0 ? Math.min(24, turns) : 0
+      };
+    },
+
     /* the lorebook a card embeds. V2 puts it in data.character_book,
        V3 in data.character_book too, and legacy V1 cards hang it off the
        top level — accept all three, drop nothing. */
@@ -548,9 +650,33 @@
         /* C1 (v1.39.70): `constant` is the field authors rely on most — an
            entry that must always be in context. It used to be dropped here, so
            a card relying on it silently got nothing. */
-        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '',
+        /* v1.40.0: the fields the matcher honours are imported, not just
+           preserved. `selectiveLogic` is the exception — a SillyTavern field
+           with no place in either spec — so it rides in as a raw value purely so
+           the Lore screen can say it is not applied, and nothing reads it.
+           `essential` is Horde's own (extensions.horde_studio.essential on the
+           entry): the app-author's way of saying "this must survive the
+           budget". Import caps content at the same length the editor does, so a
+           book cannot grow the prompt past what this screen will let you type. */
+        var hx = (e.extensions && e.extensions.horde_studio) || {};
+        /* These are mirrored as the card wrote them, not as the app reads them: a
+           card that says `selective: "true"` keeps that string in the live entry,
+           so an export cannot rewrite the author's bytes, while the matcher -
+           which requires `=== true` - ignores it and the Lore screen calls the
+           entry malformed. Same reasoning for `position` (a free string in V2,
+           where only `after_char` means after) and for the two numbers. */
+        var out = { id: UI.uid('l'), keys: e.keys || [], content: e.content || '',
           enabled: e.enabled !== false, stage: e.stage || '',
-          constant: e.constant === true };
+          constant: e.constant === true,
+          selective: e.selective,
+          secondaryKeys: Array.isArray(e.secondary_keys) ? e.secondary_keys.slice() : [],
+          caseSensitive: e.case_sensitive,
+          position: e.position === undefined ? '' : String(e.position),
+          insertionOrder: e.insertion_order === undefined ? null : e.insertion_order,
+          priority: e.priority === undefined ? null : e.priority,
+          essential: hx.essential === true || e.essential === true };
+        if (e.selectiveLogic !== undefined) out.selectiveLogic = e.selectiveLogic;
+        return out;
       }) : [];
     },
 
@@ -805,6 +931,8 @@
            proof it is not needed. */
         var desc = [data.description || '', data.personality || ''].filter(Boolean).join('\n\n');
         var v3book = Store.bookFromCard(card, data);
+        var lim = Store.bookLimitsOf(card, data);
+        var ch = Store.hordeCardChoices(data, card);
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
           tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -817,6 +945,14 @@
           /* v1.39.16: the author's always-remember line used to die at the
              border — every card that carried one imported silent */
           examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
+          /* v1.40.0: the card's own system prompt and Horde's authoring fields come in
+             now. Both placement choices start at this app's long-standing behaviour:
+             post-history text joins the sheet, and the global prompt stays in charge. */
+          cardSystemPrompt: Store.cardSystemPromptOf(data),
+          postHistoryPlacement: ch.postHistoryPlacement, systemPromptSource: ch.systemPromptSource,
+          directives: Store.cardDirectives(data, card),
+          loreCompat: ch.loreCompat, loreScanTurns: ch.loreScanTurns,
+          loreBookScan: lim.scan, loreBookBudget: lim.budget,
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
           lorebook: v3book,
           cardSource: Store.cardSourceFor(card, data, v3book),
@@ -830,6 +966,8 @@
       }
       var list2 = Store.scenarioList(data);
       var v12book = Store.bookFromCard(card, data);
+      var lim = Store.bookLimitsOf(card, data);
+      var ch = Store.hordeCardChoices(data, card);
       return {
         id: UI.uid('c'), name: data.name || 'Imported character',
         tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -839,6 +977,14 @@
         scenarioList: list2,
         greeting: data.first_mes || '',
         examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
+        /* v1.40.0: the card's own system prompt and Horde's authoring fields come in
+           now. Both placement choices start at this app's long-standing behaviour:
+           post-history text joins the sheet, and the global prompt stays in charge. */
+        cardSystemPrompt: Store.cardSystemPromptOf(data),
+        postHistoryPlacement: ch.postHistoryPlacement, systemPromptSource: ch.systemPromptSource,
+        directives: Store.cardDirectives(data, card),
+        loreCompat: ch.loreCompat, loreScanTurns: ch.loreScanTurns,
+        loreBookScan: lim.scan, loreBookBudget: lim.budget,
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         /* V2 cards with an embedded book were losing it entirely here */
         lorebook: v12book,
@@ -952,6 +1098,14 @@
       keepOrWrite('mes_example', c.examples, clean(merged.mes_example || ''));
       keepOrWrite('post_history_instructions', c.postHistory || '',
         clean(String(merged.post_history_instructions || '')));
+      /* v1.40.0 (item 3): the card's prompt is kept as the card wrote it. The
+         app's own copy is the trimmed string the import produced, so an
+         untouched character compares equal and the author's bytes go back out;
+         only a real edit rewrites the field. Derived the way cardToCharacter
+         derives it - no clean() here, or a card whose text plainText would alter
+         would look "edited" on every export. */
+      keepOrWrite('system_prompt', c.cardSystemPrompt || '',
+        Store.cardSystemPromptOf(merged));
       keepOrWrite('alternate_greetings', c.alternateGreetings || [],
         alt.map(function (g) { return clean(g); }));
       keepOrWrite('tags', c.tags || [], merged.tags || []);
@@ -1021,13 +1175,44 @@
           content: [e.content || '', clean(r.content || '')],
           enabled: [e.enabled !== false, r.enabled !== false],
           stage: [e.stage || '', r.stage || ''],
-          constant: [e.constant === true, r.constant === true]
+          constant: [e.constant === true, r.constant === true],
+          /* v1.40.0: the matcher honours these now, so an entry authored HERE has
+             to carry them out too. The live value is the card's own (bookFromCard
+             mirrors it), so an untouched entry compares equal and the author's
+             bytes - including a value this app would not have written - survive
+             verbatim. */
+          selective: [e.selective, r.selective],
+          secondary_keys: [e.secondaryKeys || [], r.secondary_keys || []],
+          case_sensitive: [e.caseSensitive, r.case_sensitive],
+          position: [e.position || '', r.position || ''],
+          insertion_order: [e.insertionOrder, r.insertion_order],
+          priority: [e.priority, r.priority]
         };
+        /* For these, absence IS the default: never written into an entry the card
+           did not have, so importing a plain V1 book and exporting it does not
+           turn every entry into a declared one. */
+        var UNSET_OK = { constant: 1, selective: 1, case_sensitive: 1, position: 1,
+          insertion_order: 1, priority: 1 };
+        function isNothing(v) {
+          return v === false || v === null || v === undefined || v === '' ||
+            (Array.isArray(v) && !v.length);
+        }
         Object.keys(same).forEach(function (k) {
           if (had && Store._sameVal(same[k][0], same[k][1])) return;
-          if (!had && k === 'constant' && !same[k][0]) return;   /* do not invent one */
+          if (!had && UNSET_OK[k] && isNothing(same[k][0])) return;   /* do not invent one */
+          if (same[k][0] === undefined) { delete r[k]; return; }
           r[k] = same[k][0];
         });
+        /* `essential` is Horde's flag, not a spec field: it goes in the entry's
+           own extensions namespace, where a client that does not know it leaves
+           it alone and an export carries it back. */
+        if (e.essential === true) {
+          r.extensions = Object.assign({}, r.extensions || {}, {
+            horde_studio: Object.assign({}, (r.extensions || {}).horde_studio || {}, { essential: true })
+          });
+        } else if (r.extensions && r.extensions.horde_studio && r.extensions.horde_studio.essential) {
+          delete r.extensions.horde_studio.essential;
+        }
         return r;
       });
       if (entries.length || s.book || (s.bookAt && s.bookAt.data)) {
@@ -1069,6 +1254,9 @@
       });
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
       if (c.postHistory) card.data.post_history_instructions = c.postHistory;
+      /* v1.40.0: a character holding the card's own prompt writes it back, or a
+         round trip through the app drops the field the app can now honour. */
+      if (c.cardSystemPrompt) card.data.system_prompt = c.cardSystemPrompt;
       /* the embedded lorebook rides along: exporting used to drop it, so a
          round trip through us silently un-carried the card's world */
       if (c.lorebook && c.lorebook.length) {
@@ -1077,17 +1265,29 @@
           entries: c.lorebook.map(function (e) {
             var out = { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
             if (e.constant) out.constant = true;
+            /* v1.40.0: every field the matcher now reads has to be written by the
+               path that has no source copy to fall back on, or an entry authored
+               in this app loses its conditions on the way out. */
+            if (e.selective === true) out.selective = true;
+            if (e.secondaryKeys && e.secondaryKeys.length) out.secondary_keys = e.secondaryKeys.slice();
+            if (e.caseSensitive === true) out.case_sensitive = true;
+            if (e.position === 'before_char' || e.position === 'after_char') out.position = e.position;
+            if (typeof e.insertionOrder === 'number') out.insertion_order = e.insertionOrder;
+            if (typeof e.priority === 'number') out.priority = e.priority;
+            if (e.essential === true) out.extensions = { horde_studio: { essential: true } };
             return out;
           })
         };
       }
+      var horde = Store.hordeCardFields(c);
       if (c.expressionPortraits && c.expressionPortraits.length) {
-        card.data.extensions = Object.assign({}, card.data.extensions || {});
-        card.data.extensions.horde_studio = Object.assign({}, card.data.extensions.horde_studio || {}, {
-          expression_portraits: c.expressionPortraits.map(function (e) {
-            return { label: e.label || '', keys: e.keys || [], src: e.src || '' };
-          })
+        horde.expression_portraits = c.expressionPortraits.map(function (e) {
+          return { label: e.label || '', keys: e.keys || [], src: e.src || '' };
         });
+      }
+      if (Object.keys(horde).length) {
+        card.data.extensions = Object.assign({}, card.data.extensions || {});
+        card.data.extensions.horde_studio = horde;
       }
       /* the intros ride back out too - a card that boasted ten arrivals
          keeps them through an import-export round trip */

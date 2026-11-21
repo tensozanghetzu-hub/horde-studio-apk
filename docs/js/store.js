@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.39.112';
+  var VERSION = '1.40.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -194,6 +194,20 @@
           id: UI.uid('c'), name: '', tagline: '', avatar: '',
           persona: '', scenario: '', greeting: '', examples: '',
           postHistory: '', tags: [], systemPrompt: '',
+          /* v1.40.0 (compatibility letter, items 2, 3, 4, 6). Every one of these
+             defaults to "what this app has always done", so an existing or
+             hand-made character is unaffected until the player chooses.
+               postHistoryPlacement  'sheet' | 'tail' | 'off'  (item 2)
+               systemPromptSource    '' (= app) | 'card' | 'combine'  (item 3)
+               cardSystemPrompt      the card's own text, kept and SHOWN, applied
+                                     only when systemPromptSource says so
+               loreCompat            honour the book's own ordering and budget
+               loreScanTurns         0 = the app's 6-turn window (item 4c)
+               loreBookScan/Budget   the card's own numbers, read in compat mode
+               directives            `extensions.horde_studio.*` (item 6) */
+          postHistoryPlacement: 'sheet', systemPromptSource: '', cardSystemPrompt: '',
+          loreCompat: false, loreScanTurns: 0, loreBookScan: 0, loreBookBudget: 0,
+          directives: { agency: '', style: '', canon: '', progression: '', stages: '', priority: '' },
           temperature: null, maxTokens: null,
           lorebook: [], expressionPortraits: [], vh: (global.VH ? VH.defaults() : null),
           /* v1.13.0: internal state — off by default, so existing and new
@@ -536,6 +550,94 @@
       return out;
     },
 
+    /* v1.40.0 (items 3, 4c, 6): three small reads that both import branches
+       need, kept here so the two cannot drift apart.
+       - the card's own `system_prompt`, kept verbatim for display and only
+         applied if the character says so (see API.systemTextOf)
+       - the book's `scan_depth` / `token_budget`, which the app treats as
+         limits it may NARROW, never widen, and only in compat mode
+       - `extensions.horde_studio.*`, the fields Horde owns: read only when the
+         card actually sets them, capped so a card cannot use them to grow the
+         prompt past the editor's own limits */
+    cardSystemPromptOf: function (data) {
+      var sp = data && data.system_prompt;
+      return (sp == null ? '' : String(sp)).trim().slice(0, Store.CARRY_CAP);
+    },
+    bookLimitsOf: function (card, data) {
+      var book = (data && data.character_book) || (card && card.data && card.data.character_book) ||
+        (card && card.character_book) || null;
+      function num(v) { var n = Number(v); return (isFinite(n) && n > 0) ? n : 0; }
+      return { scan: book ? num(book.scan_depth) : 0, budget: book ? num(book.token_budget) : 0 };
+    },
+    /* The six fields are CARRIED whole (up to a storage bound) and BUDGETED at
+       the point of use, in api.js. Truncating on import would mean an export
+       from here returned a shorter text than the card had, which is the one
+       thing item 1 rules out; a prompt that grows without limit is a different
+       problem, and it is solved where the prompt is built. */
+    CARRY_CAP: 4000,
+    cardDirectives: function (data, card) {
+      var ext = (data && data.extensions) || (card && card.extensions) ||
+        (card && card.data && card.data.extensions) || {};
+      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var out = {};
+      ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
+        var v = hx[k];
+        v = (v == null ? '' : String(v)).trim();
+        out[k] = v ? v.slice(0, Store.CARRY_CAP) : '';
+      });
+      return out;
+    },
+    /* how much of the card's text this app carries, so the importer can say so
+       when it had to cut - the card keeps its own copy either way */
+    cardCarryOver: function (data, card) {
+      var ext = (data && data.extensions) || (card && card.extensions) ||
+        (card && card.data && card.data.extensions) || {};
+      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var over = 0;
+      ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
+        if (String(hx[k] == null ? '' : hx[k]).trim().length > Store.CARRY_CAP) over++;
+      });
+      if (String(data && data.system_prompt ? data.system_prompt : '').trim().length > Store.CARRY_CAP) over++;
+      return over;
+    },
+
+    /* What this app ADDS to a card's `extensions.horde_studio` (item 6): the
+       six authoring fields, plus the per-character choices that have no home
+       anywhere else in the spec. Keys are written only when they carry a value,
+       so a character that decided nothing exports the extensions object it came
+       in with - an export is never the moment a card grows fields. */
+    hordeCardFields: function (c) {
+      var out = {};
+      ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
+        var v = String((c.directives && c.directives[k]) || '').trim();
+        if (v) out[k] = v;
+      });
+      if (c.postHistoryPlacement && c.postHistoryPlacement !== 'sheet') out.post_history_placement = c.postHistoryPlacement;
+      if (c.systemPromptSource) out.system_prompt_source = c.systemPromptSource;
+      if (c.loreCompat === true) out.lore_compat = true;
+      var t = parseInt(c.loreScanTurns, 10);
+      if (t > 0) out.lore_scan_turns = Math.min(24, t);
+      return out;
+    },
+    /* The same keys read back, with every unknown value falling to the app's own
+       default rather than to a guess: a card that says `post_history_placement:
+       "middle"` gets the sheet placement, which is what it had before this
+       feature existed at all. */
+    hordeCardChoices: function (data, card) {
+      var ext = (data && data.extensions) || (card && card.extensions) ||
+        (card && card.data && card.data.extensions) || {};
+      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var PL = { sheet: 'sheet', tail: 'tail', off: 'off' };
+      var SRC = { app: 'app', card: 'card', combine: 'combine' };
+      var turns = parseInt(hx.lore_scan_turns, 10);
+      return {
+        postHistoryPlacement: PL[hx.post_history_placement] || 'sheet',
+        systemPromptSource: SRC[hx.system_prompt_source] || '',
+        loreCompat: hx.lore_compat === true,
+        loreScanTurns: turns > 0 ? Math.min(24, turns) : 0
+      };
+    },
+
     /* the lorebook a card embeds. V2 puts it in data.character_book,
        V3 in data.character_book too, and legacy V1 cards hang it off the
        top level — accept all three, drop nothing. */
@@ -548,9 +650,33 @@
         /* C1 (v1.39.70): `constant` is the field authors rely on most — an
            entry that must always be in context. It used to be dropped here, so
            a card relying on it silently got nothing. */
-        return { id: UI.uid('l'), keys: e.keys || [], content: e.content || '',
+        /* v1.40.0: the fields the matcher honours are imported, not just
+           preserved. `selectiveLogic` is the exception — a SillyTavern field
+           with no place in either spec — so it rides in as a raw value purely so
+           the Lore screen can say it is not applied, and nothing reads it.
+           `essential` is Horde's own (extensions.horde_studio.essential on the
+           entry): the app-author's way of saying "this must survive the
+           budget". Import caps content at the same length the editor does, so a
+           book cannot grow the prompt past what this screen will let you type. */
+        var hx = (e.extensions && e.extensions.horde_studio) || {};
+        /* These are mirrored as the card wrote them, not as the app reads them: a
+           card that says `selective: "true"` keeps that string in the live entry,
+           so an export cannot rewrite the author's bytes, while the matcher -
+           which requires `=== true` - ignores it and the Lore screen calls the
+           entry malformed. Same reasoning for `position` (a free string in V2,
+           where only `after_char` means after) and for the two numbers. */
+        var out = { id: UI.uid('l'), keys: e.keys || [], content: e.content || '',
           enabled: e.enabled !== false, stage: e.stage || '',
-          constant: e.constant === true };
+          constant: e.constant === true,
+          selective: e.selective,
+          secondaryKeys: Array.isArray(e.secondary_keys) ? e.secondary_keys.slice() : [],
+          caseSensitive: e.case_sensitive,
+          position: e.position === undefined ? '' : String(e.position),
+          insertionOrder: e.insertion_order === undefined ? null : e.insertion_order,
+          priority: e.priority === undefined ? null : e.priority,
+          essential: hx.essential === true || e.essential === true };
+        if (e.selectiveLogic !== undefined) out.selectiveLogic = e.selectiveLogic;
+        return out;
       }) : [];
     },
 
@@ -593,6 +719,191 @@
       return out;
     },
 
+    /* ---------------- non-destructive round trip (v1.39.113) -------------
+       A card carries far more than this app models: client-specific
+       extensions, lorebook properties the matcher has no use for, V3 fields
+       with no Horde equivalent. Until now those died at the border, so a card
+       that had merely been opened in the APK came back out diminished, and a
+       re-import of that export made the loss permanent. Import notes tell the
+       user about it, but a warning does not restore anything.
+
+       `cardSource` is the restore: a plain-JSON copy of what the file actually
+       said - both the top level and under `data`, because other tools read
+       either - plus the book's own properties and one raw record per lorebook
+       entry. Export overlays this app's live values onto it, so a field the
+       user never touched survives with its value AND its type, and a field
+       they edited is written in both places at once.
+
+       It is data, never behaviour. Nothing here is read when a prompt is
+       built, no preserved field becomes a macro target or a style
+       instruction, and nothing in it is shown as the card's sheet. Preserved,
+       not used - the distinction the import notes make in words.
+       ------------------------------------------------------------------ */
+    SOURCE_CAP: 2 * 1024 * 1024,        /* JSON bytes; a bigger source is not kept */
+
+    /* Clone a value for the preserved copy: JSON-safe, and with base64 picture
+       payloads left out. A data: URL is a whole image inside a string, and the
+       app already carries those as the avatar and the picture gallery (see
+       cardAvatar / cardImages), so keeping them again would double several
+       megabytes per card for nothing. Each path left out is recorded so export
+       can put the app's own copy back and report what it cannot. */
+    _srcClone: function (v, path, acc, depth) {
+      if (typeof v === 'string') {
+        if (/^data:[^,]*base64,/i.test(v) || /^data:image\//i.test(v)) {
+          if (acc.imgs.indexOf(path) === -1) acc.imgs.push(path);
+          return undefined;
+        }
+        return v;
+      }
+      if (v === null || typeof v !== 'object') {
+        if (v === undefined || typeof v === 'function') return undefined;
+        return v;
+      }
+      if (depth > 12) return undefined;
+      if (Array.isArray(v)) {
+        var arr = [];
+        for (var i = 0; i < v.length; i++) {
+          var item = Store._srcClone(v[i], path + '[' + i + ']', acc, depth + 1);
+          arr.push(item === undefined ? null : item);
+        }
+        return arr;
+      }
+      var o = {};
+      Object.keys(v).forEach(function (k) {
+        var val = Store._srcClone(v[k], path ? path + '.' + k : k, acc, depth + 1);
+        if (val !== undefined) o[k] = val;
+      });
+      return o;
+    },
+
+    /* Canonical JSON with sorted keys, so "did the user change this field?"
+       does not depend on key order or on a field arriving as 5 vs "5" -
+       types are compared too, which is the point of preserving them. */
+    _canon: function (v) {
+      if (v === null || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
+      if (Array.isArray(v)) return '[' + v.map(Store._canon).join(',') + ']';
+      return '{' + Object.keys(v).sort().map(function (k) {
+        return JSON.stringify(k) + ':' + Store._canon(v[k]);
+      }).join(',') + '}';
+    },
+    _sameVal: function (a, b) { return Store._canon(a) === Store._canon(b); },
+
+    /* The copy of the source worth keeping. `data` wins over the top level,
+       which is the rule cardToCharacter already imports by, so the two views
+       of one card can never disagree about what the card said. */
+    cardSourceFor: function (card, data, lore) {
+      var src = card || {};
+      var acc = { imgs: [] };
+      var top = {}, body = {};
+      Object.keys(src).forEach(function (k) {
+        if (k === 'data' || k === 'spec' || k === 'spec_version' ||
+            k === 'cardSource' || k === 'importNotes') return;
+        if (k === 'character_book') return;                 /* kept apart, see below */
+        var v = Store._srcClone(src[k], k, acc, 0);
+        if (v !== undefined) top[k] = v;
+      });
+      if (src.data && typeof src.data === 'object' && !Array.isArray(src.data)) {
+        Object.keys(src.data).forEach(function (k) {
+          if (k === 'character_book') return;
+          var v = Store._srcClone(src.data[k], 'data.' + k, acc, 0);
+          if (v !== undefined) body[k] = v;
+        });
+      }
+      var s = { top: top, body: body, imgs: acc.imgs };
+      if (typeof src.spec === 'string') s.spec = src.spec;
+      if (typeof src.spec_version === 'string') s.spec_version = src.spec_version;
+
+      var book = (data && data.character_book) ||
+        (src.data && src.data.character_book) || src.character_book || null;
+      if (book && typeof book === 'object' && !Array.isArray(book)) {
+        var meta = {};
+        Object.keys(book).forEach(function (k) {
+          if (k === 'entries') return;
+          var v = Store._srcClone(book[k], 'book.' + k, acc, 0);
+          if (v !== undefined) meta[k] = v;
+        });
+        s.book = meta;
+        /* Book-level settings this app ignores (token_budget, recursion_depth,
+           scan_depth...) are still the author's, so they ride back out. Where
+           the book lived matters as much as what it held: a V1 card hangs it
+           off the top level, a V2 card puts it in data. */
+        s.bookAt = {
+          top: !!(src.character_book && typeof src.character_book === 'object'),
+          data: !!(src.data && src.data.character_book)
+        };
+        var ents = book.entries;
+        if (Array.isArray(ents)) {
+          /* Keyed by the id this app minted for each entry, never by position:
+             entries get reordered, deleted and added in the editor, and a raw
+             record attached to array index would follow the index rather than
+             the entry. Ids the source itself uses are irrelevant here, so
+             duplicate or missing source ids cannot collide. */
+          s.lore = [];
+          ents.forEach(function (e, i) {
+            if (!e || typeof e !== 'object' || !lore || !lore[i]) return;
+            var raw = Store._srcClone(e, 'book.entries[' + i + ']', acc, 0);
+            if (raw) s.lore.push({ uid: lore[i].id, raw: raw });
+          });
+        }
+      }
+      var text;
+      try { text = JSON.stringify(s); } catch (err) { return null; }
+      if (text.length > Store.SOURCE_CAP) return null;
+      s.bytes = text.length;
+      return s;
+    },
+
+    /* Resolve a recorded path like `data.extensions.bg` or
+       `book.entries[2].content` against the exported card, to find out whether
+       a picture the app stripped came back. */
+    _resolve: function (root, path) {
+      var parts = String(path).replace(/\[(\d+)\]/g, '.$1').split('.');
+      var v = root;
+      for (var i = 0; i < parts.length && v != null; i++) v = v[parts[i]];
+      return v;
+    },
+
+    /* Where each picture the card carried should go on the way out, and which
+       ones this app has nothing to put back. It knows two kinds of image - the
+       avatar and the gallery - and the gallery remembers the key the card used
+       (`image_2` stays `image_2`), so the file comes back shaped like itself
+       instead of renumbered. Anything else that was a picture: a background, an
+       image inside a lorebook entry - was never imported, and the export
+       reports it rather than claiming a lossless conversion. */
+    imageRestorePlan: function (c) {
+      var s = (c && c.cardSource) || {};
+      var byName = {};
+      ((c && c.images) || []).forEach(function (im) {
+        if (im && im.name && im.src) byName[String(im.name)] = im.src;
+      });
+      var targets = [], lost = [];
+      (s.imgs || []).forEach(function (p) {
+        var leaf = String(p).split('.').pop();
+        var src = leaf === 'char_x' ? ((c && c.avatar) || null)
+          : (/^image_\d+$/.test(leaf) ? (byName[leaf] || null) : null);
+        /* a nested picture key (extensions.art, an entry's image) has no place
+           in this app's model, so it cannot be filled from anywhere */
+        if (!src || /[.\[]/.test(String(p).slice(0, String(p).length - leaf.length).replace(/^data\.$/, ''))) {
+          lost.push(p);
+          return;
+        }
+        targets.push({ path: p, inBody: /^data\./.test(p), leaf: leaf, src: src });
+      });
+      return { targets: targets, lost: lost };
+    },
+
+    /* The pictures an export could not put back, for the caller to warn about. */
+    cardUnrestoredImages: function (c, card) {
+      var s = c && c.cardSource;
+      if (!s || !s.imgs || !s.imgs.length) return [];
+      var plan = Store.imageRestorePlan(c);
+      /* only a loss if nothing in the export carries that picture after all */
+      return plan.lost.filter(function (p) {
+        var v = Store._resolve(card, p);
+        return !(typeof v === 'string' && v.length);
+      });
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       /* v1.39.16: a V2 card MAY keep its fields only under data (the spec
@@ -619,6 +930,9 @@
            "Current situation:"). The V2 branch never folded, which is the
            proof it is not needed. */
         var desc = [data.description || '', data.personality || ''].filter(Boolean).join('\n\n');
+        var v3book = Store.bookFromCard(card, data);
+        var lim = Store.bookLimitsOf(card, data);
+        var ch = Store.hordeCardChoices(data, card);
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
           tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -631,8 +945,17 @@
           /* v1.39.16: the author's always-remember line used to die at the
              border — every card that carried one imported silent */
           examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
+          /* v1.40.0: the card's own system prompt and Horde's authoring fields come in
+             now. Both placement choices start at this app's long-standing behaviour:
+             post-history text joins the sheet, and the global prompt stays in charge. */
+          cardSystemPrompt: Store.cardSystemPromptOf(data),
+          postHistoryPlacement: ch.postHistoryPlacement, systemPromptSource: ch.systemPromptSource,
+          directives: Store.cardDirectives(data, card),
+          loreCompat: ch.loreCompat, loreScanTurns: ch.loreScanTurns,
+          loreBookScan: lim.scan, loreBookBudget: lim.budget,
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
-          lorebook: Store.bookFromCard(card, data),
+          lorebook: v3book,
+          cardSource: Store.cardSourceFor(card, data, v3book),
           /* A2 (v1.39.70): the V3 branch never set this, so a V3 card's
              expression portraits imported as undefined and re-exported
              without them — a round trip through the app deleted them. */
@@ -642,6 +965,9 @@
         };
       }
       var list2 = Store.scenarioList(data);
+      var v12book = Store.bookFromCard(card, data);
+      var lim = Store.bookLimitsOf(card, data);
+      var ch = Store.hordeCardChoices(data, card);
       return {
         id: UI.uid('c'), name: data.name || 'Imported character',
         tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -651,9 +977,18 @@
         scenarioList: list2,
         greeting: data.first_mes || '',
         examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
+        /* v1.40.0: the card's own system prompt and Horde's authoring fields come in
+           now. Both placement choices start at this app's long-standing behaviour:
+           post-history text joins the sheet, and the global prompt stays in charge. */
+        cardSystemPrompt: Store.cardSystemPromptOf(data),
+        postHistoryPlacement: ch.postHistoryPlacement, systemPromptSource: ch.systemPromptSource,
+        directives: Store.cardDirectives(data, card),
+        loreCompat: ch.loreCompat, loreScanTurns: ch.loreScanTurns,
+        loreBookScan: lim.scan, loreBookBudget: lim.budget,
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         /* V2 cards with an embedded book were losing it entirely here */
-        lorebook: Store.bookFromCard(card, data),
+        lorebook: v12book,
+        cardSource: Store.cardSourceFor(card, data, v12book),
         expressionPortraits: Store.expressionPortraitsFromCard(data, card),
         alternateGreetings: Store.altGreetingsFromCard(card, data),
         createdAt: Date.now(), updatedAt: Date.now()
@@ -684,7 +1019,217 @@
       return p;
     },
 
+    /* Export is the source with this app's edits laid over it, not a fresh
+       card rebuilt from the handful of fields the app models.
+
+       "Unedited" cannot mean "equal to the raw field", because import does not
+       copy fields verbatim: it runs card text through plainText, joins
+       description and personality into one persona string, falls back to the
+       first scenario in the list, and trims duplicate greetings. So the test
+       re-runs that derivation over the preserved source and compares. Equal
+       means the user never touched it - the field goes back out as the card
+       wrote it, type and all, and description and personality stay separate.
+       Different means they edited it here, and the new value is written into
+       both representations so no other reader finds a stale duplicate of the
+       old one. */
     characterToCard: function (c) {
+      var bare = Store.characterToCardBare(c);
+      var s = c && c.cardSource;
+      if (!s) return bare;                        /* imported before v1.39.113 */
+
+      var top = JSON.parse(JSON.stringify(s.top || {}));
+      var body = JSON.parse(JSON.stringify(s.body || {}));
+      /* Derive from the same merged view the import used, not from `data`
+         alone: a V1 card has no `data` at all, and some tools write a V2 card's
+         fields only at the top level. Deriving from `body` there would read an
+         empty card, call every field "edited", and write the sanitized copy
+         over the author's text - the exact damage this whole block exists to
+         stop. */
+      var merged = {};
+      Object.keys(top).forEach(function (k) { merged[k] = top[k]; });
+      Object.keys(body).forEach(function (k) { merged[k] = body[k]; });
+
+
+      function clean(v) {
+        var t = String(v == null ? '' : v);
+        return (typeof API !== 'undefined' && API && API.plainText) ? API.plainText(t) : t;
+      }
+      /* put both copies of a field: the V2 spec asks for the fields in data,
+         top level too, and tools read either one */
+      function put(k, v) { top[k] = v; body[k] = v; }
+      /* write only when the live value is not what import would have made from
+         the source - the whole of the non-destructive rule in one line */
+      function keepOrWrite(key, live, derived) {
+        if (Store._sameVal(live, derived)) {
+          /* untouched: the author's own value, copied into both places. The V2
+             spec asks for the character fields in `data` AND at the top level,
+             and this app has written both since v1.39.73 because other tools
+             read only one of the two - so the copy goes wherever a reader looks,
+             while the text itself stays exactly as the card had it. */
+          if (merged[key] !== undefined) put(key, JSON.parse(JSON.stringify(merged[key])));
+          return;
+        }
+        put(key, live);
+      }
+
+      var scList = (typeof Store.scenarioList === 'function') ? (Store.scenarioList(merged) || []) : [];
+      var scMain = String(merged.scenario || '').trim();
+      var alt = Store.altGreetingsFromCard(merged, merged);
+
+      keepOrWrite('name', c.name, merged.name || 'Imported character');
+      var personaSaid = clean([merged.description || '', merged.personality || '']
+        .filter(Boolean).join('\n\n'));
+      if (Store._sameVal(c.persona, personaSaid)) {
+        /* the two fields stay two fields - a card that keeps its personality
+           separately keeps it separately through an edit of nothing at all */
+        if (merged.description !== undefined) put('description', JSON.parse(JSON.stringify(merged.description)));
+        if (merged.personality !== undefined) put('personality', JSON.parse(JSON.stringify(merged.personality)));
+      } else {
+        /* the persona box holds both fields, so an edit cannot be split back in
+           two: the merged text goes into description and personality is
+           emptied rather than left holding the old half - that is how the app
+           has always exported, and it is the only honest option here. The old
+           text is not lost: it was inside the string being edited. */
+        put('description', bare.description);
+        put('personality', '');
+      }
+      keepOrWrite('scenario', c.scenario, clean(scMain ? scMain : (scList[0] || '')));
+      keepOrWrite('first_mes', c.greeting, clean(merged.first_mes || ''));
+      keepOrWrite('mes_example', c.examples, clean(merged.mes_example || ''));
+      keepOrWrite('post_history_instructions', c.postHistory || '',
+        clean(String(merged.post_history_instructions || '')));
+      /* v1.40.0 (item 3): the card's prompt is kept as the card wrote it. The
+         app's own copy is the trimmed string the import produced, so an
+         untouched character compares equal and the author's bytes go back out;
+         only a real edit rewrites the field. Derived the way cardToCharacter
+         derives it - no clean() here, or a card whose text plainText would alter
+         would look "edited" on every export. */
+      keepOrWrite('system_prompt', c.cardSystemPrompt || '',
+        Store.cardSystemPromptOf(merged));
+      keepOrWrite('alternate_greetings', c.alternateGreetings || [],
+        alt.map(function (g) { return clean(g); }));
+      keepOrWrite('tags', c.tags || [], merged.tags || []);
+      keepOrWrite('scenario_list', c.scenarioList || [], scList);
+      /* fields the app shows but does not own: keep the author's, add ours only
+         where the card had nothing, so an export is never missing a V2 staple */
+      ['creatorcomment', 'talkativeness', 'fav'].forEach(function (k) {
+        if (merged[k] === undefined) { top[k] = bare[k]; body[k] = bare[k]; }
+      });
+
+      /* pictures: the data URLs were left out of the copy, so the app's own
+         copies go back onto the keys the card used. What the app carries that
+         the card had no key for keeps the bare export's numbering. */
+      var plan = Store.imageRestorePlan(c);
+      var namedChar = plan.targets.filter(function (t) { return t.leaf === 'char_x'; });
+      if (bare.char_x && !namedChar.length) top.char_x = bare.char_x;
+      Object.keys(bare.data || {}).forEach(function (k) {
+        if (/^image_\d+$/.test(k) && !plan.targets.some(function (t) { return t.leaf === k; })) {
+          body[k] = bare.data[k];
+        }
+      });
+      plan.targets.forEach(function (t) {
+        (t.inBody ? body : top)[t.leaf] = t.src;
+        /* V2 puts char_x at the top level; a card that kept it in data gets it
+           in both, so neither reader finds a different answer */
+        if (t.leaf === 'char_x') {
+          if (t.inBody) top.char_x = t.src; else body.char_x = t.src;
+        }
+      });
+
+      /* extensions are somebody else's namespace: preserve every key the card
+         had and replace only our own, so another client's settings survive a
+         round trip through here untouched */
+      var srcExt = (body.extensions && typeof body.extensions === 'object') ? body.extensions
+        : ((top.extensions && typeof top.extensions === 'object') ? top.extensions : null);
+      var liveExt = (bare.data && bare.data.extensions) || null;
+      if (srcExt || liveExt) {
+        var ext = JSON.parse(JSON.stringify(srcExt || {}));
+        var horde = (ext.horde_studio && typeof ext.horde_studio === 'object') ? ext.horde_studio : {};
+        if (liveExt && liveExt.horde_studio) {
+          Object.keys(liveExt.horde_studio).forEach(function (k) { horde[k] = liveExt.horde_studio[k]; });
+        } else if (horde.expression_portraits) {
+          horde.expression_portraits = [];      /* every portrait was deleted here */
+        }
+        ext.horde_studio = horde;
+        body.extensions = JSON.parse(JSON.stringify(ext));
+        /* extensions are not a spec-duplicated field: only mirror the copy
+           upward if the card kept its extensions at the top level too.
+           Inventing a second one would be this app adding a field. */
+        if (top.extensions && typeof top.extensions === 'object') {
+          top.extensions = JSON.parse(JSON.stringify(ext));
+        }
+      }
+
+      /* the book: entry properties are matched by our own per-entry id, never
+         by position, so edits, deletions, additions and reordering all attach
+         the unknown properties to the entry they belong to */
+      var rawByUid = {};
+      (s.lore || []).forEach(function (rec) {
+        if (rec && rec.uid && rec.raw) rawByUid[rec.uid] = rec.raw;
+      });
+      var entries = (c.lorebook || []).map(function (e) {
+        var had = !!rawByUid[e.id];
+        var r = had ? JSON.parse(JSON.stringify(rawByUid[e.id])) : {};
+        var same = {
+          keys: [e.keys || [], r.keys || []],
+          content: [e.content || '', clean(r.content || '')],
+          enabled: [e.enabled !== false, r.enabled !== false],
+          stage: [e.stage || '', r.stage || ''],
+          constant: [e.constant === true, r.constant === true],
+          /* v1.40.0: the matcher honours these now, so an entry authored HERE has
+             to carry them out too. The live value is the card's own (bookFromCard
+             mirrors it), so an untouched entry compares equal and the author's
+             bytes - including a value this app would not have written - survive
+             verbatim. */
+          selective: [e.selective, r.selective],
+          secondary_keys: [e.secondaryKeys || [], r.secondary_keys || []],
+          case_sensitive: [e.caseSensitive, r.case_sensitive],
+          position: [e.position || '', r.position || ''],
+          insertion_order: [e.insertionOrder, r.insertion_order],
+          priority: [e.priority, r.priority]
+        };
+        /* For these, absence IS the default: never written into an entry the card
+           did not have, so importing a plain V1 book and exporting it does not
+           turn every entry into a declared one. */
+        var UNSET_OK = { constant: 1, selective: 1, case_sensitive: 1, position: 1,
+          insertion_order: 1, priority: 1 };
+        function isNothing(v) {
+          return v === false || v === null || v === undefined || v === '' ||
+            (Array.isArray(v) && !v.length);
+        }
+        Object.keys(same).forEach(function (k) {
+          if (had && Store._sameVal(same[k][0], same[k][1])) return;
+          if (!had && UNSET_OK[k] && isNothing(same[k][0])) return;   /* do not invent one */
+          if (same[k][0] === undefined) { delete r[k]; return; }
+          r[k] = same[k][0];
+        });
+        /* `essential` is Horde's flag, not a spec field: it goes in the entry's
+           own extensions namespace, where a client that does not know it leaves
+           it alone and an export carries it back. */
+        if (e.essential === true) {
+          r.extensions = Object.assign({}, r.extensions || {}, {
+            horde_studio: Object.assign({}, (r.extensions || {}).horde_studio || {}, { essential: true })
+          });
+        } else if (r.extensions && r.extensions.horde_studio && r.extensions.horde_studio.essential) {
+          delete r.extensions.horde_studio.essential;
+        }
+        return r;
+      });
+      if (entries.length || s.book || (s.bookAt && s.bookAt.data)) {
+        var book = Object.assign({ name: (c.name || 'character') + ' lorebook' }, s.book || {}, { entries: entries });
+        body.character_book = book;
+        top.character_book = (s.bookAt && s.bookAt.top) ? book : JSON.parse(JSON.stringify(book));
+        if (!(s.bookAt && (s.bookAt.top || s.bookAt.data))) delete top.character_book;
+      }
+
+      var out = top;
+      out.spec = s.spec || 'chara_card_v2';
+      out.spec_version = s.spec_version || '2.0';
+      out.data = body;
+      return out;
+    },
+
+    characterToCardBare: function (c) {
       var card = {
         name: c.name,
         description: Store.stripDuplicateScenario(c.persona || '', c.scenario || ''),
@@ -709,6 +1254,9 @@
       });
       if (c.scenarioList && c.scenarioList.length) card.scenario_list = c.scenarioList;
       if (c.postHistory) card.data.post_history_instructions = c.postHistory;
+      /* v1.40.0: a character holding the card's own prompt writes it back, or a
+         round trip through the app drops the field the app can now honour. */
+      if (c.cardSystemPrompt) card.data.system_prompt = c.cardSystemPrompt;
       /* the embedded lorebook rides along: exporting used to drop it, so a
          round trip through us silently un-carried the card's world */
       if (c.lorebook && c.lorebook.length) {
@@ -717,17 +1265,29 @@
           entries: c.lorebook.map(function (e) {
             var out = { keys: e.keys || [], content: e.content || '', enabled: e.enabled !== false, stage: e.stage || '' };
             if (e.constant) out.constant = true;
+            /* v1.40.0: every field the matcher now reads has to be written by the
+               path that has no source copy to fall back on, or an entry authored
+               in this app loses its conditions on the way out. */
+            if (e.selective === true) out.selective = true;
+            if (e.secondaryKeys && e.secondaryKeys.length) out.secondary_keys = e.secondaryKeys.slice();
+            if (e.caseSensitive === true) out.case_sensitive = true;
+            if (e.position === 'before_char' || e.position === 'after_char') out.position = e.position;
+            if (typeof e.insertionOrder === 'number') out.insertion_order = e.insertionOrder;
+            if (typeof e.priority === 'number') out.priority = e.priority;
+            if (e.essential === true) out.extensions = { horde_studio: { essential: true } };
             return out;
           })
         };
       }
+      var horde = Store.hordeCardFields(c);
       if (c.expressionPortraits && c.expressionPortraits.length) {
-        card.data.extensions = Object.assign({}, card.data.extensions || {});
-        card.data.extensions.horde_studio = Object.assign({}, card.data.extensions.horde_studio || {}, {
-          expression_portraits: c.expressionPortraits.map(function (e) {
-            return { label: e.label || '', keys: e.keys || [], src: e.src || '' };
-          })
+        horde.expression_portraits = c.expressionPortraits.map(function (e) {
+          return { label: e.label || '', keys: e.keys || [], src: e.src || '' };
         });
+      }
+      if (Object.keys(horde).length) {
+        card.data.extensions = Object.assign({}, card.data.extensions || {});
+        card.data.extensions.horde_studio = horde;
       }
       /* the intros ride back out too - a card that boasted ten arrivals
          keeps them through an import-export round trip */

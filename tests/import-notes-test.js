@@ -57,7 +57,13 @@ ok('V3 expression portraits are NOT reported — they import now', portraitNotes
 var secNotes = notes(v3({
   character_book: { entries: [{ keys: ['a'], content: 'x', secondary_keys: ['b'], selective: true }] }
 }));
-ok('secondary keys / selective are reported', /secondary keys/.test(secNotes.join(' ')), JSON.stringify(secNotes));
+/* v1.40.0: the app matches on selective + secondary_keys now, so reporting it
+   as a loss would be a lie. `selectiveLogic` is the part it cannot honour. */
+ok('secondary keys / selective are matched, not reported', secNotes.length === 0, JSON.stringify(secNotes));
+var logicNotes = notes(v3({
+  character_book: { entries: [{ keys: ['a'], content: 'x', selective: true, secondary_keys: ['b'], selectiveLogic: 3 }] }
+}));
+ok('selectiveLogic is reported', /selectiveLogic/.test(logicNotes.join(' ')), JSON.stringify(logicNotes));
 
 var orderNotes = notes(v3({
   character_book: { entries: [{ keys: ['a'], content: 'x', insertion_order: 5 }] }
@@ -72,10 +78,12 @@ console.log('\nG — notes are per-issue, not noise');
 var three = notes(v3({
   system_prompt: 'x',
   character_book: { entries: [
-    { keys: ['a'], content: 'c', insertion_order: 1, secondary_keys: ['b'], selective: true },
+    { keys: ['a'], content: 'c', insertion_order: 1, selective: true, selectiveLogic: 2 },
     { keys: ['d'], content: 'e', insertion_order: 2 }
   ] }
 }));
+/* three separate things to know: the card's own prompt, the order field the app
+   only applies in compat mode, and the ST-only selectiveLogic */
 ok('independent problems each get their own line', three.length === 3, JSON.stringify(three));
 ok('plural wording for several entries',
   /2 entries set "insertion_order"/.test(notes(v3({

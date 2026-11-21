@@ -1,5 +1,84 @@
 # Horde Studio Mobile — release notes
 
+## v1.40.0 — what a card asks for, and what this app answers (2026-09-10)
+
+Six changes, all of them about the border between a card and this app. The rule
+throughout: **preserve everything, apply what is documented, and say out loud
+what is not applied.** `CARDS.md` is the reference for every field, placement,
+matching rule, limit and default below.
+
+- **Opening a card no longer damages it.** The card's own JSON is kept beside the
+  character (up to 2 MB of it) and export overlays the player's edits onto it,
+  deciding "unedited" by re-running the import's own derivation and comparing
+  values *and types*. So `talkativeness: "0.9"` leaves as a string, `description`
+  and `personality` stay two fields until the persona box is edited, unknown
+  client extensions ride along untouched, and lorebook entry properties follow
+  their entry through reorder, delete, add, duplicate ids and missing ids.
+  Pictures the app has no place for are named by the export toast instead of
+  vanishing quietly. (`tests/card-roundtrip-test.js`, 105 checks.)
+- **`post_history_instructions` is placed by choice, and never twice.** The
+  character's *Always-remember note* now has three positions — end of the
+  character sheet (what this app has always done, and still the default), after
+  the history, or not sent. The chat format puts it in the trailing system turn
+  *before* the app's own continuation instruction, so a card cannot outvote the
+  line that has to survive a reroll; the text-completion format appends it after
+  `Chat history:`. No invented player message, and the Prompt inspector shows the
+  request as sent.
+- **The card's `system_prompt` is imported, shown, and applied on request.** Three
+  modes per character: your prompt, the card's, or both. The V2 spec asks apps to
+  *default* to replacing the global prompt with the card's; this app deliberately
+  does not, because its global prompt carries the rules the mobile build runs on —
+  the divergence is written down in `CARDS.md` rather than claimed as compliance.
+  `{{original}}` keeps meaning the app's own prompt in every mode, resolving to
+  nothing in *both* so the same paragraph is never inserted twice, and an empty
+  field still falls back to the global prompt, as the spec's exception says.
+- **The lorebook matcher reads the fields, not just the keys.** `case_sensitive`
+  matches the casing the key was written with (word edges and the plural allowance
+  intact); `selective` + `secondary_keys` follow V2's own comment — a key from
+  both lists, and `secondary_keys` ignored when `selective` is not `true`.
+  `selectiveLogic` is SillyTavern's and is in neither spec, so it is preserved,
+  reported on the entry and on the import, and *not* honoured: the documented
+  boolean rule decides. `insertion_order`, `position`, `priority` and the book's
+  `token_budget` are applied only by the new per-character *Follow the card's lore
+  order* switch, and even then they change where an admitted entry sits and what a
+  tight budget discards — never who was admitted, which stays relevance-ranked.
+  The keyword window is now overridable per character, 1 to 24 turns against the
+  measured default of 6, and a card's own `scan_depth` (in messages) may only
+  shorten it.
+- **Silent text becomes a named warning.** A card that asks for a macro this app
+  does not implement now says so at import, with the macro's name, the field that
+  carries it, and the list of what does resolve — asked of the resolver itself, so
+  the note cannot fall behind the code. Example dialogue additionally recognises a
+  speaker label that is bulleted or wrapped in emphasis (`- {{char}}:`,
+  `**{{char}}:**`), and an unrecognised line still joins the turn above it: no
+  line is discarded on the way in.
+- **Six instructions a card may leave for this app.** `extensions.horde_studio`
+  carries *player agency*, *narration and style*, *canon boundaries*, *story
+  progression*, *stage controls* and *essential information*. All optional, all
+  off: a card that sets nothing gets nothing added to its prompt. Each one that is
+  set becomes a labelled line at the end of the character sheet, macros expanded,
+  cut at 600 characters where it enters the prompt and marked when it is cut —
+  while the character and the card keep the whole text (up to the 4000-character
+  carry bound, which the import names when it bites). They round-trip: another
+  client sees them as this app's own extension keys and can leave them alone.
+  `extensions.horde_studio.essential` on a lorebook entry is this app's way of
+  saying what a tight budget must keep.
+
+The per-entry lorebook editor gained switches for everything the matcher now reads
+(always-on, essential, case-sensitive, second keys, placement, order), so a card
+can be fixed here instead of only elsewhere. The Lore screen reports the window and
+mode it checked with, and counts what the ceilings cost — including the case an
+author most needs to hear about, where an entry marked essential still did not fit.
+
+`tests/card-placement-lore-test.js` (109 checks) pins items 2 to 6 on invented
+cards; the whole suite is 118 files, 0 failing, with `tools/generic-check.js`
+clean. Four existing tests were restated rather than loosened: the tail-order
+assertions that pinned two adjacent literals in `api.js`, the two import notes that
+used to call `selective`/`secondary_keys`/`position` unused, and the round-trip
+check that used "no `position` on the entry" as a proxy for "no foreign fields" —
+now that those fields are modelled, the real invariant (nothing from a neighbour,
+`comment` included) is asserted directly.
+
 ## v1.39.112 — what the importer tells you (2026-11-20)
 
 Five fixes from a user report about importing cards. Each one is a
