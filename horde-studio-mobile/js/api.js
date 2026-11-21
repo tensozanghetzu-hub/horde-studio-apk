@@ -51,12 +51,39 @@
      `{{original}}` means the app/global prompt in all three modes, so a card can
      never redefine the macro that points back at the player's own text, and the
      substitution runs once with no recursion. */
+  /* Which prompt a character uses, as one string the editor can also show:
+     '' means "nobody has decided", which is the same result as 'app' unless the
+     player has switched the global preference on. A card's own request
+     (`systemPromptAsked`) is honoured through that preference and nothing else —
+     v1.41.0 (review issue 1) took away the other path, where importing a card
+     stamped its request into this field and the card then replaced the app's
+     rules on the first request after it. */
+  function cardPromptMode(char, s) {
+    var chose = String((char && char.systemPromptSource) || '');
+    if (chose) return chose;
+    /* The preference says "a card that ASKED may have its way", not "every card
+       with a prompt takes it": no recorded ask, no application. An earlier draft
+       of this branch fell through to 'card' when the field was absent, which
+       would have let the switch hand a prompt to every card in the library —
+       including the ones whose author never thought about the question. */
+    if (s && s.honorCardSystemPrompt === true) {
+      var asked = String((char && char.systemPromptAsked) || '');
+      return (asked === 'card' || asked === 'combine' || asked === 'app') ? asked : '';
+    }
+    return '';
+  }
+  function personaField(char, which) {
+    if (char && char.personaSplit === true) {
+      var part = String((which === 'pers' ? char.persText : char.descText) || '');
+      if (part.trim()) return part;
+    }
+    return (char && char.persona) || '';
+  }
   function systemTextOf(char, s) {
     var app = String((char && char.systemPrompt) || (s && s.systemPrompt) || '');
     var card = String((char && char.cardSystemPrompt) || '').trim();
     if (!card) return app;                       /* the spec's own empty-field case */
-    var mode = String((char && char.systemPromptSource) || '');
-    if (!mode && s && s.honorCardSystemPrompt) mode = 'card';
+    var mode = cardPromptMode(char, s);
     if (mode === 'card') return card;
     if (mode === 'combine') {
       /* `{{original}}` means "the prompt the frontend would have used if this
@@ -101,8 +128,12 @@
       .replace(/\{\{char\}\}/gi, name)
       .replace(/\{\{user\}\}/gi, user)
       .replace(/\{\{name\}\}/gi, name)
-      .replace(/\{\{personality\}\}/gi, (char && char.persona) || '')
-      .replace(/\{\{description\}\}/gi, (char && char.persona) || '')
+      /* v1.41.0 (review request 4): a character edited as the card's two fields
+         has two different texts, so `{{personality}}` and `{{description}}` mean
+         what they say. Without a split there is one persona string and both
+         macros keep resolving to all of it, which is what they have done forever. */
+      .replace(/\{\{personality\}\}/gi, personaField(char, 'pers'))
+      .replace(/\{\{description\}\}/gi, personaField(char, 'desc'))
       .replace(/\{\{scenario\}\}/gi, (char && char.scenario) || '')
       .replace(/\{\{persona\}\}/gi, (s && s.userPersona) || '')
       /* v1.39.112: SillyTavern's {{original}} means "the unmodified system
@@ -3695,6 +3726,7 @@
     /* items 2 and 3: the two choices, and the resolver the prompt uses, so the
        editor can show the same text the request sends */
     systemTextOf: systemTextOf, postHistoryMode: postHistoryMode,
+    cardPromptMode: cardPromptMode,
     postHistoryText: postHistoryText,
     /* item 5: which macros a card asks for that this app will not resolve */
     unresolvedMacros: unresolvedMacros,

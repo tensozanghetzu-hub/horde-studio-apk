@@ -1,15 +1,27 @@
 # Character cards — what this app reads, keeps, and applies
 
-How Horde Studio (v1.40.0) handles a character card, field by field. Written for
+How Horde Studio (v1.41.0) handles a character card, field by field. Written for
 people who import cards from other frontends and export them again, and for
 authors who want to know what a card may safely ask this app to do.
 
-Two sentences of policy, then the tables.
+Three sentences of policy, then the tables.
 
-**A card is never damaged on the way through.** Anything this app does not model
-is kept as the card wrote it and put back on export — including unknown
+**A field this app models is never damaged on the way through.** Anything it does
+not model is kept as the card wrote it and put back on export — including unknown
 extensions, book-level settings, legacy spellings and values this app would not
-have chosen. Editing one field changes that field and nothing else.
+have chosen. Editing one field changes that field and nothing else; clearing one is
+an edit too, and is written down as one (see
+[what an export writes back](#what-an-export-writes-back)).
+
+**Keeping has a shape limit, and it is not unconditional.** The copy is the card's
+own JSON with two bounds on its *structure* — nothing deeper than 200 levels,
+nothing past 60 000 values, 2 MB of text overall. A card beyond them keeps a
+shorter copy, and the import names the paths that did not fit so you can keep the
+original file; the export says it again at the moment you would rely on it. Inside
+those bounds nothing is trimmed: a string of any length, an array of any length,
+any depth up to the bound, all come back exactly as they went in. Picture keys are
+the other exception — pictures the app has no place for stay in the copy but not
+always in the export, and the export counts what it could not put back.
 
 **Nothing is called supported just because it is kept.** Each table says which of
 the two it is: *applied* means it changes what the model is sent, *preserved*
@@ -21,13 +33,13 @@ it can still be acted on.
 
 | Card field | Here | Where it goes |
 |---|---|---|
-| `description`, `personality` | applied, together | the character sheet's persona. Editing the persona empties `personality`, because one box cannot be split back into two fields. |
+| `description`, `personality` | applied, together or apart | the character sheet's persona. The character sheet is one box by default; *the card's two fields* mode on the same screen keeps `description` and `personality` apart, so editing either one leaves the other as the author wrote it. Edited as one box, the merged text goes into `description` and `personality` is emptied — one string cannot be split back into two, and leaving the old half in place would send the model a persona it never saw. |
 | `scenario` | applied | the situation line, with the `scenario_list` variant picker if the card carries one |
 | `first_mes` | applied | the greeting |
 | `alternate_greetings` | applied | the extra intros, swipeable in the chat (a greeting that repeats `first_mes` is not carried twice) |
 | `mes_example` | applied | example dialogue, labelled as a sample and kept out of the transcript |
 | `post_history_instructions` | applied, position is a choice | see [placement](#where-post_history_instructions-goes) |
-| `system_prompt` | kept, shown, applied on request | see [the system prompt](#the-cards-own-system_prompt) |
+| `system_prompt` | kept, shown, applied only when a person says so | see [the system prompt](#the-cards-own-system_prompt) |
 | `character_book` | applied | the lorebook: see [matching](#lorebook-matching) |
 | `name`, `tags`, `creatorcomment` | applied to the character record | `tags` fill the character's tagline; none of the three is sent to the model |
 | `creator_notes`, `creator`, `character_version` | preserved | not sent to the model, per the spec's own instruction |
@@ -60,7 +72,7 @@ expanded at build time, not at import — so changing the global prompt changes 
 ## The card's own `system_prompt`
 
 Imported and kept even when unused, shown in full on the character, and applied
-according to a three-way choice:
+according to a three-way choice made **by a person**:
 
 | Choice | The model is told |
 |---|---|
@@ -77,6 +89,31 @@ them is a worse surprise than a card whose extra rules go unread. The card's tex
 is imported, displayed, and one tap away; `Both` is the middle that lets an author
 add without letting a card take away. This divergence is a product decision, not a
 claim of compliance.
+
+**A request in the card is a request, not a grant.** `extensions.horde_studio.system_prompt_source`
+is this app's own key, so a card can carry it — and importing a card that says
+`"card"` or `"combine"` does **not** set the mode. The ask is recorded on the
+character as *the card asked for*, shown in the editor next to the three buttons,
+named in the import notes, and carried back out on export so the author's word
+survives. What applies it is a choice with a person in it:
+
+* **the character's own mode** — picking one of the three buttons on the character;
+* or **Settings → System prompt → "Cards may choose their prompt"** (off by
+  default), which says *every card I import that asks gets its way, because I have
+  decided that once, for myself*.
+
+A character with its own choice never has it overridden by the setting, and a card
+that never asked is untouched by it. The grant is never written into the card as a
+new key: a key a card may set is a key a card may grant itself, so the setting
+lives in this app's preferences and the per-character choice lives on the
+character. Choosing **Your prompt** on a card that asked is also an explicit
+answer — it is exported as `"app"`, so the refusal survives the round trip instead
+of falling back to the card's request.
+
+*One caveat, stated:* a character imported by v1.40.0 may already have had its mode
+set by its card, because that version applied the ask on import. Nothing is
+changed under it — the character keeps behaving as it has been — and the fix is
+the button it never had: open the character, choose **Your prompt**, save.
 
 `{{original}}` means "the prompt the app would have used without this card" in
 every mode. In `Both` it resolves to nothing rather than repeating the global
@@ -137,11 +174,57 @@ story is meant to move), `stages` (slow-burn gates), `priority` (what must survi
 the budget).
 
 Every one is off by default: nothing is added to the prompt for a card that does
-not set them. Set, each becomes one labelled line under `CARD INSTRUCTIONS FOR
+not set them.
+
+The four per-character switches next to them — placement, prompt source, compat
+mode, scan window — are not all the same kind of thing, and the app treats them
+differently on purpose. Three of them decide **how the card's own content is laid
+out**, so a card may set them at import. The fourth, `system_prompt_source`, decides
+**whose instructions run the conversation**, so a card may ask and may not have: it
+is recorded and shown, and applied only by the player or their own preference. See
+[who decides what](#who-decides-what). Set, each becomes one labelled line under `CARD INSTRUCTIONS FOR
 HORDE STUDIO`, inside the character sheet, above the examples. Macros expand as
 elsewhere. Each line is cut at **600 characters** when it enters the prompt, and
 the cut is marked in the prompt and shown in the editor — while the character and
 the card keep the whole text up to the storage bound below.
+
+## What an export writes back
+
+An export is the card's own JSON with this app's changes laid over it. The rule for
+every key this app owns is one sentence: **the character's value is written when it
+is not what the card said at import, and nothing is written when it is.**
+
+That second half matters as much as the first. Writing only values that differ from
+*this app's* default — which is what an earlier version did — means a change back
+to the default is written nowhere: a cleared `post_history_instructions`, a
+placement put back to the sheet, compat switched off, a window reset to 0, an
+instruction emptied all left the key out of the export, the preserved copy went on
+carrying the author's value, and the next import put the thing you deleted straight
+back into the prompt. So a cleared field exports its emptiness on purpose
+(`"lore_compat": false`, `"lore_scan_turns": 0`, `"agency": ""`), and it wins over
+the preserved copy because the merge only adds.
+
+Two consequences worth knowing:
+
+* an untouched card exports the author's bytes, including a value this app would
+  never have written (`"post_history_placement": "middle"` stays `"middle"`, and a
+  `lore_scan_turns: 99` stays 99 while the app reads it as 24);
+* a character saved by v1.40.0 has no record of what its card said, so the export
+  reads the ask off its preserved copy instead and applies the same rule — the
+  clearing fix works for cards that were already imported.
+
+## Who decides what
+
+Three parties can say something about a card: the author, this app, and the person
+holding the phone. Where they overlap, the app lets the card arrange and refuses to
+let the card take over.
+
+| A card may… | because… |
+|---|---|
+| place its post-history text, set compat ordering, widen its scan window | these decide **how the card's own content is laid out** |
+| set the six `horde_studio` authoring fields | they add prose inside the sheet this app builds |
+| carry a prompt, and *ask* for it to be used | the text is the character's; **applying** it is the player's call |
+| not replace the global prompt, not write this app's preferences, not mark itself approved | a card that can silence the rules it is judged by is not a card, it is a prompt injection with artwork |
 
 ## Limits
 
@@ -153,14 +236,14 @@ the card keep the whole text up to the storage bound below.
 | keyword window | 6 turns default, 1–24 allowed | measured on a 160-message chat; wider buys nothing past a few turns |
 | one instruction field into the prompt | 600 characters | keeps a sheet from squeezing the transcript out of the request |
 | text this app carries from a card | 4000 characters per instruction field, 6000 for `system_prompt` | storage bound; over it the character is shortened, the card is left whole, and the import says which fields were shortened |
-| source copy kept for non-destructive export | 2 MB of JSON | above it nothing is preserved, and the character is told so at import |
+| source copy kept for non-destructive export | 2 MB of JSON, 200 levels deep, 60 000 values | above the size nothing is preserved and the character is told so at import; above the shape bounds the copy is kept short and every path left out is named at import and counted at export |
 
 ## Exchanging cards with other clients
 
 * Import: `.png` (tEXt / zTXt / iTXt chunk, base64 JSON), `.json` (V1, V2, V3, top-level or `data`), and a JanitorAI bulk export. A card that declares V3 but puts its fields at the top level is read from the top level, and told.
 * Export: PNG with the card JSON in a tEXt chunk, or `.json`. Both write the V2 fields at the top level **and** under `data`, because other tools read one or the other.
 * `.charx`: not supported in either direction.
-* A card that was opened and never edited exports byte-for-byte identical where this app models the field, and unchanged where it does not — types included, so a `"0.9"` that arrived as a string leaves as a string.
+* A card that was opened and never edited exports byte-for-byte identical where this app models the field, and unchanged where it does not — types included, so a `"0.9"` that arrived as a string leaves as a string. Two exceptions, both reported rather than quiet: picture keys the app has no place for, and any structure past the shape bounds in [Limits](#limits).
 * Deleting a lorebook empties it; it does not restore the author's copy. Deleting a *field*'s text sets that field; a card's untouched fields are never rewritten by an edit elsewhere.
 
 ## Versions this describes

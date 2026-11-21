@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.40.0';
+  var VERSION = '1.41.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -74,6 +74,11 @@
        silently outranked the message-count slider above. */
     historyTokens: 6000,
     systemPrompt: DEFAULT_SYSTEM,
+    /* v1.41.0 (review issue 1): the one global say a card gets about the prompt
+       that runs this app. Off by default, because "off" is the answer to a card
+       asking; a card's own request lives on the character as `systemPromptAsked`
+       until this is on or the player grants it there. */
+    honorCardSystemPrompt: false,
     userName: 'You',
     userPersona: '',
     /* pronoun macros: {{sub}} {{obj}} {{poss}} {{poss_p}} {{ref}} */
@@ -204,10 +209,19 @@
                loreCompat            honour the book's own ordering and budget
                loreScanTurns         0 = the app's 6-turn window (item 4c)
                loreBookScan/Budget   the card's own numbers, read in compat mode
-               directives            `extensions.horde_studio.*` (item 6) */
+               directives            `extensions.horde_studio.*` (item 6)
+               cardAsked             what the card asked for at import, kept so an
+                                     export can tell a player's choice from the
+                                     author's (v1.41.0, review issue 2)
+               systemPromptAsked     the card's request only — never applied by
+                                     itself (v1.41.0, review issue 1)
+               personaSplit/descText/persText  the card's two persona fields,
+                                     editable apart (v1.41.0, review request 4) */
           postHistoryPlacement: 'sheet', systemPromptSource: '', cardSystemPrompt: '',
+          systemPromptAsked: '', cardAsked: null,
           loreCompat: false, loreScanTurns: 0, loreBookScan: 0, loreBookBudget: 0,
           directives: { agency: '', style: '', canon: '', progression: '', stages: '', priority: '' },
+          personaSplit: false, descText: '', persText: '',
           temperature: null, maxTokens: null,
           lorebook: [], expressionPortraits: [], vh: (global.VH ? VH.defaults() : null),
           /* v1.13.0: internal state — off by default, so existing and new
@@ -576,9 +590,7 @@
        problem, and it is solved where the prompt is built. */
     CARRY_CAP: 4000,
     cardDirectives: function (data, card) {
-      var ext = (data && data.extensions) || (card && card.extensions) ||
-        (card && card.data && card.data.extensions) || {};
-      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var hx = Store.hordeBlock(data, card);
       var out = {};
       ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
         var v = hx[k];
@@ -590,9 +602,7 @@
     /* how much of the card's text this app carries, so the importer can say so
        when it had to cut - the card keeps its own copy either way */
     cardCarryOver: function (data, card) {
-      var ext = (data && data.extensions) || (card && card.extensions) ||
-        (card && card.data && card.data.extensions) || {};
-      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var hx = Store.hordeBlock(data, card);
       var over = 0;
       ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
         if (String(hx[k] == null ? '' : hx[k]).trim().length > Store.CARRY_CAP) over++;
@@ -608,15 +618,48 @@
        in with - an export is never the moment a card grows fields. */
     hordeCardFields: function (c) {
       var out = {};
+      var was = (c && c.cardAsked) || null;
+      /* Characters saved by v1.40.0 have no snapshot to compare against, but the
+         card they came from is still in there. Read the ask off the copy rather
+         than falling back to the old rule, so clearing something works for them
+         too and not only for cards imported from this version on. */
+      if (!was && c && c.cardSource) {
+        try {
+          var sc = c.cardSource;
+          var sx = (sc.body && sc.body.extensions) || (sc.top && sc.top.extensions) || null;
+          if (sx) was = Store.hordeCardChoices({ extensions: sx }, {}).asked;
+        } catch (err) { was = null; }
+      }
+      var d = (c && c.directives) || {};
+      var wd = (was && was.directives) || {};
+      /* One rule for every key this app owns: write the character's value when it
+         is not what the card said at import, and say nothing when it is. An
+         untouched card therefore exports the author's own bytes — including a
+         value this app would never have written itself, which is what the old
+         code preserved too — while a value the player moved BACK to the default
+         is a change like any other and gets written. Without that second half,
+         clearing a Horde instruction or resetting a mode did nothing at all: the
+         key stayed out of the export, the preserved copy kept the author's
+         value, and the next import put it straight back (review issue 2). */
       ['agency', 'style', 'canon', 'progression', 'stages', 'priority'].forEach(function (k) {
-        var v = String((c.directives && c.directives[k]) || '').trim();
-        if (v) out[k] = v;
+        var v = String(d[k] || '').trim();
+        if (was) { if (v !== String(wd[k] || '')) out[k] = v; }
+        else if (v) out[k] = v;
       });
-      if (c.postHistoryPlacement && c.postHistoryPlacement !== 'sheet') out.post_history_placement = c.postHistoryPlacement;
-      if (c.systemPromptSource) out.system_prompt_source = c.systemPromptSource;
-      if (c.loreCompat === true) out.lore_compat = true;
-      var t = parseInt(c.loreScanTurns, 10);
-      if (t > 0) out.lore_scan_turns = Math.min(24, t);
+      var place = (c.postHistoryPlacement === 'tail' || c.postHistoryPlacement === 'off')
+        ? c.postHistoryPlacement : 'sheet';
+      if (was ? place !== was.postHistoryPlacement : place !== 'sheet') out.post_history_placement = place;
+      var compat = c.loreCompat === true;
+      if (was ? compat !== was.loreCompat : compat) out.lore_compat = compat;
+      var turns = Math.min(24, Math.max(0, parseInt(c.loreScanTurns, 10) || 0));
+      if (was ? turns !== was.loreScanTurns : turns > 0) out.lore_scan_turns = turns;
+      /* The prompt mode is not snapshot-compared, because there is nothing to
+         compare it with: the card's `system_prompt_source` is an author's request,
+         which the preserved copy carries back out untouched, while the
+         character's `systemPromptSource` is a person's decision — and 'app' is a
+         decision like any other, which is how "not this card's prompt" survives
+         being saved and re-imported. */
+      if (c.systemPromptSource) out.system_prompt_source = String(c.systemPromptSource);
       return out;
     },
     /* The same keys read back, with every unknown value falling to the app's own
@@ -624,19 +667,56 @@
        "middle"` gets the sheet placement, which is what it had before this
        feature existed at all. */
     hordeCardChoices: function (data, card) {
-      var ext = (data && data.extensions) || (card && card.extensions) ||
-        (card && card.data && card.data.extensions) || {};
-      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      var hx = Store.hordeBlock(data, card);
       var PL = { sheet: 'sheet', tail: 'tail', off: 'off' };
       var SRC = { app: 'app', card: 'card', combine: 'combine' };
       var turns = parseInt(hx.lore_scan_turns, 10);
+      var place = PL[hx.post_history_placement] || 'sheet';
+      var compat = hx.lore_compat === true;
+      var scan = turns > 0 ? Math.min(24, turns) : 0;
+      var asked = SRC[hx.system_prompt_source] || '';
+      var dirs = Store.cardDirectives(data, card);
       return {
-        postHistoryPlacement: PL[hx.post_history_placement] || 'sheet',
-        systemPromptSource: SRC[hx.system_prompt_source] || '',
-        loreCompat: hx.lore_compat === true,
-        loreScanTurns: turns > 0 ? Math.min(24, turns) : 0
+        postHistoryPlacement: place,
+        compat: compat, scan: scan,
+        /* v1.41.0 (review issue 1). A card asking for its own prompt is a request
+           about who is in charge of the conversation, not a line of character
+           text, so it is recorded here and applied by nobody. `systemPromptAsked`
+           is what the editor offers and what CARDS.md documents; the field the
+           prompt actually reads is `systemPromptSource`, which only a person (or
+           their own global preference) can set. */
+        systemPromptAsked: asked,
+        directives: dirs,
+        /* The snapshot an export compares against: exactly what this import
+           derived from the card, so "the player changed it" and "the card said
+           this and nobody touched it since" cannot be confused (issue 2). Keys
+           the card never wrote are absent, which is how the old rule — add only
+           non-default values — still works for hand-made characters. Copied, not
+           aliased: the live directives are the very object the editor writes
+           into, and a snapshot that moves when the character does would say
+           nothing was ever changed. */
+        asked: {
+          postHistoryPlacement: place,
+          systemPromptSource: asked,
+          loreCompat: compat,
+          loreScanTurns: scan,
+          directives: Object.assign({}, dirs)
+        }
       };
     },
+    /* `extensions.horde_studio` as the card wrote it, from whichever of the three
+       places a card may keep its extensions. Never edited in place. */
+    hordeBlock: function (data, card) {
+      var ext = (data && data.extensions) || (card && card.extensions) ||
+        (card && card.data && card.data.extensions) || {};
+      var hx = (ext && (ext.horde_studio || ext.hordeStudio)) || {};
+      return (hx && typeof hx === 'object' && !Array.isArray(hx)) ? hx : {};
+    },
+    /* Where the mode itself is decided: api.js `cardPromptMode`, which reads the
+       character's `systemPromptSource` (a person's decision) and only falls back
+       to the card's request through the player's own global preference. The
+       request is kept on the character as `systemPromptAsked` for the editor and
+       for export, and never applies itself. */
 
     /* the lorebook a card embeds. V2 puts it in data.character_book,
        V3 in data.character_book too, and legacy V1 cards hang it off the
@@ -747,7 +827,21 @@
        cardAvatar / cardImages), so keeping them again would double several
        megabytes per card for nothing. Each path left out is recorded so export
        can put the app's own copy back and report what it cannot. */
+    /* Two bounds on the SHAPE of the preserved copy, and both are reported rather
+       than silently trimmed. 200 levels is far past anything a card tool has ever
+       written; the number exists so a broken or hostile file cannot use recursion
+       to exhaust the app's stack, and 60 000 values is the same idea for breadth.
+       Anything past either one is left out of the copy and its path recorded, so
+       the import says so and the export names it — the reviewer's phrase for the
+       old behaviour was "silently discarded", and silently was the problem. */
+    SRC_DEPTH: 200,
+    SRC_NODES: 60000,
     _srcClone: function (v, path, acc, depth) {
+      function leave(why) {
+        if (!acc.gaps) acc.gaps = [];
+        if (acc.gaps.length < 8) acc.gaps.push((path || '(root)') + ' — ' + why);
+        else acc.gapsMore = (acc.gapsMore || 0) + 1;
+      }
       if (typeof v === 'string') {
         if (/^data:[^,]*base64,/i.test(v) || /^data:image\//i.test(v)) {
           if (acc.imgs.indexOf(path) === -1) acc.imgs.push(path);
@@ -759,7 +853,9 @@
         if (v === undefined || typeof v === 'function') return undefined;
         return v;
       }
-      if (depth > 12) return undefined;
+      if (depth > Store.SRC_DEPTH) { leave('nested past ' + Store.SRC_DEPTH + ' levels'); return undefined; }
+      acc.nodes = (acc.nodes || 0) + 1;
+      if (acc.nodes > Store.SRC_NODES) { leave('past ' + Store.SRC_NODES + ' values'); return undefined; }
       if (Array.isArray(v)) {
         var arr = [];
         for (var i = 0; i < v.length; i++) {
@@ -793,7 +889,7 @@
        of one card can never disagree about what the card said. */
     cardSourceFor: function (card, data, lore) {
       var src = card || {};
-      var acc = { imgs: [] };
+      var acc = { imgs: [], nodes: 0 };
       var top = {}, body = {};
       Object.keys(src).forEach(function (k) {
         if (k === 'data' || k === 'spec' || k === 'spec_version' ||
@@ -846,11 +942,28 @@
           });
         }
       }
+      if (acc.gaps && acc.gaps.length) {
+        /* the copy is kept — it is still worth more than nothing — but it is
+           marked incomplete so the import and the export can say which parts of
+           the card this app cannot carry back */
+        s.gaps = acc.gaps.slice();
+        if (acc.gapsMore) s.gapsMore = acc.gapsMore;
+      }
       var text;
       try { text = JSON.stringify(s); } catch (err) { return null; }
       if (text.length > Store.SOURCE_CAP) return null;
       s.bytes = text.length;
       return s;
+    },
+
+    /* The parts of a card's own JSON this app could not keep a copy of, as
+       `path — reason` lines. Empty for the ordinary card. */
+    cardSourceGaps: function (c) {
+      var s = c && c.cardSource;
+      if (!s) return [];
+      var out = (s.gaps || []).slice();
+      if (s.gapsMore) out.push('and ' + s.gapsMore + ' more');
+      return out;
     },
 
     /* Resolve a recorded path like `data.extensions.bg` or
@@ -949,9 +1062,21 @@
              now. Both placement choices start at this app's long-standing behaviour:
              post-history text joins the sheet, and the global prompt stays in charge. */
           cardSystemPrompt: Store.cardSystemPromptOf(data),
-          postHistoryPlacement: ch.postHistoryPlacement, systemPromptSource: ch.systemPromptSource,
-          directives: Store.cardDirectives(data, card),
-          loreCompat: ch.loreCompat, loreScanTurns: ch.loreScanTurns,
+          /* v1.41.0 (review issue 1): the ask and the decision are two different
+             fields. `systemPromptAsked` is the card's request, kept to show and to
+             export back; `systemPromptSource` stays empty until a person chooses —
+             or until they have switched the global preference on for their own
+             cards, which is the one path the preference was always meant to have. */
+          postHistoryPlacement: ch.postHistoryPlacement,
+          systemPromptAsked: ch.systemPromptAsked, systemPromptSource: '',
+          cardAsked: ch.asked,
+          /* the card's two persona fields, kept apart so they can be edited apart
+             (review request 4). `persona` stays the combined string the prompt
+             reads, so nothing downstream changes. */
+          descText: String(data.description || ''), persText: String(data.personality || ''),
+          personaSplit: false,
+          directives: ch.directives,
+          loreCompat: ch.compat, loreScanTurns: ch.scan,
           loreBookScan: lim.scan, loreBookBudget: lim.budget,
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
           lorebook: v3book,
@@ -981,9 +1106,21 @@
            now. Both placement choices start at this app's long-standing behaviour:
            post-history text joins the sheet, and the global prompt stays in charge. */
         cardSystemPrompt: Store.cardSystemPromptOf(data),
-        postHistoryPlacement: ch.postHistoryPlacement, systemPromptSource: ch.systemPromptSource,
-        directives: Store.cardDirectives(data, card),
-        loreCompat: ch.loreCompat, loreScanTurns: ch.loreScanTurns,
+        /* v1.41.0 (review issue 1): the ask and the decision are two different
+           fields. `systemPromptAsked` is the card's request, kept to show and to
+           export back; `systemPromptSource` stays empty until a person chooses —
+           or until they have switched the global preference on for their own
+           cards, which is the one path the preference was always meant to have. */
+        postHistoryPlacement: ch.postHistoryPlacement,
+        systemPromptAsked: ch.systemPromptAsked, systemPromptSource: '',
+        cardAsked: ch.asked,
+        /* the card's two persona fields, kept apart so they can be edited apart
+           (review request 4). `persona` stays the combined string the prompt
+           reads, so nothing downstream changes. */
+        descText: String(data.description || ''), persText: String(data.personality || ''),
+        personaSplit: false,
+        directives: ch.directives,
+        loreCompat: ch.compat, loreScanTurns: ch.scan,
         loreBookScan: lim.scan, loreBookBudget: lim.budget,
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         /* V2 cards with an embedded book were losing it entirely here */
@@ -1072,6 +1209,9 @@
         put(key, live);
       }
 
+      /* The persona, three cases: edited as the card's own two fields, unchanged,
+         or edited as one box. See `characterToCardBare` for the same three. */
+      var personaSplit = Store.personaSplitOn(c);
       var scList = (typeof Store.scenarioList === 'function') ? (Store.scenarioList(merged) || []) : [];
       var scMain = String(merged.scenario || '').trim();
       var alt = Store.altGreetingsFromCard(merged, merged);
@@ -1079,7 +1219,23 @@
       keepOrWrite('name', c.name, merged.name || 'Imported character');
       var personaSaid = clean([merged.description || '', merged.personality || '']
         .filter(Boolean).join('\n\n'));
-      if (Store._sameVal(c.persona, personaSaid)) {
+      if (personaSplit) {
+        /* Each half is compared with the card's own half, so editing the
+           description leaves the personality exactly as the author wrote it and
+           the other way round — the thing review request 4 asked for. A half that
+           still matches is copied out verbatim rather than re-written. */
+        ['description', 'personality'].forEach(function (k) {
+          var live = clean(String(c[k === 'description' ? 'descText' : 'persText'] == null ? ''
+            : c[k === 'description' ? 'descText' : 'persText']));
+          if (k === 'description') live = Store.stripDuplicateScenario(live, String(c.scenario || ''));
+          var said = merged[k];
+          if (Store._sameVal(live, clean(String(said == null ? '' : said)))) {
+            if (said !== undefined) put(k, JSON.parse(JSON.stringify(said)));
+            return;
+          }
+          put(k, live);
+        });
+      } else if (Store._sameVal(c.persona, personaSaid)) {
         /* the two fields stay two fields - a card that keeps its personality
            separately keeps it separately through an edit of nothing at all */
         if (merged.description !== undefined) put('description', JSON.parse(JSON.stringify(merged.description)));
@@ -1229,11 +1385,23 @@
       return out;
     },
 
+    /* The two-field persona is only real when the two fields are there. A record
+       that carries the flag without the halves — saved by a build that has since
+       changed, or edited by hand in storage — must not export two empty strings
+       over the author's text: the merged path, which keeps the text it can see,
+       is the safe reading. */
+    personaSplitOn: function (c) {
+      return !!(c && c.personaSplit === true &&
+        (typeof c.descText === 'string' || typeof c.persText === 'string'));
+    },
+
     characterToCardBare: function (c) {
+      var split = Store.personaSplitOn(c);
       var card = {
         name: c.name,
-        description: Store.stripDuplicateScenario(c.persona || '', c.scenario || ''),
-        personality: '',
+        description: Store.stripDuplicateScenario(
+          split ? String(c.descText || '') : (c.persona || ''), c.scenario || ''),
+        personality: split ? String(c.persText || '') : '',
         scenario: c.scenario || '', first_mes: c.greeting || '', mes_example: c.examples || '',
         creatorcomment: 'Exported from Horde Studio Mobile',
         tags: c.tags || [], talkativeness: '0.5', fav: false,
@@ -1245,9 +1413,11 @@
          name, so a card exported here looked truncated elsewhere. The values
          are identical, so our own import (which merges with `data` winning)
          reads the same text it always did. `personality` stays empty on
-         purpose: this app keeps one persona string, and copying it into
-         `personality` too would double the sheet for any tool that joins the
-         two fields. */
+         purpose WHILE THE CHARACTER IS EDITED AS ONE PERSONA STRING: this app
+         keeps one string, and copying it into `personality` too would double the
+         sheet for any tool that joins the two fields. Edited as the card's two
+         fields (v1.41.0, review request 4), each half goes back under its own
+         name and neither is doubled. */
       ['description', 'personality', 'scenario', 'first_mes', 'mes_example',
        'creatorcomment', 'tags', 'talkativeness', 'fav'].forEach(function (k) {
         card.data[k] = card[k];

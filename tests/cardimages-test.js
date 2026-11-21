@@ -227,7 +227,10 @@ function glue() {
   var src = fs.readFileSync(APP_SRC, 'utf8');
   var at = src.indexOf('App.prepareImportedCharacter = function');
   ok('prepareImportedCharacter exists', at !== -1);
-  var body = src.slice(at, at + 3000);
+  /* The body, by its real boundaries — a fixed character window used to be
+     the whole function, and stopped being it the day the function grew. */
+  var nextFn = src.indexOf('\n  App.', at + 10);
+  var body = src.slice(at, nextFn === -1 ? src.length : nextFn);
   ok('prepareImportedCharacter runs normalizeCardImages', /normalizeCardImages/.test(body));
   ok('…and resolves with the character it mutated',
     /\.then\(function \(\) \{ return c; \}\)/.test(body));
@@ -242,7 +245,8 @@ function finish() {
   console.log('\nthe details screen shows them');
   var vsrc = fs.readFileSync(VIEWS_SRC, 'utf8');
   var at = vsrc.indexOf('Views.editor = function');
-  var body = vsrc.slice(at, at + 14000);
+  var end = vsrc.indexOf('\n  Views.', at + 10);
+  var body = vsrc.slice(at, end === -1 ? vsrc.length : end);
   ok('the editor renders a "Card images" group', /Card images/.test(body));
   ok('…from char.images, wired to the lightbox',
     /char\.images/.test(body) && /data-lightbox/.test(body));

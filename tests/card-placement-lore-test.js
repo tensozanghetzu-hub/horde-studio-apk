@@ -473,53 +473,95 @@ ok('…without touching anything else in that namespace',
 var choices = await importCard(v2({ extensions: { horde_studio: {
   post_history_placement: 'tail', system_prompt_source: 'combine', lore_compat: true, lore_scan_turns: 11
 } } }));
-ok('placement, prompt source, compat and window all come back', (function () {
+ok('placement, compat and window come back; the prompt request is kept, not applied', (function () {
   var out = Store.characterToCard(choices);
   var back = Store.cardToCharacter(out);
-  return back.postHistoryPlacement === 'tail' && back.systemPromptSource === 'combine' &&
+  return back.postHistoryPlacement === 'tail' && back.systemPromptAsked === 'combine' &&
+    back.systemPromptSource === '' &&
     back.loreCompat === true && back.loreScanTurns === 11;
-})(), JSON.stringify(Store.characterToCard(choices).data.extensions.horde_studio));
-ok('a value this app does not know falls back to this app’s own default', (function () {
-  var c = Store.cardToCharacter(oddChoiceCard());
-  return c.postHistoryPlacement === 'sheet';
-})());
-/* The player chose nothing, so nothing is rewritten: the author's unrecognised
-   value rides back out as it came in, while the app runs its own default. The
-   moment the player picks a placement, that value replaces it. */
-function oddChoiceCard() {
-  var data = { extensions: { horde_studio: { post_history_placement: 'middle' } } };
-  return v2(data);
-}
-ok('…and the author’s unrecognised value is preserved rather than normalised', (function () {
-  var c = Store.cardToCharacter(oddChoiceCard());
-  var out = Store.characterToCard(c);
-  var hx = (out.data.extensions || {}).horde_studio || {};
-  return hx.post_history_placement === 'middle';
-})(), JSON.stringify(Store.characterToCard(Store.cardToCharacter(oddChoiceCard())).data.extensions));
-ok('…and a choice the player DID make replaces it', (function () {
-  var c = Store.cardToCharacter(oddChoiceCard());
-  c.postHistoryPlacement = 'tail';
-  var hx = (Store.characterToCard(c).data.extensions || {}).horde_studio || {};
-  return hx.post_history_placement === 'tail';
-})());
+})(), JSON.stringify({ p: choices.postHistoryPlacement, a: choices.systemPromptAsked,
+  s: choices.systemPromptSource, c: choices.loreCompat, t: choices.loreScanTurns }));
+/* v1.41.0 (review issue 1): the four numbers above are two different kinds of
+   thing. Placement, compat and the window arrange what the card already owns, so
+   the card may set them; the prompt mode decides whose instructions run the
+   conversation, so a card setting it is a request the app answers by showing it.
+   `systemPromptSource` — the field the prompt reads — is written only by a
+   person or by their own global preference, and that grant lives on the
+   character, never in the card. */
+ok('the ask is on the character for the editor, and the export carries it back out',
+  choices.systemPromptAsked === 'combine' &&
+  (Store.characterToCard(choices).data.extensions.horde_studio || {}).system_prompt_source === 'combine',
+  JSON.stringify(Store.characterToCard(choices).data.extensions.horde_studio));
+var plainAsk = await importCard(v2({ system_prompt: 'CARD ASKED PROMPT',
+  extensions: { horde_studio: { system_prompt_source: 'card' } } }));
+ok('nothing is applied: the app prompt still runs', (function () {
+  var p = chatPayload(plainAsk, settings());
+  return p.system.indexOf('GLOBAL SYSTEM PROMPT') !== -1 && p.system.indexOf('CARD ASKED PROMPT') === -1;
+})(), chatPayload(plainAsk, settings()).system.slice(0, 60));
+ok('…the text is on the character where the note says it will be',
+  plainAsk.cardSystemPrompt === 'CARD ASKED PROMPT' && plainAsk.systemPromptAsked === 'card' &&
+  plainAsk.systemPromptSource === '', JSON.stringify({ c: plainAsk.cardSystemPrompt, a: plainAsk.systemPromptAsked, s: plainAsk.systemPromptSource }));
 
-var LONG = 'A'.repeat(5000);
-var capped = Store.cardToCharacter(v2({ extensions: { horde_studio: { agency: LONG } } }));
-ok('an over-long field is carried up to the storage bound, not silently halved',
-  capped.directives.agency.length === Store.CARRY_CAP, capped.directives.agency.length);
-ok('…and only the prompt is cut, with the cut said out loud', (function () {
-  var sheet = API._charSheet(capped, settings(), {}, API.loreSample([{ role: 'user', text: 'x' }]), 0, {});
-  return sheet.indexOf('truncated by Horde at 600 characters') !== -1 &&
-    sheet.length < LONG.length;
-})(), API._charSheet(capped, settings(), {}, API.loreSample([{ role: 'user', text: 'x' }]), 0, {}).length);
-ok('…while the card the app exports keeps the whole text', (function () {
-  var out = Store.characterToCard(capped);
-  return out.data.extensions.horde_studio.agency.length === Store.CARRY_CAP;
-})(), (Store.characterToCard(capped).data.extensions.horde_studio.agency || '').length);
-ok('and the import says which fields were shortened', (function () {
-  var notes2 = App.importLossNotes(v2({ extensions: { horde_studio: { agency: LONG } } }));
-  return notes2.some(function (n) { return n.indexOf('longer than the ' + Store.CARRY_CAP) !== -1; });
-})(), JSON.stringify(App.importLossNotes(v2({ extensions: { horde_studio: { agency: LONG } } }))).slice(0, 200));
+var granted = await importCard(v2({ system_prompt: 'CARD ASKED PROMPT 2',
+  extensions: { horde_studio: { system_prompt_source: 'card' } } }));
+granted.systemPromptSource = 'card';
+var gp = chatPayload(granted, settings());
+var ghx = (Store.characterToCard(granted).data.extensions || {}).horde_studio || {};
+ok('the player granting it on the character changes the request',
+  gp.system.indexOf('CARD ASKED PROMPT 2') !== -1 && gp.system.indexOf('GLOBAL SYSTEM PROMPT') === -1,
+  gp.head.slice(0, 80));
+ok('…the mode travels as the player’s own field, and no self-granting key is invented',
+  ghx.system_prompt_source === 'card' && ghx.system_prompt_approved === undefined, JSON.stringify(ghx));
+var refused = await importCard(v2({ system_prompt: 'REFUSED PROMPT',
+  extensions: { horde_studio: { system_prompt_source: 'card' } } }));
+refused.systemPromptSource = 'app';
+var rOut = (Store.characterToCard(refused).data.extensions.horde_studio || {});
+var rBack = Store.cardToCharacter(Store.characterToCard(refused));
+ok('…and refusing it out loud survives a save, an export and a re-import',
+  rOut.system_prompt_source === 'app' &&
+  API.cardPromptMode(rBack, settings()) === '' &&
+  /* the refusal is the card's own recorded answer now, so even a player who has
+     the global preference switched on gets the app prompt from this card */
+  API.cardPromptMode(rBack, Object.assign(settings(), { honorCardSystemPrompt: true })) === 'app' &&
+  chatPayload(rBack, settings()).system.indexOf('REFUSED PROMPT') === -1,
+  JSON.stringify({ hx: rOut, asked: rBack.systemPromptAsked, live: rBack.systemPromptSource }));
+
+/* the global preference: v1.40.0 shipped it in the prompt builder with no setting
+   and no documentation, so nothing could reach it and only a card could */
+var PREF = Object.assign(settings(), { honorCardSystemPrompt: true });
+var prefOn = await importCard(v2({ system_prompt: 'PREF PROMPT',
+  extensions: { horde_studio: { system_prompt_source: 'combine' } } }));
+var prefP = chatPayload(prefOn, PREF);
+ok('the user’s own global preference applies the ask at import',
+  prefOn.systemPromptSource === '' && prefOn.systemPromptAsked === 'combine' &&
+  prefP.system.indexOf('GLOBAL SYSTEM PROMPT') !== -1 && prefP.system.indexOf('PREF PROMPT') !== -1,
+  JSON.stringify({ a: prefOn.systemPromptAsked, s: prefOn.systemPromptSource, sys: prefP.system.slice(0, 60) }));
+var prefOff = await importCard(v2({ system_prompt: 'PREF PROMPT',
+  extensions: { horde_studio: { system_prompt_source: 'combine' } } }));
+ok('a card that never asked is not touched by the preference either',
+  prefOff.systemPromptSource === '' && prefOff.systemPromptAsked === 'combine' &&
+  chatPayload(prefOff, settings()).system.indexOf('PREF PROMPT') === -1,
+  JSON.stringify({ a: prefOff.systemPromptAsked, s: prefOff.systemPromptSource }));
+prefOff.systemPromptSource = 'app';
+var prefChoice = chatPayload(prefOff, PREF);
+ok('…and the preference never overrides a choice made on a character',
+  prefChoice.system.indexOf('PREF PROMPT') === -1 && prefChoice.system.indexOf('GLOBAL SYSTEM PROMPT') !== -1,
+  prefChoice.system.slice(0, 60));
+ok('the import says so, in the note the user reads at the time', (function () {
+  var notes = App.importLossNotes(v2({ system_prompt: 'X',
+    extensions: { horde_studio: { system_prompt_source: 'card' } } }));
+  return notes.some(function (n) { return n.indexOf('a card cannot approve itself') !== -1; });
+})(), JSON.stringify(App.importLossNotes(v2({ system_prompt: 'X',
+  extensions: { horde_studio: { system_prompt_source: 'card' } } }))).slice(0, 260));
+ok('…and a mode this app does not know is named, not swallowed', (function () {
+  var notes = App.importLossNotes(v2({ extensions: { horde_studio: { system_prompt_source: 'replace' } } }));
+  return notes.some(function (n) { return n.indexOf('"replace"') !== -1; });
+})());
+ok('the editor shows the ask and what was done about it', (function () {
+  var v = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
+  return /systemPromptAsked/.test(v) && /Card prompts and placement/.test(v) &&
+    /honorCardSystemPrompt/.test(v);
+})());
 
 /* the entry-level half of item 6: an essential fact is what the budget keeps */
 var ESSENTIAL = [

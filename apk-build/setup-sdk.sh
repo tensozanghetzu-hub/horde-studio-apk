@@ -27,6 +27,24 @@ export JAVA_HOME
 echo "==> accepting licences"
 yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
 
+# A workspace that has been snapshotted and restored can hold these directories
+# with their large files gone — `build-tools/34.0.0` with nothing but a
+# `renderscript` folder, `platforms/android-34` without `android.jar`. sdkmanager
+# calls a half-present package "already installed" and, if it does not agree,
+# installs the complete copy into a `34.0.0-2` sibling that build.sh never looks
+# at. So: finish a half copy by moving the sibling into place, or clear it so the
+# install below lands where it is read from.
+for pair in "build-tools/34.0.0:aapt2" "platforms/android-34:android.jar"; do
+  dir="$SDK/${pair%%:*}"; need="${pair##*:}"; alt="$dir-2"
+  if [ ! -f "$dir/$need" ] && [ -f "$alt/$need" ]; then
+    echo "==> completing ${pair%%:*} from its ${alt##*/} copy"
+    ( cd "$SDK" && for f in "$alt"/*; do rm -rf "${dir}/${f##*/}"; mv "$f" "$dir/"; done; rmdir "$alt" )
+  elif [ ! -f "$dir/$need" ] && [ -d "$dir" ]; then
+    echo "==> dropping the incomplete ${pair%%:*} directory"
+    rm -rf "$dir"
+  fi
+done
+
 echo "==> installing platform 34 + build-tools 34"
 "$SDK/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK" \
   --install "platforms;android-34" "build-tools;34.0.0"

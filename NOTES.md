@@ -1,5 +1,83 @@
 # Horde Studio Mobile — release notes
 
+## v1.41.0 — a card may ask, a person decides, and a change back is still a change (2026-09-10)
+
+The review of v1.40.0 came back with three defects and one request that had stayed
+open. All three reproduced on the release source with invented cards, so all three
+were fixed, and the fourth is shipped too. One rule covers the lot: **keep whatever
+a card says, apply only what a person agreed to, and say out loud every limit the
+app has.** `CARDS.md` is the reference again, and it no longer promises
+losslessness without conditions.
+
+- **A card's `system_prompt_source` is a request, not a grant.** Importing a card
+  that asked for its own prompt used to set the mode the prompt builder reads, so
+  the card took over the conversation and quietly replaced whatever the player had
+  chosen. The ask is now kept as its own field (`systemPromptAsked`), shown on the
+  character next to the three mode buttons, named in the import notes, and exported
+  back out — and applied by nobody. A person applies it: per character, or once for
+  their whole library through **Settings → System prompt → "Cards may choose their
+  prompt"**, which is the setting that prompt builder always looked for but never
+  had. Off by default; a card that never asked is untouched by it either way; a
+  choice on a character outranks it. A card imported by v1.40.0 keeps the mode its
+  card set — nothing is changed under anyone — and the way out is the button that
+  did not exist then.
+- **Clearing a field is an edit.** An export wrote a `horde_studio` key only when it
+  differed from this app's default, so a cleared Horde instruction, a placement put
+  back on the sheet, compat switched off or a window reset to 0 wrote nothing, and
+  the preserved copy restored the deleted text at the next import. The rule is now:
+  write the character's value when it is not what the card said at import, write
+  nothing when it is — which keeps an untouched card byte-for-byte the author's
+  (unrecognised values and all) while a change *back* to a default lands as an
+  explicit `"lore_compat": false`, `"lore_scan_turns": 0`, `"agency": ""`.
+  Characters saved by v1.40.0 get the same rule by reading the ask off their
+  preserved copy.
+- **The preserved copy's shape limits are raised, and reported instead of quiet.**
+  Nothing deeper than 12 levels and no array longer than 64 was kept, with no word
+  about either. The bound is 200 levels and 60 000 values now — there to stop a
+  malformed file exhausting the stack, not to trim real cards — arrays are copied
+  whole, and whatever cannot be kept is named at import (`custom.lore.under —
+  nested past 200 levels`) and counted again at export. The character always keeps
+  its full text; it is the *copy* that is short, and the original file that should
+  be kept.
+- **`description` and `personality` are separately editable.** The character sheet
+  has two modes now: the one Persona box it has always had, and *the card's two
+  fields*, where editing the description leaves the personality exactly as the
+  author wrote it and the other way round. `{{description}}` and `{{personality}}`
+  mean their own fields in that mode. Editing as one box still merges the two and
+  empties `personality` — one string cannot be split back in two — and the editor
+  says so on the screen where the choice is made, not only in a markdown file.
+- The Prompt-inspector-facing copy and the settings hint describe what the code
+  does, including the one case where the reviewer's summary of the preference and
+  the implementation disagreed: the preference is live, so switching it on reaches
+  the cards that asked and switching it off lets go again.
+
+### Verification
+
+New `tests/card-persona-changes-test.js` — 41 checks on the three defects and the
+split persona, invented cards only. `tests/card-placement-lore-test.js` grew from
+109 to 114 with the consent gate (V2 and V3 paths, the grant, the refusal, the
+preference, the import notes), and two of its assertions were **restated rather
+than worked around**: the round trip that expected an imported card's four choices
+to come back live now expects the prompt request to come back *unapplied*, and the
+"capped field is what the card says" assertion now expects the author's whole text,
+since a value this app shortened is not an edit the player made.
+`tests/cardimages-test.js` had two source-window contracts widened to real function
+boundaries, which is what they meant.
+
+Full suite: **120 files, 0 failures** — 3 266 counted passing checks, no file
+reporting a failed one (2 browser tests skip without Playwright, and a few files
+summarise in prose rather than a number). `tests/generic-check.js` clean — no card text or player names
+in the repo. The ad-hoc editor harness is now a permanent one, `tests/editor-smoke-test.js`
+(33 checks: the v1.40.0 controls plus the two-field persona, the ask shown but not
+granted, and the settings switch), and it fails the run if `Views.editor` throws —
+checked by breaking views.js in a copy and watching it exit 1.
+`tests/version-consistency-test.js` 17/0.
+
+Shipped as v1.41.0 / APK code 193. `CARDS.md` carries the field-by-field tables, the
+new [who decides what](CARDS.md#who-decides-what) section, and the limits; the
+implementation account of each fix is
+[IMPL-card-improvements.md §9](IMPL-card-improvements.md).
+
 ## v1.40.0 — what a card asks for, and what this app answers (2026-09-10)
 
 Six changes, all of them about the border between a card and this app. The rule

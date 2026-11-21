@@ -2,6 +2,8 @@
 
 **Against:** v1.39.112 (APK code 191) · **Shipped as:** v1.40.0 (APK code 192) ·
 **Dates:** report opened 2026-11-21 with item 1 only, closed 2026-09-10 with all six.
+**Follow-up:** the review of that release (`FOR-APK-DEV-v1.40.0-review.md`) is answered
+in §9, shipped as v1.41.0 (APK code 193).
 
 **Status:** items 1 to 6 implemented, tested and released. Item 1 was written up and
 held for review first (`11266df`); items 2 to 6 followed in the same release, so this
@@ -299,3 +301,100 @@ directive fields (`store.js:208`). A character saved before this release therefo
 prompts, places and matches exactly as it did, and an old character only picks up
 a card's own choices by re-importing the card. Nothing in `Settings` was touched:
 every switch here is per character, because a card is per character.
+
+---
+
+## 9. The follow-up review (v1.41.0): three defects and the request that stayed open
+
+`FOR-APK-DEV-v1.40.0-review.md` came back with three defects and one unimplemented
+request. All three reproduced on the release source (`3b70205`) with invented cards —
+no transcript, no real card, no PNG needed — so all three were accepted and fixed
+rather than argued with. `tests/card-persona-changes-test.js` (41 checks) is the
+permanent pair of them, and `tests/card-placement-lore-test.js` grew the consent
+half (109 checks to 114).
+
+**Issue 1 — importing a card applied its `extensions.horde_studio.system_prompt_source`.**
+`hordeCardChoices` wrote the author's value straight into `systemPromptSource`, the
+field the prompt builder reads, so a card took charge of the system prompt on the
+first request after import. It also quietly overwrote the player's own previous
+answer, because the import path never asked whether one existed.
+
+The fix splits one field into two. `systemPromptAsked` is what the card requested —
+kept on the character, shown in the editor, exported back so the author's word
+survives. `systemPromptSource` is what a *person* decided, and import leaves it
+empty. `cardPromptMode` (api.js) reads the second, and falls back to the first only
+through `Settings → System prompt → Cards may choose their prompt`, a preference
+v1.40.0 already consulted but had no setting, no default and no documentation for —
+which is also the dead `s.honorCardSystemPrompt` branch at the old `api.js:59`.
+The preference means "a card that asked may have its way"; a card that never asked
+is untouched by it, and a choice on a character outranks it.
+
+Why the gate sits in `hordeCardChoices` and not in the importer: only
+`cardToCharacter` turns that card key into a live field, and the other three keys
+come from the same call. Placement, compat mode and the scan window decide how the
+card's own content is laid out, so a card may set them; whose instructions run the
+conversation is not that kind of field. The grant is never written into the card as
+a new key — a key a card can set is a key a card can grant itself — so the
+approval lives in this app's preferences, not in the exchange format.
+
+*Caveat, deliberately not papered over:* a character imported by v1.40.0 keeps the
+mode its card stamped, because there is no longer any way to tell that value from
+one the player chose. Nothing is changed underneath it; the way out is the button
+it never had — open the character, choose **Your prompt**, which now exports as an
+explicit `"app"` so the refusal survives a round trip.
+
+**Issue 2 — clearing a field could not survive an export.** `hordeCardFields`
+emitted a key only when it differed from *this app's* default. A value moved back
+to the default therefore wrote nothing, the preserved copy went on carrying the
+author's value, and the next import restored what had just been deleted — a
+cleared `post_history_instructions` came back into the prompt.
+
+One rule now covers every key this app owns: **write the character's value when it
+is not what the card said at import, write nothing when it is.** Import records
+that moment as `cardAsked` (a copied snapshot, not an alias of the live
+directives), and export compares against it. A card that never said anything still
+exports nothing new, so the old non-default behaviour is kept for hand-made
+characters and for fields the card left out, and an unrecognised author value
+(`"post_history_placement": "middle"`) still rides out untouched. A character saved
+by v1.40.0 has no snapshot, so the export reads the ask off its preserved copy
+instead and gets the same rule.
+
+**Issue 3 — the preserved copy discarded deep structures in silence.** `_srcClone`
+returned `undefined` past 12 levels and filled arrays longer than 64 with `null`.
+The `null` rule predates this release and has been the app's stated behaviour for
+versions; what was wrong was the silence and the depth number.
+
+Depth is now 200 (`Store.SRC_DEPTH`) and breadth 60 000 values (`Store.SRC_NODES`)
+— bounds that exist only so a malformed or hostile file cannot use recursion to
+exhaust the app's stack, far past anything a card tool has written. Anything past
+either one is left out of the copy *and named*: `cardSource.gaps` holds
+`path — reason` lines, `Store.cardSourceGaps` exposes them, the import notes say
+the copy cannot hold part of this card and to keep the original file, and the export
+says it again at the moment the user would rely on it. Arrays are copied whole. The
+2 MB text bound is unchanged. `CARDS.md` states all of it next to the "never
+damaged" promise, which is now scoped to the fields this app models.
+
+**The open request — `description` and `personality` separately editable.** Import
+already kept both halves (each exported as the card wrote it while the persona was
+untouched), but the editor had one Persona box, and editing it merged both into
+`description` and emptied `personality`.
+
+`descText` and `persText` are now first-class fields, and the character sheet has a
+two-mode switch: *one box*, exactly as before, or *the card's two fields*, which
+edits each half apart. `persona` stays the joined string every prompt path reads,
+so nothing downstream changed. The consequence of the merged path is now spelled out
+in the editor's own hint instead of being a paragraph in a markdown file, and
+`{{description}}` / `{{personality}}` resolve to their own halves when a character
+is edited as two fields (both still resolve to the whole persona when it is one).
+A record carrying the split flag without either field exports the merged text
+rather than two empty strings — a shape that should not exist is not allowed to
+cost anyone their card.
+
+**What the reviewer's own claims taught me to correct in the code, not the prose.**
+The settings copy for the new preference first promised it would not touch cards
+imported before it was switched on; the test that pinned the live semantics said
+otherwise, and the live reading is the honest one, so the wording moved. And the
+`honorCardSystemPrompt` fallthrough — kept from the old dead branch — applied a
+card's prompt to *every* card once the switch was on; `cardPromptMode` now answers
+only an ask. That one was caught by `card-persona-changes-test.js`, not by the
+review, which is what a regression test is for.

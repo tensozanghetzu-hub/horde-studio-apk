@@ -274,6 +274,15 @@
                       ' in the card is not carried into this export — the text is complete, ' +
                       'the pictures are not', 6000);
                   }
+                  /* v1.41.0 (review issue 3): the other thing an export can miss.
+                     Said here as well as at import, because this is the moment it
+                     matters and the only moment the user can still keep the file. */
+                  var gaps = Store.cardSourceGaps ? Store.cardSourceGaps(c) : [];
+                  if (gaps.length) {
+                    UI.toast('This export is short ' + gaps.length + ' part' + (gaps.length === 1 ? '' : 's') +
+                      ' of the card this app could not preserve: ' + gaps.slice(0, 3).join('; ') +
+                      (gaps.length > 3 ? '…' : ''), 8000);
+                  }
                   UI.download((c.name || 'character').replace(/[^\w\-]+/g, '_') + '.json',
                     JSON.stringify(exported, null, 2));
                 } else if (a === 'dup') {
@@ -504,6 +513,24 @@
         'full on the character, where you can switch it to "the card\'s" or "both". The V2 spec asks ' +
         'apps to replace the global prompt; this one makes that a choice you can see instead.');
     }
+    /* v1.41.0 (review issue 1): a card can also *ask*, in the Horde extension
+       fields, that its prompt take over. Saying nothing there would let the
+       request decide the question silently, so the ask is recorded on the
+       character, named here, and applied by nobody until the player or their own
+       global preference says otherwise. */
+    var askedMode = (typeof Store !== 'undefined' && Store && Store.hordeBlock)
+      ? String((Store.hordeBlock(data, card) || {}).system_prompt_source || '') : '';
+    if (askedMode === 'card' || askedMode === 'combine') {
+      notes.push('This card asks, in its own Horde fields, that its system prompt ' +
+        (askedMode === 'card' ? 'replace yours' : 'be added to yours') + '. The request is kept ' +
+        'with the character and shown on it, but not applied: a card cannot approve itself. ' +
+        'Open the character and pick the mode under "Card prompts and placement", or switch on ' +
+        '"Cards may choose their prompt" in Settings → System prompt if you want every card ' +
+        'you import to have that already decided.');
+    } else if (askedMode && askedMode !== 'app') {
+      notes.push('This card sets a Horde prompt mode this app does not know ("' +
+        askedMode.slice(0, 24) + '"). It is kept in the card and this app uses your own prompt.');
+    }
     /* v1.39.112: a card whose greeting and examples are full of *action* donates
        the register from turn one, and the style lock only corrects a habit once
        it is already in the transcript — so the first corrections land on the
@@ -589,6 +616,24 @@
        the greeting and the prompt never carry markup a model could
        read and echo back as literal text. */
     c.persona = API.plainText(c.persona);
+    /* the two card fields, cleaned by the same rule so that switching the
+       character to the split editor cannot change the text the prompt sends */
+    c.descText = API.plainText(c.descText || '');
+    c.persText = API.plainText(c.persText || '');
+    /* v1.41.0 (review issue 3): the preserved copy has two shape limits, and a
+       card that runs past one keeps a copy that is knowingly short. Saying so at
+       import is the only honest place — by the time the user exports, "the app
+       never damages a card" would be a promise it cannot keep. */
+    if (typeof Store !== 'undefined' && Store && Store.cardSourceGaps) {
+      var gaps = Store.cardSourceGaps(c);
+      if (gaps.length) {
+        (c.importNotes || (c.importNotes = [])).push(
+          'This app keeps a copy of the card\'s own text so an export can give it back unchanged, ' +
+          'and that copy cannot hold part of this card: ' + gaps.join('; ') + '. The character works ' +
+          'normally — nothing was cut from it — but an export from here leaves those parts out, so ' +
+          'keep the original file if you want them.');
+      }
+    }
     c.scenario = API.plainText(c.scenario);
     c.greeting = API.plainText(c.greeting);
     c.examples = API.plainText(c.examples);

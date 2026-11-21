@@ -1349,9 +1349,26 @@
         '<div class="field"><textarea class="tall" id="set-system">' + esc(s.systemPrompt) + '</textarea>' +
           '<div class="hint">Sent before the character sheet. Macros: {{char}}, {{user}}, {{persona}}.</div>' +
           '<button class="btn ghost sm" id="btn-reset-sys">Reset to default</button></div>' +
+        /* v1.41.0 (review issue 1): the preference that lets a card's own prompt
+           through exists in the prompt builder, so it is a switch here — off, and
+           worded so nobody mistakes it for a compatibility default. It applies to
+           cards imported from now on that asked for it, and to any character that
+           has not been given its own answer. */
+        '<div class="field compact"><label>Cards may choose their prompt</label>' +
+          '<div class="toggle' + (s.honorCardSystemPrompt === true ? ' on' : '') + '" id="set-card-prompt"></div></div>' +
+        '<div class="hint">Off — the default — a card that brings its own system prompt only has it ' +
+          'shown on the character, and you can switch it on there. On, a card that <i>asks</i> for it in ' +
+          'its Horde fields gets it without being asked again — for those cards and any you import later. ' +
+          'It never overrides a choice you made on a character, and it does nothing at all to a card ' +
+          'that never asked. Switch it back off and those cards go quiet again.</div>' +
       '</div>';
     var sc = settingsScope(body);
     sc.bind('#set-system', 'change', function (e) { sc.set({ systemPrompt: e.target.value }); });
+    var cardPromptEl = $('#set-card-prompt', body);
+    if (cardPromptEl) cardPromptEl.onclick = function () {
+      this.classList.toggle('on');
+      sc.set({ honorCardSystemPrompt: this.classList.contains('on') });
+    };
     sc.bind('#btn-reset-sys', 'click', function () {
       /* Reset to the real default (store.js) — this handler used to carry a
          stale copy that predated the formatting line and the closing
@@ -1748,7 +1765,23 @@
     var POST_PLACE_LABEL = { sheet: 'End of the sheet', tail: 'After the history', off: 'Not sent' };
     var cardPrompt = String(char.cardSystemPrompt || '');
     var sysSrc = ['app', 'card', 'combine'];
-    var sysSrcOn = sysSrc.indexOf(char.systemPromptSource) >= 0 ? char.systemPromptSource : 'app';
+    /* The segment shows the mode the app will ACTUALLY use, which is not simply
+       the stored field: `''` means "nobody has decided", and a player who has
+       switched the global preference on has decided for every card they import.
+       Showing "Your prompt" while the card's text went out would be a lie in the
+       one screen whose job is to say what is being sent. */
+    var sysSrcEff = API.cardPromptMode(char, Store.settings);
+    var sysSrcAsked = String(char.systemPromptAsked || '');
+    var sysSrcOn = sysSrc.indexOf(sysSrcEff) >= 0 ? sysSrcEff : 'app';
+    /* v1.41.0 (review request 4): the persona as one string, or as the two fields
+       a V2/V3 card actually carries. `descText`/`persText` come from the card at
+       import, so opening a card and switching here cannot invent text; a
+       hand-made character has none, and the first split puts the whole persona in
+       the description where the card would keep it. */
+    var personaSplitOn = char.personaSplit === true;
+    var hasParts = typeof char.descText === 'string' && !!(char.descText || char.persText);
+    var descSeed = hasParts ? String(char.descText) : String(char.persona || '');
+    var persSeed = hasParts ? String(char.persText || '') : '';
     var postPlace = ['sheet', 'tail', 'off'];
     var postPlaceOn = postPlace.indexOf(char.postHistoryPlacement) >= 0 ? char.postHistoryPlacement : 'sheet';
     var LORE_SCAN_MIN = API.LORE_SCAN_MIN, LORE_SCAN_MAX = API.LORE_SCAN_MAX,
@@ -1838,9 +1871,32 @@
 
       '<div class="group">' +
         '<div class="group-title">Character sheet</div>' +
-        '<div class="field"><div class="field-head"><label>Persona</label>' +
+        '<div class="field"><div class="field-head"><label>' + (personaSplitOn ? 'Description · personality' : 'Persona') + '</label>' +
           '<span class="spacer"></span><button class="chip" data-act="ai-persona">' + icon('sparkle') + ' AI draft</button></div>' +
-          '<textarea class="tall" id="e-persona" placeholder="Appearance, personality, history, wants, voice…">' + esc(char.persona) + '</textarea></div>' +
+          /* v1.41.0 (review request 4): a card keeps these as TWO fields. Editing
+             them as one has always merged both into `description` and emptied the
+             card's `personality`; that path stays, and its consequence is now said
+             out loud next to the switch that avoids it. */
+          '<div class="seg" id="e-persona-mode" style="margin-bottom:8px">' +
+            '<button data-a="one"' + (personaSplitOn ? '' : ' class="on"') + '>One box</button>' +
+            '<button data-a="split"' + (personaSplitOn ? ' class="on"' : '') + '>The card\'s two fields</button>' +
+          '</div>' +
+          '<div id="e-persona-one"' + (personaSplitOn ? ' style="display:none"' : '') + '>' +
+            '<textarea class="tall" id="e-persona" placeholder="Appearance, personality, history, wants, voice…">' + esc(char.persona) + '</textarea>' +
+            (hasParts && !personaSplitOn
+              ? '<div class="hint">This is the card\'s <code>description</code> and <code>personality</code> ' +
+                'joined as one. Editing here <b>merges them</b>: the export writes all of it into ' +
+                '<code>description</code> and leaves the card\'s <code>personality</code> field empty. ' +
+                'Use “the card\'s two fields” to change one without touching the other.</div>'
+              : '') +
+          '</div>' +
+          '<div id="e-persona-split"' + (personaSplitOn ? '' : ' style="display:none"') + '>' +
+            '<div class="hint" style="margin-top:0">The two fields as the card keeps them. ' +
+            'Changing one leaves the other as it is, and both go back out under their own names.</div>' +
+            '<textarea class="tall" id="e-desc" placeholder="Appearance, history, how they speak…">' + esc(descSeed) + '</textarea>' +
+            '<div class="hint" style="margin:8px 0 4px">Personality (the card\'s own <code>personality</code> field)</div>' +
+            '<textarea id="e-pers" placeholder="Short traits list, if the card keeps one.">' + esc(persSeed) + '</textarea>' +
+          '</div>' +
         '<div class="field"><div class="field-head"><label>Scenario</label>' +
           Views.scenarioChip(char.scenarioList) +
           '<span class="spacer"></span><button class="chip" data-act="ai-scenario">' + icon('sparkle') + ' AI draft</button></div>' +
@@ -1889,6 +1945,18 @@
               : 'This card carries no prompt, so every choice here gives the same result.') +
             ' A card that can replace the prompt can also delete the rules this app needs — plain prose, ' +
             'never narrating for you — so “the card’s” is deliberately not the default.</div>' +
+          /* v1.41.0 (review issue 1): a card may ask for this in its own Horde
+             fields. Asking is not having: the request is shown here, and one tap
+             on the row above is what grants it. Nothing is written into the card
+             to mark the grant, because a key a card can set is a key a card can
+             grant itself. */
+          ((sysSrcAsked === 'card' || sysSrcAsked === 'combine') && sysSrcOn !== sysSrcAsked
+            ? '<div class="hint" style="margin-top:6px;color:var(--warn,#fbbf24)"><b>This card asked for “' +
+              (sysSrcAsked === 'card' ? 'the card\'s' : 'both') + '” and this app did not apply it.</b> ' +
+              'Pick “' + SYS_SRC_LABEL[sysSrcAsked] + '" above to grant it — your choice, not the card\'s.' +
+              ((Store.settings && Store.settings.honorCardSystemPrompt) ? '' : ' Or switch on “Cards may choose their prompt” in Settings → System prompt to grant it for every card you import.') +
+              '</div>'
+            : '') +
           (cardPrompt
             ? '<details style="margin-top:8px"><summary class="hint" style="margin:0">Read the card’s prompt</summary>' +
                 '<div class="hint" style="white-space:pre-wrap;margin-top:6px;max-height:14em;overflow:auto">' + esc(cardPrompt) + '</div>' +
@@ -2154,6 +2222,41 @@
     }
     segWire('e-sys-src', function (v) { sysSrcOn = v; });
     segWire('e-post-place', function (v) { postPlaceOn = v; });
+    /* The persona mode switch. Both boxes stay in the DOM and mirror each other,
+       so switching back and forth inside one edit cannot drop text, and the AI
+       draft buttons — which read the combined box — always see what is there. */
+    function personaJoin() {
+      var d = $('#e-desc', body), pr = $('#e-pers', body), one = $('#e-persona', body);
+      if (!d || !one) return;
+      var joined = [d.value, pr.value].filter(function (t) { return String(t || '').trim(); }).join('\n\n');
+      if (one.value !== joined) one.value = joined;
+    }
+    function splitFromCombined() {
+      var d = $('#e-desc', body), pr = $('#e-pers', body), one = $('#e-persona', body);
+      if (!d || !one) return;
+      if (hasParts) return;              /* the card's own halves win; they are the truth */
+      d.value = one.value;
+      if (pr) pr.value = '';
+    }
+    segWire('e-persona-mode', function (v) {
+      personaSplitOn = v === 'split';
+      var oneBox = $('#e-persona-one', body), two = $('#e-persona-split', body);
+      if (personaSplitOn) {
+        splitFromCombined();
+        if (two) two.style.display = '';
+        if (oneBox) oneBox.style.display = 'none';
+      } else {
+        personaJoin();
+        if (oneBox) oneBox.style.display = '';
+        if (two) two.style.display = 'none';
+      }
+      var lab = $('#e-persona-mode', body) && $('#e-persona-mode', body).parentNode.querySelector('label');
+      if (lab) lab.textContent = personaSplitOn ? 'Description · personality' : 'Persona';
+    });
+    ['#e-desc', '#e-pers'].forEach(function (sel) {
+      var el = $(sel, body);
+      if (el) el.oninput = personaJoin;
+    });
     var loreCompatEl = $('#e-lore-compat', body);
     if (loreCompatEl) loreCompatEl.onclick = function () {
       this.classList.toggle('on');
@@ -2195,7 +2298,21 @@
       draft.name = $('#e-name', body).value.trim();
       draft.tagline = $('#e-tagline', body).value.trim();
       draft.tags = $('#e-tags', body).value.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
-      draft.persona = $('#e-persona', body).value;
+      /* v1.41.0: in the split mode the two card fields are the truth and the
+         combined string is derived from them, which is what every prompt path
+         reads; in the one-box mode the combined text wins and the two fields
+         follow it, so a stale split from an earlier edit cannot outlive it. */
+      if (personaSplitOn) {
+        draft.descText = $('#e-desc', body).value;
+        draft.persText = $('#e-pers', body).value;
+        draft.persona = [draft.descText, draft.persText]
+          .filter(function (t) { return String(t || '').trim(); }).join('\n\n');
+      } else {
+        draft.persona = $('#e-persona', body).value;
+        draft.descText = draft.persona;
+        draft.persText = '';
+      }
+      draft.personaSplit = personaSplitOn;
       draft.scenario = $('#e-scenario', body).value;
       /* fold the box back into the intro slot on show FIRST — saving while
          looking at intro k must not clobber the main greeting */
@@ -2208,7 +2325,11 @@
          directives are trimmed here as well as at import, so a character created
          in the app carries the same limits as a card that arrived with them. */
       draft.postHistoryPlacement = postPlaceOn;
-      draft.systemPromptSource = sysSrcOn === 'app' ? '' : sysSrcOn;
+      /* '' means "nobody has decided", so it is only left alone when there is
+         nothing to decide: a card that asked for its own prompt has to be
+         refused out loud (and that refusal is what survives an export). */
+      draft.systemPromptSource = sysSrcOn === 'app' ? (draft.systemPromptAsked ? 'app' : '') : sysSrcOn;
+      draft.systemPromptAsked = sysSrcAsked;
       draft.loreCompat = !!($('#e-lore-compat', body) && $('#e-lore-compat', body).classList.contains('on'));
       draft.loreScanTurns = parseInt(($('#e-lore-scan', body) || {}).value, 10) || 0;
       if (draft.loreScanTurns === API.LORE_SCAN_DEFAULT) draft.loreScanTurns = 0;
@@ -2344,7 +2465,13 @@
           : '. ') +
         'Use third person, under 200 words. Cover: appearance, personality (strengths and flaws as they actually are), wants, and how they speak. No headings.',
         320).then(function (txt) {
-          $('#e-persona', body).value = txt.trim();
+          /* v1.41.0: with the card's two fields open, a drafted persona is a
+             description — writing it into the hidden combined box would have been
+             collected and thrown away. */
+          if (personaSplitOn) {
+            $('#e-desc', body).value = txt.trim();
+            personaJoin();
+          } else $('#e-persona', body).value = txt.trim();
           UI.toast('Draft inserted — edit as you like');
         }).catch(function (e) { UI.toast('Draft failed: ' + e.message, 4000); });
     });
@@ -2384,7 +2511,11 @@
              collect() below picks them up like any other field */
           if (a.name && !$('#e-name', body).value.trim()) $('#e-name', body).value = String(a.name).trim().slice(0, 60);
           if (a.tagline && !$('#e-tagline', body).value.trim()) $('#e-tagline', body).value = String(a.tagline).trim().slice(0, 140);
-          if (a.persona) $('#e-persona', body).value = String(a.persona).trim().slice(0, 2400);
+          if (a.persona) {
+            var pTxt = String(a.persona).trim().slice(0, 2400);
+            if (personaSplitOn) { $('#e-desc', body).value = pTxt; personaJoin(); }
+            else $('#e-persona', body).value = pTxt;
+          }
           if (a.scenario) $('#e-scenario', body).value = String(a.scenario).trim().slice(0, 600);
           if (a.greeting) $('#e-greeting', body).value = String(a.greeting).trim().slice(0, 600);
           if (a.examples) $('#e-examples', body).value = String(a.examples).trim().slice(0, 1200);
