@@ -77,10 +77,22 @@ ok('V3 cards keep theirs too', v3.alternateGreetings.length === 1);
 
 console.log('B — export keeps the alternates');
 const out = Store.characterToCard(c);
+/* v1.39.113 changed what "faithful" means here. The character shows two intros
+   because the app drops the one that repeats first_mes and trims whitespace -
+   a view, not a deletion. The export now writes the card's own list back as it
+   stood (three entries, untrimmed), so the file survives an untouching trip
+   through the app whole, and the app still shows two because it applies the
+   same normalization on the way in. */
 ok('export writes data.alternate_greetings',
-  Array.isArray(out.data && out.data.alternate_greetings) && out.data.alternate_greetings.length === 2,
-  JSON.stringify(out.data && Object.keys(out.data)));
-ok('round trip keeps every intro', Store.cardToCharacter(out).alternateGreetings.length === 2);
+  Array.isArray(out.data && out.data.alternate_greetings) && out.data.alternate_greetings.length === 3,
+  JSON.stringify(out.data && out.data.alternate_greetings));
+ok('…with the author\'s whitespace and the duplicate of the first message intact',
+  out.data.alternate_greetings[1] === ' ' + G2 + ' ' && out.data.alternate_greetings[0] === G1,
+  JSON.stringify(out.data.alternate_greetings));
+ok('round trip keeps every intro the app shows', Store.cardToCharacter(out).alternateGreetings.length === 2);
+ok('…and re-importing the export changes nothing further',
+  JSON.stringify(Store.cardToCharacter(Store.characterToCard(Store.cardToCharacter(out))).alternateGreetings)
+    === JSON.stringify(Store.cardToCharacter(out).alternateGreetings), '');
 
 console.log('C — a new chat offers all intros as swipes on the first message');
 const apiSrc = fs.readFileSync(APP_SRC, 'utf8');

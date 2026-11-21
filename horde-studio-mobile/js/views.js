@@ -1790,7 +1790,12 @@
           '<textarea class="tall" id="e-examples" placeholder="{{user}}: …&#10;{{char}}: …">' + esc(char.examples) + '</textarea>' +
           '<div class="hint">Alternating {{user}}: / {{char}}: lines. Optional, but it nails the voice.</div></div>' +
         '<div class="field"><div class="field-head"><label>Always-remember note</label></div>' +
-          '<textarea id="e-post" placeholder="Appended last, right before the reply is generated.">' + esc(char.postHistory) + '</textarea></div>' +
+          /* The old placeholder promised the text was "appended last, right before the
+   reply is generated". It is not: charSheet puts it at the end of the system
+   block, above the examples and the transcript (api.js, `post`). Telling
+   authors the wrong thing is how a card ends up with its most important rule
+   sitting where the model weighs it least. */
+'<textarea id="e-post" placeholder="Joins the end of the character sheet, above the examples and the chat history.">' + esc(char.postHistory) + '</textarea></div>' +
       '</div>' +
 
       '<div class="group">' +

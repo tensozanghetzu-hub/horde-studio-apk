@@ -60,6 +60,10 @@ var sb = {
       return {
         id: 'c-test', name: (card && card.name) || 'Test', persona: '', scenario: '',
         greeting: '', examples: '', postHistory: '', lorebook: [],
+        /* the real cardToCharacter attaches the preserved source; without it
+           prepareImportedCharacter would report every card as too large to
+           preserve, and this file would be testing its own stub */
+        cardSource: { top: {}, body: {}, imgs: [] },
         alternateGreetings: [], expressionPortraits: [], avatar: null, images: []
       };
     },
@@ -116,7 +120,7 @@ var notes = App.importLossNotes(cardWith([
   { keys: ['a'], content: 'x', position: 'before_character', priority: 5, scan_depth: 3 },
   { keys: ['b'], content: 'y', use_regex: true, comment: 'hi' }
 ]));
-var droppedNote = notes.filter(function (n) { return n.indexOf('does not carry') !== -1; })[0];
+var droppedNote = notes.filter(function (n) { return n.indexOf('does not use when matching') !== -1; })[0];
 ok('a note names the dropped fields', !!droppedNote, JSON.stringify(notes));
 ok('...including position', droppedNote && droppedNote.indexOf('position') !== -1, droppedNote);
 ok('...priority', droppedNote && droppedNote.indexOf('priority') !== -1, droppedNote);
@@ -126,7 +130,8 @@ ok('...and says what entries fire on', droppedNote && droppedNote.indexOf('keys/
 
 var plainNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', enabled: true }]));
 ok('a plain keys/content book gets no dropped-fields note',
-  !plainNotes.some(function (n) { return n.indexOf('does not carry') !== -1; }), JSON.stringify(plainNotes));
+  !plainNotes.some(function (n) { return n.indexOf('does not use when matching') !== -1; }),
+  JSON.stringify(plainNotes));
 
 var secNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', secondary_keys: ['b'] }]));
 ok('the secondary-keys note still fires', secNotes.some(function (n) { return n.indexOf('secondary keys') !== -1; }),

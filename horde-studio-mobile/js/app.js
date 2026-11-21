@@ -262,8 +262,20 @@
                   App.persistVH(c).then(function () { App.editCharacter(c); });
                 }
                 else if (a === 'export') {
+                  var exported = Store.characterToCard(c);
+                  /* Item 1 of the compatibility letter: never claim a lossless
+                     conversion. Text survives whole now, but a picture the app
+                     never imported (a background, a lorebook entry image) has
+                     nowhere to come back from, and saying nothing about that
+                     would be a false promise. */
+                  var lost = Store.cardUnrestoredImages(c, exported);
+                  if (lost.length) {
+                    UI.toast(lost.length + ' embedded image' + (lost.length === 1 ? '' : 's') +
+                      ' in the card is not carried into this export — the text is complete, ' +
+                      'the pictures are not', 6000);
+                  }
                   UI.download((c.name || 'character').replace(/[^\w\-]+/g, '_') + '.json',
-                    JSON.stringify(Store.characterToCard(c), null, 2));
+                    JSON.stringify(exported, null, 2));
                 } else if (a === 'dup') {
                   var d = Object.assign({}, c, { id: UI.uid('c'), name: (c.name || '') + ' (copy)', createdAt: Date.now() });
                   Store.putCharacter(d).then(function () { App.go('characters'); UI.toast('Duplicated'); });
@@ -415,15 +427,17 @@
     }).length;
     if (secondary) {
       notes.push(secondary + ' ' + (secondary === 1 ? 'entry uses' : 'entries use') +
-        ' secondary keys or "selective" filtering — ignored, so ' +
-        (secondary === 1 ? 'it' : 'they') + ' may fire more often than the author intended.');
+        ' secondary keys or "selective" filtering, which this app does not match on — ' +
+        (secondary === 1 ? 'it' : 'they') + ' may fire more often than the author intended. ' +
+        'The card keeps the setting; only the matcher here ignores it.');
     }
     var ordered = entries.filter(function (e) {
       return e && typeof e.insertion_order === 'number';
     }).length;
     if (ordered) {
       notes.push(ordered + ' ' + (ordered === 1 ? 'entry sets' : 'entries set') +
-        ' "insertion_order" — ignored, so entries are matched in book order.');
+        ' "insertion_order", which this app does not sort by, so entries are matched in book ' +
+        'order. The value is kept in the card.');
     }
     /* v1.39.112: the two notes above named the worst losses and left the rest
        undocumented, so a card whose book enforces `position: before_character`
@@ -441,12 +455,17 @@
     });
     var dKeys = Object.keys(dropped).sort();
     if (dKeys.length) {
-      notes.push('The lorebook uses fields the app does not carry (' +
-        dKeys.join(', ') + ') — entries fire on keys/content/constant/stage only.');
+      /* v1.39.113: these stopped being losses the moment the source copy was
+         kept. Saying "the app does not carry" promised an export would drop them
+         too, and it no longer does, which is a different and better warning. */
+      notes.push('The lorebook sets fields this app does not use when matching (' +
+        dKeys.join(', ') + ') — entries fire on keys/content/constant/stage only. ' +
+        'The fields stay in the card, so an export carries them back out.');
     }
     if (data.system_prompt) {
-      notes.push('This card carries its own system prompt; the app uses the global one. ' +
-        'Copy it into Settings → System prompt if you want it honoured.');
+      notes.push('This card carries its own system prompt; the app uses the global one, so the ' +
+        'card\'s is kept in the file but not applied here. Copy it into Settings → System ' +
+        'prompt if you want it honoured.');
     }
     /* v1.39.112: a card whose greeting and examples are full of *action* donates
        the register from turn one, and the style lock only corrects a habit once
@@ -476,6 +495,14 @@
   App.prepareImportedCharacter = function (card) {
     var c = Store.cardToCharacter(card);
     c.importNotes = App.importLossNotes(card);
+    /* The notes above promise that an unused field still stays in the card.
+       That is only true when the source copy fitted, so say plainly when it did
+       not, rather than leave a reassurance that does not hold. */
+    if (!c.cardSource) {
+      c.importNotes.push('This card is too large for the app to keep a copy of its source, so ' +
+        'anything above is a real loss on export and not just an unused setting. Re-import the ' +
+        'original file if you want them back.');
+    }
     var shapeNote = App.v3ShapeNote(card);
     if (shapeNote) c.importNotes.unshift(shapeNote);
     /* v1.13.1: card text arrives as HTML — SillyTavern/Janitor

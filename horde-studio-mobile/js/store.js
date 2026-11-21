@@ -593,6 +593,191 @@
       return out;
     },
 
+    /* ---------------- non-destructive round trip (v1.39.113) -------------
+       A card carries far more than this app models: client-specific
+       extensions, lorebook properties the matcher has no use for, V3 fields
+       with no Horde equivalent. Until now those died at the border, so a card
+       that had merely been opened in the APK came back out diminished, and a
+       re-import of that export made the loss permanent. Import notes tell the
+       user about it, but a warning does not restore anything.
+
+       `cardSource` is the restore: a plain-JSON copy of what the file actually
+       said - both the top level and under `data`, because other tools read
+       either - plus the book's own properties and one raw record per lorebook
+       entry. Export overlays this app's live values onto it, so a field the
+       user never touched survives with its value AND its type, and a field
+       they edited is written in both places at once.
+
+       It is data, never behaviour. Nothing here is read when a prompt is
+       built, no preserved field becomes a macro target or a style
+       instruction, and nothing in it is shown as the card's sheet. Preserved,
+       not used - the distinction the import notes make in words.
+       ------------------------------------------------------------------ */
+    SOURCE_CAP: 2 * 1024 * 1024,        /* JSON bytes; a bigger source is not kept */
+
+    /* Clone a value for the preserved copy: JSON-safe, and with base64 picture
+       payloads left out. A data: URL is a whole image inside a string, and the
+       app already carries those as the avatar and the picture gallery (see
+       cardAvatar / cardImages), so keeping them again would double several
+       megabytes per card for nothing. Each path left out is recorded so export
+       can put the app's own copy back and report what it cannot. */
+    _srcClone: function (v, path, acc, depth) {
+      if (typeof v === 'string') {
+        if (/^data:[^,]*base64,/i.test(v) || /^data:image\//i.test(v)) {
+          if (acc.imgs.indexOf(path) === -1) acc.imgs.push(path);
+          return undefined;
+        }
+        return v;
+      }
+      if (v === null || typeof v !== 'object') {
+        if (v === undefined || typeof v === 'function') return undefined;
+        return v;
+      }
+      if (depth > 12) return undefined;
+      if (Array.isArray(v)) {
+        var arr = [];
+        for (var i = 0; i < v.length; i++) {
+          var item = Store._srcClone(v[i], path + '[' + i + ']', acc, depth + 1);
+          arr.push(item === undefined ? null : item);
+        }
+        return arr;
+      }
+      var o = {};
+      Object.keys(v).forEach(function (k) {
+        var val = Store._srcClone(v[k], path ? path + '.' + k : k, acc, depth + 1);
+        if (val !== undefined) o[k] = val;
+      });
+      return o;
+    },
+
+    /* Canonical JSON with sorted keys, so "did the user change this field?"
+       does not depend on key order or on a field arriving as 5 vs "5" -
+       types are compared too, which is the point of preserving them. */
+    _canon: function (v) {
+      if (v === null || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
+      if (Array.isArray(v)) return '[' + v.map(Store._canon).join(',') + ']';
+      return '{' + Object.keys(v).sort().map(function (k) {
+        return JSON.stringify(k) + ':' + Store._canon(v[k]);
+      }).join(',') + '}';
+    },
+    _sameVal: function (a, b) { return Store._canon(a) === Store._canon(b); },
+
+    /* The copy of the source worth keeping. `data` wins over the top level,
+       which is the rule cardToCharacter already imports by, so the two views
+       of one card can never disagree about what the card said. */
+    cardSourceFor: function (card, data, lore) {
+      var src = card || {};
+      var acc = { imgs: [] };
+      var top = {}, body = {};
+      Object.keys(src).forEach(function (k) {
+        if (k === 'data' || k === 'spec' || k === 'spec_version' ||
+            k === 'cardSource' || k === 'importNotes') return;
+        if (k === 'character_book') return;                 /* kept apart, see below */
+        var v = Store._srcClone(src[k], k, acc, 0);
+        if (v !== undefined) top[k] = v;
+      });
+      if (src.data && typeof src.data === 'object' && !Array.isArray(src.data)) {
+        Object.keys(src.data).forEach(function (k) {
+          if (k === 'character_book') return;
+          var v = Store._srcClone(src.data[k], 'data.' + k, acc, 0);
+          if (v !== undefined) body[k] = v;
+        });
+      }
+      var s = { top: top, body: body, imgs: acc.imgs };
+      if (typeof src.spec === 'string') s.spec = src.spec;
+      if (typeof src.spec_version === 'string') s.spec_version = src.spec_version;
+
+      var book = (data && data.character_book) ||
+        (src.data && src.data.character_book) || src.character_book || null;
+      if (book && typeof book === 'object' && !Array.isArray(book)) {
+        var meta = {};
+        Object.keys(book).forEach(function (k) {
+          if (k === 'entries') return;
+          var v = Store._srcClone(book[k], 'book.' + k, acc, 0);
+          if (v !== undefined) meta[k] = v;
+        });
+        s.book = meta;
+        /* Book-level settings this app ignores (token_budget, recursion_depth,
+           scan_depth...) are still the author's, so they ride back out. Where
+           the book lived matters as much as what it held: a V1 card hangs it
+           off the top level, a V2 card puts it in data. */
+        s.bookAt = {
+          top: !!(src.character_book && typeof src.character_book === 'object'),
+          data: !!(src.data && src.data.character_book)
+        };
+        var ents = book.entries;
+        if (Array.isArray(ents)) {
+          /* Keyed by the id this app minted for each entry, never by position:
+             entries get reordered, deleted and added in the editor, and a raw
+             record attached to array index would follow the index rather than
+             the entry. Ids the source itself uses are irrelevant here, so
+             duplicate or missing source ids cannot collide. */
+          s.lore = [];
+          ents.forEach(function (e, i) {
+            if (!e || typeof e !== 'object' || !lore || !lore[i]) return;
+            var raw = Store._srcClone(e, 'book.entries[' + i + ']', acc, 0);
+            if (raw) s.lore.push({ uid: lore[i].id, raw: raw });
+          });
+        }
+      }
+      var text;
+      try { text = JSON.stringify(s); } catch (err) { return null; }
+      if (text.length > Store.SOURCE_CAP) return null;
+      s.bytes = text.length;
+      return s;
+    },
+
+    /* Resolve a recorded path like `data.extensions.bg` or
+       `book.entries[2].content` against the exported card, to find out whether
+       a picture the app stripped came back. */
+    _resolve: function (root, path) {
+      var parts = String(path).replace(/\[(\d+)\]/g, '.$1').split('.');
+      var v = root;
+      for (var i = 0; i < parts.length && v != null; i++) v = v[parts[i]];
+      return v;
+    },
+
+    /* Where each picture the card carried should go on the way out, and which
+       ones this app has nothing to put back. It knows two kinds of image - the
+       avatar and the gallery - and the gallery remembers the key the card used
+       (`image_2` stays `image_2`), so the file comes back shaped like itself
+       instead of renumbered. Anything else that was a picture: a background, an
+       image inside a lorebook entry - was never imported, and the export
+       reports it rather than claiming a lossless conversion. */
+    imageRestorePlan: function (c) {
+      var s = (c && c.cardSource) || {};
+      var byName = {};
+      ((c && c.images) || []).forEach(function (im) {
+        if (im && im.name && im.src) byName[String(im.name)] = im.src;
+      });
+      var targets = [], lost = [];
+      (s.imgs || []).forEach(function (p) {
+        var leaf = String(p).split('.').pop();
+        var src = leaf === 'char_x' ? ((c && c.avatar) || null)
+          : (/^image_\d+$/.test(leaf) ? (byName[leaf] || null) : null);
+        /* a nested picture key (extensions.art, an entry's image) has no place
+           in this app's model, so it cannot be filled from anywhere */
+        if (!src || /[.\[]/.test(String(p).slice(0, String(p).length - leaf.length).replace(/^data\.$/, ''))) {
+          lost.push(p);
+          return;
+        }
+        targets.push({ path: p, inBody: /^data\./.test(p), leaf: leaf, src: src });
+      });
+      return { targets: targets, lost: lost };
+    },
+
+    /* The pictures an export could not put back, for the caller to warn about. */
+    cardUnrestoredImages: function (c, card) {
+      var s = c && c.cardSource;
+      if (!s || !s.imgs || !s.imgs.length) return [];
+      var plan = Store.imageRestorePlan(c);
+      /* only a loss if nothing in the export carries that picture after all */
+      return plan.lost.filter(function (p) {
+        var v = Store._resolve(card, p);
+        return !(typeof v === 'string' && v.length);
+      });
+    },
+
     cardToCharacter: function (card) {
       var data = card;
       /* v1.39.16: a V2 card MAY keep its fields only under data (the spec
@@ -619,6 +804,7 @@
            "Current situation:"). The V2 branch never folded, which is the
            proof it is not needed. */
         var desc = [data.description || '', data.personality || ''].filter(Boolean).join('\n\n');
+        var v3book = Store.bookFromCard(card, data);
         return {
           id: UI.uid('c'), name: data.name || 'Imported character',
           tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -632,7 +818,8 @@
              border — every card that carried one imported silent */
           examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
           tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
-          lorebook: Store.bookFromCard(card, data),
+          lorebook: v3book,
+          cardSource: Store.cardSourceFor(card, data, v3book),
           /* A2 (v1.39.70): the V3 branch never set this, so a V3 card's
              expression portraits imported as undefined and re-exported
              without them — a round trip through the app deleted them. */
@@ -642,6 +829,7 @@
         };
       }
       var list2 = Store.scenarioList(data);
+      var v12book = Store.bookFromCard(card, data);
       return {
         id: UI.uid('c'), name: data.name || 'Imported character',
         tagline: (data.tags || []).slice(0, 3).join(', '), avatar: Store.cardAvatar(data.char_x),
@@ -653,7 +841,8 @@
         examples: data.mes_example || '', postHistory: String(data.post_history_instructions || ''),
         tags: data.tags || [], systemPrompt: '', temperature: null, maxTokens: null,
         /* V2 cards with an embedded book were losing it entirely here */
-        lorebook: Store.bookFromCard(card, data),
+        lorebook: v12book,
+        cardSource: Store.cardSourceFor(card, data, v12book),
         expressionPortraits: Store.expressionPortraitsFromCard(data, card),
         alternateGreetings: Store.altGreetingsFromCard(card, data),
         createdAt: Date.now(), updatedAt: Date.now()
@@ -684,7 +873,178 @@
       return p;
     },
 
+    /* Export is the source with this app's edits laid over it, not a fresh
+       card rebuilt from the handful of fields the app models.
+
+       "Unedited" cannot mean "equal to the raw field", because import does not
+       copy fields verbatim: it runs card text through plainText, joins
+       description and personality into one persona string, falls back to the
+       first scenario in the list, and trims duplicate greetings. So the test
+       re-runs that derivation over the preserved source and compares. Equal
+       means the user never touched it - the field goes back out as the card
+       wrote it, type and all, and description and personality stay separate.
+       Different means they edited it here, and the new value is written into
+       both representations so no other reader finds a stale duplicate of the
+       old one. */
     characterToCard: function (c) {
+      var bare = Store.characterToCardBare(c);
+      var s = c && c.cardSource;
+      if (!s) return bare;                        /* imported before v1.39.113 */
+
+      var top = JSON.parse(JSON.stringify(s.top || {}));
+      var body = JSON.parse(JSON.stringify(s.body || {}));
+      /* Derive from the same merged view the import used, not from `data`
+         alone: a V1 card has no `data` at all, and some tools write a V2 card's
+         fields only at the top level. Deriving from `body` there would read an
+         empty card, call every field "edited", and write the sanitized copy
+         over the author's text - the exact damage this whole block exists to
+         stop. */
+      var merged = {};
+      Object.keys(top).forEach(function (k) { merged[k] = top[k]; });
+      Object.keys(body).forEach(function (k) { merged[k] = body[k]; });
+
+
+      function clean(v) {
+        var t = String(v == null ? '' : v);
+        return (typeof API !== 'undefined' && API && API.plainText) ? API.plainText(t) : t;
+      }
+      /* put both copies of a field: the V2 spec asks for the fields in data,
+         top level too, and tools read either one */
+      function put(k, v) { top[k] = v; body[k] = v; }
+      /* write only when the live value is not what import would have made from
+         the source - the whole of the non-destructive rule in one line */
+      function keepOrWrite(key, live, derived) {
+        if (Store._sameVal(live, derived)) {
+          /* untouched: the author's own value, copied into both places. The V2
+             spec asks for the character fields in `data` AND at the top level,
+             and this app has written both since v1.39.73 because other tools
+             read only one of the two - so the copy goes wherever a reader looks,
+             while the text itself stays exactly as the card had it. */
+          if (merged[key] !== undefined) put(key, JSON.parse(JSON.stringify(merged[key])));
+          return;
+        }
+        put(key, live);
+      }
+
+      var scList = (typeof Store.scenarioList === 'function') ? (Store.scenarioList(merged) || []) : [];
+      var scMain = String(merged.scenario || '').trim();
+      var alt = Store.altGreetingsFromCard(merged, merged);
+
+      keepOrWrite('name', c.name, merged.name || 'Imported character');
+      var personaSaid = clean([merged.description || '', merged.personality || '']
+        .filter(Boolean).join('\n\n'));
+      if (Store._sameVal(c.persona, personaSaid)) {
+        /* the two fields stay two fields - a card that keeps its personality
+           separately keeps it separately through an edit of nothing at all */
+        if (merged.description !== undefined) put('description', JSON.parse(JSON.stringify(merged.description)));
+        if (merged.personality !== undefined) put('personality', JSON.parse(JSON.stringify(merged.personality)));
+      } else {
+        /* the persona box holds both fields, so an edit cannot be split back in
+           two: the merged text goes into description and personality is
+           emptied rather than left holding the old half - that is how the app
+           has always exported, and it is the only honest option here. The old
+           text is not lost: it was inside the string being edited. */
+        put('description', bare.description);
+        put('personality', '');
+      }
+      keepOrWrite('scenario', c.scenario, clean(scMain ? scMain : (scList[0] || '')));
+      keepOrWrite('first_mes', c.greeting, clean(merged.first_mes || ''));
+      keepOrWrite('mes_example', c.examples, clean(merged.mes_example || ''));
+      keepOrWrite('post_history_instructions', c.postHistory || '',
+        clean(String(merged.post_history_instructions || '')));
+      keepOrWrite('alternate_greetings', c.alternateGreetings || [],
+        alt.map(function (g) { return clean(g); }));
+      keepOrWrite('tags', c.tags || [], merged.tags || []);
+      keepOrWrite('scenario_list', c.scenarioList || [], scList);
+      /* fields the app shows but does not own: keep the author's, add ours only
+         where the card had nothing, so an export is never missing a V2 staple */
+      ['creatorcomment', 'talkativeness', 'fav'].forEach(function (k) {
+        if (merged[k] === undefined) { top[k] = bare[k]; body[k] = bare[k]; }
+      });
+
+      /* pictures: the data URLs were left out of the copy, so the app's own
+         copies go back onto the keys the card used. What the app carries that
+         the card had no key for keeps the bare export's numbering. */
+      var plan = Store.imageRestorePlan(c);
+      var namedChar = plan.targets.filter(function (t) { return t.leaf === 'char_x'; });
+      if (bare.char_x && !namedChar.length) top.char_x = bare.char_x;
+      Object.keys(bare.data || {}).forEach(function (k) {
+        if (/^image_\d+$/.test(k) && !plan.targets.some(function (t) { return t.leaf === k; })) {
+          body[k] = bare.data[k];
+        }
+      });
+      plan.targets.forEach(function (t) {
+        (t.inBody ? body : top)[t.leaf] = t.src;
+        /* V2 puts char_x at the top level; a card that kept it in data gets it
+           in both, so neither reader finds a different answer */
+        if (t.leaf === 'char_x') {
+          if (t.inBody) top.char_x = t.src; else body.char_x = t.src;
+        }
+      });
+
+      /* extensions are somebody else's namespace: preserve every key the card
+         had and replace only our own, so another client's settings survive a
+         round trip through here untouched */
+      var srcExt = (body.extensions && typeof body.extensions === 'object') ? body.extensions
+        : ((top.extensions && typeof top.extensions === 'object') ? top.extensions : null);
+      var liveExt = (bare.data && bare.data.extensions) || null;
+      if (srcExt || liveExt) {
+        var ext = JSON.parse(JSON.stringify(srcExt || {}));
+        var horde = (ext.horde_studio && typeof ext.horde_studio === 'object') ? ext.horde_studio : {};
+        if (liveExt && liveExt.horde_studio) {
+          Object.keys(liveExt.horde_studio).forEach(function (k) { horde[k] = liveExt.horde_studio[k]; });
+        } else if (horde.expression_portraits) {
+          horde.expression_portraits = [];      /* every portrait was deleted here */
+        }
+        ext.horde_studio = horde;
+        body.extensions = JSON.parse(JSON.stringify(ext));
+        /* extensions are not a spec-duplicated field: only mirror the copy
+           upward if the card kept its extensions at the top level too.
+           Inventing a second one would be this app adding a field. */
+        if (top.extensions && typeof top.extensions === 'object') {
+          top.extensions = JSON.parse(JSON.stringify(ext));
+        }
+      }
+
+      /* the book: entry properties are matched by our own per-entry id, never
+         by position, so edits, deletions, additions and reordering all attach
+         the unknown properties to the entry they belong to */
+      var rawByUid = {};
+      (s.lore || []).forEach(function (rec) {
+        if (rec && rec.uid && rec.raw) rawByUid[rec.uid] = rec.raw;
+      });
+      var entries = (c.lorebook || []).map(function (e) {
+        var had = !!rawByUid[e.id];
+        var r = had ? JSON.parse(JSON.stringify(rawByUid[e.id])) : {};
+        var same = {
+          keys: [e.keys || [], r.keys || []],
+          content: [e.content || '', clean(r.content || '')],
+          enabled: [e.enabled !== false, r.enabled !== false],
+          stage: [e.stage || '', r.stage || ''],
+          constant: [e.constant === true, r.constant === true]
+        };
+        Object.keys(same).forEach(function (k) {
+          if (had && Store._sameVal(same[k][0], same[k][1])) return;
+          if (!had && k === 'constant' && !same[k][0]) return;   /* do not invent one */
+          r[k] = same[k][0];
+        });
+        return r;
+      });
+      if (entries.length || s.book || (s.bookAt && s.bookAt.data)) {
+        var book = Object.assign({ name: (c.name || 'character') + ' lorebook' }, s.book || {}, { entries: entries });
+        body.character_book = book;
+        top.character_book = (s.bookAt && s.bookAt.top) ? book : JSON.parse(JSON.stringify(book));
+        if (!(s.bookAt && (s.bookAt.top || s.bookAt.data))) delete top.character_book;
+      }
+
+      var out = top;
+      out.spec = s.spec || 'chara_card_v2';
+      out.spec_version = s.spec_version || '2.0';
+      out.data = body;
+      return out;
+    },
+
+    characterToCardBare: function (c) {
       var card = {
         name: c.name,
         description: Store.stripDuplicateScenario(c.persona || '', c.scenario || ''),
