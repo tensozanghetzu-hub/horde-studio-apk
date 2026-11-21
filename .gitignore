@@ -49,6 +49,13 @@ android-sdk/
 research/
 .npm/
 
+# One-off repro harnesses and probe scripts live here while they are being
+# written and die with the investigation. Nothing in the build, the test suite
+# or the publish script reads /tmp - if a check is worth keeping, it belongs in
+# tests/ as *-test.js, or in tools/. A captured prompt dump sat in here once and
+# got published with it; that is the whole reason for the rule.
+/tmp/
+
 # User-authored character cards and their embedded-image exports stay local.
 # All cards created for this user belong in /character-cards/ and are never published.
 /character-cards/

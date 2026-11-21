@@ -135,8 +135,9 @@ expectations were restated.
 
 Full suite: **118 files, 0 failing**, plus `tools/generic-check.js` (the rule that no
 real card content may sit in this repo) clean. `tmp/editor-smoke.js`, a fake-DOM
-harness for the editor pane, is 18 checks green; it is not part of the suite because
-it exists to catch markup that would otherwise only be seen on a phone.
+harness for the editor pane, is 18 checks green. It stays in the workspace and out of
+the repo — `/tmp/` is gitignored, and the suite has no use for it: it exists to catch
+markup that would otherwise only be noticed on a phone.
 
 Two assertions in existing tests were rewritten because the behaviour they pinned is
 now better, not because they were awkward:
