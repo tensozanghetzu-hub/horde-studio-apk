@@ -213,6 +213,10 @@ ok('one level past the bound is reported by name, not discarded in silence',
 ok('…the import says it, where the user is deciding whether to trust the card',
   (tooDeep.importNotes || []).some(function (n) { return /cannot hold part of this card/.test(n) && /nested past/.test(n); }),
   JSON.stringify((tooDeep.importNotes || []).join(' | ').slice(0, 220)));
+ok('…and the line it says is short enough to be read, naming the depth rather than repeating it',
+  gaps[0].length < 200 && /under ×\d+ — nested past \d+ levels/.test(gaps[0]) &&
+  /^data\.custom\.lore\./.test(gaps[0]) && (gaps[0].match(/\./g) || []).length < 8,
+  JSON.stringify(gaps[0]));
 ok('…the export says it again at the moment it matters',
   /cardSourceGaps/.test(fs.readFileSync(path.join(JS, 'app.js'), 'utf8')));
 ok('…and the character itself still works: nothing was cut from it',

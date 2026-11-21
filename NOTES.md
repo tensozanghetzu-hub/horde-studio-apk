@@ -38,7 +38,9 @@ losslessness without conditions.
   whole, and whatever cannot be kept is named at import (`custom.lore.under —
   nested past 200 levels`) and counted again at export. The character always keeps
   its full text; it is the *copy* that is short, and the original file that should
-  be kept.
+  be kept. What is reported is kept readable: a path a thousand segments deep is
+  named `data.custom.lore.under ×200 — nested past 200 levels`, because a note
+  nobody can read says nothing.
 - **`description` and `personality` are separately editable.** The character sheet
   has two modes now: the one Persona box it has always had, and *the card's two
   fields*, where editing the description leaves the personality exactly as the
@@ -53,7 +55,7 @@ losslessness without conditions.
 
 ### Verification
 
-New `tests/card-persona-changes-test.js` — 41 checks on the three defects and the
+New `tests/card-persona-changes-test.js` — 42 checks on the three defects and the
 split persona, invented cards only. `tests/card-placement-lore-test.js` grew from
 109 to 114 with the consent gate (V2 and V3 paths, the grant, the refusal, the
 preference, the import notes), and two of its assertions were **restated rather
@@ -64,7 +66,7 @@ since a value this app shortened is not an edit the player made.
 `tests/cardimages-test.js` had two source-window contracts widened to real function
 boundaries, which is what they meant.
 
-Full suite: **120 files, 0 failures** — 3 266 counted passing checks, no file
+Full suite: **120 files, 0 failures** — 3 267 counted passing checks, no file
 reporting a failed one (2 browser tests skip without Playwright, and a few files
 summarise in prose rather than a number). `tests/generic-check.js` clean — no card text or player names
 in the repo. The ad-hoc editor harness is now a permanent one, `tests/editor-smoke-test.js`

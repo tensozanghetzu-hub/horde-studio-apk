@@ -961,7 +961,24 @@
     cardSourceGaps: function (c) {
       var s = c && c.cardSource;
       if (!s) return [];
-      var out = (s.gaps || []).slice();
+      /* The raw path is a thousand segments long when the thing that did not fit
+         is a thousand segments deep, and a note nobody can read says nothing. So
+         collapse a repeated tail into a count, which is the part that actually
+         matters, and keep the head of the path where the reader can find it. */
+      function readable(line) {
+        var at = line.indexOf(' — ');
+        var path = at === -1 ? line : line.slice(0, at);
+        var why = at === -1 ? '' : line.slice(at);
+        var parts = String(path).split('.');
+        var last = parts[parts.length - 1];
+        var run = 0;
+        for (var i = parts.length - 1; i >= 0 && parts[i] === last; i--) run++;
+        if (run > 3) parts = parts.slice(0, parts.length - run).concat([last + ' ×' + run]);
+        var p = parts.join('.');
+        if (p.length > 110) p = p.slice(0, 64) + '…' + p.slice(-40);
+        return p + why;
+      }
+      var out = (s.gaps || []).map(readable);
       if (s.gapsMore) out.push('and ' + s.gapsMore + ' more');
       return out;
     },

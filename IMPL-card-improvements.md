@@ -390,6 +390,14 @@ A record carrying the split flag without either field exports the merged text
 rather than two empty strings — a shape that should not exist is not allowed to
 cost anyone their card.
 
+One thing worth keeping out of the next review: the first version of the gap report
+printed the whole path, which for a card 200 levels deep is a kilobyte of
+`.nested.nested.nested` in the middle of a sentence — correct, and useless.
+`cardSourceGaps` collapses a repeated tail into a count
+(`data.custom.lore.under ×200 — nested past 200 levels`) and keeps the head of the
+path where the reader can find it, and the test pins the length as well as the
+fact. The raw path stays on `cardSource.gaps` for anyone debugging a card.
+
 **What the reviewer's own claims taught me to correct in the code, not the prose.**
 The settings copy for the new preference first promised it would not touch cards
 imported before it was switched on; the test that pinned the live semantics said
