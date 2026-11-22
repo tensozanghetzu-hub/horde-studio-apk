@@ -89,6 +89,17 @@ copy "for later": the build toolchain is a download, not a workspace asset.
 
 
 
+Fourth `.git` rollback in the same day, caught while pushing a doc: `git remote -v`
+came back **empty** and `user.name`/`user.email` were gone again, so `git push` died
+with "does not appear to be a git repository" — an error that reads like a lost
+access grant and is not. `ssh -T git@github.com` on the same key answered
+"Hi tensozanghetzu-hub!", and the fix was `git remote add` + re-setting the identity.
+HEAD and history were intact (`f1cca42` was one ahead of `origin/main`, zero behind),
+so nothing needed resetting this time. Before any push: `git remote -v`, `git config
+user.email`, and `stat -c %a .ssh .ssh/id_ed25519` (must be 700/600 — a restore
+loosens them, and ssh then refuses the key silently). Full note in
+`GITHUB-SETUP.md`, "Off-machine backup tier".
+
 ### The last untracked file: `VERIFY-FOR-APK-DEV-import.md`, audited then deleted
 
 It was the only root `.md` not in `main`, cited by nothing (re-grepped, repo-wide
