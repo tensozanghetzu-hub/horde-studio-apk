@@ -95,8 +95,28 @@ PY
 echo "==> zipalign"
 "$ZIPALIGN" -p -f 4 "$OUT/app-nodex.apk" "$OUT/app-aligned.apk"
 
+# The signing key is no longer in git. It is the app's identity, and a public
+# repo cannot keep one: anyone who could clone the repo could sign APKs that
+# install over everybody's existing copy. So the file lives beside the build,
+# is gitignored, and its only offline copy is keystore-backup/.
+#
+# This used to silently generate a fresh key when the file was missing. That was
+# a trap, not a convenience: a new key means every existing install rejects the
+# update for good, with an error that reads like a corrupt download. So it stops
+# with instructions instead, and a new identity has to be asked for by name.
 if [ ! -f "$KEY" ]; then
-  echo "==> creating signing key"
+  if [ "${HS_ROTATE_KEY:-}" != "1" ]; then
+    echo "ERROR: signing key missing: $KEY" >&2
+    echo "       Restore it, do not regenerate it:" >&2
+    echo "         base64 -d \"$ROOT/../keystore-backup/horde-studio.keystore.base64.txt\" > \"$KEY\"" >&2
+    echo "       then check: sha256sum \"$KEY\"" >&2
+    echo "       expected 735a6fdbffceb01e47d951faf57bf07cf03b37e454ffb2cf3598bdb14729dfc2" >&2
+    echo "       Set HS_ROTATE_KEY=1 only to deliberately start a NEW signing" >&2
+    echo "       identity, which breaks in-place upgrades on every old install." >&2
+    exit 1
+  fi
+  echo "==> creating a NEW signing key (deliberate rotation — old installs will reject these builds)"
+  rm -f "$KEY"
   "$KEYTOOL" -genkeypair -v -keystore "$KEY" -alias hordestudio -keyalg RSA -keysize 2048 \
     -validity 10950 -storepass hordestudio -keypass hordestudio \
     -dname "CN=Horde Studio Mobile, OU=Mobile, O=HordeStudio, L=Timisoara, ST=TM, C=RO" >/dev/null

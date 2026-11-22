@@ -1,5 +1,42 @@
 # Horde Studio Mobile — release notes
 
+## maintenance, 2026-09-10 — the signing key leaves the repo (no version bump, nothing shipped)
+
+`apk-build/horde-studio.keystore` was committed from `c2a89f9` (1.4.7) through
+`v1.41.1`, and the repo is public, so the app's signing identity — and the
+password for it, spelled out in `build.sh` — was downloadable by anyone. A clone
+needed no fork and no permission. That is not a data leak: a signature seals
+nothing, and the key cannot open anyone's chats. It is an *identity* leak: the
+signature is the only thing that makes an APK acceptable as an update over an
+existing install, so whoever holds the file can publish one that every phone
+installs without complaint.
+
+- Untracked it (`git rm --cached`) and ignored `apk-build/*.keystore`,
+  `*.jks` and `/keystore-backup/`. CI never builds the APK — `release.yml`
+  republishes `docs/HordeStudio-latest.apk` — so nothing in the pipeline broke.
+- `build.sh` no longer generates a key when one is missing. Silently inventing a
+  new identity was the real trap: it produces a build that every existing install
+  rejects with an error that reads like a corrupt download. It now exits 1 with
+  the restore command; `HS_ROTATE_KEY=1` is the deliberate way to start a new
+  identity, which is a decision with a cost (see the last bullet).
+- The key's only copies are the working file and `keystore-backup/` — raw file,
+  base64 text, and a README with fingerprints, restore steps and what losing it
+  means. Both copies verified byte-identical (`735a6fdb…`), and the working key
+  was verified to sign a rebuild with certificate `3bf8897895de…`, the same
+  signer as the shipped `v1.41.1`.
+- `tests/keystore-hygiene-test.js` (22 checks here; a couple are conditional, so a
+  machine missing the working key or the backup runs fewer) guards all of it,
+  including the README sentences that used to promise the opposite. Verified non-vacuous by
+  force-adding a keystore in a scratch repo: the tracked-file checks fail.
+- Not fixed, on purpose: the key stays reachable in history and by commit sha
+  from `main`'s past, so treat it as public forever. Untracking protects the next
+  clone, not the last four years. Rotation is the only closure, and it protects
+  *new* installs — every existing install keeps trusting the old, public key
+  until that user reinstalls, so it is a phased decision, not a fix. A key
+  rotation would need: a new `applicationId` or an uninstall-and-restore for
+  everyone (Settings → Data → Backup first; that export carries chats,
+  characters, worlds and settings but never API keys, by design).
+
 ## v1.41.1 — the editor may not lose what you typed, or answer a question nobody asked (2026-09-10)
 
 The follow-up review of v1.41.0 accepted the four fixes and found three edge cases

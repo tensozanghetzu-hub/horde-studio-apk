@@ -2425,7 +2425,9 @@ cd apk-build
 
 `build.sh` uses only the SDK command line tools (`aapt2`, `javac`, `d8`, `zipalign`,
 `apksigner`) — no Gradle, no Android Studio, no Node. It copies `horde-studio-mobile/`
-into `assets/`, compiles the WebView host, and signs with `apk-build/horde-studio.keystore`.
+into `assets/`, compiles the WebView host, and signs with `apk-build/horde-studio.keystore`,
+which is **not in the repo**: the file has to be restored from `keystore-backup/` before
+the first build on a new machine, and `build.sh` refuses to invent one.
 
 Bump `versionCode` and `versionName` in `apk-build/AndroidManifest.xml` before
 shipping an update — `build.sh` derives the APK's version and filename from the
@@ -2478,8 +2480,9 @@ There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub acc
   channel serves.
 - `apk-build/` — the thin Android wrapper: `MainActivity.java` (WebView + native
   bridge: file picker, save-to-Downloads, self-update swap), icons,
-  `AndroidManifest.xml`, `build.sh`, `setup-sdk.sh`, and
-  **`horde-studio.keystore`** (the app's signing identity — see invariants).
+  `AndroidManifest.xml`, `build.sh`, `setup-sdk.sh`, and — on the machine that
+  builds, never in git — **`horde-studio.keystore`** (the app's signing identity;
+  see invariants, and `keystore-backup/` for where its only copy is kept).
 - `tests/` — the Node test battery (24 suites, ~570 checks at v1.14.0) plus 2
   Playwright suites that additionally need `playwright-core`.
 - `docs/` — the update channel, served by GitHub Pages. Generated, never
@@ -2544,9 +2547,20 @@ that proves no card text leaked into the shipped code — and that check reports
 
 - Identify APKs by **sha256, never by size** — successive versions often end up
   byte-identical in size.
-- The keystore is tracked in the repo *on purpose*: it is the only way future
-  builds keep the app's identity (in-place upgrades). Never share it, never
-  regenerate it, never let it leave the repo.
+- The keystore is the app's identity — it is the only way future builds keep
+  in-place upgrades working. It is **no longer in the repo**, because a public
+  repo cannot keep one: whoever clones it could then sign an update that
+  installs over everyone's existing Horde Studio and inherits that app's chats,
+  characters and API keys. So: exactly one copy, off the build machine, in
+  `keystore-backup/` (gitignored) — never share it, and never let `build.sh`
+  invent one, because a regenerated key is a *different* identity that every
+  old install rejects permanently. `build.sh` now stops with instructions
+  instead; `HS_ROTATE_KEY=1` is the deliberate way to start a new identity.
+  Said out loud so nobody misreads this as fixed: the file was committed from
+  `c2a89f9` through `v1.41.1` and is still reachable by commit sha, so the old
+  key must be treated as public. Untracking it protects future clones and
+  future accidents; it does not un-leak the past, and rotation is the only
+  thing that closes that.
 - Publishing requires an explicit ask — a repair task is not a publish.
 - `NOTES.md` is the handoff memory: a version entry without its test counts and
   ship state is an incomplete record.
@@ -2561,10 +2575,14 @@ that proves no card text leaked into the shipped code — and that check reports
 
 ### If your workspace or platform resets
 
-- The GitHub repo is the source of truth. A fresh `git clone` has everything:
-  full source, tests, build scripts, keystore, docs.
-- The SDK and the push key are *not* in the repo — reinstall the SDK
-  (`setup-sdk.sh`) and re-add a push key to your account.
+- The GitHub repo is the source of truth for everything *except* the signing
+  key. A fresh `git clone` has the full source, tests, build scripts, the
+  published APK and the update channel — but no keystore, and a build without
+  one stops rather than inventing an identity. The key is the one thing that
+  has to survive independently: `keystore-backup/`, kept offline.
+- The SDK, the keystore and the push key are *not* in the repo — reinstall the
+  SDK (`setup-sdk.sh`), restore the keystore (see `keystore-backup/README.txt`),
+  and re-add a push key to your account.
 - In snapshot-based agent environments, local commit hashes can be ephemeral;
   the working tree and `NOTES.md` carry the record. At publish time the tree is
   re-committed (`sync-github.sh` does this) — don't spend time recovering hashes.

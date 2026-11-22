@@ -9,6 +9,15 @@ id_rsa
 .netrc
 .git-credentials
 
+# The app's signing identity. It was tracked from c2a89f9 right up to v1.41.1,
+# so it is already public and cannot be un-seen; ignoring it stops the repo
+# handing out a fresh copy from now on. Losing this file is not a data loss —
+# it is the loss of the ability to update anybody's existing install, so the
+# copy that matters is the offline one, never a commit.
+apk-build/*.keystore
+apk-build/*.jks
+/keystore-backup/
+
 # --- big / generated / not source ---------------------------------------
 .cache/
 .local/
