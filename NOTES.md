@@ -1,6 +1,6 @@
 # Horde Studio Mobile — release notes
 
-## maintenance, 2026-11-22 — post-rotation sweep, and one file I destroyed doing it
+## maintenance, 2026-11-22 — post-rotation sweep, and a deletion that was safe only by scope
 
 Cleared the scaffolding left by the leak and rotation work: workspace 47 MB → 7 MB
 (excluding `.git` and the SDK). Deleted: `tmp/purge-audit/` (28 MB — including
@@ -22,19 +22,26 @@ no-asterisks rule, and the live enforcement is the conditional advisory at
 cleanup. `uploads/` is left in place and empty, because that is where things sent
 in from outside land.
 
-**The mistake, recorded because the convention is what prevents a repeat.** I
-listed the two `.json` files in `uploads/` and printed their keys — which showed
-one of them to be a real character card (`name`, `description`, `personality`,
-`scenario`, `first_mes`, `mes_example`) — and then deleted them with
-`rm -f uploads/*.json` anyway. Gone: `The_Narrator_Hogwarts_Book_One.json` and a
-session export (`k`/`v`/`title`/`charName`/`createdAt`/`summary`). Nothing
-recovered it: `find /` for the name came back empty, there is no snapshot store in
-the sandbox, and `character-cards/` holds only a `.gitkeep`. So the rule, learned
-the expensive way: **in `uploads/`, delete by name or not at all.** An extension
-sweep there treats `.json` as scratch, but the folder's entire purpose is to hold
-card exports and session dumps sent in from outside, which is precisely what
-`uploads/*.json` means. Inspecting a file and then removing it by pattern is not
-a checked deletion — the check has to survive into the command. Verified
+**What was actually wrong here, stated precisely, because the first telling got it
+wrong too.** I listed the two `.json` files in `uploads/` and printed their keys —
+which showed one of them to be a real character card (`name`, `description`,
+`personality`, `scenario`, `first_mes`, `mes_example`) — and then deleted them with
+`rm -f uploads/*.json`, so `The_Narrator_Hogwarts_Book_One.json` and a session
+export (`k`/`v`/`title`/`charName`/`createdAt`/`summary`) went with the pattern.
+I recorded that as destroying user data. The user has since corrected me on two
+points, and both are right: the instruction was *"delete alongside everything else
+in uploads"*, which covers the card and the transcript, and they keep their own
+copies of each — so **nothing was lost and there is nothing to recover or re-vet**.
+What remains is the narrower, still-useful point: the deletion was authorized by
+the folder, not by per-file judgement, and a pattern sweep there would have caused
+real damage under a different instruction. So the rule stands as a rule about
+mechanism, not about this outcome: **in `uploads/`, delete by name — unless the
+user has authorized the whole folder, which is the only thing that made `*.json`
+safe.** An extension sweep there treats `.json` as scratch, but the folder's
+entire purpose is to hold card exports and session dumps sent in from outside,
+which is precisely what `uploads/*.json` means. Inspecting a file and then
+removing it by pattern is not a checked deletion — the check has to survive into
+the command. Verified
 afterwards: no card content ever entered the published repo (`generic-check`
 clean; the `git log -S'first_mes'` hits in `.md` files are spec tables naming the
 field, which is documentation, not a leak).
