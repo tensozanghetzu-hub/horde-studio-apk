@@ -147,3 +147,47 @@ Tests: `node /home/user/tests/apkurl-test.js` — 9/9, covering the `/app` fallb
 an absolute `apkUrl`, a relative `apkUrl`, and that *Reset* really forgets the
 address (it was leaving the cached copy behind, so a reset phone kept fetching
 the old APK).
+
+## Off-machine backup tier — Google Drive, and what it is not
+
+Why this exists: the agent's workspace is not a disk, it is a **snapshot** taken at
+the end of each turn, capped around **128 MB and 10,000 files**. It filled up on
+2026-11-22 — 9,949 files, of which 9,700 were one directory (`android-sdk/`), which
+is also why big generated trees are unreliable there: a restore had stripped that
+SDK's binaries while leaving its 117 MB of fat behind. Anything important needs a
+tier that is not the workspace.
+
+**What Drive is good for here:** a cold archive for things that must not live only in
+the snapshot — a history bundle, a release APK, a large file sent in for review.
+Uploads and downloads are agent-mediated API calls; Drive is **not** a filesystem.
+There is no mount in the sandbox (`rclone`/`gdrive` not installed, `/mnt` and `/media`
+empty), no atomic rename, no file modes, no symlinks, one parent per file, and 100 MB
+per upload. So git can never run *on* Drive, and Drive can never replace this
+workspace or the repo. It replaces "hope the snapshot kept it".
+
+The two directions, both measured on 2026-11-22:
+
+- **Out.** `git bundle create tmp/horde-studio-main-$(date +%F).bundle refs/heads/main`
+  — 270 commits in **29,640,805 B**. The upload response carries a `sha256_checksum`,
+  so the copy is verified by comparing hashes rather than downloading it back
+  (local and Drive agreed: `127c7c6938342eb4b6f185421cc7af0c0333556a5ad41184f416d8edabe21bbf`).
+  `tmp/` is gitignored (`.gitignore:67`), which is why staging scratch there is safe
+  now; it was not always.
+- **In.** A requested download lands in the workspace as `google_drive/<name>` — it
+  does not come back as base64 through the model, which is what makes a 30 MB restore
+  practical at all. Then either
+  `git clone -b main google_drive/<name>.bundle /tmp/restored` — the `-b main` is
+  required, a bundle holding only `refs/heads/main` with no matching default HEAD
+  otherwise clones an empty tree — or `git init && git fetch <bundle> refs/heads/main
+  && git checkout FETCH_HEAD`. Both verified: HEAD `80baf48`, clean worktree.
+
+A restored clone contains exactly the tracked tree. It will **not** contain
+`apk-build/horde-studio.keystore`, `keystore-backup/`, `character-cards/` (that
+folder's `.gitkeep` is untracked, so create it yourself) or `.ssh/` — all gitignored
+by design. Restoring code and docs is one command; the signing key is a separate,
+offline matter and stays that way.
+
+Two habits worth keeping: delete the pulled copy when done (two 30 MB files took the
+workspace from 6.2 MB to 64 MB, i.e. the download costs the same budget it was meant
+to relieve), and send large inbound files to Drive first rather than into
+`uploads/`, since that folder is exactly where the snapshot's transience bites.
