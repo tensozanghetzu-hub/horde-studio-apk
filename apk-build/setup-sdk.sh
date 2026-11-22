@@ -3,7 +3,14 @@
 # (cmdline-tools + platform 34 + build-tools 34). ~400 MB, run once.
 set -euo pipefail
 
-SDK="${ANDROID_SDK:-/home/user/android-sdk}"
+# Installs the SDK where build.sh will look for it: $ANDROID_SDK if set, else an
+# existing /home/user/android-sdk, else $HOME/.local/android-sdk. The .local
+# location is deliberate — it is excluded from the workspace snapshot and from
+# git, and the ~400 MB download cache lands beside it in $HOME/.local/dl for the
+# same reason. Nothing about the build changes; only where the bytes sit.
+if [ -n "${ANDROID_SDK:-}" ]; then SDK="$ANDROID_SDK"
+elif [ -d /home/user/android-sdk ]; then SDK=/home/user/android-sdk
+else SDK="$HOME/.local/android-sdk"; fi
 JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/jdk-11}"
 CMDLINE_ZIP="commandlinetools-linux-9477386_latest.zip"   # v9.0 — works with JDK 11
 

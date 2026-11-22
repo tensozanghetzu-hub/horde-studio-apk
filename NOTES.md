@@ -57,6 +57,38 @@ that finds it; it showed exactly one modified file, and `git checkout --` restor
 it. Three `.git` rollbacks in one day, and this is the one that could have hurt a
 user.
 
+### Snapshot budget: the Android SDK moved out, and it turned out to be a husk
+
+The workspace was at **9,949 of roughly 10,000 files** and ~157 M against a
+turn-end snapshot budget of ~128 M — and 9,700 of those files, 117 M of it, were
+`android-sdk/`. Not disk: `df` shows 20 G free. The snapshot is what carries the
+project between turns, and a directory that big crowds out the files that
+actually matter once the cap is hit. So `android-sdk/` moved to `.local/android-sdk`
+(`.local/` is gitignored *and* outside the snapshot) and both scripts' default was
+repointed, with precedence `$ANDROID_SDK` → existing `/home/user/android-sdk` →
+`$HOME/.local/android-sdk`, so an environment that still has the old path needs no
+change. `apk-build/setup-sdk.sh` installs there now, and its ~400 MB download cache
+lands in `$HOME/.local/dl` for the same reason (both dirs already gitignored).
+Result: **576 files, 46 M**, of which 40 M is `.git` and 6.2 M is the project.
+
+**What the move exposed: the SDK was already unusable, so "keep it, re-setup costs
+ten minutes" had been wrong for some time.** After the move, `find / -name aapt2`
+returned nothing anywhere on the machine, and `apksigner`, `d8`, `zipalign` and
+`android.jar` are likewise absent — `build-tools/34.0.0` held only `renderscript`,
+and `platforms/android-34` only 67 M of `data`/`skins`/`templates`. Large
+generated trees are not part of the persisted snapshot, so a restore had stripped
+the binaries while leaving the fat behind: a husk that cost the full 117 M and
+could not build. `bash apk-build/build.sh` confirms it — it stamps the version,
+copies the web app, then dies at `aapt2: No such file or directory`, and dies the
+same way with `ANDROID_SDK=/nonexistent-sdk` pointing elsewhere. The husk was
+deleted. **Any future APK build starts with `bash apk-build/setup-sdk.sh`** (network,
+~400 MB, ten minutes), then `bash apk-build/build.sh`; `javac`/`keytool` under
+`/usr/lib/jvm/jdk-11` are outside the workspace and unaffected. A reinstalled SDK
+will not survive a sandbox restart either, which is the honest reason not to keep a
+copy "for later": the build toolchain is a download, not a workspace asset.
+
+
+
 ### The last untracked file: `VERIFY-FOR-APK-DEV-import.md`, audited then deleted
 
 It was the only root `.md` not in `main`, cited by nothing (re-grepped, repo-wide

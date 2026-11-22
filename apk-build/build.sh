@@ -5,7 +5,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP="$(cd "$ROOT/../horde-studio-mobile" && pwd)"
-SDK="${ANDROID_SDK:-/home/user/android-sdk}"
+# Where the SDK lives, in order of precedence: an explicit $ANDROID_SDK, a
+# pre-existing /home/user/android-sdk, then $HOME/.local/android-sdk — which is
+# where setup-sdk.sh now installs it. It used to sit at /home/user/android-sdk,
+# and that single directory was 117 MB and 9,700 files, i.e. almost the entire
+# file budget of the workspace snapshot the agent relies on; .local/ is excluded
+# from that snapshot (and is gitignored here), so the SDK stops crowding out the
+# project while staying exactly where the build expects it.
+if [ -n "${ANDROID_SDK:-}" ]; then SDK="$ANDROID_SDK"
+elif [ -d /home/user/android-sdk ]; then SDK=/home/user/android-sdk
+else SDK="$HOME/.local/android-sdk"; fi
 BT="$SDK/build-tools/34.0.0"
 PLAT="$SDK/platforms/android-34"
 JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/jdk-11}"
