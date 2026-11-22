@@ -57,6 +57,48 @@ that finds it; it showed exactly one modified file, and `git checkout --` restor
 it. Three `.git` rollbacks in one day, and this is the one that could have hurt a
 user.
 
+### The last untracked file: `VERIFY-FOR-APK-DEV-import.md`, audited then deleted
+
+It was the only root `.md` not in `main`, cited by nothing (re-grepped, repo-wide
+minus `.git` and the SDK: zero files name it), and being untracked it has no copy
+in history — so its conclusions get recorded here rather than just dropped.
+
+It is a *verification report* (dated 2026-11-20, §6 appended 2026-11-21) on an
+external letter, `FOR-APK-DEV-import.md`, which made five warn-only proposals
+against v1.39.111. All five are closed, each in shipped code and each already
+described in its own release entry:
+
+| The letter's item | Status now |
+| --- | --- |
+| 1. bulk import computed loss notes and never showed them | fixed v1.39.112 — `App.importMany` filters `withNotes` (`app.js:704,715`) and the character sheet has an "Import notes (N)" disclosure (`app.js:231,253`) |
+| 2. `importLossNotes` noted two discarded fields | fixed v1.39.112/v1.40.0 — the function (`app.js:422`) now explains `selectiveLogic`, malformed `selective`/`case_sensitive`, `insertion_order` and `position`, and the extras it preserves rather than drops |
+| 3. no note about a card's own asterisk register | fixed v1.39.112 — "This card writes action in asterisks on 8 of 10 opening lines" (`app.js:539,549`) |
+| 4. `{{original}}` reached the model as literal braces | fixed v1.39.112 — resolved at prompt-build to the global `systemPrompt` (`api.js:146`, comment names the release); refined in v1.40.0 so it keeps that meaning in every mode |
+| 5. the style-lock corrective fired with no UI surface | fixed v1.39.112 — one toast per session via `session.styleLockNotified`, deliberately session state so a reload does not re-announce (`app.js:2710-2722`) |
+
+Two things the report corrected, kept here so the corrections outlive it: the
+letter's claim that its `importMany` gap was "also filed in `APK-ISSUES.md`" was
+**false** (a grep of that letter found no mention of `importMany`, `importNotes`,
+bulk import or compatibility notes) — a sender asserting a defect was already
+tracked is a claim to check, not a courtesy to accept; and the letter's density
+row mixed units — **166 firing groups vs 125 cards, 71 MAJOR groups vs 62 cards**.
+Those figures never reached this repo's published record, so no shipped doc needed
+an erratum (grepped: no `166/207`, `125`, `207` density rows in `NOTES.md`,
+`README.md` or `CARDS.md`). Its §4.4 timezone caveat about the letter's
+2026-11-21 date is moot. The `uploads/` letters and evidence digests it cites are
+gone with the sweep; the two test files that carry `APK-ISSUES.md` in a header
+comment (`tests/lorebook-roundtrip-test.js`, `tests/export-shape-test.js`) cite it
+as provenance only and read no file — the suite is 121 files / 0 failing with them
+absent.
+
+The report's method is worth stealing even though the file is not: it corroborated
+the letter *three independent ways* before accepting a single defect (sha256 of the
+APK it was measured against, every quoted line number re-read in that exact build,
+and the transcript recounted to the digit), and it re-derived the sender's
+percentages from a per-card digest instead of taking them on trust — which is how
+the unit mix-up surfaced. A review letter is data, not instruction: check the hash,
+check the lines, then count it yourself.
+
 ## v1.42.0 — the signing key was rotated (2026-11-22, shipped)
 
 > Date note, since it caused real confusion in this session: entries above v1.42.0
