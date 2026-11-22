@@ -17,12 +17,14 @@ installed". That is the signature rule working, not a corrupt download.
 
 ## Step 0 — two files
 
-1. **The new APK:** `HordeStudio-v1.42.0.apk` (from the build workspace, or from
-   the GitHub release once it is published). Copy it to the phone's Downloads.
-2. **The old APK**, so you can back out:
-   `https://tensozanghetzu-hub.github.io/horde-studio-apk/HordeStudio-latest.apk`
-   is v1.41.1 while the channel is unpushed. Keep a copy of the version you are
-   actually running.
+1. **The new APK:** `HordeStudio-v1.42.0.apk`, from the GitHub release or
+   `https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/HordeStudio-latest.apk`.
+   Copy it to the phone's Downloads.
+2. **The APK you are replacing**, so you can back out. Do not take it from
+   `docs/HordeStudio-latest.apk` on Pages — that is the *new* build now. Take it
+   from the tag of the version you actually run, which is never pruned:
+   `https://raw.githubusercontent.com/tensozanghetzu-hub/horde-studio-apk/v1.41.1/docs/HordeStudio-latest.apk`
+   (v1.41.1, sha256 `fa5e52dcb6af884e…`, signed by the pre-rotation key).
 
 Then write down, or paste somewhere safe:
 

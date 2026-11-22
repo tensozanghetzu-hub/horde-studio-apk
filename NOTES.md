@@ -1,6 +1,6 @@
 # Horde Studio Mobile — release notes
 
-## v1.42.0 — the signing key was rotated (2026-11-22, built and staged, **not pushed**)
+## v1.42.0 — the signing key was rotated (2026-11-22, shipped)
 
 > Date note, since it caused real confusion in this session: entries above v1.42.0
 > carry a `2026-09-10` stamp that came from a session context holding the wrong
@@ -68,16 +68,29 @@ deliberately refuses to export.
   release APK. Suite **121 files, 0 failing, 3 530 counted checks**;
   `keystore-hygiene` 36 checks; `version-consistency` 17/0 (it is what caught my
   stale README headline).
-- **Deliberately not pushed.** `main` on GitHub is still `74cb1a3` and the Pages
-  channel still offers 1.41.1, so no existing install is asked to do anything
-  before the new APK has been installed on a real phone once. Pushing this
-  publishes it to every user at once, and the prune step would take the old
-  v1.41.1 asset with it — so the rollback APK has to be saved *before* the push.
-  Also unverified, and it cannot be from here: an actual install on a device,
-  and whether Android's installer is content with a certificate minted by
-  OpenSSL+keytool rather than `keytool -genkeypair` (it passes
-  `apksigner verify` with v1+v2+v3, and the cert is a plain self-signed
-  SHA256withRSA one, which is all Android asks for).
+- **Shipped** as `6f7e5cc` after the migration was carried out once by hand, on the
+  author's own phone: backup → uninstall → install 1.42.0 → restore → API key,
+  reported as working. That gate is why the push waited: a rotated build on the
+  channel asks *every* existing install to reinstall. CI: `build`, `deploy`,
+  `release`, `report-build-status` all success; release `v1.42.0` created on
+  `main` with both assets at 523 754 B, carrying `RELEASE-NOTES.md` as its body
+  (verified: it opens with "Read the first line before you install this one" and no
+  longer contains the old "same signing key, your chats and characters survive"
+  promise). Channel: `apk 1.42.0 / code 195 / webRev ba277e7994f1 / 25 files`;
+  `docs/HordeStudio-latest.apk` on Pages is `dd485247eb82bdbe…`, signer
+  `a1b0e423…`. Tag `v1.42.0` → `6f7e5cc`, 181 tags.
+- **Rollback no longer lives on the release page.** The prune step removed the
+  v1.41.1 assets, as designed — the old-signed APK is still reachable, forever, at
+  `raw.githubusercontent.com/<repo>/v1.41.1/docs/HordeStudio-latest.apk`
+  (`fa5e52dcb6af884e…`), because tag trees are not pruned. `MIGRATION-signing-key.md`
+  now points there instead of at the channel, which has moved on.
+- **Still unverified, and unverifiable from here:** nothing beyond what one phone
+  reported. Specifically unconfirmed — whether the *next* release installs over
+  this one without a reinstall. That is the real proof the rotation landed on the
+  device, and it will show itself the day v1.42.1 or v1.43.0 ships: an in-place
+  update that succeeds means the phone now trusts `a1b0e423…`. If it ever refuses,
+  the rotation did not take, and the identity guard plus this entry are where to
+  start looking.
 
 ## maintenance, 2026-09-10 — the signing key leaves the repo (no version bump, nothing shipped)
 
