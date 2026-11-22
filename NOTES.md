@@ -1,5 +1,55 @@
 # Horde Studio Mobile — release notes
 
+## maintenance, 2026-11-22 — post-rotation sweep, and one file I destroyed doing it
+
+Cleared the scaffolding left by the leak and rotation work: workspace 47 MB → 7 MB
+(excluding `.git` and the SDK). Deleted: `tmp/purge-audit/` (28 MB — including
+`pre-rewrite.bundle`, so **the pre-rewrite history no longer exists anywhere
+reachable**; the rewrite is verified and two releases old, and the bundle was the
+last local copy of the leaked prompt dump and the burned keystore), `tmp/repair-audit/`,
+the applied patch scripts `tmp/r1-6.py` / `s1.py` / `s2.py` / `tally.txt` /
+`broken-test.js` (none referenced outside `tmp/`), the root duplicates
+`horde-studio-web.zip` and `HordeStudio-v1.42.0.apk` (verified byte-identical to
+`docs/HordeStudio-latest.apk`, which is tracked and on the release), and all of
+`uploads/` (11.8 MB: 16 screenshots of bugs that shipped fixed, 9 review letters).
+Two published files went too, committed: `system-prompt.md` and
+`REVIEW-APK-ISSUES-3.md` — both cited by nothing in the repo. `system-prompt.md`
+was the worse of the two to keep: it reads like the app's prompt spec but had
+drifted from it, carrying "the transcript is not a style guide", which exists in
+no shipped file — `DEFAULT_SYSTEM` in `store.js` is 694 chars and does include the
+no-asterisks rule, and the live enforcement is the conditional advisory at
+`api.js:1376`. They are gone from the tip only; history is not rewritten over a
+cleanup. `uploads/` is left in place and empty, because that is where things sent
+in from outside land.
+
+**The mistake, recorded because the convention is what prevents a repeat.** I
+listed the two `.json` files in `uploads/` and printed their keys — which showed
+one of them to be a real character card (`name`, `description`, `personality`,
+`scenario`, `first_mes`, `mes_example`) — and then deleted them with
+`rm -f uploads/*.json` anyway. Gone: `The_Narrator_Hogwarts_Book_One.json` and a
+session export (`k`/`v`/`title`/`charName`/`createdAt`/`summary`). Nothing
+recovered it: `find /` for the name came back empty, there is no snapshot store in
+the sandbox, and `character-cards/` holds only a `.gitkeep`. So the rule, learned
+the expensive way: **in `uploads/`, delete by name or not at all.** An extension
+sweep there treats `.json` as scratch, but the folder's entire purpose is to hold
+card exports and session dumps sent in from outside, which is precisely what
+`uploads/*.json` means. Inspecting a file and then removing it by pattern is not
+a checked deletion — the check has to survive into the command. Verified
+afterwards: no card content ever entered the published repo (`generic-check`
+clean; the `git log -S'first_mes'` hits in `.md` files are spec tables naming the
+field, which is documentation, not a leak).
+
+Also caught in the same sweep, and worth everyone's attention: the snapshot
+restore had silently reverted a **tracked** file to an older copy
+(`.github/workflows/release.yml`, my `RELEASE-NOTES.md` wiring gone, 0 mentions
+left). A later `git add -A` would have committed the regression and put the old
+"same signing key, your chats and characters survive" line back on every future
+release — the exact sentence that makes someone uninstall without backing up.
+`git status --porcelain` right after `git reset --mixed origin/main` is the check
+that finds it; it showed exactly one modified file, and `git checkout --` restored
+it. Three `.git` rollbacks in one day, and this is the one that could have hurt a
+user.
+
 ## v1.42.0 — the signing key was rotated (2026-11-22, shipped)
 
 > Date note, since it caused real confusion in this session: entries above v1.42.0
