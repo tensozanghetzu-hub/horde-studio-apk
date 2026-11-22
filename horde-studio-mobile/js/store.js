@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.41.0';
+  var VERSION = '1.41.1';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -1242,9 +1242,17 @@
            the other way round — the thing review request 4 asked for. A half that
            still matches is copied out verbatim rather than re-written. */
         ['description', 'personality'].forEach(function (k) {
+          /* No `stripDuplicateScenario` here, unlike the merged path below (and
+             unlike v1.41.0, which ran it and so deleted a card's description on
+             the spot for merely repeating the scenario line — review finding C).
+             That rule exists because ONE persona string that recites the scenario
+             puts it in the sheet twice; it is a fix for a shape this mode does not
+             have. Here the description is the card's own field, edited as itself:
+             a field the player never typed in must come back out as it went in,
+             and one they did must go out exactly as they wrote it, because the
+             app is not the authority on what their prose needs to say twice. */
           var live = clean(String(c[k === 'description' ? 'descText' : 'persText'] == null ? ''
             : c[k === 'description' ? 'descText' : 'persText']));
-          if (k === 'description') live = Store.stripDuplicateScenario(live, String(c.scenario || ''));
           var said = merged[k];
           if (Store._sameVal(live, clean(String(said == null ? '' : said)))) {
             if (said !== undefined) put(k, JSON.parse(JSON.stringify(said)));
@@ -1416,8 +1424,10 @@
       var split = Store.personaSplitOn(c);
       var card = {
         name: c.name,
-        description: Store.stripDuplicateScenario(
-          split ? String(c.descText || '') : (c.persona || ''), c.scenario || ''),
+        /* the scenario fold belongs to the merged shape only — see the same rule
+           in `characterToCard`, and review finding C */
+        description: split ? String(c.descText || '')
+          : Store.stripDuplicateScenario(c.persona || '', c.scenario || ''),
         personality: split ? String(c.persText || '') : '',
         scenario: c.scenario || '', first_mes: c.greeting || '', mes_example: c.examples || '',
         creatorcomment: 'Exported from Horde Studio Mobile',

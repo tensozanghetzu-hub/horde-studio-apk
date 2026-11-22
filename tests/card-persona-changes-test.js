@@ -293,6 +293,58 @@ ok('a record claiming two fields without carrying them cannot empty the card’s
   JSON.stringify({ d: Store.characterToCard(flagOnly).data.description,
     p: Store.characterToCard(flagOnly).data.personality }));
 
+console.log('\nfinding C — a description that repeats the scenario is the author’s business');
+var same2 = await importCard(v2({ description: 'THE SCENE', personality: 'THE PERSONALITY',
+  scenario: 'THE SCENE' }));
+ok('import keeps the description the card wrote, duplicate of the scenario and all',
+  same2.descText === 'THE SCENE' && same2.persText === 'THE PERSONALITY',
+  JSON.stringify({ d: same2.descText, p: same2.persText }));
+same2.personaSplit = true;
+var sameOut = Store.characterToCard(same2);
+ok('merely opening the two-field editor does not delete it',
+  sameOut.data.description === 'THE SCENE' && sameOut.data.personality === 'THE PERSONALITY' &&
+  sameOut.data.scenario === 'THE SCENE',
+  JSON.stringify({ d: sameOut.data.description, p: sameOut.data.personality, sc: sameOut.data.scenario }));
+ok('…and the untouched export is the card’s text, not a rewrite',
+  JSON.stringify(Store.characterToCard(same2).data.description) === JSON.stringify('THE SCENE'));
+var tailing = await importCard(v2({ description: 'A tall woman. THE SCENE', personality: 'P.',
+  scenario: 'THE SCENE' }));
+tailing.personaSplit = true;
+ok('nor is a description ENDING with the scenario trimmed in the two-field mode',
+  Store.characterToCard(tailing).data.description === 'A tall woman. THE SCENE',
+  JSON.stringify(Store.characterToCard(tailing).data.description));
+var tailMerged = await importCard(v2({ description: 'A tall woman. THE SCENE', personality: 'P.',
+  scenario: 'THE SCENE' }));
+tailMerged.persona = 'A tall woman. THE SCENE';
+ok('…while the merged box keeps the fold it has always had, at the same narrowness',
+  Store.characterToCard(tailMerged).data.description === 'A tall woman. THE SCENE',
+  JSON.stringify(Store.characterToCard(tailMerged).data.description));
+var folded = await importCard(v2({ description: 'A tall woman.\n\nTHE SCENE', personality: 'P.',
+  scenario: 'THE SCENE' }));
+folded.persona = 'A tall woman.\n\nTHE SCENE';
+ok('…which is the paragraph-ending-in-the-scenario case it was written for',
+  Store.characterToCard(folded).data.description === 'A tall woman.',
+  JSON.stringify(Store.characterToCard(folded).data.description));
+var rewrote = await importCard(v2({ description: 'THE SCENE', personality: 'P.', scenario: 'THE SCENE' }));
+rewrote.personaSplit = true;
+rewrote.descText = 'THE SCENE';
+rewrote.persText = 'P. Rewritten.';
+ok('a real edit in the two-field mode goes out exactly as typed, scenario echo and all',
+  Store.characterToCard(rewrote).data.description === 'THE SCENE' &&
+  Store.characterToCard(rewrote).data.personality === 'P. Rewritten.',
+  JSON.stringify(Store.characterToCard(rewrote).data));
+var bareSame = { id: 'cb', name: 'Bare', descText: 'THE SCENE', persText: 'P.',
+  persona: 'THE SCENE\n\nP.', personaSplit: true, scenario: 'THE SCENE' };
+ok('the path with no source copy behind it follows the same rule',
+  Store.characterToCard(bareSame).data.description === 'THE SCENE',
+  JSON.stringify(Store.characterToCard(bareSame).data.description));
+var bareMergedSame = JSON.parse(JSON.stringify(bareSame));
+bareMergedSame.personaSplit = false;
+bareMergedSame.persona = 'THE SCENE';
+ok('…and still folds a merged persona that is nothing but the scenario, as ever',
+  Store.characterToCard(bareMergedSame).data.description === '',
+  JSON.stringify(Store.characterToCard(bareMergedSame).data.description));
+
 /* the bare path (no source copy at all) must follow the same three cases */
 var bareSplit = { id: 'c9', name: 'Bare', descText: 'Half one.', persText: 'Half two.',
   persona: 'Half one.\n\nHalf two.', personaSplit: true };
@@ -337,10 +389,28 @@ ok('…and it does nothing at all to a card that never asked',
 ok('the grant a player gives is a character field, never a new card key',
   /systemPromptAsked/.test(fs.readFileSync(path.join(JS, 'store.js'), 'utf8')) &&
   !/system_prompt_approved/.test(fs.readFileSync(path.join(JS, 'store.js'), 'utf8')));
-ok('CARDS.md documents the ask, the clearing rule and the preservation bound', (function () {
-  var md = fs.readFileSync(path.join(ROOT, 'CARDS.md'), 'utf8');
-  return /system_prompt_source/.test(md) && /asked/i.test(md) && /nested past|depth/i.test(md) &&
-    /description.*personality|two fields/i.test(md);
+var CARDS_MD = fs.readFileSync(path.join(ROOT, 'CARDS.md'), 'utf8');
+ok('CARDS.md documents the ask, the clearing rule and the preservation bound',
+  /system_prompt_source/.test(CARDS_MD) && /asked/i.test(CARDS_MD) &&
+  /nested past|depth/i.test(CARDS_MD) && /description.*personality|two fields/i.test(CARDS_MD));
+/* the editor's promises are the part a user can be harmed by, so they are pinned
+   as text and not left to the code alone */
+ok('CARDS.md says the mode switch loses nothing and an unrelated save changes nothing',
+  /The persona editor: two boxes or one/.test(CARDS_MD) &&
+  /never folds the scenario out of a description/.test(CARDS_MD) &&
+  /nothing about the persona at all/.test(CARDS_MD) &&
+  /\*\*Use the card's two fields instead\*\*/.test(CARDS_MD),
+  JSON.stringify(CARDS_MD.split('\n').filter(function (l) { return /^\| /.test(l); }).length));
+ok('…and the table rows there match the switch behaviour the UI test drives',
+  /both halves joined, in the box/.test(CARDS_MD) &&
+  /the merged text becomes `description` and `personality` is emptied/.test(CARDS_MD));
+ok('…and the link to that section resolves', (function () {
+  var want = 'the-persona-editor-two-boxes-or-one';
+  var heads = CARDS_MD.split('\n').filter(function (l) { return /^#{2,3} /.test(l); })
+    .map(function (h) {
+      return h.replace(/^#{2,3} /, '').replace(/[`*:]/g, '').trim().toLowerCase().split(/\s+/).join('-');
+    });
+  return heads.indexOf(want) !== -1 && CARDS_MD.indexOf('](#' + want + ')') !== -1;
 })());
 
 console.log('\n' + (fail ? 'FAILED' : 'ok') + ' — ' + pass + ' passed, ' + fail + ' failed');

@@ -1,5 +1,63 @@
 # Horde Studio Mobile — release notes
 
+## v1.41.1 — the editor may not lose what you typed, or answer a question nobody asked (2026-09-10)
+
+The follow-up review of v1.41.0 accepted the four fixes and found three edge cases
+in the two-field persona editor that shipped with them. All three reproduced against
+the released bundle, all three are fixed here, and two of them were destroying
+text:
+
+- **Switching between *one box* and *the card's two fields* no longer discards
+  typing.** It used to: the box's new sentence never reached the halves, and
+  switching back overwrote the box with them, so the save exported the stale text.
+  If the two representations disagree at the moment you switch, the text you were
+  looking at wins — kept as the description, with the card's `personality` set
+  aside — and a note beside the boxes says so and offers
+  **Use the card's two fields instead**, which puts both halves back while the sheet
+  is open. Typing in either one keeps showing up in the other, so the box never
+  displays something other than what will be saved.
+- **Saving an unrelated field no longer collapses the split persona.** Every save
+  made while the one box was showing wrote `description = persona,
+  personality = ''`, edited or not — so fixing a greeting undid the card's two
+  fields, and reopening them showed a description holding both halves. An
+  unchanged save now changes nothing: when the box says what the halves already
+  say, the halves go back as they were. The documented merge still happens on a
+  real edit of the merged text, and only then.
+- **A description that repeats the scenario is left alone.** The split export ran
+  the scenario fold over the description before comparing it with the card, so a
+  card whose `description` is verbatim its `scenario` exported an empty
+  description for merely opening the two-field editor. The fold is a rule about the
+  *merged* shape (one string reciting the scenario puts it in the sheet twice) and
+  it stays exactly there, at the same narrowness; nothing is copy-edited out of a
+  field you never typed in.
+- Also: a control label is now looked up by its own id instead of climbing
+  `parentNode` from the switch — found by the new tests, not by eye.
+
+### Verification
+
+`tests/editor-smoke-test.js` 33 → **48 checks**, and it is no longer only a render
+check: the harness keeps one node per selector, seeds every field from the markup the
+view wrote, and fires the shipped handlers — flip the switch, read the textareas,
+click *Save character*, and assert on the object handed to `App.saveCharacter`. That
+is how A and B are pinned (one box → two fields → one box, halves edited → box →
+halves, the undo button, an unrelated save in both modes, the deliberate merge, and
+cancel persisting nothing). No browser or device is involved: Playwright is not
+installed in this workspace, so two existing browser tests still skip and no
+UI claim is made beyond the simulated DOM.
+`tests/card-persona-changes-test.js` 42 → **54 checks**: finding C at the boundary
+the fold is really defined at, in split and merged modes, with and without a source
+copy behind the character. Two of my own v1.41.0 expectations there were wrong about
+that boundary and are restated, not deleted.
+
+Full suite: **120 files, 0 failures** — 3 294 counted passing checks, no file
+reporting a failed one. `tests/generic-check.js` clean,
+`tests/version-consistency-test.js` 17/0.
+
+`CARDS.md` gains [the persona editor](CARDS.md#the-persona-editor-two-boxes-or-one):
+one table of what each action saves, and the two things the mode never does.
+
+Shipped as v1.41.1 / APK code 194.
+
 ## v1.41.0 — a card may ask, a person decides, and a change back is still a change (2026-09-10)
 
 The review of v1.40.0 came back with three defects and one request that had stayed

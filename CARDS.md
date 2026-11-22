@@ -33,7 +33,7 @@ it can still be acted on.
 
 | Card field | Here | Where it goes |
 |---|---|---|
-| `description`, `personality` | applied, together or apart | the character sheet's persona. The character sheet is one box by default; *the card's two fields* mode on the same screen keeps `description` and `personality` apart, so editing either one leaves the other as the author wrote it. Edited as one box, the merged text goes into `description` and `personality` is emptied — one string cannot be split back into two, and leaving the old half in place would send the model a persona it never saw. |
+| `description`, `personality` | applied, together or apart | the character sheet's persona. The character sheet is one box by default; *the card's two fields* mode on the same screen keeps `description` and `personality` apart, so editing either one leaves the other as the author wrote it. Edited as one box, the merged text goes into `description` and `personality` is emptied — one string cannot be split back into two, and leaving the old half in place would send the model a persona it never saw. Switching between the two modes loses nothing either: see [the persona editor](#the-persona-editor-two-boxes-or-one). |
 | `scenario` | applied | the situation line, with the `scenario_list` variant picker if the card carries one |
 | `first_mes` | applied | the greeting |
 | `alternate_greetings` | applied | the extra intros, swipeable in the chat (a greeting that repeats `first_mes` is not carried twice) |
@@ -187,6 +187,33 @@ HORDE STUDIO`, inside the character sheet, above the examples. Macros expand as
 elsewhere. Each line is cut at **600 characters** when it enters the prompt, and
 the cut is marked in the prompt and shown in the editor — while the character and
 the card keep the whole text up to the storage bound below.
+
+## The persona editor: two boxes or one
+
+The card keeps `description` and `personality` apart; this app's prompt reads one
+persona string. The character sheet therefore has a switch, and the switch is a
+question of *what you are looking at*, never a licence to rewrite:
+
+| What you do | What is saved |
+|---|---|
+| Open the two fields and change one | that field, under its own name. The other goes back out as the author wrote it, byte for byte |
+| Type in the one box, then open the two fields | your text is kept, as the description, with a note saying the card's `personality` is set aside — and **Use the card's two fields instead** puts both halves back, so the merge is reversible while the sheet is open |
+| Type in the two fields, then go back to the one box | both halves joined, in the box, exactly as it says |
+| Save while the one box shows the same text the two halves say | nothing about the persona at all — the halves stay halves, so a later look at the two fields shows what the card had |
+| Save an unrelated field (a greeting, a scenario) | nothing about the persona, in either mode |
+| Edit the one box into something new | the merged text becomes `description` and `personality` is emptied. This is the one deliberate rewrite, and the editor says so on the row where you make it |
+
+Two things this mode does **not** do, both deliberate:
+
+* it never folds the scenario out of a description. `description` may repeat
+  `scenario` because the author wanted the sheet to say it twice, and an app that
+  deletes a field for merely agreeing with another one is not preserving, it is
+  copy-editing. (The merged one-box persona keeps the fold it has always had —
+  a single string that recites the scenario puts it in the sheet twice, which is
+  what the fold is for. It is narrow by design: a description that merely ends with
+  the scenario's words inside a sentence is left exactly as written.)
+* it never treats a field this app shortened as an edit the player made — see
+  [what an export writes back](#what-an-export-writes-back).
 
 ## What an export writes back
 

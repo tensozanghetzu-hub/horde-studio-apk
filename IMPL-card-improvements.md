@@ -406,3 +406,67 @@ otherwise, and the live reading is the honest one, so the wording moved. And the
 card's prompt to *every* card once the switch was on; `cardPromptMode` now answers
 only an ask. That one was caught by `card-persona-changes-test.js`, not by the
 review, which is what a regression test is for.
+
+---
+
+## 10. The second review (v1.41.1): three edge cases in the editor I had just added
+
+`FOR-APK-DEV-v1.41.0-review.md` accepted all four v1.41.0 fixes — and then found
+three edge cases inside the thing I had built to answer the fourth request. All
+three reproduced against the released bundle: A and B through a simulated DOM
+driving the shipped handlers, C in one line of store code. None of them needed a
+real card, and none of them were hypothetical: two of them destroy text.
+
+**A — the mode switch discarded unsaved typing.** `splitFromCombined()` returned
+early whenever the card had halves, so typing in the one box never reached the two
+fields; switching back called `personaJoin()`, which overwrote the box with the
+stale halves; saving exported the stale halves. The user's own sentence was gone
+and nothing said so.
+
+The switch now reconciles instead of re-labelling: if the box and the halves
+disagree, the text in view wins, it is kept as the description, the card's
+personality is set aside, and a note next to the boxes says exactly that — with
+*Use the card's two fields instead* to undo it, because the pre-merge halves are
+held for as long as the sheet is open. Typing in either representation keeps
+appearing in the other (`personaJoin` on every input in the halves), so the box can
+never show a lie about what will be saved.
+
+**B — saving an unrelated field collapsed the split shape.** `collect()` wrote
+`descText = persona, persText = ''` on every save made while the one box was
+showing, edited or not. So fixing a greeting quietly undid the two fields, and the
+next look at them showed a description holding both halves and an empty
+personality — and *that* save exported the collapse.
+
+An unchanged save now changes nothing about the persona: when the box says what the
+halves already say, the halves are written back untouched and `personaSplit` keeps
+the value it had. The documented merge only happens on a real edit of the merged
+text, which is what the on-row warning describes. The reviewer's phrasing is the
+rule: a save may not answer a question nobody asked.
+
+**C — split export deleted a description equal to the scenario.** The split branch
+ran `stripDuplicateScenario` over the description *before* comparing it with the
+card, so a card whose `description` is verbatim its `scenario` exported
+`description: ""` on merely opening the two-field editor. The fold belongs to the
+merged shape — one string reciting the scenario puts it in the sheet twice — and a
+field edited as itself is not that case. Both split paths (with a source copy and
+without one) now write what the character holds; the merged fold is unchanged, at
+its existing narrowness, and is tested at both edges.
+
+**On the tests.** Findings A and B are handler behaviour, so no source-text
+assertion could have caught them and a store-level test still cannot.
+`tests/editor-smoke-test.js` grew a fake DOM that keeps one node per selector,
+seeds each field from the markup the view actually wrote, and fires the shipped
+listeners — `Views.editor` → click the switch → read the textareas → click
+*Save character* → the object handed to `App.saveCharacter`. That is what found the
+`parentNode` climb in my own switch handler (now an id lookup) and it is the
+closest this repo can get to a UI test without a browser: Playwright is not
+installed here, so no device-level claim is being made, and the review's
+"include a full UI/browser or device test where possible" is answered with a
+simulated DOM and the limitation named.
+
+**Restated expectations.** Two of my own v1.41.0 assertions in
+`card-persona-changes-test.js` were wrong about the merged fold — they expected it
+to fire on a description merely *ending* with the scenario's words, which the rule
+has never done (it needs a paragraph break, or nothing else at all). They now
+assert the fold at the boundary it is defined at, in both modes, rather than the
+boundary I had imagined. Nothing else in the suite moved.

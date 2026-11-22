@@ -1871,7 +1871,7 @@
 
       '<div class="group">' +
         '<div class="group-title">Character sheet</div>' +
-        '<div class="field"><div class="field-head"><label>' + (personaSplitOn ? 'Description · personality' : 'Persona') + '</label>' +
+        '<div class="field"><div class="field-head"><label id="e-persona-label">' + (personaSplitOn ? 'Description · personality' : 'Persona') + '</label>' +
           '<span class="spacer"></span><button class="chip" data-act="ai-persona">' + icon('sparkle') + ' AI draft</button></div>' +
           /* v1.41.0 (review request 4): a card keeps these as TWO fields. Editing
              them as one has always merged both into `description` and emptied the
@@ -1893,6 +1893,7 @@
           '<div id="e-persona-split"' + (personaSplitOn ? '' : ' style="display:none"') + '>' +
             '<div class="hint" style="margin-top:0">The two fields as the card keeps them. ' +
             'Changing one leaves the other as it is, and both go back out under their own names.</div>' +
+            '<div id="e-persona-merge" hidden></div>' +
             '<textarea class="tall" id="e-desc" placeholder="Appearance, history, how they speak…">' + esc(descSeed) + '</textarea>' +
             '<div class="hint" style="margin:8px 0 4px">Personality (the card\'s own <code>personality</code> field)</div>' +
             '<textarea id="e-pers" placeholder="Short traits list, if the card keeps one.">' + esc(persSeed) + '</textarea>' +
@@ -2225,18 +2226,62 @@
     /* The persona mode switch. Both boxes stay in the DOM and mirror each other,
        so switching back and forth inside one edit cannot drop text, and the AI
        draft buttons — which read the combined box — always see what is there. */
+    /* v1.41.1 (review finding A). Both representations stay in the DOM, so the
+       switch is a question of which one is LOOKED AT — and until now, switching
+       could throw away whichever text was not. Typing in the one box and opening
+       the two fields showed the stale halves; switching back overwrote the typing
+       with them; saving exported them. Nothing was lost of the card's, but the
+       user's own sentence was, silently, which is the one thing an editor may not
+       do. The switch now reconciles: the text that is there wins, the merge it
+       implies is said out loud, and the card's halves stay one tap away for as
+       long as the sheet is open, so the reconciliation is reversible. */
+    function personaJoinOf(desc, pers) {
+      return [desc, pers].filter(function (t) { return String(t || '').trim(); }).join('\n\n');
+    }
+    function personaHalves() {
+      var d = $('#e-desc', body), pr = $('#e-pers', body);
+      return { desc: d ? String(d.value || '') : '', pers: pr ? String(pr.value || '') : '' };
+    }
+    function personaMergeSay(shown) {
+      var box = $('#e-persona-merge', body);
+      if (!box) return;
+      if (!shown) { box.innerHTML = ''; box.hidden = true; return; }
+      box.hidden = false;
+      box.innerHTML = '<div class="hint" style="margin:6px 0 4px;color:var(--warn,#fbbf24)">' +
+        '<b>Your text could not be split back into two fields, so it is kept whole as the ' +
+        'description and the card’s personality is set aside for now.</b> Nothing is saved yet — ' +
+        'this is still the draft in front of you.</div>' +
+        '<button class="chip" id="e-persona-restore">Use the card’s two fields instead</button>';
+      var back = $('#e-persona-restore', body);
+      if (back) back.onclick = function () {
+        var d = $('#e-desc', body), pr = $('#e-pers', body);
+        if (d) d.value = personaUndo.desc;
+        if (pr) pr.value = personaUndo.pers;
+        personaJoin();
+        personaEdited = null;
+        personaMergeSay(null);
+        UI.toast('The card’s own halves are back — your sentence is in neither box now, so ' +
+          'switch to one box and paste it if you still want it');
+      };
+    }
+    var personaEdited = null;            /* 'one' | 'split' | null — where text was last typed */
+    var personaUndo = null;
     function personaJoin() {
       var d = $('#e-desc', body), pr = $('#e-pers', body), one = $('#e-persona', body);
       if (!d || !one) return;
-      var joined = [d.value, pr.value].filter(function (t) { return String(t || '').trim(); }).join('\n\n');
+      var joined = personaJoinOf(d.value, pr ? pr.value : '');
       if (one.value !== joined) one.value = joined;
     }
     function splitFromCombined() {
       var d = $('#e-desc', body), pr = $('#e-pers', body), one = $('#e-persona', body);
       if (!d || !one) return;
-      if (hasParts) return;              /* the card's own halves win; they are the truth */
+      if (one.value === personaJoinOf(d.value, pr ? pr.value : '')) return;   /* both agree */
+      /* They do not: one of them holds typing the other has never seen. Keep it. */
+      personaUndo = { desc: d.value, pers: pr ? pr.value : '' };
       d.value = one.value;
       if (pr) pr.value = '';
+      personaEdited = 'one';
+      if (hasParts) personaMergeSay('merged');
     }
     segWire('e-persona-mode', function (v) {
       personaSplitOn = v === 'split';
@@ -2247,16 +2292,30 @@
         if (oneBox) oneBox.style.display = 'none';
       } else {
         personaJoin();
-        if (oneBox) oneBox.style.display = '';
         if (two) two.style.display = 'none';
+        if (oneBox) oneBox.style.display = '';
       }
-      var lab = $('#e-persona-mode', body) && $('#e-persona-mode', body).parentNode.querySelector('label');
+      /* the note is only true while the two disagree */
+      if (personaUndo && !personaSplitOn) personaMergeSay(null);
+      /* looked up by its own id rather than by climbing parentNode from a control:
+         that walk is the only reason this handler could touch a null, and an id is
+         the same length once the markup is read */
+      var lab = $('#e-persona-label', body);
       if (lab) lab.textContent = personaSplitOn ? 'Description · personality' : 'Persona';
     });
     ['#e-desc', '#e-pers'].forEach(function (sel) {
       var el = $(sel, body);
-      if (el) el.oninput = personaJoin;
+      if (el) el.oninput = function () { personaEdited = 'split'; personaJoin(); };
     });
+    (function () {
+      var one = $('#e-persona', body);
+      if (one) one.oninput = function () {
+        personaEdited = 'one';
+        /* typed while the halves are also on screen: they cannot follow a merge,
+           so say what saving will do instead of letting them find out later */
+        if (personaSplitOn) personaMergeSay('merged');
+      };
+    })();
     var loreCompatEl = $('#e-lore-compat', body);
     if (loreCompatEl) loreCompatEl.onclick = function () {
       this.classList.toggle('on');
@@ -2298,21 +2357,35 @@
       draft.name = $('#e-name', body).value.trim();
       draft.tagline = $('#e-tagline', body).value.trim();
       draft.tags = $('#e-tags', body).value.split(',').map(function (t) { return t.trim(); }).filter(Boolean);
-      /* v1.41.0: in the split mode the two card fields are the truth and the
-         combined string is derived from them, which is what every prompt path
-         reads; in the one-box mode the combined text wins and the two fields
-         follow it, so a stale split from an earlier edit cannot outlive it. */
-      if (personaSplitOn) {
-        draft.descText = $('#e-desc', body).value;
-        draft.persText = $('#e-pers', body).value;
-        draft.persona = [draft.descText, draft.persText]
-          .filter(function (t) { return String(t || '').trim(); }).join('\n\n');
+      /* v1.41.1 (review finding B). This used to write `descText = persona,
+         persText = ''` on EVERY save made while the one box was showing, edited
+         or not — so fixing a greeting quietly collapsed the card's two fields,
+         and the split editor then opened on a description holding both halves and
+         a personality gone. Saving an unrelated field may not answer a question
+         nobody asked. The rule now: the halves survive unless the combined text
+         says something the halves do not, and the mode the text was last typed in
+         decides which representation is authoritative. */
+      var halves = personaHalves();
+      var oneVal = $('#e-persona', body) ? String($('#e-persona', body).value || '') : '';
+      var joined = personaJoinOf(halves.desc, halves.pers);
+      if (personaSplitOn || personaEdited === 'split') {
+        draft.descText = halves.desc;
+        draft.persText = halves.pers;
+        draft.persona = personaJoinOf(halves.desc, halves.pers);
+        draft.personaSplit = true;
       } else {
-        draft.persona = $('#e-persona', body).value;
-        draft.descText = draft.persona;
-        draft.persText = '';
+        draft.persona = oneVal;
+        var hadHalves = typeof char.descText === 'string' || typeof char.persText === 'string';
+        if (hadHalves && oneVal === joined) {
+          draft.descText = halves.desc;
+          draft.persText = halves.pers;
+          draft.personaSplit = char.personaSplit === true;
+        } else {
+          draft.descText = oneVal;
+          draft.persText = '';
+          draft.personaSplit = false;
+        }
       }
-      draft.personaSplit = personaSplitOn;
       draft.scenario = $('#e-scenario', body).value;
       /* fold the box back into the intro slot on show FIRST — saving while
          looking at intro k must not clobber the main greeting */
