@@ -15,6 +15,7 @@ id_rsa
 # it is the loss of the ability to update anybody's existing install, so the
 # copy that matters is the offline one, never a commit.
 apk-build/*.keystore
+apk-build/*.keystore.*
 apk-build/*.jks
 /keystore-backup/
 

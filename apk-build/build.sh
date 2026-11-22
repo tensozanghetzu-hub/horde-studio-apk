@@ -131,6 +131,48 @@ echo "==> signing"
 echo "==> verifying"
 "$APKSIGNER" verify --print-certs "$OUT/app-signed.apk" > "$OUT/verify.txt"
 head -8 "$OUT/verify.txt"
+
+# The identity of record. signing-identity.txt carries the certificate fingerprint
+# this app is signed with; the APK just built has to agree. That catches the two
+# ways a rotation goes wrong quietly: restoring the burned key out of habit, or
+# generating a fresh one on a machine that lost the file. Both produce an APK no
+# existing install will accept, and both look like a bad download from the phone.
+IDENT="$ROOT/signing-identity.txt"
+if [ -f "$IDENT" ]; then
+  # sed, not grep: under `set -euo pipefail` a grep that matches nothing fails the
+  # whole assignment and the script dies without printing a word. The guard must
+  # never be the reason a build fails quietly.
+  WANT_CERT="$(sed -n 's/^[[:space:]]*cert-sha256:[[:space:]]*//p' "$IDENT" | tr -d ' :' | tr 'A-Z' 'a-z' | sed -n 1p || true)"
+  GOT_CERT="$(sed -n 's/.*certificate SHA-256 digest:[[:space:]]*//p' "$OUT/verify.txt" | tr -d ' ' | sed -n 1p || true)"
+  if [ -z "$GOT_CERT" ]; then
+    echo "ERROR: cannot read a certificate digest out of $OUT/verify.txt" >&2
+    echo "       refusing to guess; look at the apksigner output above" >&2
+    exit 1
+  fi
+  if [ -z "$WANT_CERT" ]; then
+    echo "ERROR: $IDENT has no parsable cert-sha256 line" >&2
+    exit 1
+  fi
+  if [ "$GOT_CERT" != "$WANT_CERT" ]; then
+    if [ "${HS_ALLOW_OTHER_KEY:-}" = "1" ]; then
+      echo "   WARNING: signed with $GOT_CERT, not the identity of record ($WANT_CERT)"
+      echo "   WARNING: deliberate override in effect — these builds will not update old installs"
+    else
+      echo "ERROR: this APK is not signed by the recorded identity" >&2
+      echo "       APK certificate:  $GOT_CERT" >&2
+      echo "       $IDENT says: $WANT_CERT" >&2
+      echo "       If the key was restored from a backup, that backup is the burned one:" >&2
+      echo "         ls \"$ROOT/../keystore-backup/\" and use the LIVE copy" >&2
+      echo "       If you meant to rotate, update $IDENT and re-run." >&2
+      echo "       HS_ALLOW_OTHER_KEY=1 builds anyway (only for a deliberate, recorded rotation)." >&2
+      exit 1
+    fi
+  else
+    echo "   signing identity matches $IDENT"
+  fi
+else
+  echo "   note: no $IDENT to compare against — every release should have one"
+fi
 "$AAPT2" dump badging "$OUT/app-signed.apk" > "$OUT/badging.txt"
 head -6 "$OUT/badging.txt"
 

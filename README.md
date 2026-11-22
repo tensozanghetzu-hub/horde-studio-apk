@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.41.1
+# Horde Studio — Mobile (Android) · v1.42.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,9 +6,15 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.41.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.42.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
+
+> **v1.42.0 needs an uninstall, not an update.** The signing key was rotated for
+> this release, so Android will refuse to install it over an older Horde Studio —
+> back up first (Settings → Data → Backup), then uninstall, install, restore.
+> `MIGRATION-signing-key.md` is the walk-through, and it is why this one version is
+> not simply an update like every other.
 
 Tap this on your phone and it downloads without any further clicking:
 
@@ -17,14 +23,18 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The newest release
-also carries a copy named `HordeStudio-v1.41.1.apk`, so you can tell which version
+also carries a copy named `HordeStudio-v1.42.0.apk`, so you can tell which version
 you have after downloading.)
 
 Only the newest release keeps an APK attached. Older releases stay in the list with
 their tag and notes — that is the version history — but their files are pruned
 automatically by the release workflow. Nothing reads them: the app updates from the
-`docs/` channel, never from a release asset. If you ever need an older build, it is
-in the git history of this repo's release workflow or can be rebuilt from its tag.
+`docs/` channel, never from a release asset. If you ever need an older build, it can
+be rebuilt from its tag — but note that since v1.42.0 the signing key is no longer in
+the repo, so a rebuild is unsigned-by-your-identity unless you first restore the key
+from `keystore-backup/`, and a build signed with the *burned* key is what an old
+install needs to accept it. `apk-build/signing-identity.txt` is the record of which
+key is which.
 
 The app's own updater does **not** use releases. It reads the channel in `docs/`,
 which is what GitHub Pages serves, because that is how it can check for updates
@@ -2482,7 +2492,9 @@ There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub acc
   bridge: file picker, save-to-Downloads, self-update swap), icons,
   `AndroidManifest.xml`, `build.sh`, `setup-sdk.sh`, and — on the machine that
   builds, never in git — **`horde-studio.keystore`** (the app's signing identity;
-  see invariants, and `keystore-backup/` for where its only copy is kept).
+  see invariants, and `keystore-backup/` for where its only copy is kept), and
+  `signing-identity.txt`, which is in git because it holds only the *fingerprint*
+  and is what `build.sh` checks every build against.
 - `tests/` — the Node test battery (24 suites, ~570 checks at v1.14.0) plus 2
   Playwright suites that additionally need `playwright-core`.
 - `docs/` — the update channel, served by GitHub Pages. Generated, never
@@ -2556,11 +2568,30 @@ that proves no card text leaked into the shipped code — and that check reports
   invent one, because a regenerated key is a *different* identity that every
   old install rejects permanently. `build.sh` now stops with instructions
   instead; `HS_ROTATE_KEY=1` is the deliberate way to start a new identity.
-  Said out loud so nobody misreads this as fixed: the file was committed from
-  `c2a89f9` through `v1.41.1` and is still reachable by commit sha, so the old
-  key must be treated as public. Untracking it protects future clones and
-  future accidents; it does not un-leak the past, and rotation is the only
-  thing that closes that.
+- **Rotated at v1.42.0 (2026-11-22).** The key that signed `c2a89f9` through
+  `v1.41.1` (`2410dac6…b1dbbc`) was committed to a public repo for its whole
+  life and is therefore public forever — untracking it protected the next clone,
+  not the past four years. It is burned and archived in `keystore-backup/
+  burned-2026-11-22/`, kept because it is the only thing that can verify every
+  release before v1.42.0. The live key is `a1b0e423…105f6`. Consequences, since
+  they are the part people forget afterwards: existing installs could not be
+  updated in place and had to uninstall and restore (see
+  `MIGRATION-signing-key.md`), and any install that never moved is still
+  trusting a key an attacker can hold. Rotation protects the users you have not
+  met yet — so it is a release-boundary decision, never a surprise fix.
+- `apk-build/signing-identity.txt` records the fingerprint of the key that
+  releases must be signed with, and `build.sh` refuses to finish when the built
+  APK disagrees. That is what makes a restored-but-burned key, or a
+  regenerated-on-a-fresh-machine key, fail loudly at build time instead of
+  looking like a corrupt download on somebody's phone. `HS_ALLOW_OTHER_KEY=1`
+  overrides it, and should only ever appear next to a documented rotation.
+- Proof-of-rotation (APK Signature Scheme v3 `SigningCertificateLineage`, which can
+  let an app change keys without a reinstall) was tried for v1.42.0 and rejected.
+  build-tools 34 accepts a two-signer invocation where both keys use the same
+  alias, exits 0, and produces an APK whose only surviving signer is the OLD one
+  (`verify -v`: v2 true, v3 false) — a "successful" build that quietly undoes the
+  rotation. `apksigner rotate --in <apk>` then throws an NPE, so there is no way to
+  confirm a lineage from here. Do not attempt this without a device to check on.
 - Publishing requires an explicit ask — a repair task is not a publish.
 - `NOTES.md` is the handoff memory: a version entry without its test counts and
   ship state is an incomplete record.

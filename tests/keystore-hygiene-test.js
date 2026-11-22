@@ -112,5 +112,63 @@ if (fs.existsSync(KEY) && fs.existsSync(raw)) {
   console.log('  --   one of {working key, backup copy} is absent — restore before building, do not rotate');
 }
 
+console.log('\n5. The identity of record, and the guard that reads it');
+
+const IDENT = path.join(ROOT, 'apk-build', 'signing-identity.txt');
+const ident = read(IDENT);
+const norm = v => String(v || '').replace(/:/g, '').toLowerCase();
+// keytool writes A1:B0:… (95 chars), apksigner writes a1b0… (64). Accept either
+// on either side and compare the normalised form, or the comparison truncates.
+const want = norm((ident.match(/^cert-sha256:\s*([0-9a-f:]{64,})\s*$/m) || [])[1]);
+check(ident.length > 0, 'apk-build/signing-identity.txt is in the repo',
+  'it is public information — a fingerprint, not a key — and it is what makes a wrong key loud');
+check(!!want, 'it records exactly one 64-hex certificate fingerprint', want ? want : 'no parsable cert-sha256: line');
+check(/^rotated-from:\s*[0-9a-f:]{64,}$/m.test(ident),
+  'it names the fingerprint this one replaced, so the burned key is identifiable');
+check(/^since:\s*\d+\.\d+\.\d+/m.test(ident), 'it says which release switched identity');
+check(/apk-build\/\*\.keystore\.\*/.test(gi), '.gitignore also covers stray .keystore.bak / .keystore.old files');
+
+check(/signing-identity\.txt/.test(sh), 'build.sh compares the built APK against the identity file');
+check(/HS_ALLOW_OTHER_KEY/.test(sh), 'overriding the identity check is an explicit, named decision');
+check(/certificate SHA-256 digest:[^\n]*\|\|\s*true/.test(sh),
+  'reading the digest cannot abort the build silently under pipefail (sed … || true)');
+check(!/grep[^\n]*certificate SHA-256[^\n]*\|[^\n]*head/.test(sh),
+  'the digest is not read with grep|head — a no-match there once killed the build without a word');
+
+if (want && fs.existsSync(KEY)) {
+  const kt = ['/usr/lib/jvm/jdk-11/bin/keytool', '/usr/lib/jvm/default-jvm/bin/keytool', 'keytool']
+    .find(c => { try { execSync(c + ' -help', { stdio: 'ignore' }); return true; } catch (e) { return false; } });
+  if (!kt) { console.log('  --   no keytool on this machine — the live key was not compared to the record'); }
+  else {
+    let got = '';
+    try {
+      const out = execSync('"' + kt + '" -list -v -keystore "' + KEY + '" -storepass hordestudio',
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      got = norm((out.match(/SHA256:\s*([0-9A-Fa-f:]{64,})/) || [])[1]);
+    } catch (e) { got = ''; }
+    check(got === want,
+      'the key on disk really is the recorded identity',
+      'disk says ' + (got || '<unreadable>') + ', record says ' + want);
+  }
+} else if (fs.existsSync(KEY)) {
+  check(false, 'cannot compare the live key: the identity record is unreadable');
+}
+
+console.log('\n6. Live and burned copies cannot be confused');
+
+const burned = path.join(BACKUP, 'burned-2026-11-22');
+check(fs.existsSync(path.join(BACKUP, 'HordeStudio-signing-key-LIVE-v1.42.0.zip')),
+  'the live key ships as a zip named LIVE');
+check(fs.existsSync(burned), 'the superseded key is archived rather than deleted',
+  'it is the only thing that can verify every release up to v1.41.1');
+const burnedDoc = read(path.join(burned, 'README.txt'));
+check(/DO NOT/.test(burnedDoc) && /never|Never/.test(burnedDoc),
+  'the archive label itself says not to sign with it again');
+if (fs.existsSync(path.join(burned, 'horde-studio-DO-NOT-SIGN.keystore')) && fs.existsSync(raw)) {
+  const diff = !fs.readFileSync(path.join(burned, 'horde-studio-DO-NOT-SIGN.keystore'))
+    .equals(fs.readFileSync(raw));
+  check(diff, 'the burned copy and the live copy are different files');
+}
+
 console.log(failures ? '\n' + failures + ' keystore-hygiene checks FAILED' : '\nall keystore-hygiene checks passed');
 process.exit(failures ? 1 : 0);

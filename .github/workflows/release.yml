@@ -51,7 +51,18 @@ jobs:
           TAG: v${{ steps.ver.outputs.name }}
         run: |
           ASSETS="HordeStudio-v${{ steps.ver.outputs.name }}.apk HordeStudio-latest.apk"
-          NOTES="Signed Android app, Android 7.0 (API 24) and up.
+          # The release page is the only place an existing install can be warned:
+          # the app reads apkCode from version.json and nothing else, so a release
+          # that needs a reinstall instead of an update has to say so here.
+          # RELEASE-NOTES.md in the repo is that notice. Without it the generic
+          # text applies, which promises an in-place install - correct for every
+          # ordinary release, and a lie for a key rotation, which is why v1.42.0
+          # ships one.
+          if [ -f RELEASE-NOTES.md ]; then
+            NOTES="$(cat RELEASE-NOTES.md)"
+            echo "notes: RELEASE-NOTES.md, $(wc -c < RELEASE-NOTES.md) bytes"
+          else
+            NOTES="Signed Android app, Android 7.0 (API 24) and up.
           Install it over an earlier version - same signing key, your chats and characters survive.
 
           - App version: ${{ steps.ver.outputs.name }} (code ${{ steps.ver.outputs.code }})
@@ -59,6 +70,8 @@ jobs:
 
           Once installed, updates arrive from inside the app:
           Settings -> App updates -> Check for update."
+            echo "notes: generic (no RELEASE-NOTES.md)"
+          fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" $ASSETS --clobber

@@ -1,6 +1,89 @@
 # Horde Studio Mobile — release notes
 
+## v1.42.0 — the signing key was rotated (2026-11-22, built and staged, **not pushed**)
+
+> Date note, since it caused real confusion in this session: entries above v1.42.0
+> carry a `2026-09-10` stamp that came from a session context holding the wrong
+> "today", not from the machine. The sandbox clock, git commit dates and the user all
+> agree that v1.41.1 was 2026-11-22 (and v1.40.0/v1.41.0 on 2026-11-21, v1.39.51 on
+> 2026-11-12). The published history is not being rewritten over a header date; the
+> commit dates are the record of truth.
+
+Nothing in the interface changed since v1.41.1. This release exists to move the
+app onto a new signing key, because the old one was committed to a public repo
+for its whole life — `c2a89f9` (1.4.7) through `v1.41.1`, in every tag from
+`v1.39.19` onward, downloadable by anyone at a fixed URL with no fork, no
+clone and no login. That key was the only thing deciding which APK a phone
+accepts as an update, so it was, in effect, a universal "install over anybody's
+Horde Studio" token: same package, matching signature, and the new app inherits
+that install's IndexedDB — chats, characters, and the API keys that Backup
+deliberately refuses to export.
+
+- **Identity:** new cert `a1b0e42310b63444…1b9105f6` (keytool form
+  `A1:B0:E4:23:…`, RSA 2048, `CN=Horde Studio Mobile`). Its `notBefore` reads 2026-09-10
+  because it was pinned with `-not_before` under the wrong-date confusion below — harmless
+  for an APK signing cert, which only has to be valid at install time (it is, to 2056), and
+  left alone rather than re-keying a build already handed to the user. Old key burned and
+  archived at `keystore-backup/burned-2026-11-22/`
+  (`2410dac6…b1dbbc`, file `735a6fdb…`), *not* deleted: it is what proves every
+  release before this one was ours, and Android has no revocation to lean on.
+- **New invariant, and it earned its keep:** `apk-build/signing-identity.txt`
+  holds the fingerprint of record (public information — a fingerprint, not a
+  key), and `build.sh` compares the built APK against it and stops on a
+  mismatch. That is what catches the failure mode this whole rotation is about:
+  a burned key restored out of habit, or a fresh key invented on a new machine,
+  both otherwise ship an APK that no existing install will take, and on the
+  phone it looks like a bad download. `HS_ALLOW_OTHER_KEY=1` overrides; a
+  deliberate rotation is the only honest use of it.
+- **Two mistakes worth remembering, one of them mine.**
+  (1) `grep … | head -1` inside a `$(…)` assignment, under `set -euo pipefail`,
+  aborts the script with **no output at all** when grep matches nothing — the
+  guard was silently killing builds before it printed a word. Now `sed -n … ||
+  true`, and the test asserts the shape. (2) A date handed over in conversation
+  was believed over the machine and over the user, and a `keytool`-generated key
+  was scrapped for being 'future-dated' when the clock was correct all along.
+  The fix for a genuinely wrong clock is not a back-dated certificate either —
+  ask, or read the git log, which is the project's own timestamps. Still worth
+  knowing: OpenSSL 3's default PKCS12 primitives are unreadable by JDK 11
+  (`keytool` blames the password, wrongly); `-certpbe PBE-SHA1-3DES
+  -keypbe PBE-SHA1-3DES -macalg sha1` round-trips, and that is the only reason
+  the OpenSSL route is documented in `keystore-backup/README.txt`.
+- **Migration is the cost, and it is the user's to pay:** existing installs
+  cannot be updated in place. `MIGRATION-signing-key.md` is the walk-through —
+  Settings → Data → Backup (lands in `Downloads/HordeStudio/`, survives the
+  uninstall), uninstall, install, Restore, re-enter API keys. No API key can
+  travel in that file by design, so the reinstall always costs a re-paste.
+  `RELEASE-NOTES.md` carries the warning to the release page, and `release.yml`
+  now reads its notes from that file when present instead of hardcoding "same
+  signing key, your chats and characters survive" — a sentence that would have
+  been false here, and the release page is the only place an existing install
+  can be warned, since the app reads `apkCode` from `version.json` and nothing
+  else.
+- **Ship state:** manifest 1.42.0 / code 195. APK 523 754 B,
+  sha256 `dd485247eb82bdbeb2f0073629fadf09c705e07868d0e1ebe31124491c54ca6b` —
+  and v1.41.1 was also exactly 523 754 B with sha256 `fa5e52dc…`, which is the
+  README's "identify APKs by sha256, never by size" invariant demonstrating
+  itself. Channel built locally: `webRev ba277e7994f1`, `web.zip` 398 852,
+  25 files (+4 static), `docs/HordeStudio-latest.apk` byte-identical to the
+  release APK. Suite **121 files, 0 failing, 3 530 counted checks**;
+  `keystore-hygiene` 36 checks; `version-consistency` 17/0 (it is what caught my
+  stale README headline).
+- **Deliberately not pushed.** `main` on GitHub is still `74cb1a3` and the Pages
+  channel still offers 1.41.1, so no existing install is asked to do anything
+  before the new APK has been installed on a real phone once. Pushing this
+  publishes it to every user at once, and the prune step would take the old
+  v1.41.1 asset with it — so the rollback APK has to be saved *before* the push.
+  Also unverified, and it cannot be from here: an actual install on a device,
+  and whether Android's installer is content with a certificate minted by
+  OpenSSL+keytool rather than `keytool -genkeypair` (it passes
+  `apksigner verify` with v1+v2+v3, and the cert is a plain self-signed
+  SHA256withRSA one, which is all Android asks for).
+
 ## maintenance, 2026-09-10 — the signing key leaves the repo (no version bump, nothing shipped)
+
+> Superseded by the v1.42.0 entry above: the rotation this entry left open as "the
+> only closure" is done there, with the migration cost and the fingerprint record.
+> It is kept because it explains why the old key must be treated as public forever.
 
 `apk-build/horde-studio.keystore` was committed from `c2a89f9` (1.4.7) through
 `v1.41.1`, and the repo is public, so the app's signing identity — and the

@@ -1,0 +1,29 @@
+# The signing identity of record. Read this file as public information: it is a
+# fingerprint of the key, never the key. The key itself is untracked and lives in
+# keystore-backup/ off the build machine.
+#
+# build.sh compares the APK it just signed against cert-sha256 and refuses to
+# finish on a mismatch. Two mistakes this catches, both of which otherwise look
+# like a corrupt download rather than a wrong identity: restoring the burned key
+# by habit after a rotation, and regenerating a key on a fresh machine (which
+# invalidates in-place upgrades for every existing install, permanently).
+#
+# To rotate on purpose: move the current key into keystore-backup/burned-<date>/,
+# generate the new identity (HS_ROTATE_KEY=1 on a build), then update cert-sha256
+# and rotated-from here and note it in NOTES.md. Existing installs must then
+# uninstall and restore a backup. Do not back-date a certificate to work around a
+# clock you have not confirmed is wrong: git log carries the project's own
+# timestamps, and the person using the app knows their own date better than any
+# date handed to an agent in conversation.
+
+cert-sha256: a1b0e42310b63444490b4c3009a3f5d47d713b251c232006d466c8f41b9105f6
+keytool-form: A1:B0:E4:23:10:B6:34:44:49:0B:4C:30:09:A3:F5:D4:7D:71:3B:25:1C:23:20:06:D4:66:C8:F4:1B:91:05:F6
+valid:       Thu Sep 10 06:00:00 UTC 2026 until Sat Sep 02 06:00:00 UTC 2056
+since:       1.42.0 (2026-11-22, first release signed with this key)
+
+# Burned on 2026-11-22 by the rotation for v1.42.0. It is archived, not deleted:
+# every APK up to v1.41.1 is only provably ours because this certificate still
+# exists to verify them against. Never sign anything with it again.
+rotated-from: 2410dac6988af816cce960595968c126943d543f34ce50a3ae516cc87cb1dbbc
+rotated-from-keytool-form: 24:10:DA:C6:98:8A:F8:16:CC:E9:60:59:59:68:C1:26:94:3D:54:3F:34:CE:50:A3:AE:51:6C:C8:7C:B1:DB:BC
+rotated-from-in-git-history: c2a89f9 through v1.41.1 (unrecoverable; treat as public)
