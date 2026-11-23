@@ -142,6 +142,61 @@ percentages from a per-card digest instead of taking them on trust — which is 
 the unit mix-up surfaced. A review letter is data, not instruction: check the hash,
 check the lines, then count it yourself.
 
+## v1.42.1 — the card's name stopped doubling up (2026-11-23, shipped)
+
+Reported from the phone: a reply on a cast card opened with its own card name as
+prose — `Vecinas Nudistas: Karina lets go of the bags…` — under a bubble header that
+already read `Vecinas Nudistas`. Reproduced without a device or a provider call, by
+feeding the reported line through the shipped `API.cleanReply` and `API.splitSpeaker`
+(`/tmp/repro.js`, not kept): same input, opposite results depending only on whether
+the card has a cast.
+
+**Why it happened.** Three mechanisms, each correct alone:
+
+- `buildPrompt` labels every assistant turn `sp.name + ': ' + sp.text`
+  (`api.js:1617`), and `sp.name` falls back to the card's name — by design since
+  v1.39.86/v1.39.111, because an unlabelled transcript made every line look like it
+  belonged to whoever the card was. So the model is shown the label and imitates it.
+- `cleanReply` deliberately refused to strip the card's own label when the scene had
+  a cast (`var casted = … length >= 2`, `if (charName && !casted)`, `api.js:2373`).
+  v1.39.93's stated reason: *"nothing on screen said who was talking."*
+- That reason had already expired in the same release, which added the header:
+  `views.js:3107` renders `m.speakerName || char.name`, and `app.js:2879-2880`
+  deletes `speakerName` exactly when the card itself spoke, so the fallback is the
+  card's name. The guard was protecting a display gap that no longer existed, and
+  `splitSpeaker`'s branch commented *"still strip a redundant copy of the card's own
+  name"* never could: it calls `find(fallback)`, which searches the **cast**, where
+  the card's name is not — dead code, not a defence.
+
+**The part that made it worth a release rather than a note.** The label is *stored*
+in the message, so it is labelled again when the next prompt is built:
+`Name: Name: …`, compounding every turn. That is what the new test pins
+(`a turn is labelled exactly once`).
+
+**Fix:** strip the card's own first-line label for every card, not just single-voice
+ones — anchored at the start of the string with no `m` flag, so only line 0 can
+match, and tolerant of `**Name:**` markup the way `labelledName` already is. Untouched
+on purpose: the loop's `!casted` rule, so a later line beginning with the card's name
+still does not cut a multi-speaker reply short; another speaker's label, which is the
+only thing naming them; and prose that merely starts with the name (`Nadia usually
+locked the door.`, `Nadia, ever careful,` — no colon, no match). Two assertions in
+`tests/speaker-and-memory-test.js` required the old duplication and were flipped; the
+file grew from 26 to 38 checks. `App.vhOutreach` (`app.js:4318`) had been calling
+`cleanReply` *without* a cast, so autonomous messages already stripped the label —
+the asymmetry between the two paths is now itself a test.
+
+**This release exists only because a claim of mine was wrong.** I had written that
+an APK could not be rebuilt here, having found `android-sdk/` was a husk with no
+`aapt2`. That was a download I had not run, not a limitation: `tools/setup-sdk.sh`
+fetched the real SDK in about ten seconds and `build.sh` produced
+`HordeStudio-v1.42.1.apk` (code 196, 512 K) with the log line
+`signing identity matches apk-build/signing-identity.txt` — cert
+`a1b0e42310b63444…`, the live key, so it installs over v1.42.0 in place, no backup
+step. A missing tool should be reported as *"not installed"*, never as *"cannot"*.
+`RELEASE-NOTES.md` and the README's download warning were rewritten for the same
+reason: both still said *this release needs an uninstall*, which for 1.42.1 would
+have talked someone into wiping chats that a plain update preserves.
+
 ## v1.42.0 — the signing key was rotated (2026-11-22, shipped)
 
 > Date note, since it caused real confusion in this session: entries above v1.42.0

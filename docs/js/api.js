@@ -2370,7 +2370,22 @@
     }
 
     var t = out.join('\n').replace(/\s+$/, '');
-    if (charName && !casted) t = t.replace(new RegExp('^\\s*' + escapeRe(charName) + '\\s*:\\s*', 'i'), '');
+    /* v1.39.93 stopped stripping the card's own first-line label on a cast card
+       because at that moment nothing else on screen said who was speaking. That
+       reason expired in the same release, which added the bubble header — and
+       the header always has something to say, because views.js renders
+       `m.speakerName || char.name`. So the inline label is a duplicate of the
+       header, and a duplicate that compounds: the stored line is labelled again
+       when the next prompt is built (`sp.name + ': ' + sp.text`), which is how a
+       chat ends up reading "Name: Name: Name: …" a few turns in. The label is
+       therefore stripped on the first line for every card now.
+
+       What v1.39.93 existed to protect stays protected: another speaker's label
+       is never touched (it is the only thing naming them), and a later line
+       beginning with the card's own name still does not cut the reply — the
+       `!casted` rule in the loop above is unchanged, and this pattern is not
+       multiline, so only line 0 can ever match it. */
+    if (charName) t = t.replace(new RegExp('^\\s*\\*{0,2}\\s*' + escapeRe(charName) + '\\s*:\\*{0,2}\\s*', 'i'), '');
     return t.trim();
   }
 

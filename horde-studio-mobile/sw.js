@@ -3,7 +3,7 @@
    (`return hit || net`), so a new version always installs a fresh shell
    instead of serving the previous app.js from disk.
    Written by tools/stamp-version.py from the manifest — do not edit by hand. */
-var CACHE = 'horde-studio-v1.42.0';
+var CACHE = 'horde-studio-v1.42.1';
 var SHELL = [
   './', './index.html', './manifest.webmanifest',
   './css/app.css',

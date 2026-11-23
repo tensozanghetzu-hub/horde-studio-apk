@@ -15,6 +15,7 @@ var ROOT = path.join(__dirname, '..');
 var JS = path.join(ROOT, 'horde-studio-mobile', 'js');
 var apiSrc = fs.readFileSync(path.join(JS, 'api.js'), 'utf8');
 var appSrc = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
+var viewsSrc = fs.readFileSync(path.join(JS, 'views.js'), 'utf8');
 
 var pass = 0, fail = 0;
 function ok(name, cond, detail) {
@@ -49,8 +50,14 @@ var cast = ['Nadia', 'Boris', 'Olive'];
 var single = [];
 
 var replySheOpens = 'Nadia: *She sets her backpack down.* "I can take the treadmill down."';
-same('her own label is kept when she speaks first',
-  API.cleanReply(replySheOpens, 'Nadia', 'Quinn', { cast: cast }), replySheOpens);
+/* v1.39.93 kept this label because nothing else named the speaker. The bubble
+   header does now (`m.speakerName || char.name`), so keeping it means showing
+   the name twice — and storing it means labelling the line again next turn. */
+same('her own first-line label is stripped on a cast card too',
+  API.cleanReply(replySheOpens, 'Nadia', 'Quinn', { cast: cast }),
+  '*She sets her backpack down.* "I can take the treadmill down."');
+ok('…and the header still attributes her, because the fallback is the card name',
+  /m\.speakerName \|\| char\.name/.test(viewsSrc), 'views.js must keep the fallback');
 
 var replyMidway = 'The landing is quiet.\nNadia: "I can take the treadmill down."';
 ok('a line starting with her name no longer cuts the reply',
@@ -65,7 +72,38 @@ same('another speaker\'s label is untouched', API.cleanReply(replyOther, 'Nadia'
 console.log('\nthe player\'s own name still ends the reply, cast or not');
 var leaked = 'Nadia: "Hi."\nQuinn: *I nod and head upstairs.*';
 same('a fake player turn is still cut',
-  API.cleanReply(leaked, 'Nadia', 'Quinn', { cast: cast }), 'Nadia: "Hi."');
+  API.cleanReply(leaked, 'Nadia', 'Quinn', { cast: cast }), '"Hi."');
+
+console.log('\nthe label does not stack into the next prompt');
+/* buildPrompt renders every assistant turn as `sp.name + ': ' + sp.text`
+   (api.js), so a stored reply that still carried its own label would be
+   labelled a second time on the way back in, and a third time after that. */
+var cleaned = API.cleanReply(replySheOpens, 'Nadia', 'Quinn', { cast: cast });
+var sp = API.splitSpeaker({ name: 'Nadia' }, { sceneCast: cast }, cleaned);
+same('a turn is labelled exactly once', sp.name + ': ' + sp.text, replySheOpens);
+ok('…never twice', (sp.name + ': ' + sp.text).indexOf('Nadia: Nadia:') === -1,
+  sp.name + ': ' + sp.text);
+
+console.log('\nonly the card\'s own first-line label goes');
+same('another speaker opening the reply keeps their name',
+  API.cleanReply('Boris: *He grins.*\nNadia: "Careful."', 'Nadia', 'Quinn', { cast: cast }),
+  'Boris: *He grins.*\nNadia: "Careful."');
+same('markup around the label is still recognised as a label',
+  API.cleanReply('**Nadia:** *She nods.*', 'Nadia', 'Quinn', { cast: cast }),
+  '*She nods.*');
+same('a sentence that merely starts with her name survives',
+  API.cleanReply('Nadia usually locked the door. Tonight she did not.', 'Nadia', 'Quinn', { cast: cast }),
+  'Nadia usually locked the door. Tonight she did not.');
+same('…and so does one that starts with her name and a comma',
+  API.cleanReply('Nadia, ever careful, said nothing.', 'Nadia', 'Quinn', { cast: cast }),
+  'Nadia, ever careful, said nothing.');
+
+console.log('\nreplies and autonomous messages clean the same way');
+ok('the outreach path calls cleanReply too',
+  /API\.cleanReply\(text, char\.name, \(Store\.settings \|\| \{\}\)\.userName\)/.test(appSrc));
+same('so both paths agree on the label',
+  API.cleanReply('Nadia: "Hi."', 'Nadia', 'Quinn'),
+  API.cleanReply('Nadia: "Hi."', 'Nadia', 'Quinn', { cast: cast }));
 
 console.log('\na one-character card behaves exactly as before');
 same('her label is stripped there',

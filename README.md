@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.42.0
+# Horde Studio — Mobile (Android) · v1.42.1
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,15 +6,17 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.42.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.42.1](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
-> **v1.42.0 needs an uninstall, not an update.** The signing key was rotated for
-> this release, so Android will refuse to install it over an older Horde Studio —
-> back up first (Settings → Data → Backup), then uninstall, install, restore.
-> `MIGRATION-signing-key.md` is the walk-through, and it is why this one version is
-> not simply an update like every other.
+> **v1.42.1 installs straight over v1.42.0 — no backup, no reinstall.** The one-time
+> exception is behind you: v1.42.0 rotated the signing key, so a phone still on
+> **v1.41.1 or older** has no update path across that boundary and must back up
+> (Settings → Data → Backup), uninstall, install, restore. Android refuses such an
+> install rather than damaging anything, and `MIGRATION-signing-key.md` is the
+> walk-through. Do not uninstall a v1.42.0-or-newer phone to "make room" for an
+> update it already accepts.
 
 Tap this on your phone and it downloads without any further clicking:
 
@@ -23,7 +25,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The newest release
-also carries a copy named `HordeStudio-v1.42.0.apk`, so you can tell which version
+also carries a copy named `HordeStudio-v1.42.1.apk`, so you can tell which version
 you have after downloading.)
 
 Only the newest release keeps an APK attached. Older releases stay in the list with
