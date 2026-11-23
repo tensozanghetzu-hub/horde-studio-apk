@@ -182,12 +182,33 @@ The two directions, both measured on 2026-11-22:
   && git checkout FETCH_HEAD`. Both verified: HEAD `80baf48`, clean worktree.
 
 A restored clone contains exactly the tracked tree. It will **not** contain
-`apk-build/horde-studio.keystore`, `keystore-backup/`, `character-cards/` (that
-folder's `.gitkeep` is untracked, so create it yourself) or `.ssh/` — all gitignored
-by design. Restoring code and docs is one command; the signing key is a separate,
-offline matter and stays that way.
+`apk-build/horde-studio.keystore`, `keystore-backup/`, `.ssh/` — all gitignored by
+design — **or `character-cards/` at all**: the rule is a directory-wide
+`/character-cards/`, so nothing inside it can be tracked, not even an empty marker,
+and git stores no empty directories. Create it yourself after a clone
+(`mkdir -p character-cards`) before importing anything.
 
-Two habits worth keeping: delete the pulled copy when done (two 30 MB files took the
-workspace from 6.2 MB to 64 MB, i.e. the download costs the same budget it was meant
-to relieve), and send large inbound files to Drive first rather than into
-`uploads/`, since that folder is exactly where the snapshot's transience bites.
+That is deliberate, and it survived an attempt to tidy it: a `character-cards/.gitkeep`
+was staged with a matching negation rule so the folder would come back on its own, and
+`sync-github.sh` refused the publish outright — its guard is
+`low.startswith('character-cards/')`, a blanket rather than a content sniff. The
+blanket stays, and the guard earns its keep precisely because `.gitignore` cannot be
+the only line of defence: plain `git add` is stopped by the ignore rule, but
+`git add -f` — which is what tracking that marker took — goes straight past it, and
+only the publisher's check caught it.
+
+Restoring code and docs is one command; the signing key is a separate, offline matter
+and stays that way.
+
+**Standing arrangement, 2026-11-23:** using this tier is delegated — no per-file
+permission is needed. It is not storage for its own sake: one file at a time, named
+for what it is, checked against the `sha256_checksum` the upload response returns,
+and deleted when the work is done. Delete permanently rather than to trash, because
+trashed files keep counting against quota for about 30 days.
+
+Two habits that follow from the workspace being a snapshot rather than a disk: send
+large inbound files to Drive first rather than only into `uploads/`, since that folder
+is exactly where the snapshot's transience bites; and delete the pulled copy when
+finished, because a download costs the same budget it was meant to relieve (two 30 MB
+files took the workspace from 6.2 MB to 64 MB). Key material is the one exception that
+still needs a named file — that limit belongs to the key, not to the workspace.

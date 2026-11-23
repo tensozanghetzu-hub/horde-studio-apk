@@ -72,6 +72,30 @@ if (fs.existsSync(vjPath)) {
   ok('docs/version.json present (skipped: channel not built yet)', true);
 }
 
+console.log('\nthe APK the channel advertises is really on the channel');
+/* 2026-11-23: deleting the gitignored build artifact at the workspace root made
+   build-channel.py mirror docs/ against the source alone, which removed
+   HordeStudio-latest.apk and left version.json pointing at it. The channel can
+   advertise a download that 404s for every installed phone, and nothing in the
+   suite noticed. These checks notice. */
+if (fs.existsSync(vjPath)) {
+  var chanVj = JSON.parse(fs.readFileSync(vjPath, 'utf8'));
+  var advertised = chanVj.apkUrl || 'HordeStudio-latest.apk';
+  var apkOnChannel = path.join(ROOT, 'docs', advertised);
+  var hasApk = fs.existsSync(apkOnChannel);
+  ok('docs/ holds the file named by apkUrl', hasApk, advertised);
+  if (hasApk) {
+    var apkBytes = fs.statSync(apkOnChannel).size;
+    same('apkSize is the real size of those bytes', chanVj.apkSize, apkBytes);
+    ok('and the channel is not advertising an empty APK', apkBytes > 100000, apkBytes);
+  } else {
+    ok('apkSize says so when there is no APK yet', chanVj.apkSize === 0, chanVj.apkSize);
+  }
+  var chan = read('tools/build-channel.py');
+  ok('the mirror step exempts the published APK from deletion',
+    /keep = \{APK_NAME\}/.test(chan) && /if f in keep/.test(chan));
+}
+
 console.log('\nthe README names the release it ships');
 var readme = read('README.md');
 same('the README headline matches', (readme.match(/v(\d+\.\d+\.\d+)/) || [])[1], versionName);

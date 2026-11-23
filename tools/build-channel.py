@@ -183,8 +183,19 @@ def main():
     version, code = app_version()
 
     # docs/ mirrors the source exactly: stale files from an older build go.
+    #
+    # One file is exempt, and it is the one that matters. docs/HordeStudio-latest.apk
+    # is not built from horde-studio-mobile/ — it is copied from a *gitignored*
+    # artifact at the workspace root, which is routinely deleted once a release is
+    # out. Mirroring without the exemption therefore deleted the published APK on
+    # the next run (seen 2026-11-23: `apk none found`, the file gone from docs/, and
+    # version.json left advertising an apkUrl that 404s for every phone on the
+    # channel). A scratch file going missing must never take the download with it.
+    keep = {APK_NAME}
     if os.path.isdir(OUT):
         for f in os.listdir(OUT):
+            if f in keep:
+                continue
             p = os.path.join(OUT, f)
             shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
     os.makedirs(OUT, exist_ok=True)
@@ -213,9 +224,17 @@ def main():
 
     apk = newest_apk()
     apk_size = 0
+    retained = False
     if apk:
         shutil.copy2(apk, os.path.join(OUT, APK_NAME))
         apk_size = os.path.getsize(apk)
+    else:
+        published = os.path.join(OUT, APK_NAME)
+        if os.path.exists(published):
+            # Nothing new to publish: the channel keeps the APK it already had, and
+            # reports the size of the bytes that are actually there.
+            retained = True
+            apk_size = os.path.getsize(published)
 
     info = {
         "apk": version,
@@ -241,7 +260,19 @@ def main():
     print("files    %d shipped (+%d static)" % (len(shipped), len(names) - len(shipped)))
     print("webRev   %s" % rev)
     print("web.zip  %d bytes" % len(zip_bytes))
-    print("apk      %s" % (os.path.basename(apk) if apk else "none found"))
+    print("apk      %s" % (
+        os.path.basename(apk) if apk
+        else (APK_NAME + " (retained; no fresh build at the workspace root)" if retained
+              else "none found — no APK has been published to this channel yet")))
+    if retained:
+        # The manifest decides what version.json advertises, so a bumped manifest
+        # with no rebuild would pair a new number with an old binary. Say it loudly
+        # rather than leaving it for a phone to discover.
+        print("warning  docs/%s was not rebuilt in this run, so it is whatever the"
+              " last build left there. version.json advertises %s (code %s) from the"
+              " manifest: if the wrapper changed since that file was built, the two"
+              " disagree — run apk-build/build.sh and publish again."
+              % (APK_NAME, version, code))
     if moved:
         print("baked    DEFAULT_URL -> %s" % url)
     if not url:

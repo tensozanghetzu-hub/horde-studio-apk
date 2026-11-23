@@ -87,6 +87,32 @@ deleted. **Any future APK build starts with `bash apk-build/setup-sdk.sh`** (net
 will not survive a sandbox restart either, which is the honest reason not to keep a
 copy "for later": the build toolchain is a download, not a workspace asset.
 
+### Drive is an approved tier for my own work, with a hygiene rule attached
+
+Granted on 2026-11-23, in so many words: *"Make sure you use Google drive if you
+need to. No need to ask for permission."* So it is used at judgement rather than per
+request, for the cases where a workspace file is the wrong home: a history bundle
+taken before a rewrite, a multi-hundred-MB artifact that has to survive a container
+recycle, a large card or session file sent in for review (the class of file that was
+lost once, from `uploads/`).
+
+That grant arrived right after *"I dont see whats on the drive from here. I will
+forget about it and it will just pile in the Drive"*, and that is the constraint
+shaping how it is exercised — being allowed to use the tier is not a licence to
+leave things in it. One file at a time, named for what it is, verified by the
+`sha256_checksum` the upload response returns (so checking costs no download), and
+deleted when the work is done: permanently, because trashed files keep counting
+against quota for ~30 days. Current state, checked rather than remembered — a name
+search for `horde` / `HordeStudio` / `drive-roundtrip` returns **0**, the bundle and
+folder from the investigation having been removed on request.
+
+One limit is being kept that the grant did **not** place there, stated plainly so it
+can be overruled: key material stays out of Drive unless a specific file is named for
+upload. The keystore and `.ssh/` are off-network by design, and "use it if you need
+to" was about my scratch space, not about where the signing identity lives. A Drive
+copy of `keystore-backup/HordeStudio-signing-key-LIVE-v1.42.0.zip` is a different
+instruction, and it would be a sensible one if it were written down.
+
 
 
 Fourth `.git` rollback in the same day, caught while pushing a doc: `git remote -v`
@@ -196,6 +222,48 @@ step. A missing tool should be reported as *"not installed"*, never as *"cannot"
 `RELEASE-NOTES.md` and the README's download warning were rewritten for the same
 reason: both still said *this release needs an uninstall*, which for 1.42.1 would
 have talked someone into wiping chats that a plain update preserves.
+
+### Two guard rails from the same afternoon: one that worked, one I removed
+
+**The card guard worked, on me.** While tidying the restore story I staged
+`character-cards/.gitkeep` — a 0-byte marker, so a fresh clone would have the
+private-card folder instead of only a sentence describing it. `sync-github.sh`
+refused and exited: its rule is `low.startswith('character-cards/')`, a blanket,
+not a content sniff. That is the protection the user asked to keep, so I reverted
+the `.gitignore` negation and left the marker untracked. A directory-wide ignore is
+also why it needed `git add -f` in the first place — and note where I got to before
+that: I had written a doc line claiming the folder "now tracks one file" from a
+force-add, then asserted in the next sentence that no force was needed, and the run
+printed the opposite. Both claims were written before they were measured.
+
+**Then I found that my own tidy-up had loaded a gun.** Earlier the same day I deleted
+the root build artifact `HordeStudio-v1.42.1.apk` as redundant scratch — correct,
+since `docs/HordeStudio-latest.apk` held identical bytes. But `tools/build-channel.py`
+rebuilds that file from `newest_apk()`, which globs the **gitignored root**, and its
+next step mirrors `docs/` against the source tree by deleting everything in it. So on
+the next run, with the scratch gone, it wiped the published APK and rewrote
+`version.json` to `apkSize: 0` — while `apkUrl` kept advertising
+`HordeStudio-latest.apk`. Every phone on the channel would have been pointed at a
+404. `git status` showed ` D docs/HordeStudio-latest.apk` only because the card guard
+had aborted the commit a second earlier; the damage was in the worktree, one
+`git add -A` away from published.
+
+Fixed in the tool rather than in the habit: `keep = {APK_NAME}` exempts the published
+APK from the mirror step; when there is no fresh build the channel retains what it
+had, reports the **real** byte size, and prints a warning that the file was not
+rebuilt in this run (worded as that, not as a version mismatch — build-channel cannot
+read the version inside an APK, and a warning someone acts on has to claim only what
+it knows). `tests/version-consistency-test.js` grew four checks: the advertised file
+exists in `docs/`, `apkSize` equals its bytes, it is not empty, and the exemption is
+still in the mirror step. Verified both ways — hiding the APK makes it say
+`FAIL docs/ holds the file named by apkUrl` (2 failed), restoring it gives 21 passed /
+0 failed, and a real root artifact still takes the copy path (`apk
+HordeStudio-v1.42.1.apk`). Suite 121 files / 0 failures.
+
+The rule this leaves behind: **before deleting anything, ask what reads it — not
+whether it is redundant.** The root APK was a duplicate *and* an input. Scratch that
+a build depends on is not scratch, and a channel whose contents can be deleted by
+deleting a gitignored file is one bad tidy-up from a lie.
 
 ## v1.42.0 — the signing key was rotated (2026-11-22, shipped)
 
