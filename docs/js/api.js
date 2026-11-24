@@ -490,6 +490,17 @@
      what decides. */
   var LORE_SCAN_TURNS = 6;
 
+  /* The transcript ceiling, in one place. It used to be written twice: the
+     window took `s.contextMessages` as it came, trimHistory took `|| 40`, so an
+     unset or zero setting meant "unbounded" to one and "40" to the other — and a
+     preview built from the first was wrong about the second. The store's default
+     is 40, so this is the same number for every real chat. */
+  var DEFAULT_CONTEXT_MESSAGES = 40;
+  function contextMessageCeiling(s) {
+    var n = parseInt(s && s.contextMessages, 10);
+    return n > 0 ? n : DEFAULT_CONTEXT_MESSAGES;
+  }
+
   /** The last `turns` player turns of a history, inclusive of the reply they
    *  answered. A turn starts at a user message; if the window would begin
    *  mid-turn it is extended back to the turn's opening message. */
@@ -510,11 +521,45 @@
   /** The one answer to "what is recent", for the whole request.
    *  Both shapes are returned because the consumers want different things:
    *  `sample` is what the lore scanner reads, `messages` is what the
-   *  transcript may carry (already mapped to {role, content} and trimmed). */
+   *  transcript may carry (already mapped to {role, content} and trimmed). */  /** The last `max` messages of a history, extended back to the opening of
+   *  the turn it lands in mid-way, so a transcript never begins with an answer
+   *  whose question was left out. Mirrors lastTurns' turn rule for the same
+   *  reason: a reply read without the line it replies to invites the model to
+   *  restart the beat. */
+  function lastMessages(history, max) {
+    var list = history || [];
+    var n = parseInt(max, 10);
+    if (!(n > 0) || n >= list.length) return list.slice();
+    var start = list.length - n;
+    while (start > 0 && list[start] && list[start].role !== 'user') start--;
+    return list.slice(start);
+  }
+
+  /** The one answer to "what is recent", for the whole request.
+   *  Both shapes are returned because the consumers want different things, and
+   *  since v1.44.0 they are measured differently on purpose:
+   *   - `sample` is what the lore scanner reads: LORE_SCAN_TURNS turns, or the
+   *     card's own scan depth (loreWindow re-derives it when they differ).
+   *   - `messages` is what the transcript carries: as many MESSAGES as the
+   *     "Messages in context" setting allows, turn-aligned.
+   *  They were the same number, which made that setting a ceiling nobody could
+   *  raise: it is read by trimHistory after this window had already cut the
+   *  history to six turns, so any value above 12 messages described a request
+   *  the builder could not build. The window now gives the setting its own
+   *  argument to govern, and the token budget (historyBudgetTokens) plus
+   *  CONTEXT_CAP remain what actually bounds the request. */
   function requestWindow(history, s) {
     var list = history || [];
+    var cap = contextMessageCeiling(s);
     var windowed = lastTurns(list, LORE_SCAN_TURNS);
-    return { sample: loreSample(windowed), messages: windowed, turns: LORE_SCAN_TURNS };
+    return {
+      sample: loreSample(windowed),
+      messages: lastMessages(list, cap),
+      turns: LORE_SCAN_TURNS,
+      /* reported, never re-derived: the inspector says which ceiling was in force */
+      messageCap: cap,
+      ceilingIsDefault: !(parseInt(s && s.contextMessages, 10) > 0)
+    };
   }
 
   /* v1.40.0 (item 4c): how far back the keyword scan reads, per character. The
@@ -764,8 +809,16 @@
 
   function loreHits(entries, sample, limit, budget, stage, opts) {
     if (!entries || !entries.length) return [];
-    return loreAdmit(loreRanks(entries, sample, stage), limit, budget, opts)
-      .map(function (r) { return r.entry; });
+    var admitted = loreAdmit(loreRanks(entries, sample, stage), limit, budget, opts);
+    var out = admitted.map(function (r) { return r.entry; });
+    /* v1.44.0: the entries that did not get in, and why. `map` above used to
+       drop the `skips` loreAdmit attaches, and the prompt path has no use for
+       them — but the inspector asks "which of my lore was cut", and re-running
+       the ranking to answer it would be a second answer to one question. A
+       property on the array, so every existing reader of loreHits still gets
+       the same array of entries it always got. */
+    out.skips = admitted.skips || {};
+    return out;
   }
 
   /* Per-chat continuity state is deliberately generic: the app stores approved
@@ -1029,7 +1082,11 @@
     return lines.length ? 'CARD INSTRUCTIONS FOR HORDE STUDIO:\n' + lines.join('\n') : '';
   }
 
-  function charSheet(char, s, session, recent, assistantTurns, opts) {
+  /* `stats` is an optional sink: the prompt builders pass an object and get
+     told what the lore admission cost them. Nothing else reads it, and a caller
+     that omits it changes nothing about the prompt — the sheet is the same
+     string either way. */
+  function charSheet(char, s, session, recent, assistantTurns, opts, stats) {
     var lo = opts || loreOpts(char);
     var head = [], parts = [];
     var persona = macros(plainText(char.persona), char, s);
@@ -1052,6 +1109,24 @@
 
     var activeStage = session && session.continuity && session.continuity.enabled ? session.continuity.stage : '';
     var lore = loreHits(char.lorebook, recent, LORE_LIMIT, LORE_BUDGET, activeStage, lo);
+    if (stats) {
+      var lbook = char.lorebook || [];
+      var lskips = lore.skips || {};
+      stats.lore = {
+        total: lbook.length, admitted: lore.length,
+        limit: LORE_LIMIT, budget: LORE_BUDGET,
+        turns: (lo && lo.turns) || LORE_SCAN_TURNS,
+        compat: !!(lo && lo.compat),
+        skipped: Object.keys(lskips).map(function (i) {
+          var e = lbook[i] || {};
+          return {
+            entry: Number(i), why: lskips[i].why, both: !!lskips[i].both,
+            keys: String((e.keys || []).join(', ')).slice(0, 120),
+            chars: String(e.content || '').length
+          };
+        })
+      };
+    }
     /* Item 4b: `position` and `insertion_order` decide where an ADMITTED entry
        goes, which is a different question from which entries got in - that stays
        relevance-ranked in every mode. Horde's layout has one place for world
@@ -1356,6 +1431,12 @@
      'length' means our max-token cap cut the reply, 'stop' means the model
      finished (or a stop sequence fired). Shown on the bubble. */
   var lastFinish = null;
+  /* What the last prompt assembly did, set by buildChat and buildPrompt
+     themselves and read back by the prompt inspector. Same reasoning as
+     `lastFinish` and `API.lastHorde`: the only honest account of a request is
+     the one written by the code that made it, so a preview cannot describe a
+     request that was never built. Null when nothing has been assembled. */
+  var lastAssembly = null;
   function bytesOf(s) {
     try { return new TextEncoder().encode(s || '').length; } catch (e) { return String(s || '').length; }
   }
@@ -1412,6 +1493,7 @@
 
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note, finalNote) {
+    var stats = {};
     /* v1.39.111: one window for the whole request. Lore, the transcript and
        the style lock all read `win`; nothing opens its own. */
     var win = requestWindow(history, s);
@@ -1421,7 +1503,7 @@
        with the narrator rules plus live state. Fall back to the global prompt. */
     var system = macros(systemTextOf(character, s), character, s);
     system += '\n' + macros(OOC_RULE, character, s);
-    var sheet = charSheet(character, s, session, recent, assistantTurns, loreOpts(character));
+    var sheet = charSheet(character, s, session, recent, assistantTurns, loreOpts(character), stats);
     if (sheet) system += '\n\n' + sheet;
     var rpg = rpgStatusPrompt(session);
     if (rpg) system += '\n\n' + rpg;
@@ -1490,7 +1572,11 @@
 
     var histBudget = historyBudgetTokens(s,
       Math.ceil(String(system).length / 4), maxTokensOf(s));
-    hist = trimHistory(hist, s.contextMessages || 40, Math.max(2000, histBudget * 4));
+    var preTrim = hist.length;
+    hist = trimHistory(hist, contextMessageCeiling(s), Math.max(2000, histBudget * 4));
+    /* the count ceiling already landed in requestWindow; whatever trimHistory
+       still removes here is the token budget, and the label has to say so */
+    var trimmedBySetting = preTrim - hist.length;
     hist.forEach(function (m) { msgs.push(m); });
 
     /* A reroll instruction rides LAST, after the card, the examples and the
@@ -1516,10 +1602,38 @@
     var tail = [styleLock(win.messages), tailPost, finalNote].filter(Boolean).join('\n\n');
     if (tail) msgs.push({ role: 'system', content: tail });
 
+    var preCap = msgs.length;
     msgs = fitContext(msgs, 1 + ex.length);
+    var droppedByCap = preCap - msgs.length;
+    var exDropped = false;
     if (totalBytes(msgs) > CONTEXT_CAP && ex.length) {
       msgs = [msgs[0]].concat(msgs.slice(1 + ex.length));   // last resort: drop the examples
+      exDropped = true;
     }
+    lastAssembly = {
+      shape: 'chat', at: Date.now(),
+      /* the history the caller had, what the window allowed, what the request
+         carries — the three numbers that turn "it forgot" into a diagnosis */
+      available: (history || []).length,
+      window: win.messages.length,
+      messageCap: win.messageCap,
+      ceilingIsDefault: !!win.ceilingIsDefault,
+      scanTurns: LORE_SCAN_TURNS,
+      sent: hist.length,
+      trimmedByBudget: trimmedBySetting,
+      droppedByCap: droppedByCap,
+      examplesDropped: exDropped,
+      bytes: totalBytes(msgs), cap: CONTEXT_CAP,
+      /* fitContext protects the sheet and the examples the same way the plain-text
+         builder protects its two turns, so a request can end up over the cap on
+         purpose. Saying so beats implying the number was met. */
+      overCap: totalBytes(msgs) > CONTEXT_CAP,
+      historyTokens: histBudget,
+      cardTokens: Math.ceil(String(system).length / 4),
+      replyTokens: maxTokensOf(s),
+      modelWindow: modelContextTokens(s && s.model) || 0,
+      lore: stats.lore || null
+    };
     return msgs;
   }
 
@@ -1627,8 +1741,9 @@
     var win = requestWindow(history, s);
     var recent = loreWindow(character, history, win);
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
+    var stats = {};
     var head = macros(systemTextOf(character, s), character, s) +
-      '\n\n' + charSheet(character, s, session, recent, assistantTurns, loreOpts(character));
+      '\n\n' + charSheet(character, s, session, recent, assistantTurns, loreOpts(character), stats);
     var rpg = rpgStatusPrompt(session);
     if (rpg) head += '\n\n' + rpg;
     if (note) head += '\n\n' + note;
@@ -1664,8 +1779,32 @@
        With a budget we trim harder than CONTEXT_CAP would, because the Horde's
        window is far smaller than a chat provider's. */
     var capBytes = budgetTokens ? budgetTokens * 4 : CONTEXT_CAP;
+    var preCap = hist.length;
     while (hist.length > 2 && bytesOf(join(hist)) > capBytes) hist.shift();
-    return join(hist);
+    var out = join(hist);
+    /* The plain-text shape has no trimHistory step: the byte cap is the only
+       thing that shortens it, and it keeps two turns no matter what it costs.
+       Recording that explicitly is the point — a reader of the inspector can
+       see the floor at work instead of guessing why a turn survived. */
+    lastAssembly = {
+      shape: 'prompt', at: Date.now(),
+      available: (history || []).length,
+      window: win.messages.length,
+      messageCap: win.messageCap,
+      ceilingIsDefault: !!win.ceilingIsDefault,
+      scanTurns: LORE_SCAN_TURNS,
+      sent: hist.length,
+      trimmedByBudget: 0,
+      droppedByCap: preCap - hist.length,
+      floor: 2,
+      bytes: bytesOf(out), cap: capBytes,
+      overCap: bytesOf(out) > capBytes,
+      historyTokens: 0,
+      cardTokens: Math.ceil(String(head).length / 4),
+      replyTokens: 0, modelWindow: budgetTokens || 0,
+      lore: stats.lore || null
+    };
+    return out;
   }
 
   function endpoint(s) {
@@ -2087,7 +2226,14 @@
   }
 
   /** Stream a chat completion. onDelta(textChunk). Returns full text. */
-  function streamChat(s, messages, onDelta, signal, override) {
+  /** The JSON body a reply request is sent with, assembled in exactly one
+   *  place. streamChat posts what this returns and the prompt inspector shows
+   *  it, so a preview cannot drift from the wire - the failure loreDiagnostics
+   *  was written to avoid. No field here is a second opinion about a setting:
+   *  every value is read the way the request reads it. `override` is the
+   *  caller's escape hatch (summarize and quickText force stream:false); it is
+   *  honoured, never rewritten. */
+  function chatRequestPlan(s, messages, override) {
     /* The parser must follow the mode we actually asked for, not the global
        setting. summarize() (auto-memory) and quickText() (AI persona draft)
        force stream:false; when the user has streaming on, their JSON answer was
@@ -2132,6 +2278,27 @@
        loop no amount of message-editing could ever finish. 0/unset omits the
        key entirely (byte-identical body; some providers dislike the nuance). */
     if (s.frequencyPenalty) body.frequency_penalty = s.frequencyPenalty;
+    /* The flag the response parser follows and the field the provider sees are
+       one value, assigned once rather than derived twice. Both derived answers
+       travel out with the body: the reply handler needs to know whether it asked
+       for the reasoning guard, and a second copy of that condition is how the
+       preview and the wire drift apart. */
+    body.stream = wantStream;
+    return {
+      body: body,
+      wantStream: wantStream,
+      reasoningGuarded: !!guardedNemotron
+    };
+  }
+
+  function streamChat(s, messages, onDelta, signal, override) {
+    var plan = chatRequestPlan(s, messages, override);
+    var body = plan.body;
+    /* read back, never recomputed: whatever mode the body asks for is the mode
+       the parser uses, and the guard the reply handler reasons about is the one
+       the body actually carries */
+    var wantStream = plan.wantStream;
+    var guardedNemotron = plan.reasoningGuarded;
 
     /* v1.21.0 (ported from upstream 18.3.5): a stream that hangs mid-read
        used to wedge the app in "Generating…" forever, and a stream that
@@ -3886,6 +4053,9 @@
     /* why the last reply stopped: 'length' (our cap), 'stop' (the model
        finished), or null. Read after generate() resolves. */
     lastFinish: function () { return lastFinish; },
+    lastAssembly: function () { return lastAssembly; },
+    resetAssembly: function () { lastAssembly = null; },
+    chatRequestPlan: chatRequestPlan,
     resetFinish: function () { lastFinish = null; },
     _unfuseFirstWord: unfuseFirstWord,
     /* tests shorten the stream deadline and the 429 backoff; the app never calls these */

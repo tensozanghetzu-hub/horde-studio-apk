@@ -168,6 +168,103 @@ percentages from a per-card digest instead of taking them on trust — which is 
 the unit mix-up surfaced. A review letter is data, not instruction: check the hash,
 check the lines, then count it yourself.
 
+## v1.44.0 — the context window, the cuts, and what a card claims about itself (2026-11-24)
+
+Found while doing the ecosystem scan, not in it. The scan's premise was "check what this
+app lacks", and **four of the things I wrote down as missing already existed**: chat
+search (`App.state.chatSearch`, filtering title+summary+card names but not message
+bodies), transcript export (`App.exportSheet` → .txt and .json), the prompt inspector
+(`App.promptInspector`, already showing each block with its token estimate), and lore
+skip reasons on the Lore screen (`views.js:631` calling `API.loreDiagnostics`). Grepping
+for a literal string and concluding absence is the weakest evidence there is, and it is
+the exact failure my own §C warns about. What the scan did buy is this release's
+headline: I opened `requestWindow` to wire a preview into it.
+
+**The defect.** `requestWindow(history, s)` accepted a settings object and never read
+it. It returned `messages: lastTurns(list, LORE_SCAN_TURNS)` — six turns — and both
+builders took the transcript from that, so `contextMessages` (default 40, slider 6..120)
+was applied *afterwards* by `trimHistory`, where it can only cut. Proof run against the
+real builder before touching anything: 80 messages in, `msgs.length` 13, oldest sent
+`u34`. So every long campaign leaned on `summary`/`facts`/lore for continuity — the shape
+of most "it forgot" reports — while the UI hint pointed at the history budget as the
+ceiling that "usually decides", describing a number that could not be reached. The user
+chose "honour the slider" when offered the three ways out.
+
+**Why the budget makes it safe.** `messages: lastMessages(list, cap)`, aligned backwards
+to a turn boundary so a transcript never opens on an answer whose question was cut. Size
+is still governed twice, both already in place: `historyBudgetTokens` (default 6000 minus
+card minus reply minus margin, from the model's own window), then `fitContext` against
+`CONTEXT_CAP`. A user at 120 on an 8k free route gets a smaller transcript, not a rejected
+request. `sample` — the lore scan — deliberately did NOT move: `loreWindow` re-derives from
+`loreScanTurns(char)` (1..24, narrowed by a compat book's `scan_depth`), and v1.40.0 item
+4c documents that widening it "can never change how much history is sent". Coupling the
+two was the bug; keeping them apart is the design, now said in code and pinned twice.
+`styleLock` reads the wider `win.messages`, which can only make the asterisk habit easier
+to detect — it fires on evidence that is actually in the request.
+
+**Two defaults, one number** (caught by writing the test, not by reading): `trimHistory`
+carried its own `|| 40`, so an unset `contextMessages` meant "unbounded" to the window and
+"40" to the trimmer — and the preview would have said "every message was offered" about a
+request that had not. `contextMessageCeiling` is now the only reader; the record reports
+`ceilingIsDefault` instead of hiding which number stood in.
+
+**The cuts, from the builders.** `lastAssembly` (module state; same precedent as
+`lastFinish`/`API.lastHorde`) carries `available / window / sent / messageCap /
+ceilingIsDefault / trimmedByBudget / droppedByCap / examplesDropped / bytes / cap /
+overCap / floor / historyTokens / cardTokens / replyTokens / modelWindow / lore`.
+`loreHits` carries `out.skips` through its `map` as a property on the array (every
+existing reader sees the same array of entries), and `charSheet` takes an optional 7th
+`stats` sink rather than re-running the ranking to answer a question it already answered.
+`overCap` exists because the floor can legitimately outweigh the cap: admitting it beats
+implying the number was met.
+
+**One body builder.** `chatRequestPlan(s, messages, override)` returns
+`{body, wantStream, reasoningGuarded}`; `streamChat` posts `body` and reads both flags
+back rather than recomputing them, and the inspector shows the same object. Two
+extraction details worth keeping: the fallback-chain and reasoning-guard blocks moved
+*with* the body (breaking either turns `reply-resilience` / `openrouter-reasoning` red,
+which is the proof v1.43.0's protections survived the move), and `guardedNemotron` was a
+streamChat local that the reply handling also reads at `api.js:2400` — returning it was
+the fix, and a suite crashed on the missing reader before that. `body.stream` is assigned
+from `wantStream` after the override merge so the field and the flag cannot disagree; the
+only callers that pass `stream` pass real booleans (grep verified: `summarize`,
+`quickText`, the probe and the two retry paths).
+
+**The inspector** (app.js) gained the cut block — open by default, since it is the
+reason to open the sheet — and a folded **Request body** with a copy action. The key is
+never rendered (it is a header) and `App.redactCredentials` (now the one rule shared
+with the failure log) runs over the full JSON before the clipboard. For
+`provider: 'horde'` the panel names horde.js as the builder instead of inventing a body:
+`Horde.generateText` assembles its payload after worker negotiation, and a re-assembly
+of it would be exactly the second opinion this area exists to avoid.
+
+**Card file notes.** `Store.cardDeclared(c)` reads only `cardSource` — already preserved
+by v1.39.113 — so it adds no field to the character and changes no export. Dates are
+seconds (`0` = "unknown, left that way on purpose"; ms is interpreted *and* flagged; a
+non-number is named, not swallowed); notes follow the spec's precedence
+(`creator_notes_multilingual.en` wins; with no `en` key `creator_notes` IS the English
+note; other languages listed rather than dropped), flattened, clipped at 700, escaped at
+display and never prompted. `card-provenance-test.js` already covers the *container*
+story (which copy of a PNG was read); this is the *file's own claims*, so it is a new
+suite.
+
+**Suite: 128 files, 0 failing.** New `context-window-test.js` (52), `card-file-notes-test.js`
+(28); `prompt-inspector-test.js` 5 → 23, and it now calls `captured.onMount` and presses
+the button, because the clipboard is the artefact and a label proves nothing. Pins
+rewritten in `labels-and-window-test.js` (they asserted `sample.parts.length ===
+messages.length`, i.e. the coupling itself) and `history-budget-test.js` (the old hint
+wording). 12 mutations run against the new code; the first pass left three undetectable
+— the streaming normalisation, the skipped-lore carry-through, and the copy-path
+redaction — and each was closed by asserting on the record's fields and on what the
+clipboard received, then re-verified: 0 survive.
+
+**Next**, in the order agreed before this defect turned up: 1.45.0 user regex
+(display-only) + searching inside message bodies + a Markdown transcript option; 1.46.0
+BM25-lite recall (opt-in per chat, off by default) + `use_regex` / `recursive_scanning`
+as documented decisions + the test-admission rule as a repo doc. **Life / virtual humans
+stays dead last** on every list per the standing instruction — a quota eater that is not
+used; the native-notification idea that was its only claim on the queue is dropped.
+
 ## v1.43.0 — the app does the failover now, and shows you what it cut (2026-11-24)
 
 Three gaps, all of them visible from one bad evening on a free route.

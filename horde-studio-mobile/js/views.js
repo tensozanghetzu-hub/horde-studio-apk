@@ -1140,9 +1140,16 @@
           '<div class="range-row"><input type="range" id="set-topp" min="0.1" max="1" step="0.05" value="' + s.topP + '"></div></div>' +
         '<div class="field"><div class="field-head"><label>Messages in context</label><span class="spacer"></span><span class="val" id="v-ctx">' + s.contextMessages + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-ctx" min="6" max="120" step="2" value="' + s.contextMessages + '"></div>' +
-          '<div class="hint">A ceiling on how many messages are considered. The <b>history budget</b> below is the ' +
-          'one that usually decides, so raising this alone may change nothing. This is also how far back the ' +
-          'lorebook looks for its keywords.</div></div>' +
+          /* v1.44.0: this used to promise the lorebook read the same window, and to
+             hedge about "may change nothing" for a number that could not be raised past
+             twelve messages at all. Both claims were wrong; the settings now do what the
+             wording says, and the two windows are named apart because they are apart. */
+          '<div class="hint">How many of the newest messages are offered to the model. A message is not a ' +
+          'unit of story, so the cut is pulled back to the start of a turn rather than landing mid-sentence. ' +
+          'The <b>history budget</b> below still decides the size, so a long chat or a small model window can ' +
+          'send fewer messages than this number.</div>' +
+          '<div class="hint">The lorebook\'s keyword scan is a separate, shorter window: it is set per character ' +
+          'under <b>Lore</b>, not here.</div></div>' +
         /* v1.39.82: the real limit, finally visible. It was a 26 000-character
            literal inside the prompt builder. */
         '<div class="field"><div class="field-head"><label>History budget</label><span class="spacer"></span>' +

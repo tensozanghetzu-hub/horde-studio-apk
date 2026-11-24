@@ -25,12 +25,7 @@
       var model = settings.provider === 'horde'
         ? (settings.hordeTextModel || 'AI Horde')
         : (settings.model || 'model not selected');
-      var detail = String(err.message || err).replace(/\s+/g, ' ').trim();
-      [settings.apiKey, settings.hordeKey, settings.cloudflareWorkerToken].forEach(function (secret) {
-        secret = String(secret || '');
-        if (secret.length >= 6) detail = detail.split(secret).join('[credential redacted]');
-      });
-      detail = detail.replace(/sk-or-v1-[a-f0-9]{64}/gi, '[credential redacted]');
+      var detail = App.redactCredentials(String(err.message || err).replace(/\s+/g, ' ').trim());
       var parts = ['chat response failed', 'provider ' + provider, 'model ' + model];
       if (character && character.name) parts.push('character ' + character.name);
       if (err.status) parts.push('HTTP ' + err.status);
@@ -231,6 +226,13 @@
             (c.importNotes && c.importNotes.length
               ? '<div class="opt" data-a="notes">' + icon('eye') + ' Import notes (' + c.importNotes.length + ')</div>'
               : '') +
+            /* v1.44.0: the card's own dates and its author's note, shown apart
+               from the import notes because they are not a loss — they are what
+               the file claims, which is the thing to check when two copies of a
+               card disagree or an update lands. */
+            (Store.cardDeclared && Store.cardDeclared(c)
+              ? '<div class="opt" data-a="file">' + icon('eye') + ' From the card file</div>'
+              : '') +
             '<div class="opt" data-a="export">' + icon('download') + ' Export as card (JSON)</div>' +
             '<div class="opt" data-a="dup">' + icon('copy') + ' Duplicate</div>' +
             '<div class="opt danger" data-a="del">' + icon('trash') + ' Delete</div>',
@@ -255,6 +257,9 @@
                       }).join(''),
                     actions: [{ label: 'Close', cls: 'ghost', value: null }]
                   });
+                }
+                else if (a === 'file') {
+                  App.cardFileNotes(c);
                 }
                 else if (a === 'makevh' || a === 'vh') {
                   VH.ensure(c);
@@ -595,6 +600,57 @@
         'example dialogue, which are parsed. Nothing in the card was changed to make it fit.');
     }
     return notes;
+  };
+
+  /* One rule for "no secret leaves this app in text a user might share". The
+     crash log has redacted the configured keys this way; the request inspector
+     needs the identical rule, so it is a function now rather than a second copy
+     that can fall behind. Both shapes are caught: a key that appears in a
+     provider's own error text is removed by name, and one that only appears as
+     text is removed by pattern. */
+  App.redactCredentials = function (text) {
+    var out = String(text == null ? '' : text);
+    var st = (typeof Store !== 'undefined' && Store && Store.settings) || {};
+    [st.apiKey, st.hordeKey, st.cloudflareWorkerToken].forEach(function (secret) {
+      secret = String(secret || '');
+      if (secret.length >= 6) out = out.split(secret).join('[credential redacted]');
+    });
+    return out.replace(/sk-or-v1-[a-f0-9]{64}/gi, '[credential redacted]');
+  };
+
+  /* Display only, and honest about being a claim: the text is the file's, the
+     dates are what the file states, and none of it is sent to the model. Every
+     string here comes out of a card someone downloaded, so all of it is escaped
+     and none of it is run through the macro engine. */
+  App.cardFileNotes = function (c) {
+    var d = Store.cardDeclared ? Store.cardDeclared(c) : null;
+    if (!d) { UI.toast('This card carries no date or author note of its own.'); return; }
+    var row = function (label, val) {
+      return '<div class="hint" style="margin-top:5px"><b style="color:var(--text)">' + label + ': </b>' + esc(val) + '</div>';
+    };
+    UI.sheet({
+      title: 'From the card file',
+      body:
+        '<div class="hint" style="margin:0 0 9px">What ' + esc(c.name || 'this card') +
+        ' says about itself, in its own file. The app does not act on any of it and does not send it to the model.</div>' +
+        (d.created ? row('Created', d.created) : '') +
+        (d.modified ? row('Last modified', d.modified) : '') +
+        (d.notes
+          ? '<div style="margin-top:9px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:13px;line-height:1.55">' +
+            esc(d.notes) + '</div>' +
+            (d.noteFrom ? '<div class="hint" style="margin-top:5px">Read from ' + esc(d.noteFrom) + '.</div>' : '')
+          : '<div class="hint" style="margin-top:6px">No author\u2019s note in this file.</div>') +
+        (d.noteLanguages.length
+          ? '<div class="hint" style="margin-top:9px">The file carries the note in ' + d.noteLanguages.length +
+            ' language' + (d.noteLanguages.length === 1 ? '' : 's') + ' as well: ' + esc(d.noteLanguages.join(', ')) +
+            '. This app has one interface language, so the others stay untouched in the card.</div>'
+          : '') +
+        (d.odd.length
+          ? '<div class="hint" style="margin-top:9px">Not as the spec writes it: ' + esc(d.odd.join('; ')) +
+            '. Kept as found, so an export gives it back the same way.</div>'
+          : ''),
+      actions: [{ label: 'Close', cls: 'ghost', value: null }]
+    });
   };
 
   App.prepareImportedCharacter = function (card) {
@@ -5262,12 +5318,107 @@
             '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:12px;line-height:1.55;margin:8px 0 0;color:var(--text)">' + esc(content) + '</pre></details>';
         }).join('');
         var notice = groupNotice ? '<div class="hint" style="margin:0 0 9px">' + esc(groupNotice) + '</div>' : '';
+        /* v1.44.0: the numbers the builders wrote while making THIS payload, not a
+           second calculation about it. Everything above is what the model is sent;
+           this is what never was, which is the half that answers "why did it forget". */
+        var asm = API.lastAssembly ? API.lastAssembly() : null;
+        var cutRows = [];
+        var li = function (txt) { return '<div class="hint" style="margin-top:4px">\u2022 ' + txt + '</div>'; };
+        if (asm) {
+          if (asm.available > asm.window) {
+            cutRows.push(li((asm.available - asm.window) + ' of the ' + asm.available +
+              ' messages in this chat were not offered. "Messages in context" is ' +
+              (asm.messageCap || asm.window) +
+              ', cut back to the start of a turn, so the transcript carries ' + asm.sent + '.'));
+          } else if (asm.ceilingIsDefault) {
+            cutRows.push(li('No "Messages in context" value is set, so the default of ' + asm.messageCap +
+              ' applies.'));
+          }
+          if (asm.trimmedByBudget) {
+            cutRows.push(li(asm.trimmedByBudget + ' more dropped so the transcript fit the history budget of ' +
+              asm.historyTokens.toLocaleString() + ' tokens.'));
+          }
+          if (asm.droppedByCap) {
+            cutRows.push(li(asm.droppedByCap + ' dropped at the last step to fit the request cap (' +
+              asm.bytes.toLocaleString() + ' bytes against ' + asm.cap.toLocaleString() + ').' +
+              (asm.floor ? ' The floor is ' + asm.floor + ' turns, kept whatever they cost.' : '')));
+          }
+          if (asm.overCap) {
+            cutRows.push(li('The request is <b>over its size cap</b> \u2014 ' + asm.bytes.toLocaleString() +
+              ' of ' + asm.cap.toLocaleString() + ' bytes \u2014 because what the floor protects weighs more than ' +
+              'the cap allows. A backend that trims an oversized request keeps its beginning, so the line that ' +
+              'asks for the reply is the part at risk.'));
+          }
+          if (asm.examplesDropped) {
+            cutRows.push(li('The card\u2019s example dialogue was dropped \u2014 the last resort when the transcript alone still does not fit.'));
+          }
+          if (asm.lore) {
+            var L = asm.lore, sk = L.skipped || [];
+            cutRows.push(li('Lorebook: ' + L.total + ' entries, ' + L.admitted + ' in this prompt \u2014 ceiling ' +
+              L.limit + ' entries and ' + L.budget.toLocaleString() + ' bytes, keywords scanned over the last ' +
+              L.turns + ' turn' + (L.turns === 1 ? '' : 's') + (L.compat ? ', in the book\u2019s own order.' : '.')));
+            cutRows.push(li(sk.length
+              ? 'Cut after they matched: ' + sk.map(function (x) {
+                  return '\u201C' + esc(x.keys || '(no keywords)') + '\u201D \u2014 ' +
+                    (x.why === 'budget' ? 'the byte budget' : x.why === 'both' ? 'both ceilings' : 'the entry ceiling') +
+                    ' (entry ' + (x.entry + 1) + ')';
+                }).join('; ')
+              : 'Nothing was cut. An entry that is not above is one that found no keyword in the turns scanned \u2014 the Lore screen says which.'));
+          }
+        }
+        var cuts = cutRows.length
+          ? '<details open style="margin:7px 0;border:1px solid var(--line);border-radius:10px;padding:8px 10px">' +
+            '<summary style="cursor:pointer;font-weight:600">What this request left out \u00b7 ' + cutRows.length + '</summary>' +
+            cutRows.join('') + '</details>'
+          : '';
+        /* The body, from the function that posts it. `messages` is collapsed in
+           the view because it is the block above, and showing a wall of it twice
+           would bury the two fields worth reading. Opened only on a tap: a
+           screenshot of a prompt is the user’s business, not the app’s. */
+        var reqHtml = '', copyText = '';
+        if (settings.provider === 'horde') {
+          reqHtml = '<div class="hint" style="margin:9px 0 0">The Horde request is assembled in horde.js \u2014 worker and ' +
+            'model negotiation first, then the prompt above as its own field. What this app decided is the prompt, its ' +
+            'budget of ' + (API.HORDE_CTX_TOKENS || 8192).toLocaleString() + ' tokens, and the sampling on this card.</div>';
+        } else if (API.chatRequestPlan) {
+          var plan = API.chatRequestPlan(settings, payload, null);
+          var body = plan.body;
+          var shown = Object.assign({}, body, {
+            messages: '[ ' + payload.length + ' messages, ' + totalChars.toLocaleString() +
+              ' characters \u2014 shown block by block above ]'
+          });
+          copyText = App.redactCredentials(JSON.stringify(body, null, 2));
+          reqHtml = '<details style="margin:9px 0 0;border:1px solid var(--line);border-radius:10px;padding:8px 10px">' +
+            '<summary style="cursor:pointer;font-weight:600">Request body \u00b7 first round</summary>' +
+            '<div class="hint" style="margin:6px 0">Exactly what goes to ' + esc(String(settings.model || 'the model')) +
+            ' for a reply, from the one function that builds it. Your key is not in here \u2014 it rides in a header. ' +
+            'A reroll or a continuation round adds one instruction line and sends back what it already has.</div>' +
+            '<pre style="white-space:pre-wrap;overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.5;margin:6px 0 0;color:var(--text)">' +
+            esc(App.redactCredentials(JSON.stringify(shown, null, 2))) + '</pre>' +
+            '<button class="btn ghost sm" id="pi-copy" style="margin-top:8px">Copy full request (keys redacted)</button></details>';
+        }
         return UI.sheet({
           title: 'Prompt & context inspector',
           body: notice + '<div class="hint" style="margin:0 0 9px">' + payload.length + ' messages · about ' +
-            Math.ceil(totalChars / 4) + ' tokens / ' + totalChars.toLocaleString() + ' characters. Token count is a rough estimate; provider tokenizers differ.</div>' +
-            (blocks || '<div class="hint">No prompt messages.</div>'),
-          actions: [{ label: 'Close', cls: 'ghost', value: null }]
+            Math.ceil(totalChars / 4) + ' tokens / ' + totalChars.toLocaleString() + ' characters. Token count is a rough estimate; provider tokenizers differ.' +
+            (asm && asm.modelWindow ? ' This model\u2019s window is read as ' + asm.modelWindow.toLocaleString() +
+              ' tokens, of which the card and the reply budget take ' + (asm.cardTokens + asm.replyTokens).toLocaleString() + '.' : '') +
+            '</div>' +
+            (blocks || '<div class="hint">No prompt messages.</div>') + cuts + reqHtml,
+          actions: [{ label: 'Close', cls: 'ghost', value: null }],
+          onMount: function (b) {
+            var cp = b.querySelector('#pi-copy');
+            if (!cp) return;
+            cp.onclick = function () {
+              if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                UI.toast('This WebView has no clipboard access. The text above can still be selected and copied by hand.', 5000);
+                return;
+              }
+              navigator.clipboard.writeText(copyText).then(function () {
+                UI.toast('Request copied \u2014 any credential in it was replaced first');
+              }, function () { UI.toast('The clipboard refused the write'); });
+            };
+          }
         });
       });
     }).catch(function (e) { UI.toast('Could not inspect this prompt: ' + (e && e.message), 4000); });

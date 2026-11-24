@@ -115,8 +115,12 @@ ok('…and a tappable exact value', /id="v-hist"/.test(viewsSrc));
 ok('…that saves to historyTokens', /sc\.range\('#set-hist', '#v-hist', 'historyTokens'\)/.test(viewsSrc));
 ok('the hint names the model window when it is known', /takes <b>/.test(viewsSrc));
 ok('the hint says what happens when it is not known', /does not know this model/.test(viewsSrc));
-ok('the messages-in-context hint no longer pretends to be the only limit',
-  /usually decides, so raising this alone may change nothing/.test(viewsSrc));
+ok('the messages-in-context hint still names the history budget as the ceiling that decides',
+  /still decides the size/.test(viewsSrc));
+ok('\u2026and no longer claims to be the lorebook keyword window',
+  !/how far back the lorebook looks/.test(viewsSrc) &&
+  /keyword scan is a separate, shorter window/.test(viewsSrc));
+ok('\u2026naming where that depth is actually set', /set per character/.test(viewsSrc));
 
 console.log('\nthe scene cast says how to use the cast');
 var sb2 = loadApi();

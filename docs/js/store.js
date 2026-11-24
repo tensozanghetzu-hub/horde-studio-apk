@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.43.0';
+  var VERSION = '1.44.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -962,6 +962,68 @@
 
     /* The parts of a card's own JSON this app could not keep a copy of, as
        `path — reason` lines. Empty for the ordinary card. */
+    /* What the card file says about itself. V3 added three fields for exactly
+       this — `creation_date`, `modification_date`, `creator_notes` (with
+       `creator_notes_multilingual`) — and this app already keeps them, inside
+       `cardSource`, preserved and never read. Reading them for a screen is a
+       different permission from reading them for a prompt: nothing returned here
+       reaches a model, a macro, or the card's own text, and the wording the user
+       sees is the card's claim, not a fact the app verified.
+         * the dates are Unix seconds in UTC, per SPEC_V3; `0` is a deliberate
+           "unknown", so it is reported as that and not as 1970.
+         * a note in the user's language wins over the plain field, and the plain
+           field wins when the multilingual object has no English key — the
+           branch order the spec spells out.
+         * a value that is not what the spec allows is named, not discarded. */
+    cardDeclared: function (c) {
+      var src = c && c.cardSource;
+      if (!src) return null;
+      function pick(k) {
+        var v = src.body ? src.body[k] : undefined;
+        if (v === undefined || v === null) v = src.top ? src.top[k] : undefined;
+        return (v === undefined || v === null) ? null : v;
+      }
+      var out = { created: '', modified: '', notes: '', noteFrom: '', noteLanguages: [], odd: [] };
+
+      function stamp(key) {
+        var v = pick(key);
+        if (v === null) return '';
+        if (typeof v !== 'number' && !(typeof v === 'string' && /^\d+$/.test(v.trim()))) {
+          out.odd.push(key + ' is not a number');
+          return '';
+        }
+        var n = Number(v);
+        if (n === 0) return 'unknown (left that way on purpose)';
+        if (n > 1e11) { out.odd.push(key + ' is in milliseconds, not the seconds the spec asks for'); n = Math.floor(n / 1000); }
+        var d = new Date(n * 1000);
+        if (isNaN(d.getTime())) { out.odd.push(key + ' is not a date this app can read'); return ''; }
+        return d.toLocaleString();
+      }
+      out.created = stamp('creation_date');
+      out.modified = stamp('modification_date');
+
+      var ml = pick('creator_notes_multilingual');
+      var plain = pick('creator_notes');
+      if (ml && typeof ml === 'object' && !Array.isArray(ml)) {
+        var langs = Object.keys(ml).filter(function (k) { return typeof ml[k] === 'string' && ml[k].trim(); });
+        if (langs.length) out.noteLanguages = langs.slice(0, 8);
+        if (typeof ml.en === 'string' && ml.en.trim()) { out.notes = ml.en; out.noteFrom = 'the English copy'; }
+        else if (typeof plain === 'string' && plain.trim()) {
+          out.notes = plain;
+          out.noteFrom = langs.length ? 'the plain field, which the spec reads as English when the translated copies do not include it' : 'the plain field';
+        }
+      } else if (typeof plain === 'string' && plain.trim()) {
+        out.notes = plain; out.noteFrom = 'the plain field';
+      } else if (plain !== null && typeof plain !== 'string') {
+        out.odd.push('creator_notes is not a string');
+      }
+      /* one line, control characters gone, clipped: this is a file's text being
+         put on a screen, and a 40 KB note is not a note. */
+      out.notes = String(out.notes || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700);
+      if (!out.created && !out.modified && !out.notes && !out.odd.length) return null;
+      return out;
+    },
+
     cardSourceGaps: function (c) {
       var s = c && c.cardSource;
       if (!s) return [];

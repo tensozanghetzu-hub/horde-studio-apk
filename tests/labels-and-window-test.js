@@ -120,10 +120,27 @@ for (var i = 0; i < 40; i++) {
 var win = API.requestWindow(hist, S);
 ok('the window is an object with a sample and messages',
   win && win.sample && Array.isArray(win.messages) && win.sample.parts, JSON.stringify(Object.keys(win || {})));
-eq('the sample is built from the same messages the transcript may carry',
-  win.sample.parts.length, win.messages.length);
-eq('the sample text is those messages joined',
-  win.sample.text, win.messages.map(function (m) { return String(m.text || ''); }).join('\n'));
+/* v1.44.0: those two were equal BY CONSTRUCTION, which is what the pair of
+   assertions above was really testing. The scan window and the transcript window
+   are now separate ceilings on purpose, because they answer different questions
+   — how far back a keyword may fire, and how much of the story the model is
+   sent — and folding them together was what made "Messages in context" a number
+   that could not be raised. Each is pinned on its own terms now. */
+eq('the scan window is still counted in turns', win.turns, API.LORE_SCAN_TURNS);
+eq('\u2026and its sample covers exactly that many of the newest messages',
+  win.sample.parts.length, API.lastTurns(hist, API.LORE_SCAN_TURNS).length);
+eq('the transcript window is the message ceiling, defaulting to 40 when unset',
+  win.messages.length, 40);
+eq('\u2026and a narrow transcript does not narrow the scan along with it',
+  API.requestWindow(hist, { contextMessages: 6 }).sample.parts.length, win.sample.parts.length);
+ok('\u2026and it begins at a turn boundary, not on an answer whose question was cut',
+  win.messages[0].role === 'user', win.messages[0].text);
+eq('a wider setting widens the transcript alone',
+  API.requestWindow(hist, { contextMessages: 80 }).messages.length, 80);
+eq('\u2026leaving the scan window exactly where it was',
+  API.requestWindow(hist, { contextMessages: 80 }).sample.parts.length, win.sample.parts.length);
+eq('\u2026and a narrower one cuts the transcript, never the scan',
+  API.requestWindow(hist, { contextMessages: 6 }).messages.length, 6);
 
 var apiSrc3 = fs.readFileSync(path.join(ROOT, 'js', 'api.js'), 'utf8');
 eq('each builder opens exactly one window', (apiSrc3.match(/= requestWindow\(history, s\)/g) || []).length, 2);
