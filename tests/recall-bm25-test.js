@@ -116,28 +116,49 @@ ok('saying a word twice in the query does not double anything (tf is the documen
     JSON.stringify(r.hits[0]));
 })();
 
-var TIE = [
-  { id: 't1', role: 'user', text: 'alpha beta one' },
-  { id: 't2', role: 'user', text: 'alpha beta two' },
-  { id: 'z3', role: 'user', text: 'gamma delta three' },
-  { id: 'z4', role: 'user', text: 'gamma delta four' },
-  { id: 'z5', role: 'user', text: 'gamma delta five' },
-  { id: 'z6', role: 'user', text: 'gamma delta six' }
-];
-var t1 = API.recallSearch(TIE, 'alpha beta', { windowed: [], limit: 3 });
-var t2 = API.recallSearch(TIE, 'alpha beta', { windowed: [], limit: 3 });
-ok('two passages that score identically break toward the newer one, not arbitrarily',
-  t1.hits.length === 2 && t1.hits[0].id === 't2' && t1.hits[1].id === 't1',
-  t1.hits.map(function (x) { return x.id; }).join(','));
+/* Six messages that differ only in a word the query never asks about: all of them
+   score to the last decimal, so their order is decided by the tie-break alone. A pair
+   would not do — a comparator is free to be asked about a pair in either direction, so
+   it takes a run of six to show an order is not arbitrary. The eighteen other messages
+   are there to keep "alpha beta" rare enough to count as a clue: a term in a quarter
+   of the chat or more is not one, which is the rule the run is also testing. */
+var TIE = [];
+['anchor', 'cable', 'fable', 'gable', 'hitch', 'joint'].forEach(function (w, i) {
+  TIE.push({ id: 'tie' + i, role: 'user', text: 'alpha beta ' + w });
+  for (var f = 0; f < 3; f++) {
+    TIE.push({ id: 'filler' + i + '-' + f, role: 'user', text: 'gamma delta ' + ['rope', 'sack', 'keg', 'net', 'lamp'][f % 5] + i + f });
+  }
+});
+var t1 = API.recallSearch(TIE, 'alpha beta', { windowed: [], limit: 6 });
+var t2 = API.recallSearch(TIE, 'alpha beta', { windowed: [], limit: 6 });
+eq('all six tied passages come back, none dropped', t1.hits.length, 6);
+eq('…and they come back newest first, all the way down',
+  t1.hits.map(function (x) { return x.id; }).join(','), 'tie5,tie4,tie3,tie2,tie1,tie0');
 eq('…and the run is repeatable: same chat, same prompt',
   t2.hits.map(function (x) { return x.id; }).join(','), t1.hits.map(function (x) { return x.id; }).join(','));
-eq('a word in every other message of the chat is no clue at all',
+ok('…and every one of them really did tie',
+  t1.hits.every(function (x) { return Math.abs(x.score - t1.hits[0].score) < 1e-12; }),
+  t1.hits.map(function (x) { return x.score.toFixed(10); }).join(' '));
+eq('a word in most of the chat is no clue at all',
   API.recallSearch(TIE, 'gamma delta', { windowed: [], limit: 3 }).hits.length, 0);
 eq('one rare word on its own is enough — the turn where a name is all you typed',
   API.recallSearch([{ id: 'q', role: 'user', text: 'the Sorrow of Dunmore was a brig' },
                     { id: 'r', role: 'user', text: 'the tide and the lamp' },
                     { id: 's', role: 'user', text: 'the weather and the tide' }],
     'Sorrow', { windowed: [], limit: 3 }).hits.length, 1);
+
+/* one word out of two is not a match: it is how a boilerplate reply gets fetched
+   because it happens to contain "the", and the model then weaves it in */
+var HALF = [
+  { id: 'half0', role: 'user', text: 'the lamp was lit and the tide was high at the quay' },
+  { id: 'half1', role: 'user', text: 'a keg, a coil, and a rope, listed in the harbour ledger' },
+  { id: 'half2', role: 'user', text: 'a net, a brush, and a sack, listed in the harbour ledger' },
+  { id: 'both', role: 'user', text: 'the lamp was lit at the ford, and the toll was owed' }
+];
+eq('a passage sharing one of two words is not fetched',
+  API.recallSearch(HALF, 'lamp ford', { windowed: [], limit: 4 }).hits.map(function (x) { return x.id; }).join(','), 'both');
+eq('…while one sharing both is, once',
+  API.recallSearch(HALF, 'lamp ford', { windowed: [], limit: 4 }).hits.length, 1);
 
 console.log('\nB — the corpus, the window, and the cache');
 
