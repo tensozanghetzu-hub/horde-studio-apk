@@ -181,6 +181,55 @@ eq('it reports what it cost', blk.tokens > 0 && blk.tokens < 700, true);
 eq('…and how much it had to choose from', blk.corpus, h.length - 40);
 
 var off = API.recallFor(h, winOf(h), char, sess, { userName: 'Quinn', recallCount: 4 });
+
+/* A tie has to break somewhere fixed, or the prompt is not repeatable. The two
+   passages below score to the last decimal, so which one comes back first is decided
+   by the tie-break alone: equal scores go to the newer message, because if the chat
+   said a thing twice, the second saying is the one that is true now. */
+var tied = [
+  { id: 't0', role: 'user', text: 'the toll at the ford was paid, said the ferryman' },
+  { id: 't1', role: 'user', text: 'a rope, a sack, and a candle, listed in the harbour ledger' },
+  { id: 't2', role: 'user', text: 'a net, a lantern, and a coil, listed in the harbour ledger' },
+  { id: 't3', role: 'user', text: 'the toll at the ford was settled, said the ferryman' },
+  { id: 't4', role: 'user', text: 'a coil, a tarpaulin, and a keg, listed in the harbour ledger' },
+  { id: 't5', role: 'assistant', text: 'Nadia: the kettle boiled and the rain went off the roof' },
+  { id: 't6', role: 'user', text: 'the weather outside, the nets, and a kettle in the kitchen' },
+  { id: 't7', role: 'user', text: 'what is the toll at the ford now, and who said it?' }
+];
+(function () {
+  var r = API.recallSearch(tied, 'toll ford said ferryman', { windowed: [tied[7]], limit: 4 });
+  eq('two passages, one score: both come back', r.hits.length, 2);
+  ok('…and the newer one is offered first',
+    r.hits[0].index === 3 && r.hits[1].index === 0,
+    r.hits.map(function (x) { return x.index + '/' + x.score.toFixed(6); }).join(' '));
+  var blk = API.recallFor(tied, { messages: [tied[7]] }, char, sess, on);
+  ok('…and a block built from a tie keeps the same order as the ranking',
+    blk === null || blk.from[0] === 3 || blk.from.indexOf(3) < blk.from.indexOf(0),
+    JSON.stringify(blk && blk.from));
+})();
+
+/* The bound that makes "on every turn" safe: an unbounded scan of a 4 000-message
+   chat is how a phone spends its turn on arithmetic. The cap keeps the newest lines,
+   and what it left out is counted rather than hidden — "nothing matched" about
+   messages nobody read would be a lie. */
+(function () {
+  var CAP = API.RECALL_LIMITS.maxDocs, BEYOND = 300, TOTAL = CAP + BEYOND;
+  var many = [];
+  for (var i = 0; i < TOTAL; i++) {
+    many.push({ id: 'c' + i, role: 'user', text: 'the harbour was quiet on day ' + i + ', the nets were mended' });
+  }
+  /* the cap keeps the NEWEST `CAP` of `TOTAL`, so the boundary sits at TOTAL-CAP */
+  many[TOTAL - CAP - 1].text = 'the Sorrow of Dunmore was moored at the rotting pier';
+  many[TOTAL - CAP - 1].id = 'edge-out';      /* the newest line that is not read */
+  many[TOTAL - CAP].text = 'the Grief of Aranmoore was moored at the rotting quay';
+  many[TOTAL - CAP].id = 'edge-in';           /* the oldest line that is */
+  var r = API.recallSearch(many, 'Sorrow Grief pier quay moored rotting', { windowed: [], limit: 4 });
+  eq('the search reads at most the cap', r.corpus, CAP);
+  eq('…and says how many it never looked at', r.scanned - r.corpus, 300);
+  ok('…the line one place inside the cap is found, the one just outside is not',
+    r.hits.length === 1 && r.hits[0].id === 'edge-in', JSON.stringify(r.hits[0] && r.hits[0].id));
+})();
+
 eq('the switch is the whole feature: off means no block, not an empty one', off, null);
 var noluck = API.recallFor(h, winOf(h), char, sess, Object.assign({}, on, { recallOn: true }));
 ok('with a query that matches nothing, no block either — and no invented filler',
@@ -189,11 +238,8 @@ ok('with a query that matches nothing, no block either — and no invented fille
 var wide = API.recallFor(h, winOf(h, 120), char, sess, on);
 eq('a chat that fits entirely in the window has nothing to recall', wide, null);
 
-/* twelve asked for, twenty available, a budget that fits four: the block stops
-   growing and says how many it left out, rather than spending the turn's window. */
-/* 49 messages outside the window, twelve of them carrying a rare word the last line
-   also carries: twelve passages are asked for and available, and the block's own
-   budget fits six. What is left out is counted, not silently missing. */
+/* twelve asked for, and a block whose own budget fits fewer: what the cap left out is
+   counted, not silently missing, and the numbering stays whole. */
 var huge = [];
 for (var q = 0; q < 49; q++) {
   huge.push({ id: 'h' + q, role: 'user',
@@ -392,6 +438,53 @@ ok('the wording promises no relocation and no upload',
 var appSrc = fs.readFileSync(path.join(ROOT, 'js', 'app.js'), 'utf8');
 ok('the inspector counts it among the things a request spent',
   /Recall: /.test(appSrc) && /asm\.recall/.test(appSrc));
+
+console.log('\nG — one speaker label per recalled line');
+
+/* The block writes its own "Quinn:" / "Nadia:" credit, and roleplay text is full of
+   inline labels, so this is where a doubled name comes from — and where a label that
+   belongs to somebody else must not be mistaken for noise. */
+(function () {
+  function fixture(speaker) {
+    var h = [];
+    for (var i = 0; i < 10; i++) {
+      h.push({ id: 'u' + i, role: 'user', text: 'evening ' + i + ': the tide, the lamp, and the price of nets' });
+    }
+    h.push({
+      id: 'x', role: 'assistant',
+      text: speaker + ': Pell left the lamp house and the Sorrow of Dunmore was sold at the quay'
+    });
+    h.push({ id: 'z', role: 'user', text: 'is the Sorrow of Dunmore sold, and did Pell leave the lamp house?' });
+    return h;
+  }
+  function block(speaker, cast) {
+    var h = fixture(speaker);
+    var b = API.recallFor(h, { messages: [h[h.length - 1]] }, char,
+      cast ? { id: 's', sceneCast: cast } : { id: 's' }, on);
+    return b ? b.text.split('\n').slice(1).join('\n') : '';
+  }
+  eq('a card that signs its own lines is named once, not twice', block('Nadia'),
+    '1. Nadia: Pell left the lamp house and the Sorrow of Dunmore was sold at the quay');
+  eq('…and a scene cast does not change that', block('Nadia', ['Nadia', 'Pell']),
+    '1. Nadia: Pell left the lamp house and the Sorrow of Dunmore was sold at the quay');
+  eq('a line spoken by somebody else keeps their name as the credit', block('Pell'),
+    '1. Pell: Pell left the lamp house and the Sorrow of Dunmore was sold at the quay');
+  ok('…and it is not credited to the card that was not speaking',
+    block('Pell').indexOf('Nadia:') === -1 && block('Pell', ['Nadia', 'Pell']).indexOf('Nadia:') === -1,
+    block('Pell', ['Nadia', 'Pell']));
+  ok('a quoted line keeps its own speaker inside the body, unlabelled',
+    block('Nadia').split(':').length === 2, block('Nadia'));
+
+  /* a user line that only LOOKS like a label is prose, not a credit */
+  var notes = [];
+  for (var i = 0; i < 10; i++) notes.push({ id: 'n' + i, role: 'user', text: 'evening ' + i + ': the tide and the lamp at the quay' });
+  notes.push({ id: 'n9', role: 'user', text: 'Note: the Sorrow of Dunmore was rotting at the pier and the toll was owed' });
+  notes.push({ id: 'nq', role: 'user', text: 'what did that Note say about the Sorrow of Dunmore and the toll?' });
+  var nb = API.recallFor(notes, { messages: [notes[notes.length - 1]] }, char, sess, on);
+  ok('…and a leading word that only looks like a label is not eaten off a user line',
+    nb && /Note: the Sorrow/.test(nb.text), nb && nb.text.split('\n').slice(1).join(' | '));
+})();
+
 
 console.log('\n' + (fail ? 'FAILED — ' : 'ok — ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

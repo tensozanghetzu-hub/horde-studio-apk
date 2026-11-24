@@ -1660,7 +1660,7 @@
        position. A tie broken by Date.now() would make the prompt unrepeatable. */
     out.sort(function (a, x) {
       if (x.score !== a.score) return x.score - a.score;
-      if (x.doc.i !== a.doc.i) return x.doc.i - a.doc.i;
+      if (a.doc.i !== x.doc.i) return x.doc.i - a.doc.i;   /* newer first */
       return String(a.doc.id) < String(x.doc.id) ? -1 : 1;
     });
     var keep = out.slice(0, opts.limit || RECALL_DEFAULT);
@@ -1722,7 +1722,21 @@
         ? { name: (s && s.userName) || 'You', text: hit.text }
         : splitSpeaker(character, session, hit.text);
       var who = said.name || ((s && s.userName) || 'You');
-      var body = recallSnippet(said.text, r.terms, RECALL_SNIPPET);
+      var body = String(said.text == null ? '' : said.text);
+      /* One label per recalled line. splitSpeaker strips a card's own name only when a
+         scene cast lists it, so with a solo card the label inside the line and the name
+         prefixed here both survive, and the model reads the same name twice before the
+         prose. A label that is somebody else's name is not noise — with no cast to
+         match it against, that name is who spoke, so it moves into the prefix. */
+      var lab = /^[ \t>*_#]*([A-Z][^\n:()\[\]!?.]{0,39})[ \t]*:[ \t]/.exec(body);
+      if (lab) {
+        var lowName = String(lab[1]).toLowerCase().trim();
+        var mine = String(who || '').toLowerCase().trim();
+        var cast = session && Array.isArray(session.sceneCast) ? session.sceneCast.length : 0;
+        if (lowName === mine) body = body.slice(lab[0].length);
+        else if (hit.role === 'assistant' && cast < 2) { who = lab[1].trim(); body = body.slice(lab[0].length); }
+      }
+      body = recallSnippet(body, r.terms, RECALL_SNIPPET);
       var line = (taken + 1) + '. ' + who + ': ' + body;
       if (used + line.length > budget) { dropped++; continue; }
       used += line.length; taken++;
