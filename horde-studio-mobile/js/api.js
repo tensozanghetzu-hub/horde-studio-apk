@@ -496,6 +496,10 @@
      preview built from the first was wrong about the second. The store's default
      is 40, so this is the same number for every real chat. */
   var DEFAULT_CONTEXT_MESSAGES = 40;
+  /* v1.46.0: how little a memory pass is allowed to read. A chat set to six
+     messages in context still has to be summarised over more than a beat of
+     dialogue, or the summary records the reply it just saw and nothing else. */
+  var SUMMARY_MIN_MESSAGES = 12;
   function contextMessageCeiling(s) {
     var n = parseInt(s && s.contextMessages, 10);
     return n > 0 ? n : DEFAULT_CONTEXT_MESSAGES;
@@ -518,10 +522,7 @@
     return list.slice(start);
   }
 
-  /** The one answer to "what is recent", for the whole request.
-   *  Both shapes are returned because the consumers want different things:
-   *  `sample` is what the lore scanner reads, `messages` is what the
-   *  transcript may carry (already mapped to {role, content} and trimmed). */  /** The last `max` messages of a history, extended back to the opening of
+  /** The last `max` messages of a history, extended back to the opening of
    *  the turn it lands in mid-way, so a transcript never begins with an answer
    *  whose question was left out. Mirrors lastTurns' turn rule for the same
    *  reason: a reply read without the line it replies to invites the model to
@@ -1491,6 +1492,253 @@
       'habit to break, not a style to match. Do not mention or apologise for the change.';
   }
 
+  /* ---------------- recall: BM25-lite over the messages the window left out ----
+   * The history budget decides what the model is shown, so a name planted at turn 8
+   * is simply absent by turn 55 — not forgotten, never sent. The field's answer is a
+   * vector store; a phone with free routes cannot have one, and does not need one for
+   * the thing people actually want from it, which is "find the old line that
+   * resembles this one". This is ~140 lines of scoring over the message array that is
+   * already in memory, no model and no dependency, and it is OFF by default: a
+   * retriever that fires on the wrong word confidently is a new failure mode, and
+   * every passage costs the prompt tokens.
+   *
+   * Three rules are borrowed rather than invented:
+   *   - protect the window (SillyTavern calls it `protect N`): a message the request
+   *     already carries is never recalled. The corpus is exactly the tail-minus-
+   *     window, so recall answers "what did I lose", not "what is right there".
+   *   - append, never relocate (§A3 of the scan): ST's rearrangeChat() lifts matched
+   *     messages out of the history and re-inserts them as a block, and a memory
+   *     block that moves costs the prompt-cache discount every turn — 90 % of this
+   *     app's friendliest behaviour on a free route is that prefix staying put. So
+   *     the block lands AFTER the transcript, which is also where attention is
+   *     highest when the context is long (lost-in-the-middle, §1.2).
+   *   - idf, not tf: "the lamp" appears in half a lighthouse story, and a raw
+   *     term count ranks it first every time. Inverse document frequency is what
+   *     makes a rare name beat a common word, and it needs no model either. */
+  var RECALL_MIN = 1, RECALL_MAX = 12, RECALL_DEFAULT = 6;
+  var RECALL_DOC_CHARS = 1400;      /* scored text: beyond this a post is padding */
+  var RECALL_SNIPPET = 420;         /* injected text per message */
+  var RECALL_TOKENS = 700;          /* the block's own ceiling */
+  var RECALL_MAX_DOCS = 1500;       /* newest this many out-of-window messages are ranked */
+  var RECALL_STOP = (' a an and are as at be but by did for from had has have he her him his how i in ' +
+    'is it its of on or our she so that the their them then there they this to us was we were what when ' +
+    'where which who will with you your not just like about into over under out up down one two three ' +
+    'me my mine ours his hers very much little more most other another').split(/\s+/);
+  /* Tokenisation is cached per message, not per history: the window moves every
+   turn while the old messages do not, so the expensive half is reusable and the
+   cheap half (which messages are outside the window) is recomputed. Keyed on id
+   plus length, so an edited line is a different key and cannot be served stale. */
+  var recallTok = Object.create(null);
+  var recallTokN = 0;
+  var RECALL_TOK_MAX = 4000;      /* a phone's memory, not an index of a library */
+
+  function recallEnabled(s) { return !!(s && s.recallOn === true); }
+  function recallCount(s) {
+    var n = parseInt(s && s.recallCount, 10);
+    if (!(n > 0)) n = RECALL_DEFAULT;
+    return Math.max(RECALL_MIN, Math.min(RECALL_MAX, n));
+  }
+
+  /** The words a passage is matched on: lowercase, markup gone, stopwords gone,
+   *  duplicates KEPT (that is the tf half of the score). `limit` bounds the work on
+   *  a monstrous post without changing which post it is. */
+  function recallTokenize(text, limit) {
+    var raw = String(text == null ? '' : text)
+      .replace(/[*_`#>\[\]()]/g, ' ')
+      .replace(/[^\p{L}\p{N}']+/gu, ' ')
+      .toLowerCase();
+    var all = RECALL_STOP.reduce(function (o, w) { o[w] = 1; return o; }, Object.create(null));
+    var out = [], n = 0, max = limit || 400;
+    var parts = raw.split(' ');
+    for (var i = 0; i < parts.length && n < max; i++) {
+      var w = parts[i];
+      if (w.length < 3 || all[w]) continue;
+      out.push(w); n++;
+    }
+    return out;
+  }
+
+  /** One message, scored-shaped: term frequencies and the term set. Null for a
+   *  message too short or too empty to be worth interrupting the model with. */
+  function recallDoc(m, i) {
+    var text = String(m.text || '');
+    var key = (m.id == null ? 'i' + i : String(m.id)) + ':' + text.length;
+    if (Object.prototype.hasOwnProperty.call(recallTok, key)) return recallTok[key];
+    var doc = null;
+    var body = text.slice(0, RECALL_DOC_CHARS);
+    if (body.trim().length >= 12) {
+      var terms = recallTokenize(body);
+      if (terms.length) {
+        var tf = Object.create(null), set = Object.create(null);
+        for (var k = 0; k < terms.length; k++) { tf[terms[k]] = (tf[terms[k]] || 0) + 1; set[terms[k]] = 1; }
+        doc = { tf: tf, set: set, len: terms.length };
+      }
+    }
+    if (recallTokN > RECALL_TOK_MAX) { recallTok = Object.create(null); recallTokN = 0; }
+    recallTok[key] = doc; recallTokN++;
+    return doc;
+  }
+
+  /** The corpus: everything outside the window, in order, oldest first. */
+  function recallCorpus(history, windowed) {
+    var inWindow = Object.create(null);
+    (windowed || []).forEach(function (m) { if (m && m.id != null) inWindow[m.id] = 1; });
+    var docs = [];
+    for (var i = 0; i < history.length; i++) {
+      var m = history[i];
+      if (!m || inWindow[m.id] != null) continue;
+      var d = recallDoc(m, i);
+      if (!d) continue;
+      docs.push({ i: i, id: m.id, role: m.role, text: String(m.text || ''), tf: d.tf, set: d.set, len: d.len });
+    }
+    return { docs: docs, df: Object.create(null), n: docs.length };
+  }
+
+  /* How many messages a term has to appear in before it stops being a clue. A
+     quarter of the corpus is the line: a phrase the model repeats every reply —
+     "she nods at the weather" — is in everything, and ranking by it hands back
+     forty near-duplicates of the turn you just read, which the model weaves in.
+     That is worse than recalling nothing, so it is refused by default. */
+  function recallIsCommon(df, N) { return df > Math.max(2, Math.floor(N * 0.25)); }
+
+  function recallDf(cache, term) {
+    if (cache.df[term] != null) return cache.df[term];
+    var n = 0;
+    for (var i = 0; i < cache.docs.length; i++) if (cache.docs[i].set[term]) n++;
+    cache.df[term] = n;
+    return n;
+  }
+
+  /** Score every document against the query, BM25 (k1 1.2, b 0.75 — Okapi defaults,
+   *  which is what they are still used for). Returns ranked hits, best first. */
+  function recallSearch(history, query, opts) {
+    opts = opts || {};
+    var win = opts.windowed || [];
+    var cache = recallCorpus(history || [], win);
+    var docs = cache.docs.length > RECALL_MAX_DOCS ? cache.docs.slice(cache.docs.length - RECALL_MAX_DOCS) : cache.docs;
+    var qterms = recallTokenize(query, 80);
+    var qtf = Object.create(null);
+    qterms.forEach(function (t) { qtf[t] = (qtf[t] || 0) + 1; });
+    var terms = Object.keys(qtf);
+    var out = [];
+    if (!terms.length || !docs.length) {
+      return { hits: out, corpus: docs.length, terms: terms, scanned: cache.n };
+    }
+    var avg = 0;
+    for (var d = 0; d < docs.length; d++) avg += docs[d].len;
+    avg = avg / docs.length;
+    var N = docs.length;
+    var k1 = 1.2, b = 0.75;
+    var idf = Object.create(null), dfn = Object.create(null), rare = Object.create(null);
+    for (var t = 0; t < terms.length; t++) {
+      var n = recallDf(cache, terms[t]);
+      dfn[terms[t]] = n;
+      rare[terms[t]] = !recallIsCommon(n, N);
+      /* Lucene's form: never negative, so a term in every document contributes
+         nothing rather than subtracting from a document that mentions it twice. */
+      idf[terms[t]] = Math.log(1 + (N - n + 0.5) / (n + 0.5));
+    }
+    for (var i = 0; i < N; i++) {
+      var doc = docs[i], score = 0, matched = 0, clues = 0;
+      for (var j = 0; j < terms.length; j++) {
+        var f = doc.tf[terms[j]];
+        if (!f) continue;
+        matched++;
+        if (rare[terms[j]]) clues++;
+        score += idf[terms[j]] * (f * (k1 + 1)) / (f + k1 * (1 - b + b * (doc.len / (avg || 1))));
+      }
+      /* Precision over recall, twice over: a term the whole chat contains is not a
+         clue (that is what ranks boilerplate first), and one shared word is not
+         enough to interrupt the model for — unless that word is rare, which is the
+         turn where all the player typed was a name. */
+      if (!clues) continue;
+      if (matched < 2 && terms.length > 1) continue;
+      if (score > 0) out.push({ doc: doc, score: score, matched: matched, clues: clues });
+    }
+    /* Deterministic order, because the same chat must produce the same prompt: score
+       first, then recency (newer passages are the closer neighbours of "now"), then
+       position. A tie broken by Date.now() would make the prompt unrepeatable. */
+    out.sort(function (a, x) {
+      if (x.score !== a.score) return x.score - a.score;
+      if (x.doc.i !== a.doc.i) return x.doc.i - a.doc.i;
+      return String(a.doc.id) < String(x.doc.id) ? -1 : 1;
+    });
+    var keep = out.slice(0, opts.limit || RECALL_DEFAULT);
+    return {
+      hits: keep.map(function (h) {
+        return {
+          index: h.doc.i, id: h.doc.id, role: h.doc.role, text: h.doc.text,
+          score: h.score, matched: h.matched, clues: h.clues
+        };
+      }),
+      ranked: out.length, corpus: docs.length, terms: terms, scanned: cache.n, avg: avg
+    };
+  }
+
+  /* The densest stretch of the message, not its opening: a recalled four-thousand-
+   * character post is worthless if the one sentence that matters is at the far end.
+   * Span from the first matched term to the last, padded, then capped. */
+  function recallSnippet(text, terms, size) {
+    var full = String(text || '').replace(/\s+/g, ' ').trim();
+    var low = full.toLowerCase(), first = -1, last = -1;
+    for (var i = 0; i < terms.length; i++) {
+      var at = low.indexOf(terms[i]);
+      if (at < 0) continue;
+      if (first < 0 || at < first) first = at;
+      if (at > last) last = at + terms[i].length;
+    }
+    if (first < 0) return full.slice(0, size);
+    var start = Math.max(0, first - 60);
+    var end = Math.min(full.length, Math.max(last + 60, start + Math.floor(size * 0.7)));
+    if (end - start > size) end = start + size;
+    return (start > 0 ? '…' : '') + full.slice(start, end).trim() + (end < full.length ? '…' : '');
+  }
+
+  /** The block buildChat appends, or null. `char` and `session` are only there to
+   *  attribute a reply to the right speaker in a group, the same call the thread
+   *  makes — a recalled line with no name on it reads as the narrator's. */
+  function recallFor(history, win, character, session, s) {
+    if (!recallEnabled(s)) return null;
+    var list = history || [];
+    if (list.length < 6) return null;                 /* nothing old enough to recall */
+    var lastUser = null, lastReply = null;
+    for (var i = list.length - 1; i >= 0 && (!lastUser || !lastReply); i--) {
+      var m = list[i];
+      if (!m || !m.text) continue;
+      if (!lastUser && m.role === 'user') lastUser = String(m.text);
+      if (!lastReply && m.role === 'assistant') lastReply = String(m.text);
+    }
+    if (!lastUser) return null;
+    var r = recallSearch(list, lastUser + ' ' + (lastReply || ''), {
+      windowed: win.messages, limit: recallCount(s)
+    });
+    if (!r.hits.length) return null;
+    var budget = RECALL_TOKENS * 4, used = 0, lines = [], taken = 0, dropped = 0;
+    for (var h = 0; h < r.hits.length; h++) {
+      var hit = r.hits[h];
+      /* the label the model wrote is part of the body; taking the name out of it and
+         then prefixing a name again is how a recall block reads "Her: Her: …" */
+      var said = hit.role === 'user'
+        ? { name: (s && s.userName) || 'You', text: hit.text }
+        : splitSpeaker(character, session, hit.text);
+      var who = said.name || ((s && s.userName) || 'You');
+      var body = recallSnippet(said.text, r.terms, RECALL_SNIPPET);
+      var line = (taken + 1) + '. ' + who + ': ' + body;
+      if (used + line.length > budget) { dropped++; continue; }
+      used += line.length; taken++;
+      lines.push(line);
+    }
+    if (!lines.length) return null;
+    var text = 'From earlier in this conversation, taken from its own record — these are real lines ' +
+      'from messages no longer in the window. They are background, not the present moment: if one of ' +
+      'them contradicts anything newer, newer wins, and do not repeat them verbatim.\n' + lines.join('\n');
+    return {
+      text: text, hits: taken, dropped: dropped, ranked: r.ranked, corpus: r.corpus,
+      tokens: Math.ceil(text.length / 4), scanned: r.scanned,
+      from: r.hits.slice(0, taken).map(function (x) { return x.index; })
+    };
+  }
+
   /** Build the payload for an OpenAI-compatible endpoint. */
   function buildChat(character, session, history, s, note, finalNote) {
     var stats = {};
@@ -1599,7 +1847,10 @@
        the request - that stays the app's, and it is the one that has to survive
        a reroll. */
     var tailPost = postHistoryMode(character) === 'tail' ? postHistoryText(character, s) : '';
-    var tail = [styleLock(win.messages), tailPost, finalNote].filter(Boolean).join('\n\n');
+    /* recall sits FIRST in the tail — it is evidence, and the style lock and the
+       app's own instruction are orders; the last thing read is the one obeyed. */
+    var recalled = recallFor(history, win, character, session, s);
+    var tail = [recalled && recalled.text, styleLock(win.messages), tailPost, finalNote].filter(Boolean).join('\n\n');
     if (tail) msgs.push({ role: 'system', content: tail });
 
     var preCap = msgs.length;
@@ -1628,6 +1879,12 @@
          builder protects its two turns, so a request can end up over the cap on
          purpose. Saying so beats implying the number was met. */
       overCap: totalBytes(msgs) > CONTEXT_CAP,
+      /* v1.46.0: what recall spent, or that it was switched off. Reported rather
+         than assumed, because "the model brought up something from forty turns ago"
+         is only reassuring if you can see that it was paid for. */
+      recall: recalled ? { on: true, passages: recalled.hits, corpus: recalled.corpus,
+        ranked: recalled.ranked, dropped: recalled.dropped, tokens: recalled.tokens,
+        scanned: recalled.scanned, from: recalled.from } : { on: recallEnabled(s), passages: 0, corpus: 0 },
       historyTokens: histBudget,
       cardTokens: Math.ceil(String(system).length / 4),
       replyTokens: maxTokensOf(s),
@@ -1764,10 +2021,14 @@
       var sp = splitSpeaker(character, session, repairMojibake(m.text || ''));
       return sp.name + ': ' + sp.text;
     });
+    /* computed before the joiner so both shapes read the same block: recall is a
+       property of the conversation, not of the transport. */
+    var recalled = recallFor(history, win, character, session, s);
     var join = function (h) {
       return [head.trim(), ex ? 'Example dialogue — a sample of the intended voice, length and format. ' +
         'These are NOT events that have already happened and are not part of this story:\n' + ex : '',
         'Chat history:\n' + h.join('\n'),
+        recalled ? recalled.text : '',
         /* v1.39.99: finalNote is read here too, so a state reminder supplied
            by a world run lands after the transcript and immediately before
            the cue to answer — the same position the chat format gives it. */
@@ -1799,6 +2060,9 @@
       floor: 2,
       bytes: bytesOf(out), cap: capBytes,
       overCap: bytesOf(out) > capBytes,
+      recall: recalled ? { on: true, passages: recalled.hits, corpus: recalled.corpus,
+        ranked: recalled.ranked, dropped: recalled.dropped, tokens: recalled.tokens,
+        scanned: recalled.scanned, from: recalled.from } : { on: recallEnabled(s), passages: 0, corpus: 0 },
       historyTokens: 0,
       cardTokens: Math.ceil(String(head).length / 4),
       replyTokens: 0, modelWindow: budgetTokens || 0,
@@ -3209,14 +3473,32 @@
         return who + ': ' + (m.role === 'user' ? body : splitSpeaker(char, session, body).text);
       }).join('\n');
     }
-    var maxMessages = o.maxMessages || 40;
+    /* v1.46.0: the recap read its own last-40 while the live request read the
+       "Messages in context" window, so the two could disagree by an order of
+       magnitude — and the disagreement was invisible, because `sentMessages`
+       reported the recap's number, not the chat's. "Keep the recent turns" only
+       means something if the memory pass works on the same recent turns.
+         - the window is `requestWindow`, the one answer to "what is recent";
+         - a floor of 12 messages, because a recap of the six lines the slider
+           may be set to would extend the previous summary with a snapshot;
+         - an explicit `o.maxMessages` still wins: a caller that asks for a
+           short recap gets one.
+       The byte cap and the halving stay: a recap that does not fit the model
+       that has to answer it is the failure this function has already had twice. */
     var budgetChars = Math.max(4000, historyBudgetTokens(s, 900, 500) * 4);
-    var convo = transcriptOf(history.slice(-maxMessages));
-    while (convo.length > budgetChars && maxMessages > 6) {
-      maxMessages = Math.floor(maxMessages / 2);
-      convo = transcriptOf(history.slice(-maxMessages));
+    var pool;
+    if (o.maxMessages > 0) {
+      pool = history.slice(-o.maxMessages);
+    } else {
+      pool = requestWindow(history, s).messages;
+      if (pool.length < SUMMARY_MIN_MESSAGES) pool = history.slice(-SUMMARY_MIN_MESSAGES);
     }
-    var sentMessages = Math.min(maxMessages, history.length);
+    var convo = transcriptOf(pool);
+    while (convo.length > budgetChars && pool.length > 6) {
+      pool = pool.slice(Math.ceil(pool.length / 2));
+      convo = transcriptOf(pool);
+    }
+    var sentMessages = pool.length;
 
     var instruction =
       'You are a memory manager for a roleplay between ' + s.userName + ' and ' + char.name + '.\n' +
@@ -3327,6 +3609,9 @@
              an empty answer from an oversized request and an empty answer
              from a model that simply said nothing look identical without it. */
           mem.sentMessages = sentMessages;
+          /* the recap says which window it read, because it is no longer always
+             forty: `available` is the whole history, `window` is what was sent */
+          mem.availableMessages = history.length;
           mem.sentChars = convo.length;
           mem.sentTokens = Math.ceil(convo.length / 4);
           mem.model = String(s.model || (s.provider === 'horde' ? 'horde' : ''));
@@ -4133,6 +4418,11 @@
     /* the tests read the assembled character sheet directly; the app never does */
     _charSheet: charSheet,
     cleanReply: cleanReply, looksTruncated: looksTruncated, replyProvenance: replyProvenance,
+    recallSearch: recallSearch, recallFor: recallFor, recallTokenize: recallTokenize,
+    recallEnabled: recallEnabled, recallCount: recallCount, recallSnippet: recallSnippet,
+    RECALL_LIMITS: { min: RECALL_MIN, max: RECALL_MAX, def: RECALL_DEFAULT,
+      docChars: RECALL_DOC_CHARS, snippet: RECALL_SNIPPET, tokens: RECALL_TOKENS,
+      maxDocs: RECALL_MAX_DOCS },
     applyDisplayScripts: applyDisplayScripts, displayScripts: displayScripts, scriptTest: scriptTest,
     scriptLooksEvil: scriptLooksEvil,
     SCRIPT_MAX_CHARS: SCRIPT_MAX_CHARS,

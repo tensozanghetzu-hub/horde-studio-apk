@@ -173,12 +173,17 @@ var joinAt = api.indexOf(joined), noteAt = api.indexOf("finalNote || '', styleLo
 /* v1.40.0: the card's post-history text may now sit in this tail as well, so
    the check is on the shape of the expression - style lock, then optionally the
    card's instructions, then the note - not on two adjacent literals. */
-var tailAt = api.indexOf("var tail = [styleLock(win.messages),");
+/* v1.46.0: the tail opens with the recall block now, because recalled passages are
+   evidence and the lock/notes are orders — orders stay last. The guard reads the
+   whole tail expression, so it keeps its meaning with a new first element. */
+var tailAt = api.indexOf("var tail = [");
 ok('a prompt-format provider joins it after the transcript',
   joinAt !== -1 && noteAt !== -1 && noteAt > joinAt, joinAt + ' / ' + noteAt);
 ok('a chat-format provider appends it as a trailing system turn',
   tailAt !== -1 && /if \(tail\) msgs\.push\(\{ role: 'system', content: tail \}\)/.test(api));
 ok('...and the note is still part of that tail', /styleLock\(win\.messages\), (tailPost, )?finalNote/.test(api));
+ok('...and recalled passages sit before every instruction in it, not after',
+  /var tail = \[recalled && recalled\.text, styleLock\(win\.messages\)/.test(api));
 
 console.log('\n' + (fail ? 'FAILED' : 'ok') + ' — ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -143,7 +143,12 @@ eq('\u2026and a narrower one cuts the transcript, never the scan',
   API.requestWindow(hist, { contextMessages: 6 }).messages.length, 6);
 
 var apiSrc3 = fs.readFileSync(path.join(ROOT, 'js', 'api.js'), 'utf8');
-eq('each builder opens exactly one window', (apiSrc3.match(/= requestWindow\(history, s\)/g) || []).length, 2);
+/* v1.46.0: the memory recap became the third reader of the window — that is the
+   point of the change, the recap and the request must agree on what "recent" is.
+   The guard's meaning is "one window per builder, never two", so the count grows
+   with the builders and is restated rather than dropped. */
+eq('each builder — chat, prompt, recap — opens exactly one window',
+  (apiSrc3.match(/= requestWindow\(history, s\)/g) || []).length, 3);
 ok('neither builder scans the raw history any more', !/= loreSample\(history\)/.test(apiSrc3));
 ok('the prompt format reads the same window', /var win = requestWindow\(history, s\)/.test(apiSrc3));
 
