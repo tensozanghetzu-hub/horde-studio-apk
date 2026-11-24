@@ -653,19 +653,25 @@
           (diag.turns === 1 ? 'turn' : 'turns') + (diag.compat
             ? ', in the card’s own lore order' : '') + '.';
         var cutNote = '';
-        if (diag.droppedByBudget) {
-          cutNote = ' <b>' + diag.droppedByBudget + '</b> ' +
-            (diag.droppedByBudget === 1 ? 'entry matched but did' : 'entries matched but did') +
-            ' not fit the byte budget' +
-            (diag.droppedEssential
-              ? ' — including <b>' + diag.droppedEssential + '</b> marked essential, which the budget ' +
-                'cannot exempt: an entry that must be present belongs in the character sheet, not the lorebook'
-              : '') + '.';
-        } else if (diag.droppedByLimit) {
-          cutNote = ' <b>' + diag.droppedByLimit + '</b> ' +
-            (diag.droppedByLimit === 1 ? 'entry matched but' : 'entries matched but') +
-            ' passed the ' + diag.limit + '-entry limit.';
-        }
+        var budgetCut = '<b>' + diag.droppedByBudget + '</b> ' +
+          (diag.droppedByBudget === 1 ? 'entry matched but did' : 'entries matched but did') +
+          ' not fit the byte budget' +
+          (diag.droppedEssential
+            ? ' — including <b>' + diag.droppedEssential + '</b> marked essential, which the budget ' +
+              'cannot exempt: an entry that must be present belongs in the character sheet, not the lorebook'
+            : '');
+        var limitCut = '<b>' + diag.droppedByLimit + '</b> ' +
+          (diag.droppedByLimit === 1 ? 'entry matched but' : 'entries matched but') +
+          ' passed the ' + diag.limit + '-entry limit';
+        /* v1.42.2: lead with whichever ceiling actually cost more, and name both
+           when both bit. This was a plain if/else on the budget counter, so a book
+           trimmed mainly by the 10-entry limit was told to shrink entries or raise
+           the budget — a dial that cannot help while the limit is what is full. */
+        var cuts = [];
+        if (diag.droppedByLimit) cuts.push({ n: diag.droppedByLimit, text: limitCut });
+        if (diag.droppedByBudget) cuts.push({ n: diag.droppedByBudget, text: budgetCut });
+        cuts.sort(function (a, b) { return b.n - a.n; });
+        if (cuts.length) cutNote = ' ' + cuts.map(function (c) { return c.text; }).join('; ') + '.';
         summary.innerHTML = 'Checking the conversation “' + esc(newest.title || 'New chat') +
           '”. <b>' + diag.admitted + ' of ' + diag.rows.length + '</b> ' +
           (diag.rows.length === 1 ? 'entry is' : 'entries are') + ' in the prompt now · ' +
@@ -3533,6 +3539,27 @@
       out += '<div class="wr-advisories">' + advisories.map(function (a) {
         return '<div class="wr-adv">not recorded: ' + esc(a.claim) + ' \u2014 ' + esc(a.note) + '</div>';
       }).join('') + '</div>';
+    }
+    /* v1.42.2 (the memory research, §7): the record and the budget, on the one
+       screen a player looks at when a story has started to drift. Three numbers,
+       no dialog: what the world holds, what the last turn spent saying it, and
+       what the world refused. It appears once there is something to report, so a
+       first turn is not a wall of statistics, and it reports what the engine
+       already knows — nothing here is measured by asking a model. */
+    if (HW.sessionCounters) {
+      var cnt = HW.sessionCounters(world, run);
+      if (cnt.factsTotal || cnt.costs.total) {
+        var bits = [cnt.facts + ' fact' + (cnt.facts === 1 ? '' : 's') + ' in memory' +
+          (cnt.superseded ? ' \u2014 ' + cnt.superseded + ' superseded, none deleted' : '')];
+        if (cnt.memoryTurn) bits.push('remembered through turn ' + cnt.memoryTurn);
+        if (cnt.costs.total) bits.push('last turn \u2014 state ' + cnt.costs.state +
+          ', memory ' + cnt.costs.memory + ', lore ' + cnt.costs.lore +
+          ', history ' + cnt.costs.history + ' characters');
+        if (cnt.rejections) bits.push(cnt.rejections + ' refused by the ledger' +
+          (cnt.rejectionsShown < cnt.rejections ? ' (showing the last ' + cnt.rejectionsShown + ')' : ''));
+        if (cnt.advisories) bits.push(cnt.advisories + ' said but not recorded');
+        out += '<div class="wr-hud-tasks wr-counters">' + esc(bits.join(' \u00b7 ')) + '</div>';
+      }
     }
     return out;
   };

@@ -2596,6 +2596,16 @@
     var settled = (opts && opts.settled) || null;
 
     var parts = [];
+    /* v1.42.2 (the memory research, §7): the budget, made visible. Each part of
+       the briefing is counted into the bucket an author would have to change to
+       shrink it, so the run can say "state 1 240 · memory 610 · lore 480" instead
+       of "the prompt is big". Counting only: it never reorders or rewrites a
+       part, and buildPrompt stays a pure read of the run. */
+    var costs = { state: 0, memory: 0, lore: 0, other: 0 };
+    var pushCost = function (bucket, text) {
+      costs[bucket] = (costs[bucket] || 0) + String(text == null ? '' : text).length;
+      parts.push(text);
+    };
     if (world.dmPrompt) parts.push(world.dmPrompt);
     else parts.push('You are the referee for this world. Narrate what happens, ' +
       'play everyone who is not the player, and keep the world consistent.');
@@ -2611,8 +2621,8 @@
     if (run.playerPersona) parts.push('Who the player is: ' + run.playerPersona);
     if (sb.principles && sb.enabled !== false) parts.push('How the world moves: ' + sb.principles);
 
-    parts.push(describeLocation(world, run));
-    parts.push(describeState(world, run));
+    pushCost('state', describeLocation(world, run));
+    pushCost('state', describeState(world, run));
     /* v1.39.8: the briefing above is READING, not material - small models
        love to copy it verbatim into the scene; say no in plain words. */
     parts.push('Never restate this briefing - the times, stats, money, ' +
@@ -2637,7 +2647,7 @@
        have witnessed. This is what stops two men who went to the elder with
        you both coming home and asking what the elder said. */
     if ((run.companions || []).length) {
-      parts.push(
+      pushCost('state',
         'Companions - with the player right now:\n' +
         run.companions.map(function (c) {
           var at = location(world, c.at);
@@ -2659,14 +2669,23 @@
          a finished objective in front of the referee. */
       var now = currentFacts(run).slice().sort(function (a, b) { return (b.from || 0) - (a.from || 0); });
       if (now.length) {
-        memPart += 'Established facts (each still true; the turn it was learned on in brackets):\n' +
+        /* v1.42.2: the legend said "the turn it was learned on", and the number
+           below is not that. A fact that is shown is re-dated to the turn it was
+           shown (a few lines down, and deliberately: pinned by facthistory-test
+           as "a fact shown in the prompt is re-dated to now", because a
+           load-bearing fact must not decay to the bottom of a list). So the
+           bracket is the last turn the story relied on it; the turn it stopped
+           being true is the other half of the record (`to`), and that one is not
+           rewritten. Behaviour as shipped — the label was the thing that was
+           wrong. */
+        memPart += 'Established facts (each still true; the turn it was last relied on in brackets):\n' +
           now.map(function (f) { return '- ' + f.text + ' [' + (f.from || 0) + ']'; }).join('\n');
         /* a fact that is shown is a fact the run is still citing: its age
            starts from here, so a load-bearing fact never looks oldest. */
         var t = run.turn || 0;
         now.forEach(function (f) { if ((f.from || 0) < t) f.from = t; });
       }
-      parts.push(memPart);
+      pushCost('memory', memPart);
     }
 
     if (settled && settled.length) parts.push(settledChecksBrief(settled));
@@ -2708,7 +2727,7 @@
       });
     }
     if (hits.length) {
-      parts.push('Established lore:\n' + hits.map(function (e) { return '- ' + e.text; }).join('\n'));
+      pushCost('lore', 'Established lore:\n' + hits.map(function (e) { return '- ' + e.text; }).join('\n'));
     }
 
     var rules =
@@ -2846,7 +2865,14 @@
     /* A chat provider carries this as a trailing system turn so it reaches
        the model after the newest user line. A prompt provider gets it after
        the transcript and before the answer cue, which is the same place. */
-    return { system: parts.join('\n\n'), messages: messages, note: note };
+    var sys = parts.join('\n\n');
+    /* `other` is the rest of the briefing - voice, rules, the cast - measured as
+       what the named buckets did not claim, so the four always add up to the
+       system prompt instead of fighting over the seams between them. */
+    costs.other = Math.max(0, sys.length - costs.state - costs.memory - costs.lore);
+    costs.history = messages.reduce(function (n, m) { return n + String(m.content || '').length; }, 0);
+    costs.total = sys.length;
+    return { system: sys, messages: messages, note: note, costs: costs };
   }
 
   /** Advance the turn counter and record the exchange.
@@ -2864,6 +2890,15 @@
     if (run.log.length > 200) run.log = run.log.slice(-200);
     run.turn = (run.turn || 0) + 1;
     run.updatedAt = Date.now();
+    /* v1.42.2 (§7): the arrays above are capped at 50 because the HUD shows
+       them; a tally of the whole run is what the readout counts, so a long
+       campaign does not report "50 refusals" forever. */
+    if (!run.tally || typeof run.tally !== 'object') run.tally = {};
+    run.tally.rejections = (run.tally.rejections || 0) +
+      (applied && applied.rejections && applied.rejections.length ? applied.rejections.length : 0);
+    run.tally.advisories = (run.tally.advisories || 0) +
+      (applied && applied.advisories && applied.advisories.length ? applied.advisories.length : 0);
+    run.tally.turns = run.turn || 0;
     if (applied && applied.rejections && applied.rejections.length) {
       run.rejections = (run.rejections || []).concat(applied.rejections.map(function (r) {
         return { turn: run.turn, tag: r.tag, reason: r.reason, at: r.at };
@@ -3047,8 +3082,34 @@
     });
   }
 
+  /** The three numbers the memory research asked to be visible, in one call:
+   *  what the record holds, what the last turn cost, and what the world refused.
+    * Pure — it reads the run and the built prompt and writes nothing, so a test
+   * or a screen can show it without changing the game. */
+  function sessionCounters(world, run, built) {
+    var all = factObjects(run), now = currentFacts(run);
+    var t = (run && run.tally) || {};
+    var c = (built && built.costs) || (run && run.promptCosts) || {};
+    var shown = { rejections: (run && run.rejections ? run.rejections.length : 0),
+      advisories: (run && run.advisories ? run.advisories.length : 0) };
+    return {
+      facts: now.length,
+      superseded: Math.max(0, all.length - now.length),
+      factsTotal: all.length,
+      memoryTurn: (run && run.memory && run.memory.memTurn) || 0,
+      turns: (run && run.turn) || 0,
+      rejections: t.rejections === undefined ? shown.rejections : t.rejections,
+      advisories: t.advisories === undefined ? shown.advisories : t.advisories,
+      /* the HUD only keeps the last 50 of each, so say when a count is capped */
+      rejectionsShown: shown.rejections, advisoriesShown: shown.advisories,
+      costs: { state: c.state || 0, memory: c.memory || 0, lore: c.lore || 0,
+        history: c.history || 0, other: c.other || 0, total: c.total || 0 }
+    };
+  }
+
   var HW = {
     parse: parse,
+    sessionCounters: sessionCounters,
     assemble: assemble,
     summarise: summarise,
     save: save, all: all, get: get, remove: remove,

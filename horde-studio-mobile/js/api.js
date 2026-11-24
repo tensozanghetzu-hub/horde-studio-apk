@@ -352,8 +352,11 @@
        selection nobody used. */
     var chosen = {};
     /* v1.40.0: the same options the prompt path uses, so what this reports is
-       what the request does - including compat mode's priority-ordered cuts. */
-    loreAdmit(ranked, max, cap, opts).forEach(function (r) { chosen[r.index] = true; });
+       what the request does - including compat mode's priority-ordered cuts.
+       v1.42.2: and the reason each entry was cut, carried out of the same pass. */
+    var admits = loreAdmit(ranked, max, cap, opts);
+    var skipped = admits.skips || {};
+    admits.forEach(function (r) { chosen[r.index] = true; });
     var activeStage = String(stage || '').trim().toLowerCase();
     var rows = [], used = 0, admitted = 0;
     /* v1.40.0: what the ceiling cost. An author who marked an entry essential
@@ -402,13 +405,29 @@
       if (chosen[i]) {
         row.reason = r.constant ? 'always (constant)' : 'matched';
         used += r.cost; admitted++;
-      } else if (admitted >= max) {
-        row.reason = 'matched, but the ' + max + '-entry limit was reached';
-        droppedByLimit++;
       } else {
-        row.reason = 'matched, but over the ' + cap + '-byte budget';
-        droppedByBudget++;
-        if (r.essential) droppedEssential++;
+        /* v1.42.2: the reason comes from the pass that made the cut. It used to
+           be decided here by `admitted >= max`, where `admitted` counted the
+           entries admitted EARLIER IN THE BOOK - a different number from how many
+           the ranking admitted. An entry the 10-entry limit had pushed out but
+           that sits near the top of the book was judged while that counter still
+           read zero and fell through to the budget branch, so the author was told
+           their entry did not fit in bytes while 0.2 % of the budget was used -
+           and the note at the top of this screen picks the budget wording first,
+           so the advice was wrong too. Selection was always correct; only this
+           explanation was. The counter is kept as a fallback for a caller that
+           hands over a list with no reasons attached. */
+        var sk = skipped[i];
+        var why = sk ? sk.why : (admitted >= max ? 'limit' : 'budget');
+        if (why === 'limit') {
+          row.reason = 'matched, but the ' + max + '-entry limit was reached';
+          droppedByLimit++;
+        } else {
+          row.reason = 'matched, but over the ' + cap + '-byte budget';
+          droppedByBudget++;
+          if (r.essential) droppedEssential++;
+        }
+        if (sk && sk.both) row.reason += ' - the byte budget is full as well';
       }
       rows.push(row);
     });
@@ -674,9 +693,19 @@
         return a.index - b.index;
       });
     }
+    var skips = {};
     list.forEach(function (r) {
-      if (out.length >= max) return;
-      if (out.length && bytes + r.cost > cap) return;
+      /* v1.42.2: when an entry is passed over, say why HERE. Both ceilings can
+         be shut on the same entry, and only this walk knows which one was full
+         at the moment it was turned away - loreDiagnostics used to work it out
+         afterwards from a counter of its own and got it wrong (see there). The
+         order of the two tests is unchanged, so the limit still wins the
+         description when both are true, and `both` records the rest. */
+      var why = '';
+      var both = false;
+      if (out.length >= max) { why = 'limit'; both = !!(out.length && bytes + r.cost > cap); }
+      else if (out.length && bytes + r.cost > cap) { why = 'budget'; }
+      if (why) { skips[r.index] = { why: why, both: both }; return; }
       out.push(r);
       bytes += r.cost;
     });
@@ -684,7 +713,10 @@
        here: an entry the author called essential outranks the rest, and if the
        essentials alone fill the budget the others are cut. No counter is kept on
        the function - this runs once per request, and a tally that survives from
-       one request to the next is a bug waiting for a second chat. */
+       one request to the next is a bug waiting for a second chat. `skips` is a
+       property on the returned array for the same reason: it belongs to this one
+       call, and every other caller maps the list and never sees it. */
+    out.skips = skips;
     return out;
   }
 

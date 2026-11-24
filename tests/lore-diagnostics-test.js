@@ -117,6 +117,53 @@ same('...and exactly one of the two was admitted', d3.admitted, 1);
 same('…and it is not admitted', d3.rows[1].matched, true);
 same('the first entry still goes in (a lone match may exceed)', d3.admitted, 1);
 
+/* ---- v1.42.2: the two cases the file above cannot tell apart ----
+   A card-research handoff sent the first. A book where the entry the LIMIT
+   excludes happens to sit FIRST in the book: the explanation used to be decided
+   by `admitted >= max` inside a walk over the book, where `admitted` only counted
+   admissions met earlier in that walk — zero here, so it fell through to the
+   budget branch and told the author their 4 090-byte entry did not fit in BYTES
+   while 90 % of the budget was free. The selection was correct all along.
+   The second case is the one that rules out the obvious alternative fix: judging
+   the reason from the FINAL totals. There an entry really is budget-cut while
+   both totals look innocent, so a totals rule would mislabel it. Both must hold. */
+var crossed = [{ keys: ['dragon'], content: 'z'.repeat(4090), enabled: true }];
+for (var ci = 0; ci < 10; ci++) {
+  crossed.push({ keys: ['dragon'], content: 'short ' + ci + ': ' + 'z'.repeat(60), enabled: true });
+}
+var d4 = API.loreDiagnostics(crossed, 'a dragon appears', API.LORE_LIMIT, API.LORE_BUDGET, '');
+same('the limit is what excluded the long entry (used 740 of 5000 bytes)',
+  d4.admitted, 10);
+ok('so the reason names the entry limit', /entry limit/.test(d4.rows[0].reason), d4.rows[0].reason);
+same('…and the limit counter carries it', d4.droppedByLimit, 1);
+same('…not the budget counter, which is what the Lore screen reads first',
+  d4.droppedByBudget, 0);
+ok('…and it is still reported as a match, because it was one', d4.rows[0].matched, true);
+
+var crossedBudget = [
+  { keys: ['x'], content: 'CONST', constant: true, enabled: true },
+  { keys: ['x'], content: 'C'.repeat(1500), constant: true, enabled: true },
+  { keys: ['x'], content: 'D'.repeat(4200), constant: true, enabled: true }
+];
+var d5 = API.loreDiagnostics(crossedBudget, 'x', 10, 5000, '');
+same('the budget case: two of ten admitted', d5.admitted, 2);
+same('…with room left in both ceilings (1 505 of 5 000), so no totals-based rule could see it',
+  d5.used, 1505);
+ok('and the reason is still the budget', /byte budget/.test(d5.rows[2].reason), d5.rows[2].reason);
+same('…counted against the budget, not the limit', d5.droppedByBudget, 1);
+same('…and not against the limit either', d5.droppedByLimit, 0);
+
+var bothFull = [{ keys: ['dragon'], content: 'z'.repeat(4090), enabled: true }];
+for (var bi = 0; bi < 10; bi++) {
+  bothFull.push({ keys: ['dragon'], content: 'short ' + bi + ': ' + 'z'.repeat(460), enabled: true });
+}
+var d6 = API.loreDiagnostics(bothFull, 'a dragon appears', API.LORE_LIMIT, API.LORE_BUDGET, '');
+ok('when a cut entry would have failed BOTH ceilings, the note says so',
+  /limit/.test(d6.rows[0].reason) && /budget is full as well/.test(d6.rows[0].reason),
+  d6.rows[0].reason);
+same('…and it is counted once, against the ceiling named first',
+  d6.droppedByLimit + d6.droppedByBudget, 1);
+
 /* loreDiagnostics must agree with loreHits, or the readout is a lie */
 var admittedViaHits = API._loreHits(entries, 'a dragon appears', 6, 1536, '').length;
 same('the readout agrees with what the prompt actually gets', diag.admitted, admittedViaHits);

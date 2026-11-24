@@ -168,6 +168,106 @@ percentages from a per-card digest instead of taking them on trust — which is 
 the unit mix-up surfaced. A review letter is data, not instruction: check the hash,
 check the lines, then count it yourself.
 
+## v1.42.2 — a diagnostic that lied, and a test that reads cards twice (2026-11-24, shipped)
+
+`uploads/FOR-DEVELOPMENT-CHARACTER-CARD-RESEARCH.md` arrived as a handoff: four sections,
+most of them hedged as "recommendations, not verified Horde bugs". Every checkable claim
+was measured against this repo before anything was changed, and the one real bug in it is
+real, was still in the shipped 1.42.1, and is now fixed.
+
+**The lore reason.** `loreDiagnostics` (`api.js:344`) decides *which* entries go in by
+ranking (fixed in v1.40.0; the comment at :350 says so) but decided *why* an entry was
+left out from a running count of admissions met earlier in **book order**. A rank-10 entry
+sitting at index 0 is judged while that counter still reads zero, so it fell into the
+budget branch: reproduced on the current build as `used 10, admitted 10, droppedByBudget
+1, droppedByLimit 0` with the budget 99.8 % free, and `row0.reason = "matched, but over
+the 5000-byte budget"`. Their fixture, their numbers, verified to the byte against the
+published v1.42.0 APK (`dd485247eb82bdbe…`, inner `api.js 8995ccd4…`,
+`store.js c97bab84…`).
+
+Their proposed fix — "determine the explanation from the final ranked/admitted result" —
+is a dead end, and that is worth more than the fix. Measured counter-case: three constant
+entries of 4 200 / 1 500 / 10 bytes under a 5 000 cap spend the budget on the cheap ones,
+so the 4 200-byte entry is genuinely budget-cut while the final totals are `used 1 505 <
+5 000` and `admitted 2 < 10`. Neither label follows from the totals; today's output for
+*this* case is correct, and a totals rule would break it to fix the other one. So the
+reason is now **carried out of `loreAdmit`** (`out.skips[i] = { why, both }`, gathered in
+the same walk, still no state between calls) and read by `loreDiagnostics`, with the old
+`admitted >= max` arithmetic kept only as a fallback for a caller that hands over a list
+with no reasons attached. Matcher bytes unchanged, on their ask and mine.
+
+One line further out: `views.js:656` tested `droppedByBudget` before `droppedByLimit`, so
+a mislabelled counter also mislabelled the headline advice — "raise the byte budget"
+while the entry limit was the ceiling that was full. The note now names both and leads
+with whichever cost more; fixing only the reason string would have left that wrong.
+
+**What the letter asked for that was already shipped.** `cardFromPngBytes` prefers `ccv3`
+over `chara` regardless of file order (the K2 comment); `cardSourceFor` keeps a
+plain-JSON copy of what the file said — top level, `data`, the book's own properties, one
+raw record per entry, with `cardSourceGaps` naming what would not fit — and six test files
+pin the round trip. So their §2.3 is not a missing feature to build from scratch: it is a
+design line already drawn (parsed values are preserved, file bytes are not, and we never
+advertise byte preservation). Their greeting-dedup note was right not to file it as a
+defect (`store.js:764` trims and dedupes on purpose). A 20 000-deep `JSON.parse` did not
+throw here, and both chunk parse paths already `catch → null`, so "deep JSON crashes the
+reader" is not a demonstrated risk either. Nothing was introduced from their §4 list
+(lossless-json, two PRs, three projects — every one hedged as unvalidated, and the hedges
+held).
+
+**So the honest half of it was: say what you did.**
+
+1. `Store.jsonAnomalies` — a scanner, not a parser: duplicate keys with their path and
+   count, and every number whose spelling changes, split by whether the *value* moves
+   (`_dec`/`_decEq` fold 1.0, 1e0 and 1 together, so a re-spelling is not reported as a
+   loss). Bounded at 8 MB, and it says when it did not look rather than implying it did.
+2. `cardFromPngBytes` records `__png`: which chunk was used, which were ignored, which
+   disagreed (`Store._sameVal`), how many were damaged, which keywords the spec does not
+   define, plus the JSON anomalies. All of it inside a `try` — a fault in a note must not
+   cost anyone their import. It is skipped in `cardSourceFor` so it can never be exported
+   as though the author had written it, and `App.prepareImportedCharacter` folds the notes
+   into the import notes the user reads. Import stays read-only (`buf.slice` only).
+3. The world HUD line the memory research asked for (§7): `HW.sessionCounters` reports
+   facts in memory and how many are superseded, the run's own refusal/advisory tally, and
+   last turn's prompt split into state / memory / lore / history / other. `buildPrompt`
+   carries a `costs` bucket per part and `commit` keeps a tally the 50-item HUD cap
+   cannot clip. No model, no measurement apparatus — the record already knew.
+
+**A defect the campaign found, not the letter.** `buildPrompt` re-dates every fact it
+shows (`f.from = t`, "a load-bearing fact never looks oldest") while the block's own
+legend called the bracket "the turn it was learned on". The re-dating is deliberate and
+pinned by `facthistory-test.js:211`, so the behaviour stayed and the label was corrected
+to "the turn it was last relied on". The chat path has a reason for the same rewrite that
+the world path does not — overflow retires the oldest fact there, nothing retires facts in
+the world block — which is a later decision, not this release.
+
+**Reading twice.** `tests/fixtures/parse-oracle.py` is a second reader on purpose:
+struct/zlib for the chunk walk, `json` with `object_pairs_hook` for duplicate keys,
+`parse_int/parse_float` for the literals, `decimal` for whether a number survives,
+CRC-checked and stricter than the app. `tests/card-parse-differential-test.js` runs 10
+synthetic PNGs through both and compares counts, classifications, the anomaly sets, and
+the parsed card field for field — numbers compared as the 64 bits they are, because
+Python prints `1.2345678901234567e+19` and V8 prints `12345678901234567000` for one
+double and both are right. `tests/drift-campaign-test.js` is §7's scripted campaign: 60
+turns of an invented world, planted facts at 8/12/15/20/26/30/31/33/44/47/50/55, probes
+at 20/40/60 for extract, combine, temporal, update and abstain, a save round trip at 40,
+and four invariants checked on *every* turn — no superseded fact in the briefing, every
+current fact in it, the purse equal to the logged deltas only, carrying equal to the tags.
+It came out clean on the first run: no drift in 60 turns.
+
+**Sensitivity, because a green test proves nothing on its own.** Each fix was re-broken by
+hand and the suite caught it: dropping the carried reason → 4 lore failures; emptying the
+notes → 5 provenance + 3 differential; muting the scanner → 7 differential; showing
+`factObjects` where `currentFacts` belongs → the campaign fails on 7 turns plus the update
+probe; uncounting the memory bucket → the counters check fails. 124 files, 0 failures;
+`generic-check.js` clean.
+
+One correction to make here rather than lose: I first told you "there is no raw-source
+copy anywhere". That was a bad grep, not a finding — I looked for `rawCard`, `rawJson` and
+`sourceBytes` and missed `cardSource`, which has been the preserve-and-restore mechanism
+since v1.39.113. The claim that survives measurement is narrower and still worth the fix:
+what is preserved are the parsed values, not the bytes, which is exactly why a duplicate
+key and an unholdable number are reported now instead of assumed.
+
 ## v1.42.1 — the card's name stopped doubling up (2026-11-23, shipped)
 
 Reported from the phone: a reply on a cast card opened with its own card name as

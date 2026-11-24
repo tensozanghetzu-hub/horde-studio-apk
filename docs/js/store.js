@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.42.1';
+  var VERSION = '1.42.2';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -893,7 +893,10 @@
       var top = {}, body = {};
       Object.keys(src).forEach(function (k) {
         if (k === 'data' || k === 'spec' || k === 'spec_version' ||
-            k === 'cardSource' || k === 'importNotes') return;
+            /* `__png` is what this app noticed about the file it read, not part of
+               the card: letting it ride into the preserved copy would export a
+               note as if the author had written it. */
+            k === 'cardSource' || k === 'importNotes' || k === '__png') return;
         if (k === 'character_book') return;                 /* kept apart, see below */
         var v = Store._srcClone(src[k], k, acc, 0);
         if (v !== undefined) top[k] = v;
@@ -1583,22 +1586,128 @@
       return Promise.resolve({ key: key, text: utf8(rest) });
     },
 
+    /* v1.42.2: LOOK at a card's own JSON before it is parsed, so the import can
+       say what no parser can know afterwards. Two things about real files are
+       decided by the reader, not written in the file: a key that appears twice in
+       one object (V1: "A mapping in JSON objects with duplicate keys is
+       UNDEFINED BEHAVIOR"; JSON.parse keeps the last), and a number the reader
+       cannot hold (1e999 arrives as Infinity, a 20-digit integer arrives rounded).
+       Neither is a bug here and neither is a reason to refuse a file — so the app
+       reads it the way the spec says and hands the user a note.
+       This is a scanner, not a parser: it tracks where it is (so the note can name
+       a path) and nothing else. It never throws and never claims to have checked
+       more than it did. */
+    _dec: function (tok) {
+      /* a decimal literal as (sign, digits, exponent10), with leading and trailing
+         zeros folded out so 1.0, 1e0 and 1 compare equal while 1e999 does not */
+      var m = /^([+-]?)(\d+)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(String(tok));
+      if (!m) return null;
+      var digits = (m[2] + (m[3] || '')).replace(/^0+/, '');
+      var exp = (m[4] ? parseInt(m[4], 10) : 0) - (m[3] ? m[3].length : 0);
+      if (!digits.length) return { sign: '', digits: '0', exp: 0 };
+      var tz = 0;
+      while (digits.length > 1 && digits.charAt(digits.length - 1) === '0') { digits = digits.slice(0, -1); tz++; }
+      return { sign: m[1] === '-' ? '-' : '', digits: digits, exp: exp + tz };
+    },
+    _decEq: function (a, b) {
+      var x = Store._dec(a), y = Store._dec(b);
+      if (!x || !y) return false;
+      return x.sign === y.sign && x.digits === y.digits && x.exp === y.exp;
+    },
+    jsonAnomalies: function (text) {
+      var s = String(text === null || text === undefined ? '' : text);
+      var out = { dupKeys: [], numbers: [], numberCount: 0, checked: false, scanned: 0 };
+      /* A card's JSON is read on a phone, so the look is bounded: beyond 8 MB the
+         import says nothing rather than pretending to have finished. */
+      if (s.length > 8 * 1024 * 1024) { out.tooBig = s.length; return out; }
+      out.checked = true; out.scanned = s.length;
+      var frames = [], pending = null, i = 0;
+      function trail() { var f = frames[frames.length - 1]; return f ? f.trail : ''; }
+      while (i < s.length) {
+        var c = s.charCodeAt(i);
+        if (c === 32 || c === 10 || c === 9 || c === 13) { i++; continue; }
+        if (c === 123 || c === 91) {                       /* { or [ */
+          var p = frames[frames.length - 1];
+          var here = !p ? '' : (p.kind === 'a' ? p.trail + '[' + p.index + ']'
+            : (pending === null ? p.trail : p.trail + (p.trail ? '.' : '') + pending));
+          frames.push({ kind: c === 123 ? 'o' : 'a', trail: here, index: 0, keys: {} });
+          pending = null; i++; continue;
+        }
+        if (c === 125 || c === 93) { frames.pop(); pending = null; i++; continue; }   /* } or ] */
+        var fr = frames[frames.length - 1];
+        if (c === 44) { if (fr) { if (fr.kind === 'a') fr.index++; fr.expectKey = fr.kind === 'o'; } i++; continue; }
+        if (c === 58) { if (fr) fr.expectKey = false; i++; continue; }               /* : */
+        if (c === 34) {                                    /* a string */
+          var j = i + 1, esc = false;
+          while (j < s.length) { var d = s.charAt(j); if (esc) { esc = false; } else if (d === '\\') esc = true; else if (d === '"') break; j++; }
+          var raw = s.slice(i + 1, j); i = j + 1;
+          var val; try { val = JSON.parse('"' + raw + '"'); } catch (e) { val = raw; }
+          var f2 = frames[frames.length - 1];
+          if (f2 && f2.kind === 'o' && f2.expectKey !== false) {
+            /* the first repeat is recorded, a third copy of the same key only
+               raises its count — three is the shape of a hand-edited file, and a
+               note that says "twice" when it said it three times is worse than one
+               that says nothing */
+            f2.keys[val] = (f2.keys[val] || 0) + 1;
+            if (f2.keys[val] === 2) {
+              var rec = { path: (f2.trail ? f2.trail + '.' : '') + val, key: val, count: 2 };
+              f2.dups = f2.dups || {};
+              f2.dups[val] = rec;
+              out.dupKeys.push(rec);
+            } else if (f2.keys[val] > 2 && f2.dups && f2.dups[val]) {
+              f2.dups[val].count = f2.keys[val];
+            }
+            pending = val;
+          } else { pending = null; }
+          continue;
+        }
+        var head = s.charAt(i);
+        if (head === '-' || (head >= '0' && head <= '9')) {
+          var k = i;
+          while (k < s.length && /[-+.eE0-9]/.test(s.charAt(k))) k++;
+          var tok = s.slice(i, k); i = k;
+          out.numberCount++;
+          var v2 = Number(tok);
+          var written = isFinite(v2) ? String(v2) : (v2 > 0 ? 'Infinity' : (v2 < 0 ? '-Infinity' : 'NaN'));
+          if (written !== tok) out.numbers.push({ token: tok, as: written, lossy: !isFinite(v2) || !Store._decEq(tok, written) });
+          pending = null;
+          continue;
+        }
+        var m2 = /^(true|false|null)/.exec(s.slice(i));
+        if (m2) { i += m2[1].length; pending = null; continue; }
+        /* anything else is not JSON this scanner recognises: stop looking rather
+           than walk the rest of a file that will not parse anyway */
+        break;
+      }
+      out.lostNumbers = out.numbers.filter(function (n) { return n.lossy; });
+      return out;
+    },
+
     /* A chunk's text -> the card object inside it, or null.
        K1: `ccv3` is base64 per the spec — decode it first. Raw JSON is
        accepted after that because it costs nothing and old local fixtures
        were written that way. `chara` is always base64, but a bare JSON
-       payload there is accepted for the same reason. */
-    cardFromChunkText: function (key, text) {
+       payload there is accepted for the same reason.
+       v1.42.2: an optional `sink` collects the JSON text that was parsed, so the
+       PNG reader can run jsonAnomalies over the bytes that actually became the
+       card — not over a chunk it threw away. */
+    cardFromChunkText: function (key, text, sink) {
       var decodeBase64Json = function (b64) {
         try {
           var bin = atob(String(b64).replace(/\s+/g, ''));
           var bytes = new Uint8Array(bin.length);
           for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i) & 0xff;
-          return JSON.parse(new TextDecoder().decode(bytes));
+          var json = new TextDecoder().decode(bytes);
+          if (sink) sink.json = json;
+          return JSON.parse(json);
         } catch (e) { return null; }
       };
       var parseRaw = function (t) {
-        try { return JSON.parse(String(t).replace(/^\uFEFF/, '').trim()); } catch (e) { return null; }
+        try {
+          var json2 = String(t).replace(/^\uFEFF/, '').trim();
+          if (sink) sink.json = json2;
+          return JSON.parse(json2);
+        } catch (e) { return null; }
       };
       var looksBase64 = /^[A-Za-z0-9+/=\s]+$/.test(String(text).slice(0, 200)) && String(text).trim().length > 8;
       if (key === 'ccv3') {
@@ -1635,18 +1744,26 @@
           Promise.all(chunks.map(function (ch) {
             return Store.pngTextChunk(ch)
               .then(function (t) {
-                if (!t || (t.key !== 'ccv3' && t.key !== 'chara')) return null;
-                var card = Store.cardFromChunkText(t.key, t.text);
-                return card && typeof card === 'object' ? { key: t.key, card: card } : null;
+                /* v1.42.2: a text chunk with no keyword in it is a damaged card,
+                   not an absence of one, and a chunk under some other keyword is
+                   data this app did not use. Both are counted rather than
+                   silently dropped, because both are things the author can act on. */
+                if (!t) return { unreadable: '(truncated)' };
+                if (t.key !== 'ccv3' && t.key !== 'chara') return { other: t.key };
+                var sink = {};
+                var card = Store.cardFromChunkText(t.key, t.text, sink);
+                if (!card || typeof card !== 'object') return { unreadable: t.key };
+                return { key: t.key, type: ch.type, card: card, json: sink.json || '' };
               })
               .catch(function (e) { return { error: e }; });
           })).then(function (found) {
             var usable = found.filter(function (f) { return f && f.card; });
+            var pick = -1;
             var card = null;
             for (var k = 0; k < usable.length; k++) {
-              if (usable[k].key === 'ccv3') { card = usable[k].card; break; }
+              if (usable[k].key === 'ccv3') { pick = k; card = usable[k].card; break; }
             }
-            if (!card && usable.length) card = usable[0].card;
+            if (pick < 0 && usable.length) { pick = 0; card = usable[0].card; }
             if (!card) {
               /* A compressed chunk that could not be inflated is a different
                  failure from "there was no card here", and the person holding
@@ -1655,6 +1772,62 @@
               if (err) throw err.error;
               throw new Error('No character data embedded in this PNG');
             }
+            /* v1.42.2 (the research handoff's §2.2 and §2.1): say which copy was
+               read, when the others disagreed, and what the card's own bytes did
+               that a parser settles silently. Choosing `ccv3` was already the
+               rule; what was missing was telling anyone, so a card that looked
+               wrong gave the author nothing to check. This whole block is
+               inspection only — it reads, it does not touch `card` or `buf` — and
+               it is wrapped so that a fault in a note can never cost a user their
+               import. */
+            try {
+              var notes = [];
+              var ignoredKeys = usable.filter(function (f, ix) { return ix !== pick; }).map(function (f) { return f.key; });
+              var unreadable = found.filter(function (f) { return f && (f.unreadable || f.error); }).length;
+              var unknowns = found.filter(function (f) { return f && f.other; })
+                .map(function (f) { return String(f.other); }).filter(Boolean);
+              var differing = usable.filter(function (f, ix) {
+                return ix !== pick && !Store._sameVal(f.card, card);
+              }).map(function (f) { return f.key; });
+              if (usable.length > 1 || unreadable || unknowns.length) {
+                notes.push('This PNG carried ' + usable.length + ' readable ' +
+                  (usable.length === 1 ? 'copy' : 'copies') + ' of the card data' +
+                  (ignoredKeys.length ? ' (' + ignoredKeys.join(', ') + ' ignored' : '') +
+                  (unreadable ? (ignoredKeys.length ? ', plus ' : ' (') + unreadable + ' chunk' + (unreadable > 1 ? 's' : '') + ' this app could not read' : '') +
+                  (unknowns.length ? (ignoredKeys.length || unreadable ? ', and ' : ' (') + 'data under the keyword' + (unknowns.length > 1 ? 's ' : ' ') + unknowns.join(', ') + ' that the card spec does not define' : '') +
+                  '. The app reads ' + usable[pick].key + ' first' +
+                  (usable[pick].key === 'ccv3' ? ' (the V3 chunk), so a stale copy in the older field cannot shadow it' : '') +
+                  '; nothing in the file was changed.');
+              }
+              if (differing.length) {
+                notes.push('The ignored copies do not say the same thing as the one that was read (' +
+                  differing.join(', ') + '). What this app shows and exports is the ' + usable[pick].key +
+                  ' copy — if that is not the one you meant, the file has to be repaired where it came from.');
+              }
+              var anom = Store.jsonAnomalies(usable[pick].json);
+              card.__png = {
+                chunks: chunks.length, readable: usable.length, used: usable[pick].key,
+                ignored: ignoredKeys, differing: differing, unreadable: unreadable,
+                unknownKeys: unknowns, dupKeys: anom.dupKeys, numbers: anom.numbers,
+                checked: anom.checked, notes: notes
+              };
+              if (anom.dupKeys.length) {
+                notes.push('The card’s own JSON repeats ' + anom.dupKeys.length +
+                  (anom.dupKeys.length === 1 ? ' key' : ' keys') + ' inside one object (' +
+                  anom.dupKeys.slice(0, 3).map(function (d) { return d.path + ' ×' + (d.count || 2); }).join(', ') +
+                  (anom.dupKeys.length > 3 ? ', and ' + (anom.dupKeys.length - 3) + ' more' : '') +
+                  '). A file like that has no single meaning — the card spec calls duplicate keys undefined behaviour — ' +
+                  'and this app keeps the LAST copy, the way JSON.parse does. Nothing was cut to make it fit; if a field ' +
+                  'looks wrong, that is the first thing to check in the file.');
+              }
+              var lost = anom.lostNumbers || [];
+              if (lost.length) {
+                notes.push(lost.length + ' number' + (lost.length === 1 ? '' : 's') + ' in the card’s JSON cannot be held ' +
+                  'as written (' + lost.slice(0, 3).map(function (n) { return n.token + ' → ' + n.as; }).join(', ') +
+                  (lost.length > 3 ? ', and ' + (lost.length - 3) + ' more' : '') + '). The character works normally and ' +
+                  'nothing was dropped, but an export from here writes the app’s form, not the file’s.');
+              }
+            } catch (eNote) { /* the import does not depend on this */ }
             /* A PNG-embedded card IS its own avatar: SillyTavern stores the
                picture in the file, not in the JSON. Attach the file itself
                when the embedded JSON carries no usable char_x of its own.

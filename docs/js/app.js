@@ -600,6 +600,15 @@
   App.prepareImportedCharacter = function (card) {
     var c = Store.cardToCharacter(card);
     c.importNotes = App.importLossNotes(card);
+    /* v1.42.2 (research handoff §2.1/§2.2): what the container itself said. A PNG
+       can carry several copies of the card and a card's JSON can hold a repeated
+       key or a number a reader cannot hold; all three are read by this app in a
+       fixed, defensible way — so the way through is to say which copy was used and
+       what was settled by the parser, not to refuse the file. Collected while the
+       bytes were read, shown here, and never written into the card. */
+    if (card && card.__png && card.__png.notes && card.__png.notes.length) {
+      c.importNotes = c.importNotes.concat(card.__png.notes);
+    }
     /* The notes above promise that an unused field still stays in the card.
        That is only true when the source copy fitted, so say plainly when it did
        not, rather than leave a reassurance that does not hold. */
@@ -3844,6 +3853,10 @@
     phaseOne().then(function (entries) {
       settled = entries;
       var built = HW.buildPrompt(world, base, text, { settled: settled });
+      /* v1.42.2 (§7): the turn's cost, kept on the run so the sheet can show what
+         the budget is being spent on. Numbers only — it is never read back into a
+         prompt, and a run that loses it simply shows nothing. */
+      try { if (run && built && built.costs) run.promptCosts = built.costs; } catch (e) { }
       return API.generate({
         settings: s,
         /* the world is the referee: its own prompt is the whole system prompt */
