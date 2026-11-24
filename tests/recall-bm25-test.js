@@ -507,5 +507,133 @@ console.log('\nG — one speaker label per recalled line');
 })();
 
 
+console.log('\nH — the screen, rendered');
+
+/* A source regex proves the file contains a string. It does not prove that clicking
+   the switch writes the key, that the slider reaches the number, or that the ids in the
+   markup are the ids the handlers were given — which is how a settings row ships dead.
+   So: load views.js against a fake DOM whose elements remember their listeners, run
+   the real screen, and fire the real clicks. */
+(function () {
+  var saved = [];
+  function makeEl(sel) {
+    var el = {
+      sel: sel, value: '', textContent: '', innerHTML: '', checked: false,
+      handlers: {},
+      classList: {
+        names: {}, toggled: [],
+        add: function (c) { this.names[c] = 1; }, remove: function (c) { delete this.names[c]; },
+        contains: function (c) { return !!this.names[c]; },
+        toggle: function (c, on) { this.toggled.push(c + '=' + on); if (on) this.names[c] = 1; else delete this.names[c]; }
+      },
+      addEventListener: function (ev, fn) { (this.handlers[ev] = this.handlers[ev] || []).push(fn); },
+      fire: function (ev, e) { (this.handlers[ev] || []).forEach(function (f) { f(e || {}); }); },
+      appendChild: function () {}, remove: function () {}, focus: function () {},
+      querySelector: function (x) { return pool(x); },
+      querySelectorAll: function () { return []; },
+      setAttribute: function () {}, getAttribute: function () { return null; },
+      insertAdjacentHTML: function (_, h) { this.innerHTML += h; },
+      scrollIntoView: function () {}, blur: function () {}, click: function () { this.fire('click'); }
+    };
+    return el;
+  }
+  var poolMap = {};
+  function pool(sel) {
+    var key = String(sel).replace(/^[#.]/, '');
+    if (!poolMap[key]) poolMap[key] = makeEl(key);
+    return poolMap[key];
+  }
+  var settings = { userName: 'Quinn', recallOn: false, recallCount: 6, contextMessages: 40,
+    systemPrompt: 'x', maxTokens: 300, autoMemory: false, memoryEvery: 20 };
+  var doc = {
+    addEventListener: function () {}, removeEventListener: function () {},
+    createElement: function () { return pool('created-' + Math.random()); },
+    querySelector: function (sel) { return pool(sel); },
+    querySelectorAll: function () { return []; },
+    body: pool('body'), documentElement: pool('html')
+  };
+  var viewsSrc = fs.readFileSync(path.join(ROOT, 'js', 'views.js'), 'utf8');
+  var sb = {
+    console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise, Object: Object,
+    Array: Array, String: String, Number: Number, RegExp: RegExp, Error: Error, isNaN: isNaN,
+    parseFloat: parseFloat, parseInt: parseInt, setTimeout: setTimeout, clearTimeout: clearTimeout,
+    document: doc, navigator: { userAgent: 'node' }, location: { href: 'http://x/', hash: '' },
+    localStorage: { getItem: function () { return null; }, setItem: function () {}, removeItem: function () {} },
+    requestAnimationFrame: function () { return 0; }, addEventListener: function () {},
+    Image: function () {}, URL: global.URL || function () {}, btoa: function (s) { return ''; },
+    UI: {
+      esc: function (v) { return String(v == null ? '' : v); },
+      md: function (v) { return String(v || ''); },
+      icon: function (n) { return '<i data-icon="' + n + '"></i>'; },
+      toast: function () {}
+    },
+    Store: {
+      settings: settings,
+      saveSettings: function (patch) { Object.assign(settings, patch); saved.push(patch); },
+      personas: [], characters: [], sessions: []
+    },
+    API: API
+  };
+  sb.window = sb; sb.global = sb;
+  try {
+    vm.runInNewContext(viewsSrc, sb, { filename: 'views.js' });
+  } catch (e) {
+    ok('views.js loads against a DOM with no recall-specific scaffolding', false, String(e && e.message));
+    return;
+  }
+  var Views = sb.Views;
+  ok('the Memory screen is a real view', typeof Views.settingsMemory === 'function');
+  poolMap = {}; saved.length = 0;
+  try { Views.settingsMemory(); } catch (e) { ok('rendering the Memory screen does not throw', false, String(e && e.message)); return; }
+  var html = pool('#settings-x-body'.replace('#', '#')).innerHTML || '';
+  ok('the screen renders the recall group, the switch and the slider',
+    /Recall/.test(html) && /id="t-recall"/.test(html) && /id="set-recallcount"/.test(html) &&
+    /id="v-recallcount"/.test(html), String(html.length));
+  ok('…and the hint says what it does in words a user needs',
+    /BM25/.test(html) && /nothing uploaded/.test(html) && /prompt cache keeps its discount/.test(html));
+
+  /* the click: the id in the markup has to be the id the handler was given, and the
+     key it writes has to be the key the store and api.js read */
+  var toggle = pool('#t-recall');
+  ok('…and the switch is wired', toggle.handlers.click && toggle.handlers.click.length === 1,
+    JSON.stringify(toggle.handlers && Object.keys(toggle.handlers)));
+  toggle.fire('click');
+  ok('…clicking it writes recallOn, once', saved.length === 1 && saved[0].recallOn === true, JSON.stringify(saved));
+  ok('…and the store now agrees, which is all api.js reads', settings.recallOn === true && API.recallEnabled(settings) === true,
+    JSON.stringify(settings.recallOn));
+  eq('…and the row records that it is on', toggle.classList.toggled.join(','), 'on=true');
+  saved.length = 0;
+  pool('#t-recall').fire('click');
+  eq('…clicking again writes it back off', saved[0] && saved[0].recallOn, false);
+
+  var rng = pool('#set-recallcount');
+  ok('the slider is wired to input, not to change', rng.handlers.input && !rng.handlers.change);
+  saved.length = 0;
+  rng.value = '9';
+  rng.fire('input');
+  ok('…and a dragged slider writes the count and repaints the number',
+    saved.length === 1 && saved[0].recallCount === 9 && pool('#v-recallcount').textContent === 9,
+    JSON.stringify(saved) + ' / ' + pool('#v-recallcount').textContent);
+  saved.length = 0;
+  rng.value = '99';
+  rng.fire('input');
+  ok('…the row shows what the engine will actually use (clamped), not what was typed',
+    pool('#v-recallcount').textContent === 99 && API.recallCount(settings) === 12,
+    pool('#v-recallcount').textContent + ' shown, ' + API.recallCount(settings) + ' used');
+
+  /* the note under the slider reads the last real request */
+  var h = fixture(ASK);
+  API.buildChat(char, sess, h, Object.assign({}, on, { recallOn: true }));
+  var asm = API.lastAssembly();
+  ok('a request with recall on left a record for the screen to read', asm && asm.recall && asm.recall.on,
+    JSON.stringify(asm && asm.recall));
+  poolMap = {}; saved.length = 0;
+  Views.settingsMemory();
+  var html2 = pool('#settings-x-body').innerHTML || '';
+  ok('…and after re-render, the note quotes it instead of printing a zero',
+    /Last request: looked through \d+ older messages/.test(html2), (html2.match(/Last request:[^<]*/) || [''])[0].slice(0, 120));
+})();
+
+
 console.log('\n' + (fail ? 'FAILED — ' : 'ok — ') + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

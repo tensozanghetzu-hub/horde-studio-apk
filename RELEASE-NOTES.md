@@ -76,7 +76,7 @@ older than the cap, the oldest episodes are out of reach.
 
 ## Checks
 
-`tests/recall-bm25-test.js` (95 checks) and `tests/recap-window-test.js` (22). The
+`tests/recall-bm25-test.js` (108 checks) and `tests/recap-window-test.js` (22). The
 recall suite is not a set of string matches: it ranks a 60-turn campaign through the
 LongMemEval question types (extract, combine, temporal, update, abstain) and asserts on
 the request the app would send, including one check that documents the limit above. The

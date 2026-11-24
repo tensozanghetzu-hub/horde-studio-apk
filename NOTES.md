@@ -51,17 +51,21 @@ with no scene cast to check it against. `lastAssembly.recall` records
 `{on, passages, corpus, ranked, dropped, tokens, scanned, from}` and the Memory screen
 reads it, naming what the search cap never read rather than calling it empty.
 
-**`tests/recall-bm25-test.js` (133rd suite, 95 checks)** ranks a 60-turn campaign through
+**`tests/recall-bm25-test.js` (133rd suite, 108 checks)** ranks a 60-turn campaign through
 the LongMemEval types and asserts on the request the app would send. One check is the
 limit, written as a check: *"phrased without the thread's words, nothing is fetched — no
 guessing, no invented recall"*, because an engine with no model answers what the words
-point at and a user deserves to know that. `/tmp/mutate.py` grew from twelve breaks to
-twenty-four; every one turns a suite red, and three of them were only caught after the
-fixture was rebuilt: a two-element tie proves nothing (a comparator may be asked about a
+point at and a user deserves to know that. The suite also renders the real screen:
+`views.js` is loaded against a fake DOM whose elements remember their listeners,
+`Views.settingsMemory()` is called, and the test fires the click and the slider input —
+which is the only way in this repo to catch a switch whose id and whose store key
+disagree. `/tmp/mutate.py` grew from twelve breaks to twenty-seven and every one of them
+turns a suite red, but three only did so after the fixture was rebuilt, which is what the
+harness is for: a **two-element tie proves nothing** (a comparator may be asked about a
 pair in either direction, so the tie fixture is now six equal-scoring passages among
-twenty-four), the one-word gate needed a doc that shares exactly one of two terms, and
-the search cap needed its fixture at the boundary — the newest line not read next to the
-oldest line read.
+twenty-four), the one-word gate needed a document sharing exactly one of two terms, and
+the search cap needed its fixture straddling the boundary — the newest line not read next
+to the oldest line read.
 
 **Two anchors rotted and were re-set, not deleted:** `labels-and-window-test.js`
 "each builder opens exactly one window" now counts three (chat, prompt, recap), and
