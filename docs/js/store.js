@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.44.0';
+  var VERSION = '1.45.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -100,6 +100,13 @@
     bursts: true,
     stripThinking: true,
     /* v1.43.0 */ replyFallback: '', reasoningOff: false,
+    /* v1.45.0: display-only text scripts. `regexOn` is the switch the Generation
+       screen owns, so its reset restores it; `regexScripts` is the list itself and
+       the reset leaves it alone — putting a temperature back is a setting, deleting
+       somebody's five saved rules is data. The list is always replaced whole
+       (never pushed into), so DEFAULTS' array is never a shared mutable. */
+    regexOn: false,
+    regexScripts: [],
     updateUrl: '',
     autoFinish: true,       /* keep going when a reply comes back cut off */
     hordeKey: '',
@@ -124,7 +131,9 @@
      The reset button builds its patch from exactly this list - provider, key,
      model, personas, theme are somebody else's screen and must not move. */
   var GEN_KEYS = ['temperature', 'maxTokens', 'topP', 'contextMessages',
-                  'streaming', 'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter', 'replyFallback', 'reasoningOff'];
+                  'streaming', 'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter', 'replyFallback', 'reasoningOff',
+                  /* v1.45.0: the switch only. See DEFAULTS for why the list stays out. */
+                  'regexOn'];
 
   var Store = {
     settings: null,

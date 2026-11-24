@@ -876,10 +876,11 @@
     });
   };
 
-  App.openSession = function (id) {
+  App.openSession = function (id, opts) {
+    opts = opts || {};
     App.stopSpeech();
     App.state.attach = null; App.renderAttach();   /* staging belongs to the chat you leave */
-    IDB.get('sessions', id).then(function (s) {
+    return IDB.get('sessions', id).then(function (s) {
       if (!s) return UI.toast('Chat not found');
       return Promise.resolve(Store.getCharacter(s.charId)).then(function (c) {
         var memberIds = Array.isArray(s.groupCharIds) ? s.groupCharIds : [];
@@ -898,6 +899,8 @@
             App.initSceneCast(c, s);
             App.renderSceneCast();
             $('#input').focus();
+            /* v1.45.0: a search hit is only useful if it takes you to the line. */
+            if (opts.focusMid) App.focusMessage(opts.focusMid);
           });
         });
       });
@@ -1829,12 +1832,14 @@
     UI.sheet({
       title: 'Export transcript',
       body: '<div class="opt" data-a="text">' + icon('edit') + ' For reading (.txt)</div>' +
+        '<div class="opt" data-a="md">' + icon('edit') + ' For publishing (.md)</div>' +
         '<div class="opt" data-a="json">' + icon('download') + ' Backup (.json) — for Horde Studio</div>',
       onMount: function (b, close) {
         b.querySelectorAll('.opt').forEach(function (el) {
           el.onclick = function () {
             var a = el.getAttribute('data-a'); close();
             if (a === 'text') App.exportTranscript(id);
+            else if (a === 'md') App.exportTranscript(id, 'md');
             else App.exportTranscriptJson(id);
           };
         });
@@ -2390,37 +2395,418 @@
     });
   };
 
-  App.exportTranscript = function (id) {
-    Promise.all([IDB.get('sessions', id), Store.getMessages(id)]).then(function (r) {
+  /* ---------------- text scripts (v1.45.0) ----------------
+   * The list is replaced whole, never mutated in place, because DEFAULTS' array is
+   * shared by every settings merge. `close: false` on Save is deliberate: a rule
+   * that would freeze the screen has to be refused while the user can still fix it,
+   * not accepted and reported afterwards. */
+  App.regexSampleText = function () {
+    var msgs = App.state && App.state.messages;
+    if (Array.isArray(msgs)) {
+      for (var i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i] && msgs[i].role === 'assistant' && String(msgs[i].text || '').length > 40) {
+          return String(msgs[i].text);
+        }
+      }
+    }
+    return 'She looked up from the ledger. "Alice: get down here," he shouted over the rain, ' +
+      'and the lamp turned twice before it caught. *a stage direction you did not ask for*';
+  };
+
+  App.regexScriptsSheet = function () {
+    var list = Array.isArray(Store.settings.regexScripts) ? Store.settings.regexScripts.slice() : [];
+    var rows = list.map(function (sc, i) {
+      var find = String(sc.pattern || '');
+      if (find.length > 46) find = find.slice(0, 43) + '…';
+      var repl = String(sc.replacement == null ? '' : sc.replacement);
+      if (repl.length > 26) repl = repl.slice(0, 23) + '…';
+      return '<div class="opt" data-idx="' + i + '" style="align-items:flex-start;gap:8px">' +
+        '<span style="flex:1;min-width:0"><b style="display:block">' + esc(sc.name || 'Script ' + (i + 1)) +
+        (sc.enabled === false ? ' <span style="color:var(--dim);font-weight:400">off</span>' : '') + '</b>' +
+        '<code style="display:block;font-size:11.5px;overflow-wrap:anywhere">' + esc(find) + '</code>' +
+        '<span style="display:block;font-size:11.5px;color:var(--muted);margin-top:2px">→ ' +
+        (repl ? esc(repl) : '<i>deleted</i>') + '</span></span></div>';
+    }).join('');
+    return UI.sheet({
+      title: 'Text scripts',
+      body:
+        '<div class="hint" style="margin:0 0 8px">' +
+        (Store.settings.regexOn
+          ? 'On — these run over each reply as it is drawn, and over chat lists. The stored chat is never changed.'
+          : '<b>Off.</b> These rules are kept, but nothing is changed on screen until you switch scripts on in Settings → Generation.') +
+        '</div>' +
+        (rows || '<div class="hint" style="margin:0 0 8px">No rules yet. A rule is a find pattern and a replacement: ' +
+          'for a habit the model has that you cannot train out, a name you want shortened, a marker you want gone.</div>') +
+        '<div class="opt" data-new="1">' + icon('plus') + ' Add a rule</div>' +
+        (list.length
+          ? '<div class="opt" data-toggle-all="1">' + icon('refresh') + ' ' +
+            (Store.settings.regexOn ? 'Turn all scripts off' : 'Turn all scripts on') + '</div>'
+          : ''),
+      dismissible: true,
+      onMount: function (b, close) {
+        Array.prototype.forEach.call(b.querySelectorAll('.opt'), function (el) {
+          el.onclick = function () {
+            var idx = el.getAttribute('data-idx');
+            if (idx !== null) { close(); App.regexScriptEditor(Number(idx), list); return; }
+            if (el.getAttribute('data-new') !== null) { close(); App.regexScriptEditor(-1, list); return; }
+            if (el.getAttribute('data-toggle-all') !== null) {
+              Store.saveSettings({ regexOn: Store.settings.regexOn !== true });
+              close();
+            }
+          };
+        });
+      }
+    });
+  };
+
+  App.regexScriptEditor = function (idx, list) {
+    var cur = (idx >= 0 && list[idx]) ? list[idx] : { name: '', pattern: '', replacement: '$1', flags: 'gi', enabled: true };
+    var sample = App.regexSampleText();
+    var preview = function (sc) {
+      var t = API.scriptTest(sc.pattern, sc.replacement, sc.flags, sample);
+      if (!t.ok) return '<div class="hint" style="margin-top:8px;color:#e5484d">' + esc(t.why) + '</div>';
+      return '<div class="hint" style="margin-top:8px">' +
+        (t.hits ? t.hits + ' match' + (t.hits === 1 ? '' : 'es') + ' in the sample' : 'Nothing in the sample matches this pattern yet') +
+        ' · ' + t.ms + ' ms</div>' +
+        (t.changed
+          ? '<div class="hint" style="margin-top:6px"><b>Before</b><div style="margin-top:2px;overflow-wrap:anywhere">' + esc(t.before) + '</div></div>' +
+            '<div class="hint" style="margin-top:6px"><b>After</b><div style="margin-top:2px;overflow-wrap:anywhere">' + esc(t.after) + '</div></div>'
+          : '');
+    };
+    var read = function (b) {
+      return {
+        id: cur.id || UI.uid('rx'),
+        name: String(b.querySelector('#rx-name').value || '').trim().slice(0, 60),
+        pattern: String(b.querySelector('#rx-pattern').value || '').slice(0, 400),
+        replacement: String(b.querySelector('#rx-repl').value || '').slice(0, 400),
+        flags: String(b.querySelector('#rx-flags').value || 'gi').slice(0, 8),
+        enabled: cur.enabled !== false
+      };
+    };
+    UI.sheet({
+      title: idx >= 0 ? 'Edit script ' + (idx + 1) : 'New script',
+      body:
+        '<div class="field"><div class="field-head"><label>Name (optional)</label></div>' +
+          '<input id="rx-name" maxlength="60" value="' + esc(cur.name || '') + '" placeholder="no asterisks"></div>' +
+        '<div class="field"><div class="field-head"><label>Find</label></div>' +
+          '<textarea id="rx-pattern" class="tall" placeholder="what to look for"></textarea>' +
+          '<div class="hint">A JavaScript regular expression, written the way you would write one in code. ' +
+          'It is tried against the reply you last received, or a sample passage if this chat has none.</div></div>' +
+        '<div class="field"><div class="field-head"><label>Replace with</label></div>' +
+          '<textarea id="rx-repl" placeholder="$1">' + esc(cur.replacement == null ? '' : cur.replacement) + '</textarea>' +
+          '<div class="hint">Leave it empty to delete what the pattern finds. ' +
+          'Dollar-one, dollar-two and dollar-zero refer back to the matched groups.</div></div>' +
+        '<div class="field"><div class="field-head"><label>Flags</label></div>' +
+          '<input id="rx-flags" maxlength="8" value="' + esc(cur.flags || 'gi') + '" placeholder="gi">' +
+          '<div class="hint">g for every occurrence, i to ignore case, m for line anchors, s so a dot matches a newline. ' +
+          'Anything else is ignored; g is always on, since a rule that only fixes the first instance surprises people.</div></div>' +
+        '<div id="rx-prev">' + preview(cur) + '</div>',
+      onMount: function (b) {
+        ['rx-pattern', 'rx-repl', 'rx-flags'].forEach(function (idv) {
+          var el = b.querySelector('#' + idv);
+          if (el) el.oninput = function () {
+            var box = b.querySelector('#rx-prev');
+            if (box) box.innerHTML = preview(read(b));
+          };
+        });
+      },
+      actions: [
+        { label: 'Save', cls: 'primary', close: false, onClick: function (b) {
+            var sc = read(b);
+            var t = API.scriptTest(sc.pattern, sc.replacement, sc.flags, sample);
+            if (!t.ok) { UI.toast(t.why, 7000); return; }
+            var next = list.slice();
+            if (idx >= 0) next[idx] = sc; else next.push(sc);
+            Store.saveSettings({ regexScripts: next });
+            UI.toast('Script saved' + (Store.settings.regexOn ? '' : ' — still switched off in Settings'), 6000);
+            UI.closeSheet();
+          } },
+        idx >= 0 ? { label: cur.enabled === false ? 'Enable' : 'Disable', cls: 'ghost', close: false, onClick: function (b) {
+            var sc = read(b);
+            sc.enabled = cur.enabled === false;
+            var next = list.slice();
+            next[idx] = sc;
+            Store.saveSettings({ regexScripts: next });
+            UI.closeSheet();
+          } } : null,
+        idx >= 0 ? { label: 'Delete', cls: 'danger', onClick: function () {
+            var next = list.slice();
+            next.splice(idx, 1);
+            Store.saveSettings({ regexScripts: next });
+            UI.toast('Script deleted');
+          } } : null,
+        { label: 'Cancel', cls: 'ghost', value: null }
+      ].filter(Boolean)
+    });
+  };
+
+  /* One assembly, two renderers (v1.45.0). The .txt export used to build its text and
+     its memory block inside one expression, so a second format meant either copying
+     that logic — and drifting from it — or not offering the format. The rows are
+     decided once here, speaker labels and retired facts included, and each renderer
+     only says them in its own voice. Display scripts are NOT applied: a transcript is
+     what the model wrote, not what your screen showed. */
+  App.transcriptParts = function (s, c, msgs) {
+    var turns = (msgs || []).map(function (m) {
+      if (m.role === 'user') {
+        return { who: Store.settings.userName, text: m.text || '', image: m.image || null, caption: m.imageCaption || null, me: true };
+      }
+      var sp = API.splitSpeaker(c, s, m.text || '');
+      return { who: sp.name, text: sp.text, image: m.image || null, caption: m.imageCaption || null, me: false };
+    });
+    return {
+      turns: turns,
+      createdAt: s && s.createdAt,
+      summary: (s && s.summary) || '',
+      facts: API.chatFactObjects(s).filter(function (f) { return f.to === null || f.to === undefined; }),
+      retired: API.pastChatFacts(s),
+      hasMemory: !!(s && s.summary) || API.chatFactObjects(s).length > 0 || API.pastChatFacts(s).length > 0
+    };
+  };
+  App.renderTranscriptTxt = function (parts, title, charName) {
+    return '# ' + charName + ' — ' + title + '\n' +
+      '# ' + new Date(parts.createdAt || Date.now()).toLocaleString() + '\n\n' +
+      parts.turns.map(function (t) {
+        return t.who + ': ' + t.text + (t.image ? '\n[image: ' + t.image + ']' : '');
+      }).join('\n\n') +
+      (parts.hasMemory
+        ? '\n\n---\nMemory: ' + parts.summary +
+          parts.facts.map(function (f) { return '\n- ' + f.text; }).join('') +
+          (parts.retired.length
+            ? '\n\nNo longer true:\n' + parts.retired.map(function (f) {
+                return '- ' + f.text + ' (until message ' + (f.to || 0) + ')';
+              }).join('')
+            : '')
+        : '');
+  };
+  App.renderTranscriptMd = function (parts, title, charName) {
+    var out = ['# ' + charName + ' — ' + title, '',
+      '_Exported ' + new Date(parts.createdAt || Date.now()).toLocaleString() + ' · ' +
+      parts.turns.length + ' messages_', ''].join('\n');
+    out += parts.turns.map(function (t) {
+      var block = '**' + t.who + ':** ' + String(t.text || '').trim();
+      if (t.image) block += '\n\n' + (t.caption ? '![' + t.caption + '](' + t.image + ')' : '_(image attached)_');
+      return block;
+    }).join('\n\n');
+    if (parts.hasMemory) {
+      out += '\n\n---\n\n## What the chat remembered';
+      if (parts.summary) out += '\n\n> ' + String(parts.summary).split('\n').join('\n> ');
+      if (parts.facts.length) {
+        out += '\n\nStill true:\n' + parts.facts.map(function (f) {
+          return '- ' + f.text + ' (from message ' + (f.from || 0) + ')';
+        }).join('\n');
+      }
+      if (parts.retired.length) {
+        out += '\n\nNo longer true:\n' + parts.retired.map(function (f) {
+          return '- ' + f.text + ' (stopped being true at message ' + (f.to || 0) + ')';
+        }).join('\n');
+      }
+    }
+    return out + '\n';
+  };
+  /* ---------------- searching inside chats (v1.45.0) ----------------
+   * The box used to answer from the sessions index alone: character name, title,
+   * summary. Good for finding "the one with Marcus", useless for "the chat where
+   * the boat sank" — that phrase is 140 messages deep and the title is "New chat".
+   * Message bodies live in a separate store with no text index, so this is a scan,
+   * not a query: the indexed part answers immediately and the scan paints itself in
+   * when it finishes. Both bounds are deliberate. A phone can read a few hundred
+   * chats; it should not look like it hung while doing it, so the scan yields
+   * between chats, says how far it got, and stops rather than walking a
+   * four-figure archive for a two-letter word. */
+  var SEARCH_MIN_CHARS = 3;        /* below this, "a" matches every chat in the app */
+  var SEARCH_SCAN_SESSIONS = 250;
+  var SEARCH_SCAN_MESSAGES = 400;
+  var SEARCH_SNIPPET = 90;
+
+  App.searchWords = function (q) {
+    return String(q || '').trim().toLowerCase().split(/\s+/).filter(function (w) {
+      return w.length >= 2;
+    }).slice(0, 8);
+  };
+
+  /* One entry point, so typing, clearing and the jump all leave the same state
+     behind: the query, the words to look for, and a scan that has not yet been
+     allowed to start — a keystroke in the middle of a word must not fire 250
+     IndexedDB reads. */
+  App.setChatSearch = function (q) {
+    App.state.chatSearch = q;
+    if (App.state.searchTimer) { clearTimeout(App.state.searchTimer); App.state.searchTimer = null; }
+    var words = App.searchWords(q);
+    App.state.searchRun = (App.state.searchRun || 0) + 1;   /* any scan in flight is now stale */
+    if (String(q || '').trim().length < SEARCH_MIN_CHARS || !words.length) {
+      App.state.search = null;
+    } else {
+      App.state.search = {
+        q: String(q).trim().toLowerCase(), words: words, hits: {},
+        scanned: 0, total: 0, running: true, done: false, capped: false,
+        run: App.state.searchRun
+      };
+    }
+    var root = $('.screen');
+    if (root) Views.chats(root);
+    if (App.state.search) {
+      App.state.searchTimer = setTimeout(function () {
+        App.state.searchTimer = null;
+        App.searchBodies();
+      }, 260);
+    }
+  };
+
+  /* Read every chat's tail. Resolves with the hit map; the list is repainted as it
+     goes, because a scan nobody can see is worse than a slow one. */
+  App.searchBodies = function () {
+    var st = App.state.search;
+    if (!st || st.run !== App.state.searchRun) return Promise.resolve({});
+    var repaint = function () {
+      if (st.run !== App.state.searchRun) return;
+      var root = $('.screen');
+      if (root && App.state.screen !== 'chat') { try { Views.chats(root); } catch (e) { /* view is gone */ } }
+    };
+    return IDB.getAll('sessions').then(function (all) {
+      if (st.run !== App.state.searchRun) return st.hits;
+      var pool = (all || []).filter(function (s) { return !s.archived || App.state.showArchived; });
+      var list = pool.slice(0, SEARCH_SCAN_SESSIONS);
+      if (pool.length > list.length) st.capped = true;
+      st.total = list.length;
+      var i = 0;
+      var step = function () {
+        if (st.run !== App.state.searchRun) return st.hits;
+        if (i >= list.length) {
+          st.running = false; st.done = true; repaint();
+          return st.hits;
+        }
+        var s = list[i]; i++;
+        return Promise.resolve(Store.getMessages(s.id)).then(function (msgs) {
+          if (st.run !== App.state.searchRun) return st.hits;
+          if (msgs && msgs.length > SEARCH_SCAN_MESSAGES) st.capped = true;
+          var hit = App.scanForWords(msgs || [], st.words);
+          if (hit.count) st.hits[s.id] = hit;
+          st.scanned = i;
+          if (i % 5 === 0) repaint();
+          return step();
+        }, function () { return step(); });
+      };
+      return step();
+    }, function () { st.running = false; st.done = true; return st.hits; });
+  };
+
+  /* The oldest match wins the jump, not the newest: a chat you are looking for by
+     what happened in it usually starts before the moment you remember. Words are
+     ANDed within a message, the same rule the titles use, so a two-word query does
+     not turn up every chat that mentions either of them. */
+  App.scanForWords = function (msgs, words) {
+    var out = { count: 0, first: null, snippet: '', role: '' };
+    var list = (msgs && msgs.length > SEARCH_SCAN_MESSAGES)
+      ? msgs.slice(msgs.length - SEARCH_SCAN_MESSAGES) : (msgs || []);
+    for (var k = 0; k < list.length; k++) {
+      var m = list[k];
+      if (!m) continue;
+      var hay = String(m.text || '');
+      if (!hay) continue;
+      var low = hay.toLowerCase(), at = -1, ok = true;
+      for (var w = 0; w < words.length; w++) {
+        var idx = low.indexOf(words[w]);
+        if (idx < 0) { ok = false; break; }
+        if (at < 0 || idx < at) at = idx;
+      }
+      if (!ok || at < 0) continue;
+      if (!out.first) { out.first = m.id; out.role = m.role === 'user' ? 'you' : 'reply'; }
+      if (out.count < 25) {
+        out.count++;
+        if (out.count === 1) out.snippet = App.searchCut(hay, at);
+      }
+    }
+    return out;
+  };
+
+  App.searchCut = function (text, at) {
+    var start = Math.max(0, at - Math.floor(SEARCH_SNIPPET / 3));
+    var end = Math.min(text.length, start + SEARCH_SNIPPET);
+    return (start > 0 ? '…' : '') + text.slice(start, end).replace(/\s+/g, ' ').trim() +
+      (end < text.length ? '…' : '');
+  };
+
+  /* The row prints the matched words itself. Words are escaped for the regex and
+     the text is escaped for HTML, in that order — the other way round the marks
+     eat the entities. */
+  App.searchSnippet = function (hit, words) {
+    var raw = String((hit && hit.snippet) || '');
+    var re = null;
+    try {
+      var alts = (words || []).filter(function (w) { return w && w.length >= 2; })
+        .map(function (w) { return w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
+      if (alts.length) re = new RegExp('(' + alts.join('|') + ')', 'gi');
+    } catch (e) { re = null; }
+    if (!re) return esc(raw);
+    var out = '', last = 0, guard = 0;
+    raw.replace(re, function (mm, g1, pos) {
+      if (guard++ > 60) return mm;
+      out += esc(raw.slice(last, pos)) + '<mark>' + esc(mm) + '</mark>';
+      last = pos + mm.length;
+      return mm;
+    });
+    return out + esc(raw.slice(last));
+  };
+
+  App.searchProgress = function () {
+    var st = App.state.search;
+    if (!st || st.done) return '';
+    var t = 'Reading ' + st.scanned + (st.total ? ' of ' + st.total : '') + ' chats for that phrase…';
+    if (st.capped) t += ' (stopped early — a longer phrase narrows it)';
+    return t;
+  };
+
+  /* Jumping in from a result: land on the message, and light every other one that
+     matches so you can see how much of the chat the phrase runs through. DOM-only
+     on purpose — the marks must not reach the stored thread, and re-rendering it
+     is the whole undo. */
+  App.focusMessage = function (mid) {
+    var thread = $('#thread');
+    if (!thread) return;
+    var lit = 0;
+    var words = App.searchWords(App.state.chatSearch || '');
+    if (words.length) {
+      Array.prototype.forEach.call(thread.querySelectorAll('.msg'), function (el) {
+        var t = (el.textContent || '').toLowerCase();
+        if (words.every(function (w) { return t.indexOf(w) !== -1; })) {
+          if (!mid || el.getAttribute('data-mid') !== String(mid)) { el.classList.add('msg-hit'); lit++; }
+        }
+      });
+    }
+    var el = null;
+    if (mid && /^[\w:-]+$/.test(String(mid))) {
+      el = thread.querySelector('.msg[data-mid="' + mid + '"]');
+    }
+    if (el) {
+      el.classList.remove('msg-hit');
+      el.classList.add('msg-find');
+      if (el.scrollIntoView) { try { el.scrollIntoView({ block: 'center' }); } catch (e) { el.scrollIntoView(); } }
+      setTimeout(function () { el.classList.remove('msg-find'); }, 2800);
+      /* v1.45.0: the count is a footnote to a jump that worked. Toasts replace
+         each other, so reporting it after a failure would erase the message that
+         mattered — "that line is gone" — with a number nobody asked for. */
+      if (lit) UI.toast(lit + ' other matching message' + (lit === 1 ? '' : 's') + ' here', 3500);
+    } else if (mid) {
+      UI.toast('That message is gone from this chat');
+    }
+  };
+
+  App.exportTranscript = function (id, format) {
+    /* returned, so a caller — or a test — can wait for the file to be built */
+    return Promise.all([IDB.get('sessions', id), Store.getMessages(id)]).then(function (r) {
       var s = r[0], msgs = r[1];
       return Promise.resolve(Store.getCharacter(s.charId)).then(function (c) {
-        var text = '# ' + (c ? c.name : 'Character') + ' — ' + (s.title || 'New chat') + '\n' +
-          '# ' + new Date(s.createdAt).toLocaleString() + '\n\n' +
-          msgs.map(function (m) {
-            if (m.role === 'user') return Store.settings.userName + ': ' + (m.text || '');
-            /* v1.39.86: on a multi-person card every reply used to be labelled
-               with the card's own name, whoever had actually spoken. */
-            var sp = API.splitSpeaker(c, s, m.text || '');
-            return sp.name + ': ' + sp.text + (m.image ? '\n[image: ' + m.image + ']' : '');
-          }).join('\n\n') +
-          (s.summary || (s.facts && s.facts.length)
-            ? '\n\n---\nMemory: ' + (s.summary || '') +
-              API.chatFactObjects(s).filter(function (f) { return f.to === null || f.to === undefined; })
-                .map(function (f) { return '\n- ' + f.text; }).join('') +
-              /* v1.39.104: a fact that stopped being true is history, not noise.
-                 It goes in the export, marked, so the file does not read as if
-                 the chat had simply forgotten it. */
-              (function () {
-                var gone = API.pastChatFacts(s);
-                if (!gone.length) return '';
-                return '\n\nNo longer true:\n' + gone.map(function (f) {
-                  return '- ' + f.text + ' (until message ' + (f.to || 0) + ')';
-                }).join('\n');
-              })()
-            : '');
-        UI.download((c ? c.name : 'chat') + '-' + (s.title || 'chat') + '.txt', text, 'text/plain');
+        var parts = App.transcriptParts(s, c, msgs);
+        var title = s.title || 'New chat', charName = c ? c.name : 'Character';
+        var stem = (charName + '-' + title).replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_');
+        if (format === 'md') {
+          UI.download(stem + '.md', App.renderTranscriptMd(parts, title, charName), 'text/markdown');
+        } else {
+          UI.download(stem + '.txt', App.renderTranscriptTxt(parts, title, charName), 'text/plain');
+        }
       });
-    });
+    }).catch(function (e) { UI.toast('Could not export this chat: ' + (e && e.message), 5000); });
   };
 
   /* ---------------- generation progress ---------------- */
@@ -5695,8 +6081,9 @@
     /* v1.39.0 boot wiring: chat search, photo staging, chat backup import */
     var _chs = $('#chat-search');
     if (_chs) _chs.oninput = function () {
-      App.state.chatSearch = _chs.value;
-      Views.chats($('.screen'));
+      /* v1.45.0: one call, because the bodies scan has to be started and
+         cancelled from the same place the box is emptied. */
+      App.setChatSearch(_chs.value);
     };
     var _att = $('#send-attach');
     if (_att) _att.onclick = function () { App.stageAttach(); };

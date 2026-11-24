@@ -3064,6 +3064,125 @@
      from a cut-off sentence; they can tell at once when shown both. Returns
      null when nothing was removed, so an ordinary reply never stores a second
      copy of itself. */
+  /* ---------------- display scripts (v1.45.0) ----------------
+   * User-authored find/replace rules applied to a bubble as it is rendered, and
+   * nowhere else. That boundary is the whole design: the stored message, the
+   * prompt, the transcript export, the read-aloud text and the `raw` copy behind
+   * the −N chip all keep the model's own words, so a script can never quietly
+   * rewrite the story — it only changes what the screen shows. SillyTavern has
+   * had this for years with prompt-affecting stages; this app starts without
+   * them, because a display bug can be undone by turning a switch off and a
+   * prompt bug cannot.
+   *   - `s.regexOn` is the master switch; a card or a chat cannot turn it on.
+   *   - order matters and is honoured: scripts run top to bottom, each seeing
+   *     what the one before it left.
+   *   - a pattern that will not compile is skipped, not fatal: one bad rule must
+   *     not blank every bubble in the chat.
+   *   - text longer than SCRIPT_MAX is shown raw, so a pathological pattern
+   *     cannot turn a long reply into a frozen phone. */
+  var SCRIPT_MAX_CHARS = 40000;
+  var scriptCache = {};
+  var scriptCacheN = 0;
+  function safeFlags(f) {
+    /* only real RegExp flags, and never `g` twice; the caller's default is gi */
+    var keep = String(f == null ? 'gi' : f).split('').filter(function (c) {
+      return 'gimsuy'.indexOf(c) !== -1;
+    });
+    var out = keep.join('');
+    return out.indexOf('g') === -1 ? 'g' + out : out;
+  }
+  /* The shape that only a backtracking engine can be asked for: a group that is
+   * quantified inside AND after — `(a+)+`, `(.*)*`, `(a+|b)+`. On the wrong input
+   * it is exponential. Refusing it by shape rather than by measurement means the
+   * answer does not depend on how fast this phone happens to be today, and it
+   * costs nothing to check again when a rule is loaded. */
+  function scriptLooksEvil(src) {
+    /* escapes and bracket classes go first: `[^*]` contains a `*` that means a
+       character, not a repeat, and that rule is the one everybody writes. */
+    var bare = String(src || '').replace(/\\.|\[[^\]]*\]/g, 'x');
+    return /\([^()]*[*+][^()]*\)\s*[*+{]/.test(bare);
+  }
+  function compileScript(sc) {
+    var src = String((sc && sc.pattern) || '');
+    var flags = safeFlags(sc && sc.flags);
+    var key = src + '\u0000' + flags;
+    if (Object.prototype.hasOwnProperty.call(scriptCache, key)) return scriptCache[key];
+    var re = null;
+    try { re = new RegExp(src, flags); } catch (e) { re = null; }
+    /* a phone edits these one keystroke at a time; the cache is a convenience,
+       so it is allowed to be small and to forget rather than to grow forever */
+    if (scriptCacheN > 64) { scriptCache = {}; scriptCacheN = 0; }
+    scriptCache[key] = re; scriptCacheN++;
+    return re;
+  }
+  /** The scripts that will actually run for these settings, in order. */
+  function displayScripts(s) {
+    if (!s || s.regexOn !== true) return [];
+    var list = Array.isArray(s.regexScripts) ? s.regexScripts : [];
+    return list.filter(function (x) {
+      if (!x || x.enabled === false) return false;
+      var src = String(x.pattern || '');
+      /* a rule saved by hand into the settings blob, or one that predates the
+         save-time test, still cannot take the screen down */
+      return src.length > 0 && !scriptLooksEvil(src);
+    });
+  }
+  function applyDisplayScripts(text, s) {
+    var list = displayScripts(s);
+    var out = String(text == null ? '' : text);
+    if (!list.length || out.length > SCRIPT_MAX_CHARS) return out;
+    for (var i = 0; i < list.length; i++) {
+      var sc = list[i];
+      var re = compileScript(sc);
+      if (!re) continue;
+      try {
+        re.lastIndex = 0;
+        out = out.replace(re, sc.replacement == null ? '' : String(sc.replacement));
+      } catch (e) {
+        /* `$<name>` with no such group, a replacement that is not a string: the
+           bubble keeps the text it had rather than showing the error */
+      }
+      if (out.length > SCRIPT_MAX_CHARS) return out;
+    }
+    return out;
+  }
+  /** Test one candidate rule before it is allowed into the list. The timing
+   *  check is not decoration: `gi` patterns with nested quantifiers can take
+   *  minutes on a paragraph, and a WebView that hangs on the UI thread has no
+   *  cancel button. `sample` is the text the user last saw (or a stand-in),
+   *  because a rule is usually written against the reply on screen. */
+  function scriptTest(pattern, replacement, flags, sample) {
+    var src = String(pattern || '');
+    if (!src) return { ok: false, why: 'Find something first — an empty pattern matches everywhere.' };
+    var re;
+    try { re = new RegExp(src, safeFlags(flags)); }
+    catch (e) { return { ok: false, why: 'Not a valid regular expression: ' + (e && e.message || e) }; }
+    if (scriptLooksEvil(src)) {
+      return { ok: false, evil: true,
+        why: 'A group repeated inside a repeated group — like (a+)+ — can take a minute on one reply and it ' +
+             'cannot be cancelled once it starts. Write it without the nested repeat, or anchor it.' };
+    }
+    var text = String(sample == null ? '' : sample).slice(0, 6000);
+    if (!text) text = 'She looked up. "Alice: get down here," he shouted, and the lamp turned.';
+    var t0 = Date.now();
+    var before = text, after = text, threw = null;
+    try { re.lastIndex = 0; after = before.replace(re, replacement == null ? '' : String(replacement)); }
+    catch (e) { threw = e && e.message || String(e); }
+    var ms = Date.now() - t0;
+    if (threw) return { ok: false, why: 'The replacement failed: ' + threw };
+    if (ms > 500) {
+      return { ok: false, slow: true, ms: ms,
+        why: 'That pattern took ' + ms + ' ms on one reply. Something this slow on every bubble will stall the ' +
+             'screen — try narrowing it (anchor with ^ or $, or drop a nested * or +).' };
+    }
+    var hits = 0;
+    try { hits = (text.match(re) || []).length; } catch (e) { hits = 0; }
+    return {
+      ok: true, ms: ms, hits: hits, changed: after !== before,
+      before: before.slice(0, 900), after: after.slice(0, 900)
+    };
+  }
+
   function replyProvenance(display, raw) {
     var d = String(display == null ? '' : display);
     var r = String(raw == null ? '' : raw);
@@ -4014,6 +4133,9 @@
     /* the tests read the assembled character sheet directly; the app never does */
     _charSheet: charSheet,
     cleanReply: cleanReply, looksTruncated: looksTruncated, replyProvenance: replyProvenance,
+    applyDisplayScripts: applyDisplayScripts, displayScripts: displayScripts, scriptTest: scriptTest,
+    scriptLooksEvil: scriptLooksEvil,
+    SCRIPT_MAX_CHARS: SCRIPT_MAX_CHARS,
     splitBurst: splitBurst,
     stripThinking: stripThinking,
     isMetaLine: isMetaLine,

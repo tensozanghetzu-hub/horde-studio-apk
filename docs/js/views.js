@@ -479,8 +479,20 @@
         var c = chars[s.charId] || { name: '' };
         var groupNames = (s.groupCharIds || []).map(function (id) { return chars[id] && chars[id].name; }).filter(Boolean);
         var hay = ((c.name || '') + ' ' + groupNames.join(' ') + ' ' + (s.title || '') + ' ' + (s.summary || '')).toLowerCase();
-        return words.every(function (w) { return hay.indexOf(w) !== -1; });
+        if (words.every(function (w) { return hay.indexOf(w) !== -1; })) return true;
+        return !!bodyHit(s);
       }
+      /* v1.45.0: the titles-only filter could not find the chat where the boat got
+         named, because the boat is 140 messages deep and the title is "New chat".
+         The scan runs in the background (App.searchBodies) and paints itself in
+         when it finishes, so typing stays instant and a chat with 600 messages
+         never blocks the list. */
+      var hits = null, scanning = false;
+      if (q.length >= 3 && App.state.search && App.state.search.q === q) {
+        hits = App.state.search.hits || {};
+        scanning = !App.state.search.done;
+      }
+      function bodyHit(s) { return hits && hits[s.id] && hits[s.id].count ? hits[s.id] : null; }
       var archived = all.filter(function (s) { return s.archived; }).length;
       var sessions = all.filter(function (s) {
         return (App.state.showArchived || !s.archived) && matches(s);
@@ -491,6 +503,10 @@
         return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
       });
       var searchEl = $('#chat-search');
+      /* v1.45.0: the input shipped `hidden` in the markup in 1.39.0 and no code
+         ever un hid it, so nobody has been able to reach the search at all.
+         Below three chats it is still noise, so it stays out of the way. */
+      if (searchEl) searchEl.hidden = all.length < 3;
       if (searchEl && searchEl.value !== (App.state.chatSearch || '')) {
         searchEl.value = App.state.chatSearch || '';
       }
@@ -505,7 +521,13 @@
               (s.pinned ? '<span class="item-badge">pinned</span>' : '') +
               (s.archived ? '<span class="item-badge">archived</span>' : '') +
             '</div>' +
-            '<div class="item-sub">' + esc(s.summary ? s.summary.slice(0, 90) : (s.messageCount || 0) + ' messages') + '</div>' +
+            (bodyHit(s)
+              ? '<div class="item-sub hitline"><span class="hit-where">' +
+                  App.searchSnippet(bodyHit(s), words) +
+                  '<span style="color:var(--dim)"> · ' + (bodyHit(s).count > 24 ? '24+' : bodyHit(s).count) +
+                  ' matching message' + (bodyHit(s).count === 1 ? '' : 's') + '</span></span>' +
+                  '<button class="chip" data-jump="' + esc(s.id) + ':' + esc(bodyHit(s).first) + '">Jump</button></div>'
+              : '<div class="item-sub">' + esc(s.summary ? s.summary.slice(0, 90) : (s.messageCount || 0) + ' messages') + '</div>') +
           '</div>' +
           '<div class="item-side">' + esc(UI.fmtTime(s.updatedAt)) +
             '<button class="chip" style="margin-left:6px" data-menu="' + s.id + '">' +
@@ -521,6 +543,17 @@
         (!sessions.length && (q || all.length)
           ? '<div class="field"><span class="hint">' + (q ? 'No chats match \"' + esc(q) + '\" as ' + esc(Store.personaLabel()) + '.' : '') + '</span></div>'
           : ''));
+      /* The box now reads the messages themselves, which is the slower half, so
+         the empty result has to say whether it looked and found nothing, or gave
+         up before it got there. */
+      if (!sessions.length && q.length >= 3 && App.state.search && App.state.search.done) {
+        var hintRow = list.querySelector('.field .hint');
+        if (hintRow) {
+          hintRow.insertAdjacentHTML('beforeend',
+            ' Nothing in the messages either' +
+            (App.state.search.capped ? ' — the read stopped early, so try a longer phrase' : '') + '.');
+        }
+      }
       empty.hidden = sessions.length > 0;
       if (!empty.hidden) {
         /* An empty list is usually not data loss: every persona keeps its
@@ -533,6 +566,15 @@
           }
         });
       }
+      if (scanning) {
+        list.insertAdjacentHTML('beforeend', '<div class="field"><span class="hint" style="display:block">' +
+          App.searchProgress() + '</span></div>');
+      }
+      on(list, '[data-jump]', 'click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        var bits = String(e.currentTarget.getAttribute('data-jump') || '').split(':');
+        if (bits.length === 2) App.openSession(bits[0], { focusMid: bits[1] });
+      });
       on(list, '[data-act=show-archived]', 'click', function () {
         App.state.showArchived = true; Views.chats(root);
       });
@@ -540,7 +582,7 @@
         App.state.showArchived = false; Views.chats(root);
       });
       on(list, '[data-open]', 'click', function (e) {
-        if (e.target.closest('[data-menu]')) return;
+        if (e.target.closest('[data-menu]') || e.target.closest('[data-jump]')) return;
         App.openSession(e.currentTarget.getAttribute('data-open'));
       });
       on(list, '[data-menu]', 'click', function (e) {
@@ -1181,6 +1223,18 @@
         '<div class="field"><div class="hint" style="margin:0">Some models wrap narration in *asterisks* no matter how often ' +
           'they are told not to. This shows such text as ordinary prose — markers and stray asterisks hidden, ' +
           'speech still gold, and the stored story text is never rewritten.</div></div>' +
+        /* v1.45.0: the neighbour is the app's own display-only transform, and the
+           promise is the same one: what you see changes, the story does not. */
+        '<div class="field compact"><label>Text scripts (display only)</label>' +
+          '<div class="toggle' + (s.regexOn ? ' on' : '') + '" id="t-scripts"></div></div>' +
+        '<div class="field"><button class="btn ghost sm block" id="btn-scripts">' + icon('edit') +
+          ' Manage scripts' + ((s.regexScripts && s.regexScripts.length) ? ' · ' + s.regexScripts.length : '') +
+          '</button><div class="hint" style="margin-top:6px">Find-and-replace rules applied to each reply as it is ' +
+          'drawn — for a habit the model has that you cannot train out, a name you want shortened, a marker you want ' +
+          'gone. Nothing is rewritten: the stored message, the prompt, a transcript export and the read-aloud text all ' +
+          'keep the model\u2019s own words, so turning this off gives you exactly what you had. Rules run top to bottom, ' +
+          'each seeing what the one before it left; JavaScript syntax, <code>$1</code> back-references included. ' +
+          'Resetting the generation defaults switches this off but leaves your rules alone.</div></div>' +
         '<div class="field compact"><label>Split replies into separate texts</label><div class="toggle' + (s.bursts !== false ? ' on' : '') + '" id="t-bursts"></div></div>' +
         '<div class="field"><div class="hint" style="margin:0">For virtual humans: when a reply reads like several short ' +
           'messages rather than one paragraph, it arrives as separate bubbles a few seconds apart.</div></div>' +
@@ -1288,6 +1342,15 @@
       sc.set({ replyFallback: el ? el.value.trim() : '' });
     });
     sc.toggle('#t-plain', 'plainEmphasis');
+    /* the list length is printed on the button, so coming back from the editor
+       has to redraw it — but toggling the switch off must not, because a
+       re-render from inside its own click handler is how controls get lost */
+    sc.toggle('#t-scripts', 'regexOn');
+    sc.bind('#btn-scripts', 'click', function () {
+      Promise.resolve(App.regexScriptsSheet()).then(function () {
+        if ($('#settings-x-body')) Views.settingsGeneration(root);
+      });
+    });
     sc.toggle('#t-enter', 'sendOnEnter');
     var gr = $('#gen-reset');
     if (gr) gr.onclick = function () { App.resetGenerationSettings(); };
@@ -3123,6 +3186,17 @@
   Views.speechText = speechText;
 
   /* ================= chat helpers ================= */
+  /* v1.45.0: display scripts run at this one point in the app. The try/catch is
+     not decoration — a rule saved before save-time testing existed, or edited into
+     the settings blob by hand, must not be able to blank a reply on screen. Losing
+     the styling is bearable; losing the text is not. */
+  function shownText(body, s) {
+    try {
+      return (typeof API !== 'undefined' && API && API.applyDisplayScripts)
+        ? API.applyDisplayScripts(body, s) : body;
+    } catch (e) { return body; }
+  }
+
   function messageHtml(m, char, s) {
     var isMe = m.role === 'user';
     var who = isMe ? s.userName : (m.speakerName || char.name);
@@ -3145,7 +3219,11 @@
       '<div style="min-width:0;max-width:calc(100% - 44px)">' +
         '<div class="bubble">' +
           (!isMe ? '<div class="who">' + esc(who) + '</div>' : '') +
-          '<div class="mtext">' + md(body) + '</div>' +
+          /* v1.45.0: display scripts run here and nowhere else — the stored
+             message, the prompt, the export and the `raw` copy all keep the
+             model's own words. The reply footer below still counts `body`,
+             because it describes the reply the model sent, not this render. */
+          '<div class="mtext">' + md(shownText(body, s)) + '</div>' +
           (m.continuationOf ? '<div class="mcont">↳ continued from the reply above</div>' : '') +
           (!isMe && body.trim() ? '<div class="mstat" style="margin-top:6px;font-size:11px;opacity:.55;letter-spacing:.02em">' +
             replyFooter(body, m, s) + '</div>' : '') +

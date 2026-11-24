@@ -168,6 +168,88 @@ percentages from a per-card digest instead of taking them on trust — which is 
 the unit mix-up surfaced. A review letter is data, not instruction: check the hash,
 check the lines, then count it yourself.
 
+## v1.45.0 — text scripts that only touch the screen, a search that reads the chats, and a box nobody could reach (2026-11-24)
+
+Three features, one judgement behind all of them: what a rewrite is allowed to reach.
+
+**The scan said "chat search exists". It could not say the box was unreachable.**
+`index.html` has shipped `<input id="chat-search" … hidden>` since v1.39.0 and nothing
+ever cleared the attribute — the persona bar beside it does, the input does not. The
+filter ran (`App.state.chatSearch` → `Views.chats`), the pin and archive rows worked,
+and no user could type a character into it. It surfaced only because this release had
+to write a placeholder for it. Grepping for a feature's name proves it is *mentioned*.
+`Views.chats` now sets `searchEl.hidden = all.length < 3`: visible once there are
+enough chats to want it, out of the way on a fresh install.
+
+**Message bodies.** `matches()` read the sessions index — card names, title, summary —
+which is fast and cannot find the chat where the boat sank. Bodies are in a different
+store, unindexed, so `App.searchBodies` scans: debounced 260 ms so a keystroke in the
+middle of a word reads nothing at all, one `IDB.getAll('sessions')` per query, then
+`Store.getMessages` per chat with a `return step()` promise chain (no stack growth, and
+a yield between chats the browser can breathe in). Bounds, all four deliberate: three
+characters minimum, 250 chats, the last 400 messages of each, 25 hits per chat shown
+as *24+*. `st.run !== App.state.searchRun` is how a superseded scan is made harmless —
+each run carries the token it was started with and drops its own writes rather than
+touching the new state. Repaints every fifth chat, because a scan nobody can see
+progress in is worse than a slow one.
+
+The row prints the snippet itself (`App.searchSnippet`): words escaped for the regex
+first, then text escaped for HTML — in that order, or the marks eat the entities. The
+**Jump** button carries `sid:mid` and opens the chat on the *oldest* match: "where it
+happened" is where the story starts, not where it was repeated. `App.focusMessage` then
+lights every other matching message by walking text nodes and adding a class. DOM-only,
+so re-rendering the thread is the whole undo and nothing can leak into storage; and the
+count toast is emitted only when the jump landed, because toasts replace each other and
+"That message is gone" must not be overwritten by a number nobody asked for.
+`App.openSession` gained `opts.focusMid` — and a `return`, which it never had, so a jump
+can be sequenced after the thread is built rather than racing it.
+
+**Text scripts, display-only.** `API.applyDisplayScripts` is called from exactly one
+place: `shownText` in `views.js`, one line in `messageHtml`. That boundary is the
+feature — a display bug is undone by switching one thing off; a prompt bug quietly
+rewrites the story. So stored messages, the assembled prompt, both transcript formats,
+the read-aloud text and the `raw` copy behind the −N chip all keep the model's own
+words, and `tests/regex-scripts-test.js` asserts it by building a real prompt with the
+switch on and a rule armed, then counting call sites per file (api.js 1 definition and
+no caller, views.js 1, app.js 0, store.js 0). `API.lastAssembly`/`replyProvenance` are
+untouched: the footer still describes what the model sent, not what the screen showed.
+
+Refusing to hang is the part that could not be delegated to "be careful". A rule with
+`g` and a nested quantifier — `(a+)+`, `(x*)*y` — is exponential on text that merely
+looks innocent, and a stalled WebView has no cancel. So `scriptLooksEvil` refuses by
+shape before the rule is saved *and* `displayScripts` skips it at render time, which
+covers a blob edited by hand. The bracket-class case is why the detector strips
+escapes and `[…]` groups first: the one rule everybody actually writes — star pairs
+around a group, to remove emphasis — contains a `*` inside a character class that means
+an asterisk and not a repeat, and a naive shape check files it under pathological.
+`scriptTest` then times it on the reply you last received and refuses above 500 ms, and
+returns a before/after preview capped at 900 characters. The
+save action uses `close: false` so a refused rule stays on the screen you can fix.
+
+`regexOn` is in `GEN_KEYS` and `regexScripts` is not: *Reset generation* switches the
+styling off, and never deletes text you wrote. `genreset-test.js` grew a twelfth key and
+an assertion for that asymmetry, which is the sort of thing only a test remembers.
+
+**Markdown export.** `.txt` had built its rows and its memory block inside one
+expression, so a second format meant copying that logic and drifting from it.
+`App.transcriptParts` decides the rows once — speaker via `API.splitSpeaker`, images,
+current facts, retired facts — and `renderTranscriptTxt` / `renderTranscriptMd` say them
+in their own voice. `export-shape-test.js` and `chatfacthistory-test.js` grep'd the
+export function for `API.splitSpeaker(c, s, m.text` and for the memory gate; both were
+re-anchored to `App.transcriptParts` and the `hasMemory` line rather than loosened, and
+`chatfacthistory` gained a guard that the new format gates its memory block the same
+way. `App.exportTranscript` now sanitises the filename, so a title with a slash cannot
+draw a folder, and returns its promise.
+
+131 test files green (48 + 63 + 31 checks new). Two source-shape guards and three
+expectations were corrected on the way, one of them — the toast ordering — a real
+defect the test caught and the code then fixed.
+
+*Known, not silently "fixed": `summarize` and the other three direct `trimHistory`
+callers still use `contextMessages` rather than `requestWindow`, so a recap sees a
+differently sized transcript than the live request. Carried from v1.44.0.*
+
+
 ## v1.44.0 — the context window, the cuts, and what a card claims about itself (2026-11-24)
 
 Found while doing the ecosystem scan, not in it. The scan's premise was "check what this

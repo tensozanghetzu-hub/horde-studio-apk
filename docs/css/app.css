@@ -212,6 +212,18 @@ h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
 .item-main{flex:1;min-width:0}
 .item-title{font-weight:600;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .item-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+/* v1.45.0 chat search inside message bodies: the hit line wraps, and the phrase
+   the user typed is the thing to see, so it gets more than one line. */
+.item-sub.hitline{white-space:normal;display:flex;gap:7px;align-items:flex-start;line-height:1.35}
+.item-sub.hitline .hit-where{flex:1;min-width:0;overflow-wrap:anywhere}
+.item-sub.hitline mark{background:var(--accent-soft);color:inherit;border-radius:3px;padding:0 1px}
+/* the message a jump landed on, held long enough to find with the eye */
+.msg.msg-find .bubble{outline:2px solid var(--accent);outline-offset:2px}
+@keyframes findfade{0%,55%{outline-color:var(--accent)}100%{outline-color:transparent}}
+.msg.msg-find .bubble{animation:findfade 2.6s var(--ease) forwards}
+/* v1.45.0: every other message the phrase runs through, lit without taking the
+   scroll position away from the one you jumped to */
+.msg.msg-hit .bubble{box-shadow:inset 2px 0 0 rgba(120,170,255,.45)}
 .item-side{font-size:11px;color:var(--dim);flex:0 0 auto;text-align:right}
 .avatar-round{width:46px;height:46px;border-radius:50%;object-fit:cover;background:var(--surface-2)}
 

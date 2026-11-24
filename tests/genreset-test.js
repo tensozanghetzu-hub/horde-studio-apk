@@ -83,11 +83,17 @@ function carve(name) {
        keys. The list below is deliberately restated rather than imported: if a
        key is added to GEN_KEYS without a factory default, or a control is put
        on the screen whose value the reset cannot restore, this fails. */
+    /* v1.45.0 adds the display-scripts switch, which is a behaviour knob and so
+       belongs here. The rules themselves (regexScripts) deliberately do NOT: they
+       are the user's text, and a reset that quietly deleted them would be a data
+       loss dressed as tidiness. */
     const genKeys = ['temperature', 'maxTokens', 'topP', 'contextMessages', 'streaming',
                      'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter',
-                     'replyFallback', 'reasoningOff'];
+                     'replyFallback', 'reasoningOff', 'regexOn'];
     const stray = Object.keys(patch).filter(k => !genKeys.includes(k));
-    ok('...and nothing beyond the eleven generation keys at all', stray.length === 0, stray.join(','));
+    ok('...and nothing beyond the twelve generation keys at all', stray.length === 0, stray.join(','));
+    ok('the script list survives a generation reset (it is data, not a knob)',
+      Object.keys(patch).indexOf('regexScripts') === -1);
     ok('the two new knobs reset to inert, not to "on"',
       patch.reasoningOff === false && patch.replyFallback === '', JSON.stringify({ r: patch.reasoningOff, f: patch.replyFallback }));
     ok('every key the screen owns has a factory value to go back to',

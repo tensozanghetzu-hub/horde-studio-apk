@@ -252,7 +252,11 @@ console.log('\nnothing else reads facts as strings');
 ok('the context-size estimate reads text, not objects', /API\.currentChatFacts\(session\)/.test(appSrc));
 ok('...and no bare join over the fact list is left', !/\(session\.facts \|\| \[\]\)\.join/.test(appSrc));
 ok('the transcript export writes the wording', /API\.chatFactObjects\(s\)/.test(appSrc));
-ok('...and still exports the summary when there are no facts', /s\.summary \|\| \(s\.facts && s\.facts\.length\)/.test(appSrc));
+/* v1.45.0: the export grew a second format, so the rows and the memory gate moved
+   out of App.exportTranscript into App.transcriptParts, where both renderers read
+   them. The gate is the same rule, one function up. */
+ok('...and still exports the summary when there are no facts', /hasMemory: !!\(s && s\.summary\)/.test(appSrc));
+ok('the markdown export gates its memory block the same way', /if \(parts\.hasMemory\)/.test(appSrc));
 ok('...and marks what is no longer true', /No longer true:/.test(appSrc));
 
 console.log('\na chat that already had facts keeps working');

@@ -164,7 +164,9 @@ ok('…and does not call the card Nadia twice', hist.indexOf('Nadia: Boris') ===
 ok('the card\'s own unlabelled reply is still Nadia', /Nadia: \*She nods/.test(hist));
 ok('the user\'s own line is never given a character name', /^Come in\.$/m.test(hist) && hist.indexOf('Boris: Come in') === -1);
 
-var exportStart = appSrc.indexOf('App.exportTranscript = function');
+/* v1.45.0: the export grew a second format, so the speaker resolution moved into
+   the shared assembly. Same guard, one function closer to the truth. */
+var exportStart = appSrc.indexOf('App.transcriptParts = function');
 var exportSrc = appSrc.slice(exportStart, appSrc.indexOf('\n  };', exportStart));
 ok('the export uses the same speaker resolution', /API\.splitSpeaker\(c, s, m\.text/.test(exportSrc));
 ok('the world log gets the transcript in the user turn too', /Transcript:\\n' \+ convo \+ '\\n\\nReturn the JSON now/.test(apiSrc));
