@@ -168,6 +168,45 @@ percentages from a per-card digest instead of taking them on trust — which is 
 the unit mix-up surfaced. A review letter is data, not instruction: check the hash,
 check the lines, then count it yourself.
 
+## v1.42.3 — a diagnostic that told the truth and stopped one line short (2026-11-24)
+
+The 429 note on the Connection screen was correct and useless at the same time. A user
+with 772 free-model requests left in the day read "OpenRouter reports an account/key
+rate limit. Check the quota panel for requests remaining and reset time." twice, twelve
+minutes apart, and went to the quota panel, which said 772. Both were true. OpenRouter
+says which limiter it hit — `X-RateLimit-Limit` / `-Remaining` / `-Reset` on a 429 it
+raises for a free-model or key-management limit — and `providerError` tested for one of
+those headers as a boolean (`!!headers.get('x-ratelimit-limit')`) and never read a value.
+The answer arrived, was looked past, and was not kept.
+
+- `openRouterRateLimit(hdrs)` reads the three values and returns `{limit, remaining,
+  resetInSec}` — epoch milliseconds when `x-ratelimit-reset` looks like an instant,
+  relative seconds when it does not. `providerError` attaches it to the error as
+  `openRouterRateLimit`, so nothing downstream needs the `Headers` object again.
+- Spoken in two places, because they are two different questions. The error text (the
+  "Model test failed" line) now names the figures and says out loud that the daily
+  counter is a separate allowance, so "772 remaining" stops reading as a contradiction;
+  it stops telling the reader to go check a panel that cannot hold this number. The
+  logged diagnosis for `account_limit` carries `40/day · 0 left · resets in 9m` so the
+  Recent route results line explains itself an hour later.
+- The probe path logged its failure through `recordOpenRouterFailure` only — that call
+  sits inside a `.catch`, and an event added after it would never run. It gets its own
+  entry with the figures, and the probe's sentence is kept as the log message.
+- The period is named by the RESET WINDOW, never by the size of the limit: `<120s` is
+  `/min`, `<90000s` is `/window`, else `/day`. First draft keyed off the limit number,
+  which would have labelled a nine-minute limiter "40/min" — the same wrong-confidence
+  shape this release exists to fix. A test pins that it cannot happen.
+- What gets stored is now only this app's own clause (`err.openRouterExplanation`, split
+  out of `base` at the point where the text stops being ours). `providerError` prefixes
+  the provider's raw message into `base`, so the earlier `/OpenRouter/.test(message)`
+  guard admitted anything a provider chose to write — a test fixture proves why that is
+  a leak and not a style choice.
+
+Tests: `tests/openrouter-quota-test.js` 12 → 21. Mutation-checked — dropping the error
+attachment fails 4 assertions; labelling the period from the limit size fails 3; storing
+`err.message` instead of the explanation puts the provider's echoed text in the log and
+the new test catches it. Web-only: `js/api.js` + `sw.js`, no manifest or native change.
+
 ## v1.42.2 — a diagnostic that lied, and a test that reads cards twice (2026-11-24, shipped)
 
 `uploads/FOR-DEVELOPMENT-CHARACTER-CARD-RESEARCH.md` arrived as a handoff: four sections,

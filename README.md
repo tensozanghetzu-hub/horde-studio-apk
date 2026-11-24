@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.42.2
+# Horde Studio — Mobile (Android) · v1.42.3
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,11 +6,11 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.42.2](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.42.3](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
-> **v1.42.2 installs straight over v1.42.0 and v1.42.1 — no backup, no reinstall.** The one-time
+> **v1.42.3 installs straight over v1.42.0, v1.42.1 and v1.42.3 — no backup, no reinstall.** The one-time
 > exception is behind you: v1.42.0 rotated the signing key, so a phone still on
 > **v1.41.1 or older** has no update path across that boundary and must back up
 > (Settings → Data → Backup), uninstall, install, restore. Android refuses such an
@@ -25,7 +25,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The newest release
-also carries a copy named `HordeStudio-v1.42.2.apk`, so you can tell which version
+also carries a copy named `HordeStudio-v1.42.3.apk`, so you can tell which version
 you have after downloading.)
 
 Only the newest release keeps an APK attached. Older releases stay in the list with

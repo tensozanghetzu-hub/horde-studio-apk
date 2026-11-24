@@ -68,6 +68,114 @@ API.openRouterKeyStatus(settings).then(function (result) {
     ok('separates provider 429 from account quota 429', providerLimit.kind === 'provider_limit' && accountLimit.kind === 'account_limit');
     ok('labels unclassified 429 honestly instead of guessing the cause', ambiguousLimit.kind === 'ambiguous_limit');
     ok('timeout diagnosis does not claim quota exhaustion', timeout.kind === 'timeout' && /not confirmed/.test(timeout.diagnosis));
+
+    /* v1.42.3: the 429 response carries the limiter it actually hit in
+       X-RateLimit-* headers, and the daily counter on the panel cannot
+       explain a refusal that arrives while it still reads hundreds
+       remaining. The headers must reach both the message and the log. */
+    var last429 = null;
+    function last29Message() { return last429 ? last429.message : ''; }
+    sb.fetch = function () {
+      return Promise.resolve({
+        ok: false, status: 429,
+        headers: { get: function (k) {
+          k = String(k).toLowerCase();
+          if (k === 'x-ratelimit-limit') return '40';
+          if (k === 'x-ratelimit-remaining') return '0';
+          if (k === 'x-ratelimit-reset') return String(Date.now() + 540000);
+          return null;
+        } },
+        text: function () { return Promise.resolve(JSON.stringify({
+          error: { message: 'Rate limit exceeded', metadata: { error_type: 'rate_limit_exceeded' } }
+        })); }
+      });
+    };
+    return API.probeOpenRouterModel(settings).catch(function (e) { last429 = e; }).then(function () {
+      var m = String(last429 && last29Message());
+      ok('429 names the limiter from its headers instead of pointing at the panel',
+        /limit 40/.test(m) && /0 remaining/.test(m) && /resets in 9m/.test(m), m);
+      ok('the daily counter is explained as a separate allowance',
+        /separate allowance/.test(m) && m.indexOf('Check the quota panel for requests remaining') < 0, m);
+      ok('the header figures ride on the error for the log to keep',
+        !!(last429 && last429.openRouterRateLimit && last429.openRouterRateLimit.limit === 40 &&
+          last429.openRouterRateLimit.remaining === 0 && last429.openRouterRateLimit.resetInSec > 500));
+      var fromErr = API.openRouterErrorDiagnosis(last429, null);
+      ok('diagnosis reads the carried limit with no headers to re-read',
+        fromErr.kind === 'account_limit' && /40\/window/.test(fromErr.diagnosis) && /0 left/.test(fromErr.diagnosis),
+        fromErr.diagnosis);
+      ok('a nine-minute limiter is never mislabelled as the per-minute cap',
+        fromErr.diagnosis.indexOf('/min') < 0, fromErr.diagnosis);
+      var evs = API.openRouterActivityToday(settings).events || [];
+      var withFigures = evs.filter(function (x) { return x && x.rateLimit; })[0] || {};
+      ok('the probe logs the figures it measured, key never stored',
+        withFigures.rateLimit && withFigures.rateLimit.limit === 40 &&
+        withFigures.rateLimit.remaining === 0 && /limit 40/.test(String(withFigures.message)) &&
+        JSON.stringify(evs).indexOf('test-key') < 0, JSON.stringify(withFigures).slice(0, 200));
+      sb.fetch = function () {
+        return Promise.resolve({
+          ok: false, status: 429,
+          headers: { get: function (k) {
+            return String(k).toLowerCase() === 'x-ratelimit-limit' ? '20'
+              : (String(k).toLowerCase() === 'x-ratelimit-reset' ? '45' : null);
+          } },
+          text: function () { return Promise.resolve('{}'); }
+        });
+      };
+      return API.probeOpenRouterModel(settings).catch(function (e) { last429 = e; });
+    }).then(function () {
+      ok('a sub-two-minute window is called the per-minute cap it is',
+        /per-minute window/.test(String(last429.message)), String(last429.message));
+      /* With no X-RateLimit-* on the response there is nothing measured to
+         show, so the old advice stays — but it is the fallback, not the rule. */
+      sb.fetch = function () {
+        return Promise.resolve({ ok: false, status: 429, headers: null,
+          text: function () { return Promise.resolve(JSON.stringify({
+            error: { message: 'Rate limit exceeded', metadata: { limit_source: 'openrouter_free_tier' } } })); } });
+      };
+      return API.probeOpenRouterModel(settings).catch(function (e) { last429 = e; }).then(function () {
+        ok('a 429 that carries no figures still says so plainly, without inventing any',
+          /limit 40/.test(String(last429.message)) === false &&
+          /Check the quota panel/.test(String(last429.message)) &&
+          !last429.openRouterRateLimit, String(last429.message).slice(-90));
+      });
+      /* The path that matters is a normal chat turn, which retries the 429
+         twice before it surfaces. Pin that the retry budget does not eat the
+         measured limit on its way out. */
+      }).then(function () {
+      var beforeChat = (API.openRouterActivityToday(settings).events || []).length;
+      API._setRateRetryDelays([1, 1]);
+      sb.fetch = function () {
+        return Promise.resolve({
+          ok: false, status: 429,
+          headers: { get: function (k) {
+            k = String(k).toLowerCase();
+            if (k === 'x-ratelimit-limit') return '40';
+            if (k === 'x-ratelimit-remaining') return '0';
+            if (k === 'x-ratelimit-reset') return '540';
+            return null;
+          } },
+          text: function () { return Promise.resolve(JSON.stringify({
+            error: { message: 'UPSTREAM-ECHO-7z: too many requests from sk-or-v1-test-key' } })); }
+        });
+      };
+      return API.streamChat(settings, [{ role: 'user', content: 'hi' }]).then(
+        function () { return { err: null }; },
+        function (e) { return { err: e }; }
+      ).then(function (r) {
+        var after = API.openRouterActivityToday(settings).events || [];
+        var chatEv = after.filter(function (x) { return x && x.rateLimit; })[0] || {};
+        ok('a refused chat turn logs the limiter it was given',
+          after.length > beforeChat && chatEv.rateLimit && chatEv.rateLimit.limit === 40 &&
+          chatEv.rateLimit.resetInSec === 540 &&
+          /40\/window · 0 left · resets in 9m/.test(String(chatEv.diagnosis)), JSON.stringify(chatEv).slice(0, 220));
+        ok('the stored line is this app\'s clause, never the provider\'s text',
+          String(chatEv.message).indexOf('UPSTREAM-ECHO-7z') < 0 &&
+          /OpenRouter reports an account\/key rate limit/.test(String(chatEv.message)),
+          String(chatEv.message));
+        API._setRateRetryDelays([5000, 15000]);
+        return null;
+      });
+    });
     return API.openRouterKeyStatus({ baseUrl: 'https://api.example/v1', apiKey: 'x' }).then(function () {
       ok('non-OpenRouter endpoint cannot query this quota API', false);
     }, function (e) {

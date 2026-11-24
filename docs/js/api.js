@@ -1711,6 +1711,7 @@
         at: Date.now(), model: String((event && event.model) || s.model || '').slice(0, 180),
         kind: String((event && event.kind) || 'other'), status: (event && event.status) || null,
         diagnosis: String((event && event.diagnosis) || ''),
+        rateLimit: (event && event.rateLimit) || null,
         message: String((event && event.message) || '').replace(/\s+/g, ' ').slice(0, 300),
         provider: String((event && event.provider) || '').slice(0, 100),
         promptTokens: isFinite(prompt) && prompt >= 0 ? prompt : null,
@@ -1756,12 +1757,16 @@
   function openRouterErrorDiagnosis(err, headers) {
     var status = Number(err && err.status) || null, metadata = err && err.openRouterMetadata || {};
     var type = String(metadata.error_type || metadata.type || '').toLowerCase();
-    var limitHeader = false;
-    try { limitHeader = !!(headers && headers.get && headers.get('x-ratelimit-limit')); } catch (e) {}
+    var rl = (err && err.openRouterRateLimit) || null;
+    var limitHeader = !!rl;
+    try { limitHeader = limitHeader || !!(headers && headers.get && headers.get('x-ratelimit-limit')); } catch (e) {}
     if (err && err.openRouterKind === 'empty') return { kind: 'empty', diagnosis: 'Route returned no visible answer' };
     if (err && err.name === 'TimeoutError' || /timeout/.test(type)) return { kind: 'timeout', diagnosis: 'App/provider timeout — quota not confirmed' };
     if (err && err.name === 'AbortError') return { kind: 'cancelled', diagnosis: 'Cancelled by user' };
-    if (metadata.limit_source || limitHeader) return { kind: 'account_limit', diagnosis: 'OpenRouter account rate limit' };
+    if (metadata.limit_source || limitHeader) {
+      return { kind: 'account_limit',
+        diagnosis: 'OpenRouter account rate limit' + (rateLimitSummary(rl) ? ' — ' + rateLimitSummary(rl) : '') };
+    }
     if (status === 429 || /rate_limit/.test(type)) {
       if (metadata.provider_code) return { kind: 'provider_limit', diagnosis: 'Model provider throttled / saturated' };
       return { kind: 'ambiguous_limit', diagnosis: '429 rate limit — compare account quota; provider may also throttle' };
@@ -1782,13 +1787,78 @@
       status: err && err.status,
       /* Keep raw provider error text out of local history: only store a safe
          status/diagnosis summary, since an upstream could echo request data. */
-      message: err && err.status ? 'HTTP ' + err.status : diagnosis.diagnosis,
+      /* Raw upstream text can echo request data, so only the app's own
+         explanation is ever stored. */
+      message: (err && err.openRouterExplanation)
+        ? 'HTTP ' + err.status + ' — ' + String(err.openRouterExplanation)
+        : (err && err.status
+          ? 'HTTP ' + err.status + (rateLimitSummary(err && err.openRouterRateLimit)
+              ? ' — ' + rateLimitSummary(err.openRouterRateLimit) : '')
+          : diagnosis.diagnosis),
+      rateLimit: (err && err.openRouterRateLimit) || null,
       model: model, provider: provider
     });
   }
   function openRouterResetAt(now) {
     var d = new Date(now || Date.now());
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 0, 0);
+  }
+
+  /* OpenRouter's own documentation: a 429 it raises for a free-model or a
+     key-management limit carries X-RateLimit-Limit / -Remaining / -Reset
+     describing the limit that was HIT, Reset being epoch milliseconds. The
+     account-wide daily counter on the Connection panel reports none of that —
+     per-minute and per-model ceilings live only in these headers — so a phone
+     could read "772 remaining" and a "check the quota panel" line in the same
+     minute, and be sent to look for an answer that panel cannot hold. Read the
+     headers, carry them on the error and into the logged event. */
+  function openRouterRateLimit(hdrs) {
+    var out = {};
+    try {
+      if (!hdrs || !hdrs.get) return null;
+      var lim = parseInt(hdrs.get('x-ratelimit-limit'), 10);
+      var rem = parseInt(hdrs.get('x-ratelimit-remaining'), 10);
+      var rst = parseInt(hdrs.get('x-ratelimit-reset'), 10);
+      if (isFinite(lim) && lim >= 0) out.limit = lim;
+      if (isFinite(rem) && rem >= 0) out.remaining = rem;
+      if (isFinite(rst) && rst > 0) {
+        /* epoch ms when it looks like an instant, relative seconds otherwise */
+        out.resetInSec = rst > 1e11
+          ? Math.max(0, Math.round((rst - Date.now()) / 1000))
+          : Math.max(0, rst);
+      }
+    } catch (e) { return null; }
+    if (!('limit' in out) && !('remaining' in out) && !('resetInSec' in out)) return null;
+    return out;
+  }
+
+  /* The period is named by the reset window, never by the size of the limit:
+     OpenRouter caps free models per minute AND per day AND, for some models,
+     per model — a limit of 40 that resets in nine minutes is not a per-minute
+     cap, and labelling it one sends the reader after the wrong thing. */
+  function rateLimitPeriod(rl) {
+    var sec = rl && typeof rl.resetInSec === 'number' ? rl.resetInSec : null;
+    if (sec === null) return null;
+    return sec < 120 ? 'min' : (sec < 90000 ? 'window' : 'day');
+  }
+
+  function rateLimitSummary(rl) {
+    if (!rl) return null;
+    var bits = [];
+    if (typeof rl.limit === 'number') bits.push(rl.limit + '/' + (rateLimitPeriod(rl) || 'window'));
+    if (typeof rl.remaining === 'number') bits.push(rl.remaining + ' left');
+    var reset = rateLimitResetText(rl);
+    if (reset) bits.push(reset);
+    return bits.length ? bits.join(' · ') : null;
+  }
+
+  function rateLimitResetText(rl) {
+    if (!rl || typeof rl.resetInSec !== 'number') return null;
+    var sec = rl.resetInSec;
+    if (sec < 2) return 'resets now';
+    if (sec < 120) return 'resets in ' + sec + 's';
+    if (sec < 7200) return 'resets in ' + Math.round(sec / 60) + 'm';
+    return 'resets in ' + (sec / 3600).toFixed(1) + 'h';
   }
 
   /* OpenRouter's free Nemotron 3 endpoints default to reasoning. At the
@@ -1905,6 +1975,13 @@
           var detail = payload && payload.error || {};
           var err = providerError(r.status, detail.message || text || r.statusText, s.model, detail.metadata, r.headers, true);
           recordOpenRouterFailure(s, err, r.headers, s.model, payload.provider || '');
+          /* The probe is the one place a 429 is read on screen as a sentence,
+             so the figures it measured belong in the log beside it. */
+          if (err && err.openRouterRateLimit) {
+            recordOpenRouterEvent(s, { kind: 'account_limit', status: 429,
+              diagnosis: 'Probe refused by the account limiter', rateLimit: err.openRouterRateLimit,
+              message: String(err.message || '').slice(0, 300), model: s.model });
+          }
           throw err;
         }
         var choice = payload.choices && payload.choices[0], message = choice && choice.message || {};
@@ -1949,21 +2026,38 @@
   function providerError(status, msg, modelName, metadata, responseHeaders, openRouterRequest) {
     msg = String(msg == null ? '' : msg).trim();
     var base = msg ? 'API ' + status + ': ' + msg : 'API ' + status;
+    var rateLimit = openRouterRateLimit(responseHeaders);
     var e;
     if (status === 429) {
       var sharedFree = /:free\s*$/i.test(modelName || '');
       var isAccountLimit = !!(metadata && metadata.limit_source);
       try { isAccountLimit = isAccountLimit || !!(responseHeaders && responseHeaders.get && responseHeaders.get('x-ratelimit-limit')); } catch (ignored) {}
       var providerCode = metadata && metadata.provider_code;
-      e = new Error(base + (isAccountLimit
-        ? ' — OpenRouter reports an account/key rate limit. Check the quota panel for requests remaining and reset time.'
+      var rlBits = [], resetText = rateLimitResetText(rateLimit);
+      if (rateLimit) {
+        if (typeof rateLimit.limit === 'number') rlBits.push('limit ' + rateLimit.limit);
+        if (typeof rateLimit.remaining === 'number') rlBits.push(rateLimit.remaining + ' remaining');
+        if (resetText) rlBits.push(resetText);
+      }
+      var explanation = (isAccountLimit
+        ? (rateLimit
+          ? ' — OpenRouter reports an account/key rate limit: ' + rlBits.join(', ') +
+            '. That is the limiter this response names; the daily counter on the ' +
+            'Connection panel is a separate allowance, which is why it can still read ' +
+            'hundreds remaining while this 429 stands. Per-minute ceilings do not appear ' +
+            'there at all' + (rateLimit.resetInSec < 120 ? ' — and this one is that per-minute window' : '') + '.'
+          : ' — OpenRouter reports an account/key rate limit. Check the quota panel for requests remaining and reset time.')
         : (openRouterRequest
           ? (providerCode
             ? ' — the upstream model provider rate-limited this route. Check the quota panel: a provider throttle can happen while account requests remain.'
             : ' — 429 rate limit. It may be the OpenRouter account cap or this model’s provider; check the quota panel to distinguish. The app retries briefly, then records the result.')
           : (sharedFree
             ? ' — the shared free endpoint for this model is saturated upstream; its provider throttles the pool regardless of YOUR balance or today’s count (both are fine). Retried already — try again in a few minutes, pick another :free model, or drop the :free suffix to spend your balance on it instead.'
-            : ' — rate limit reached. Free tiers cap requests per minute and per day (OpenRouter free: 20/min, 50/day until a one-time $10 top-up). The app already retried it — give it a minute; if every try today fails, the daily cap may be spent.'))));
+            : ' — rate limit reached. Free tiers cap requests per minute and per day (OpenRouter free: 20/min, 50/day until a one-time $10 top-up). The app already retried it — give it a minute; if every try today fails, the daily cap may be spent')));
+      e = new Error(base + explanation);
+      /* base is 'API 429: ' + whatever the provider said. Only the clause this
+         app wrote is safe to keep in local history. */
+      e.openRouterExplanation = explanation;
       e.rateLimited = true;
     } else if (status === 402) {
       e = new Error(base + ' — the provider says the account is out of credits/quota. ' +
@@ -1988,6 +2082,7 @@
     }
     e.status = status;
     e.openRouterMetadata = metadata || null;
+    if (rateLimit) e.openRouterRateLimit = rateLimit;
     return e;
   }
 
