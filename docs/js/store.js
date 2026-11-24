@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.45.0';
+  var VERSION = '1.46.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -107,6 +107,13 @@
        (never pushed into), so DEFAULTS' array is never a shared mutable. */
     regexOn: false,
     regexScripts: [],
+    /* v1.46.0: recall — scoring the messages the history window left out, on the
+       phone, with no model. Off by default for the same reason the scripts are: a
+       retriever that fires on the wrong word is a new failure mode, and it costs
+       the prompt tokens. Not in GEN_KEYS: like autoMemory and memoryEvery this
+       belongs to the Memory screen, and *Reset generation* has no claim on it. */
+    recallOn: false,
+    recallCount: 6,
     updateUrl: '',
     autoFinish: true,       /* keep going when a reply comes back cut off */
     hordeKey: '',

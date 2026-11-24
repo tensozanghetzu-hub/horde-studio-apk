@@ -1538,11 +1538,52 @@
         '<div class="field compact"><label>Auto-summarise long chats</label><div class="toggle' + (s.autoMemory ? ' on' : '') + '" id="t-mem"></div></div>' +
         '<div class="field"><div class="field-head"><label>Summarise every</label><span class="spacer"></span><span class="val" id="v-memevery">' + s.memoryEvery + '</span></div>' +
           '<div class="range-row"><input type="range" id="set-memevery" min="6" max="60" step="2" value="' + s.memoryEvery + '"><span class="hint">msgs</span></div></div>' +
+      '</div>' +
+      '<div class="group">' +
+        '<div class="group-title">Recall</div>' +
+        '<div class="field compact"><label>Fetch older messages that fit this turn</label>' +
+          '<div class="toggle' + (s.recallOn ? ' on' : '') + '" id="t-recall"></div></div>' +
+        '<div class="field"><div class="field-head"><label>Passages per reply</label><span class="spacer"></span>' +
+          '<span class="val" id="v-recallcount">' + API.recallCount(s) + '</span></div>' +
+          '<div class="range-row"><input type="range" id="set-recallcount" min="1" max="12" step="1" value="' +
+            API.recallCount(s) + '"></div>' +
+          '<div class="hint">When the history budget pushes a turn out of the request, the model does not ' +
+          'remember it — it was never sent. This scores the messages the window left out (BM25, on the ' +
+          'phone, nothing uploaded) and appends the few that match your last line, after the transcript, ' +
+          'under a heading that says they are background rather than the present moment. Nothing is moved ' +
+          'or rewritten, so the prompt cache keeps its discount. The block is capped at ~700 tokens, and ' +
+          'a passage that shares only one common word with your line is not fetched at all.</div>' +
+          '<div class="hint">' + recallStatusNote() + '</div></div>' +
       '</div>';
     var sc = settingsScope(body);
     sc.toggle('#t-mem', 'autoMemory');
     sc.range('#set-memevery', '#v-memevery', 'memoryEvery');
+    sc.toggle('#t-recall', 'recallOn');
+    sc.range('#set-recallcount', '#v-recallcount', 'recallCount');
   };
+
+  /* What the last request actually did, said in the place where you would decide
+     to change it. Read, never derived: if nothing has been generated since the app
+     opened there is no number to quote, and the honest line is longer than a zero. */
+  function recallStatusNote() {
+    var a = null;
+    try { a = API.lastAssembly && API.lastAssembly(); } catch (e) { a = null; }
+    if (!a || !a.recall) {
+      return 'Nothing has been recalled yet since the app opened. Send a reply with this on and the count appears here.';
+    }
+    if (!a.recall.on) return 'Switched off, so the last request carried no recall block.';
+    /* A chat longer than the search cap has lines that were never looked at. Saying
+       "nothing matched" about those would be a lie, so the note names the bound. */
+    var looked = 'looked through ' + a.recall.corpus + ' older messages';
+    if (a.recall.scanned > a.recall.corpus) {
+      looked += ' (' + (a.recall.scanned - a.recall.corpus) + ' before those are past the search cap and were not read)';
+    }
+    if (!a.recall.passages) return 'Last request: ' + looked + ' and nothing in them matched that turn.';
+    return 'Last request: ' + looked + ' and kept ' + a.recall.passages +
+      ' passage' + (a.recall.passages === 1 ? '' : 's') + ', ~' + a.recall.tokens + ' tokens' +
+      (a.recall.dropped ? ', ' + a.recall.dropped + ' more dropped for size' : '') + '.';
+  }
+
 
   /* ---- Data ---- */
   Views.settingsData = function (root) {

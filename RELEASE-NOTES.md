@@ -1,97 +1,88 @@
-**You do not need to uninstall for this one.** v1.45.0 is signed with the same key as
-v1.42.0 through v1.44.0, so Android installs it over the top and every chat, character
+**You do not need to uninstall for this one.** v1.46.0 is signed with the same key as
+v1.42.0 through v1.45.0, so Android installs it over the top and every chat, character
 and setting stays where it is. Install from inside the app: **Settings → App updates →
 Check for update**, or run the APK file itself. Everything in this release is
-JavaScript, so a phone on v1.42.0 or newer also picks it up as a small download.
+JavaScript, so a phone on v1.42.0 or newer also picks it up as a small download and
+needs no APK at all.
 
-The exception is five releases old, and it is still true: a phone on **v1.41.1 or
+The exception is six releases old, and it is still true: a phone on **v1.41.1 or
 older** has no update path across the signing-key rotation done in v1.42.0. That one
 still needs **Settings → Data → Backup**, uninstall, install, **Restore**, and a
 re-typed API key. `MIGRATION-signing-key.md` is that walk-through.
 
-## Text scripts: fix what the model does on your screen, not in your chat
+## The recap now reads the transcript the model was actually shown
 
-Some habits cannot be trained out. A model that frames every action in `*asterisks*`, a
-name you always want shortened, a character that signs off with the same sentence — a
-script is a find pattern and a replacement, and it now runs over each reply **as it is
-drawn**. It is in **Settings → Generation**: a switch (off until you turn it on) and a
-list. Add a rule, and the sheet shows you what it does to the reply you last received —
-before, after, how many matches, how long it took.
+Story memory summarizes the chat so old turns can leave the window and still be known.
+Until now it did that work on its own copy of the chat: the request was built from a
+budget, the recap from a slice of forty messages. When your history budget is smaller
+than forty — and on a free route it usually is — the summariser was handed a
+transcript that included turns the model had never seen and left out turns it had. Its
+output was then filed as what the model "knows". Two wrongs, one of them quiet.
 
-The deliberate limit: **display only**. A script changes what the screen shows. It does
-not touch the stored message, the prompt sent to the model, the transcript export, the
-read-aloud text, or the `raw` copy behind the reply footer. SillyTavern-style scripts
-also have prompt-affecting stages; this app starts without them because a display bug is
-undone by switching one thing off and a prompt bug quietly rewrites your story. Your
-chat, exported or re-read a year from now, is what the model actually wrote.
+The recap now takes the **same window the chat took**: one budget, one selection, read
+by both. The slider is honoured rather than argued with — if your window is eight
+messages, the recap is built from those eight (with a floor of twelve so a recap is not
+a snapshot of a single exchange, and a byte cap so the request still fits the model that
+has to answer it). Nothing here raises a limit anywhere: the fix is that the two views
+of the chat are the same view, which is the only version of "what the model saw" that
+can be true.
 
-Two things a rule has to pass before it is saved, both about hanging. A pattern whose
-shape can only be slow — a group repeated inside a repeated group, like `(a+)+` — is
-refused by its shape, and a rule that takes more than half a second on one reply is
-refused outright. A WebView that stalls on the UI thread has no cancel button, and an
-answer that depends on how fast the phone happened to be that day is not an answer. The
-same shape is skipped at render time too, so a rule put in by hand cannot take the
-screen down either. Rules run top to bottom, each seeing what the one before it left;
-each can be switched off without deleting it.
+## Recall: fetch the turn the window dropped, when it fits this one
 
-## The chats search can read the chats now
+**Settings → Memory → Recall**, off until you turn it on.
 
-**Chats → the search box** filters titles, character names and summaries; from now on
-it also finds the chat where the boat sank, even when the title is "New chat" and the
-phrase is 140 messages deep. Message bodies live in a separate store with no text index,
-so this is a scan rather than a query, and the scan is the only interesting part:
+The window is a budget, not a memory. When it pushes a turn out, the model does not
+forget it — it never received it, and it will happily invent a replacement. Recall
+scores the messages the window left out against your last line and appends the handful
+that match, on the phone, with no model, no dependency and nothing uploaded: BM25-lite,
+term frequencies, a length norm, inverse document frequency.
 
-- **It does not block.** The indexed half answers while you type; the scan runs behind
-  it, yields between chats, and paints itself in as it goes. A line under the list says
-  *Reading 42 of 90 chats for that phrase…* and disappears when it is done.
-- **It is bounded.** Three characters minimum — two letters match every chat you own —
-  250 chats, the last 400 messages of each, and 25 hits per chat, which is printed as
-  *24+*. A long campaign is read from its tail, and when the scan stops short the empty
-  result says so, in words that tell you to try a longer phrase.
-- **Words are ANDed inside one message**, the same rule titles already used, so *"boat
-  dawn"* does not find every chat that mentions either word.
+What it deliberately will not do:
 
-Each hit row carries a **Jump** button. It opens the chat on the *oldest* message
-matching your words — where it happened, not where it was repeated — highlights that one
-and lights every other message the phrase runs through, so you can see how far it goes.
-The marks are screen-only; leaving the chat and coming back leaves nothing behind.
+- **It does not move anything.** The block goes *after* the transcript, first in the
+  trailing instructions, so the prompt prefix is byte-for-byte what it was and the cache
+  discount on the free routes stays. Reordering history into relevance order is how a
+  recall feature costs more than it saves; this is append-only on purpose.
+- **It does not fetch on one shared word.** A passage has to share two of your words to
+  be fetched at all, and a word the whole chat repeats — *the lamp*, in a story about a
+  lighthouse — is not one of your words. Without that rule the fourteenth near-copy of
+  the turn you just read ranks above the fact you asked about, and the model weaves it
+  in. A single rare word is enough on its own, which is the turn where all you typed was
+  a name.
+- **It does not quote the whole message.** A recalled line is the stretch around the
+  match, not its opening: a four-thousand-character post is useless if the sentence that
+  matters is at the far end.
+- **It does not settle anything.** The block arrives under a heading that says these are
+  real lines from outside the window, that they are background rather than the present
+  moment, and that where one contradicts something newer, the newer one wins.
 
-One more thing, because it is worth saying out loud: **the search box was invisible.**
-The input has been in the chats screen since v1.39.0 with `hidden` in the markup, and
-nothing ever removed it. The feature existed; you could not reach it. It now appears
-whenever you have three or more chats, and stays out of the way below that.
+Up to twelve passages per reply (six by default), and the whole block is capped at about
+700 tokens, so it cannot spend the turn's own window. Below the cap it keeps the
+strongest matches; what it left out is counted, not quietly missing. The Memory screen
+prints what the last request did — how many messages were looked through, how many
+passages were kept, what they cost — and past the search cap it names how many were never
+read, because "nothing matched" about lines nobody examined would be a lie.
 
-## Exporting a chat as Markdown
+**The limit worth knowing:** this matches *words*, not meanings. Ask
+*"is the Sorrow of Dunmore still rotting at the pier?"* and the turn where you named her
+comes back. Ask *"how did that all end for us?"* and nothing is fetched — no guess, no
+invented recollection. It is a lookup, not a model.
 
-**Chat → ⋮ → Export → For publishing (.md)**, alongside the existing *For reading
-(.txt)* and *Backup (.json)*. Speaker names in bold, images as figures with their
-captions as alt text, and the memory the chat had built — with the facts that stopped
-being true kept and labelled as such, rather than quietly dropped. The two text formats
-are built from one assembly now, so they cannot drift apart; neither one has display
-scripts applied to it.
+One turn costs 9 ms on a 240-message chat and 50 ms on a 2 000-message one the first
+time; after that the message shapes are cached and the same scan takes 2 ms. The scan is
+bounded to the newest 1 500 out-of-window messages so no chat, however long, can spend
+a turn on arithmetic. That bound is also why it reads the newest lines first: on a chat
+older than the cap, the oldest episodes are out of reach.
 
-## Under the hood
+## Checks
 
-`API.applyDisplayScripts`, `API.scriptTest`, `API.displayScripts` and
-`API.scriptLooksEvil` (new, called from exactly one place in
-`views.js`); `Store.DEFAULTS.regexOn` (false) and `Store.DEFAULTS.regexScripts` (`[]`).
-The switch is part of a generation reset, so *Reset generation* turns the styling off;
-the rules themselves are deliberately not, because they are your text and a reset that
-deleted them would be data loss dressed as tidiness. `App.transcriptParts` with
-`App.renderTranscriptTxt` / `App.renderTranscriptMd`; `App.setChatSearch`,
-`App.searchBodies`, `App.scanForWords`, `App.searchSnippet`, `App.searchProgress` and
-`App.focusMessage`; `App.openSession(id, {focusMid})`, which now returns its promise so
-a jump can be sequenced after the thread is built. The `.txt` export's filename is
-sanitised, so a chat titled `Harbour & Lighthouse` can no longer draw a folder.
-
-131 test files, all green. Three are new here, 142 checks between them:
-`tests/regex-scripts-test.js` covers
-the engine and, more importantly, the boundary — that an armed rule with the switch on
-still leaves the assembled prompt, the export and the stored message alone;
-`tests/chat-body-search-test.js` covers the debounce (nothing is read at all before it
-is up), the bounds, a scan superseded mid-flight, the escaping in a snippet, and a jump
-target that no longer exists; `tests/export-md-test.js` covers both renderers against
-the same session, including a deleted character and a store that refuses.
-
-*Update notes: no uninstall, no re-login, no migration. Existing chats, cards, lore and
-settings are untouched; nothing new is on unless you switch it on.*
+`tests/recall-bm25-test.js` (95 checks) and `tests/recap-window-test.js` (22). The
+recall suite is not a set of string matches: it ranks a 60-turn campaign through the
+LongMemEval question types (extract, combine, temporal, update, abstain) and asserts on
+the request the app would send, including one check that documents the limit above. The
+mutation harness grew from twelve breaks to twenty-four, every one of them in this
+release's two paths: dropping the two-word gate, the rarity floor, the token budget, the
+search cap, the append-after-transcript position, the single speaker label, the window
+exclusion, the snippet's centring, the tie-break, the off-by-default switch, the
+plain-text shape, and giving the recap its own slice back. Each one turns a suite red,
+and each was added by breaking the code on purpose and watching what stayed green.

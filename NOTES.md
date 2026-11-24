@@ -1,5 +1,84 @@
 # Horde Studio Mobile — release notes
 
+## v1.46.0, 2026-11-24 — recall, and the recap that had been reading a different chat
+
+**The bug first, because it is the reason the feature is shaped the way it is.** Story
+memory summarizes a chat so old turns can leave the window and still be known, and it was
+doing that on its own copy of the transcript: `summarize` sliced forty messages while the
+request itself was built from `requestWindow` under the history budget. On any budget
+smaller than forty the summariser saw turns the model had never seen and missed turns it
+had, and its output was filed as what the model knows. Fixed by removing the second view
+rather than by arguing about the first: `summarize` now takes `requestWindow(history, s)`
+with a floor of `SUMMARY_MIN_MESSAGES = 12`, keeps `o.maxMessages > 0` as an explicit
+override, and keeps the byte cap (`Math.max(4000, historyBudgetTokens(s, 900, 500) * 4)`)
+with the halving that keeps the newest half. `mem.sentMessages` is now the pool it actually
+sent and `mem.availableMessages` the whole history, so the screen can say both.
+
+**The choice that shaped it, as asked for: honour the slider.** The window may cut
+further, there is no new control, and the recap gets no bigger default — a remedy that
+re-imposes the cap it tripped over is not a remedy. Pinned by
+`tests/recap-window-test.js` (22 checks), including that `api.js` contains no
+`o.maxMessages || 40` any more and exactly one `function requestWindow`.
+
+**Then recall: the turn the window dropped, fetched when it fits this one.** Opt-in in
+Settings → Memory (`recallOn`, `recallCount`; DEFAULTS 1–12, default 6, off), scoring the
+out-of-window messages with BM25-lite on the phone — no model, no dependency, nothing
+uploaded. The whole design is three decisions and each has a suite behind it:
+
+- **Append only.** The block goes after the transcript, first in the trailing tail
+  (`[recalled.text, styleLock, tailPost, finalNote]`), because moving matched messages
+  up into relevance order is exactly what forfeits the stable prompt prefix — ~90 % of
+  this app's cheap behaviour on free routes is that prefix staying put.
+- **Rarity before frequency.** A term in more than a quarter of the corpus is not a clue
+  (`recallIsCommon`), and a passage needs two shared words unless your whole line was one
+  rare word. Without the first rule, `she nods at the weather` in fourteenth
+  near-duplicate outranks the fact asked about and the model weaves it in — which is
+  worse than recalling nothing.
+- **A window change must not reuse a stale corpus.** The first cut cached the corpus
+  against the whole history signature; that silently kept the *previous* request's
+  exclusions, so lines the model was about to be shown anyway came back as "from
+  earlier". Tokenisation is now cached per message (key `id + ':' + text.length`, reset
+  wholesale past 4000 keys) and the document list is rebuilt every call.
+
+Snippets centre on the densest matched stretch (`recallSnippet`, ±60 chars inside
+`RECALL_SNIPPET = 420`), the order is score → recency → id with no `Date.now()` anywhere
+so a prompt is repeatable, work is bounded by `RECALL_MAX_DOCS = 1500` (newest kept) and
+`RECALL_DOC_CHARS = 1400`, the block is bounded at `RECALL_TOKENS = 700` and counts what
+it dropped, and every recalled line carries exactly one speaker label — a card that
+signs its own replies used to read `Mara: Mara:`, so the leading label is taken from the
+line when it is the card's own name and *becomes* the credit when it is somebody else's
+with no scene cast to check it against. `lastAssembly.recall` records
+`{on, passages, corpus, ranked, dropped, tokens, scanned, from}` and the Memory screen
+reads it, naming what the search cap never read rather than calling it empty.
+
+**`tests/recall-bm25-test.js` (133rd suite, 95 checks)** ranks a 60-turn campaign through
+the LongMemEval types and asserts on the request the app would send. One check is the
+limit, written as a check: *"phrased without the thread's words, nothing is fetched — no
+guessing, no invented recall"*, because an engine with no model answers what the words
+point at and a user deserves to know that. `/tmp/mutate.py` grew from twelve breaks to
+twenty-four; every one turns a suite red, and three of them were only caught after the
+fixture was rebuilt: a two-element tie proves nothing (a comparator may be asked about a
+pair in either direction, so the tie fixture is now six equal-scoring passages among
+twenty-four), the one-word gate needed a doc that shares exactly one of two terms, and
+the search cap needed its fixture at the boundary — the newest line not read next to the
+oldest line read.
+
+**Two anchors rotted and were re-set, not deleted:** `labels-and-window-test.js`
+"each builder opens exactly one window" now counts three (chat, prompt, recap), and
+`nowbrief-test.js`'s tail anchor follows the new `var tail = [` plus a guard that recall
+precedes the orders. `generic-check.js` caught its own card name in a fresh comment,
+which is what it is for.
+
+**Measured, not assumed** (the reason the switch is allowed to be on by default in a later
+release if it stays this cheap): a scan of 240 messages costs 9 ms cold and 0 ms warm, a
+2 000-message chat 50 ms cold and 2 ms warm, and one `buildChat` over 2 000 messages goes
+from 1 ms to 5 ms with recall on.
+
+**Next, in this order:** `use_regex` / `recursive_scanning` behind an off-by-default
+switch, the test-admission doc, then `vhuman.js`/Life last (native notifications die with
+it).
+
+
 ## maintenance, 2026-11-22 — post-rotation sweep, and a deletion that was safe only by scope
 
 Cleared the scaffolding left by the leak and rotation work: workspace 47 MB → 7 MB

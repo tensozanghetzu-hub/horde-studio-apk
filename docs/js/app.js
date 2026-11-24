@@ -5751,6 +5751,21 @@
                 }).join('; ')
               : 'Nothing was cut. An entry that is not above is one that found no keyword in the turns scanned \u2014 the Lore screen says which.'));
           }
+          /* v1.46.0: recall spends a few hundred tokens on the model's own past, so
+             the sheet says how many passages it took and where they came from —
+             "the model brought up something from forty turns ago" is only reassuring
+             when you can see it was paid for. */
+          if (asm.recall) {
+            var R = asm.recall;
+            cutRows.push(li(!R.on
+              ? 'Recall is off (Settings \u2192 Memory), so nothing older than this window was fetched.'
+              : !R.passages
+                ? 'Recall read ' + R.corpus + ' older messages and nothing in them matched this turn \u2014 a passage has to share two of your words to be fetched at all.'
+                : 'Recall: ' + R.passages + ' passage' + (R.passages === 1 ? '' : 's') + ' of ' + R.ranked +
+                  ' that matched, from ' + R.corpus + ' messages outside the window \u2014 ~' + R.tokens +
+                  ' tokens' + (R.dropped ? ', ' + R.dropped + ' more that would not fit' : '') +
+                  ' (from messages ' + (R.from || []).map(function (x) { return x + 1; }).join(', ') + ').'));
+          }
         }
         var cuts = cutRows.length
           ? '<details open style="margin:7px 0;border:1px solid var(--line);border-radius:10px;padding:8px 10px">' +

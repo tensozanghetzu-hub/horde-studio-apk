@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.45.0
+# Horde Studio — Mobile (Android) · v1.46.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,11 +6,11 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.45.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.46.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
-> **v1.45.0 installs straight over v1.42.0 through v1.44.0 — no backup, no reinstall.** The one-time
+> **v1.46.0 installs straight over v1.42.0 through v1.45.0 — no backup, no reinstall.** The one-time
 > exception is behind you unless it is not: v1.42.0 rotated the signing key, so a phone still on
 > **v1.41.1 or older** has no update path across that boundary and must back up
 > (Settings → Data → Backup), uninstall, install, restore. Android refuses such an
@@ -25,7 +25,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The newest release
-also carries a copy named `HordeStudio-v1.45.0.apk`, so you can tell which version
+also carries a copy named `HordeStudio-v1.46.0.apk`, so you can tell which version
 you have after downloading.)
 
 Only the newest release keeps an APK attached. Older releases stay in the list with
@@ -407,6 +407,15 @@ nothing when a provider already stops cleanly (one pass, then it stops).
   plus a list of durable facts, which get injected into later prompts. Long chats stay
   coherent without paying to resend the whole transcript. Edit it by hand any time
   (World → Story memory).
+- **Recall** (opt-in, Settings → Memory) — when the history budget pushes a turn out of
+  the request, the app scores the messages the window left out against your last line and
+  appends the few that match, before the style lock. BM25-lite on the phone: no model, no
+  dependency, nothing uploaded, and nothing reordered — the block is appended after the
+  transcript so the prompt prefix keeps its cache discount. A passage has to share two of
+  your words to be fetched, a word the whole chat repeats does not count as one of them,
+  and the block is labelled as background rather than the present moment. It matches
+  words, not meanings: ask about *the Sorrow of Dunmore* and the turn where you named her
+  comes back; ask *how did that all end* and nothing is invented.
 - **Lorebook** — keyword-triggered world entries per character, injected only when
   their keywords show up in recent messages.
 - **Images** — generate a picture into the chat (or a character avatar) using the free
