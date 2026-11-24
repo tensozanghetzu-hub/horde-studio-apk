@@ -2104,10 +2104,26 @@
       max_tokens: s.maxTokens,
       stream: wantStream
     }, override || {});
+    /* v1.43.0: OpenRouter's own answer to a saturated route is a model chain —
+       "add fallback models ... to try a different model when all providers for
+       the first are exhausted". The app retried the SAME route twice and then
+       told the user to go and change the model by hand, which is the one thing
+       in this app a machine could do better. OpenRouter only: the Horde socket
+       has no such field and strict OpenAI-compatible hosts reject unknown keys.
+       A caller override wins, so a hand-built body is never rewritten. */
+    var fbList = String((s && s.replyFallback) || '').split(/[,\n]/)
+      .map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 3);
+    if (fbList.length && isOpenRouterEndpoint(s) && !body.models) {
+      body.models = [body.model].concat(fbList);
+    }
     /* OpenRouter's free Nemotron 3 routes can spend this whole budget on
        hidden reasoning, returning no final content. Disable it by default
-       only for those routes; leave an explicit caller override intact. */
-    var guardedNemotron = isOpenRouterFreeNemotron(s, body.model);
+       only for those routes; leave an explicit caller override intact.
+       v1.43.0: "Ask for no thinking at all" widens the same treatment to any
+       OpenRouter model, because the failure is not Nemotron-shaped — it is
+       budget-shaped, and a 400-token reply budget is the whole problem. */
+    var guardedNemotron = isOpenRouterFreeNemotron(s, body.model) ||
+      !!(s && s.reasoningOff && isOpenRouterEndpoint(s));
     if (guardedNemotron && !(body.reasoning && body.reasoning.enabled === true)) {
       body.reasoning = Object.assign({}, body.reasoning || {}, { enabled: false });
     }
@@ -2872,6 +2888,24 @@
 
     return loop(0);
   }
+
+  /* v1.43.0: what the app took off a reply, offered back on request.
+     cleanReply truncates at the first line that looks like a speaker label —
+     right when the model starts writing the player's turn, and quietly wrong
+     when a character is ADDRESSED by name inside the prose ("He looked up.
+     \"Alice: get down here,\" he shouted."). A reader cannot tell those apart
+     from a cut-off sentence; they can tell at once when shown both. Returns
+     null when nothing was removed, so an ordinary reply never stores a second
+     copy of itself. */
+  function replyProvenance(display, raw) {
+    var d = String(display == null ? '' : display);
+    var r = String(raw == null ? '' : raw);
+    if (!r || d === r) return null;
+    var dropped = r.length - d.length;
+    if (dropped <= 0) return null;
+    return { dropped: dropped, endsEarly: d.length > 0 && /[:\u2012-\u2015-]\s*$/.test(d) };
+  }
+
 
   /** Ask the model to compress the story so far into a summary + facts. */
   function summarize(o) {
@@ -3812,7 +3846,7 @@
     buildChat: buildChat, buildPrompt: buildPrompt, generate: generate,
     /* the tests read the assembled character sheet directly; the app never does */
     _charSheet: charSheet,
-    cleanReply: cleanReply, looksTruncated: looksTruncated,
+    cleanReply: cleanReply, looksTruncated: looksTruncated, replyProvenance: replyProvenance,
     splitBurst: splitBurst,
     stripThinking: stripThinking,
     isMetaLine: isMetaLine,

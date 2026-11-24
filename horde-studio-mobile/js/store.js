@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.42.3';
+  var VERSION = '1.43.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -99,6 +99,7 @@
     streaming: true,
     bursts: true,
     stripThinking: true,
+    /* v1.43.0 */ replyFallback: '', reasoningOff: false,
     updateUrl: '',
     autoFinish: true,       /* keep going when a reply comes back cut off */
     hordeKey: '',
@@ -123,7 +124,7 @@
      The reset button builds its patch from exactly this list - provider, key,
      model, personas, theme are somebody else's screen and must not move. */
   var GEN_KEYS = ['temperature', 'maxTokens', 'topP', 'contextMessages',
-                  'streaming', 'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter'];
+                  'streaming', 'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter', 'replyFallback', 'reasoningOff'];
 
   var Store = {
     settings: null,

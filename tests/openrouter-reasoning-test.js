@@ -27,10 +27,12 @@ function makeApi(fetchFn) {
   vm.runInNewContext(fs.readFileSync(SRC, 'utf8'), sb, { filename: 'api.js' });
   return sb.API;
 }
-function settings(model, baseUrl, streaming) {
-  return { provider: 'openai', baseUrl: baseUrl || 'https://openrouter.ai/api/v1',
+function settings(model, baseUrl, streaming, extra) {
+  var s = { provider: 'openai', baseUrl: baseUrl || 'https://openrouter.ai/api/v1',
     apiKey: 'sk-test', model: model, streaming: streaming, maxTokens: 600,
     temperature: 0.8, topP: 0.95, userName: 'Tester' };
+  for (var k in (extra || {})) s[k] = extra[k];
+  return s;
 }
 function streamResponse(chunks) {
   var i = 0;
@@ -78,6 +80,24 @@ API.streamChat(settings('nvidia/nemotron-3.5-super-vl:free', undefined, false), 
               }, function (e) {
                 ok('reasoning-only empty completion rejects instead of saving a blank bubble',
                   /no final answer text/i.test(e.message), e.message);
+              }).then(function () {
+                /* v1.43.0 — the same budget-shaped failure exists on every
+                   thinking model, so it needs a switch, not another regex. */
+                return API.streamChat(settings('google/gemma-4-31b-it:free', undefined, false,
+                  { reasoningOff: true }), msgs, null).then(function () {
+                  ok('the opt-in switch disables thinking for any OpenRouter model',
+                    bodySent.reasoning && bodySent.reasoning.enabled === false, JSON.stringify(bodySent.reasoning));
+                  return API.streamChat(settings('google/gemma-4-31b-it:free', 'https://api.example.test/v1', false,
+                    { reasoningOff: true }), msgs, null).then(function () {
+                    ok('and still never reaches outside OpenRouter', !bodySent.reasoning, JSON.stringify(bodySent.reasoning));
+                    return API.streamChat(settings('nvidia/nemotron-3.5-lightning:free', undefined, false,
+                      { reasoningOff: true }), msgs, null, null, { reasoning: { enabled: true } }).then(function () {
+                      ok('an explicit caller override outranks both the guard and the switch',
+                        bodySent.reasoning && bodySent.reasoning.enabled === true, JSON.stringify(bodySent.reasoning));
+                      return null;
+                    });
+                  });
+                });
               });
           });
         });

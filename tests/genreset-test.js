@@ -79,10 +79,19 @@ function carve(name) {
                     'activePersona', 'personaSchema', 'systemPrompt', 'hordeSize', 'hordeSteps', 'updateUrl'];
     const leaked = Object.keys(patch).filter(k => poison.includes(k));
     ok('the patch carries no identity/provider/theme keys', leaked.length === 0, leaked.join(','));
+    /* v1.43.0 grew the screen by two controls, so the screen owns two more
+       keys. The list below is deliberately restated rather than imported: if a
+       key is added to GEN_KEYS without a factory default, or a control is put
+       on the screen whose value the reset cannot restore, this fails. */
     const genKeys = ['temperature', 'maxTokens', 'topP', 'contextMessages', 'streaming',
-                     'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter'];
+                     'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter',
+                     'replyFallback', 'reasoningOff'];
     const stray = Object.keys(patch).filter(k => !genKeys.includes(k));
-    ok('...and nothing beyond the nine generation keys at all', stray.length === 0, stray.join(','));
+    ok('...and nothing beyond the eleven generation keys at all', stray.length === 0, stray.join(','));
+    ok('the two new knobs reset to inert, not to "on"',
+      patch.reasoningOff === false && patch.replyFallback === '', JSON.stringify({ r: patch.reasoningOff, f: patch.replyFallback }));
+    ok('every key the screen owns has a factory value to go back to',
+      genKeys.every(k => Object.prototype.hasOwnProperty.call(patch, k)), genKeys.filter(k => !(k in patch)).join(','));
 
     console.log('F — behavior proof: tinker, confirm, restored');
     const sb = carve('App.resetGenerationSettings');

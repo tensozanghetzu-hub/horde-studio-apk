@@ -2877,6 +2877,23 @@
         msg.alts = [text];
         msg.altIdx = 0;
       }
+      /* v1.43.0: every character the reader sees has been through
+         stripThinking and cleanReply. Keep the model's own text alongside it —
+         only when they differ, and only while it is a size worth storing — so a
+         cut is a decision the reader can review instead of a fact about the
+         model. Restoring is deliberately manual: this text never re-enters a
+         prompt or an alt by itself. */
+      if (!opts.continueFor && API.replyProvenance) {
+        var provInfo = API.replyProvenance(msg.text, text);
+        if (provInfo) {
+          msg.rawKept = text.length <= 12000;
+          msg.raw = msg.rawKept ? text : null;
+          msg.rawDropped = provInfo.dropped;
+          msg.rawEarlyEnd = !!provInfo.endsEarly;
+        } else if (msg.raw !== undefined) {
+          delete msg.raw; delete msg.rawKept; delete msg.rawDropped; delete msg.rawEarlyEnd;
+        }
+      }
       /* v1.39.93: on a card with a cast, the header says who ACTUALLY spoke.
          It used to say the card's name whoever it was — so another speaker's
          line sat under the card's own name — and a reply in which the card's
@@ -2898,6 +2915,10 @@
         msg.text = parts[0];
         msg.alts = [parts[0]];
         msg.altIdx = 0;
+        /* v1.43.0: the raw copy describes the WHOLE burst, not this bubble —
+           offering it here would show a reader text belonging to three
+           messages and invite them to paste all of it into this one. */
+        delete msg.raw; delete msg.rawKept; delete msg.rawDropped; delete msg.rawEarlyEnd;
         var rebuilt2 = Views.refreshMessage ? Views.refreshMessage(char, msg) : null;
         if (rebuilt2) el = rebuilt2;
         return retryMarkerWrites.then(function () { return persist(); }).then(function (r) {
@@ -5611,6 +5632,29 @@
           Store.updateMessage(msg).then(function () {
             Views.thread(App.state.char, App.state.session, App.state.messages, null, false, editAnchor);
           });
+        });
+      } else if (act === 'raw') {
+        /* The app cut something out of this reply on the way to the screen.
+           Show both texts and let the reader decide — the model's words are
+           never re-inserted into a prompt or an alt by themselves. */
+        if (!msg.rawKept || !msg.raw) {
+          UI.toast('The removed text was not kept (' + (msg.rawDropped || 0) + ' characters)');
+          return;
+        }
+        UI.input('What the model actually sent', {
+          multiline: true, value: String(msg.raw), okLabel: 'Keep this text',
+          message: msg.rawDropped + ' characters were removed while cleaning this reply' +
+            (msg.rawEarlyEnd ? ', and the model also stopped mid-sentence.' : '.')
+        }).then(function (v) {
+          if (v === null || v === undefined) return;
+          var keep = String(v);
+          if (keep === msg.text) return;
+          msg.text = keep;
+          if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = keep;
+          delete msg.raw; delete msg.rawKept; delete msg.rawDropped; delete msg.rawEarlyEnd;
+          Store.updateMessage(msg).then(function () {
+            Views.thread(App.state.char, App.state.session, App.state.messages);
+          }).catch(function () { UI.toast('Kept for this session only — the save failed'); });
         });
       } else if (act === 'del') {
         UI.confirm('Delete this message?', '', { danger: true, okLabel: 'Delete' }).then(function (ok) {

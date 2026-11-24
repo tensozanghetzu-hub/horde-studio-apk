@@ -1164,6 +1164,9 @@
         '<div class="field"><div class="hint" style="margin:0">If a reply stops mid-sentence (common on the Horde, which ' +
           'cuts at its token limit), the app asks for the rest and stitches it together — up to 3 passes.</div></div>' +
         '<div class="field compact"><label>Strip the model\'s thinking</label><div class="toggle' + (s.stripThinking !== false ? ' on' : '') + '" id="t-think"></div></div>' +
+        '<div class="field compact"><label>Ask for no thinking at all</label><div class="toggle' + (s.reasoningOff ? ' on' : '') + '" id="t-nothink"></div></div>' +
+        '<div class="hint">Sends <code>reasoning:{enabled:false}</code>. A model that spends the whole reply budget on invisible thinking returns nothing you can read, and the app cannot tell that from a refusal. Off keeps each model on its own default; Nemotron free routes are already handled either way.</div>' +
+        '<div class="field"><label>If a route is saturated, try next</label><input id="or-fallback" maxlength="240" value="' + esc(s.replyFallback || '') + '" placeholder="google/gemma-4-26b-a4b-it:free, nvidia/nemotron-3.5-lightning:free"><div class="hint">Up to three models, comma separated, OpenRouter only. A refused route answers from the next one instead of showing a red pill and waiting for you to do the failover yourself.</div></div>' +
         '<div class="field"><div class="hint" style="margin:0">Some models plan out loud before they answer. ' +
           'When that planning is recognisable it is removed, so you only see what the character says.</div></div>' +
         /* v1.39.24 */
@@ -1272,6 +1275,11 @@
     sc.toggle('#t-finish', 'autoFinish');
     sc.toggle('#t-bursts', 'bursts');
     sc.toggle('#t-think', 'stripThinking');
+    sc.toggle('#t-nothink', 'reasoningOff');
+    sc.bind('#or-fallback', 'input', function () {
+      var el = $('#or-fallback', body);
+      sc.set({ replyFallback: el ? el.value.trim() : '' });
+    });
     sc.toggle('#t-plain', 'plainEmphasis');
     sc.toggle('#t-enter', 'sendOnEnter');
     var gr = $('#gen-reset');
@@ -3152,6 +3160,9 @@
               '<button class="chip" data-act="say" title="Listen">' + icon('volume') + '</button>' +
               '<button class="chip" data-act="edit">' + icon('edit') + '</button>' +
               '<button class="chip" data-act="copy">' + icon('copy') + '</button>' +
+              (m.rawDropped ? '<button class="chip" data-act="raw" title="' +
+                esc(String(m.rawDropped) + ' characters were removed while cleaning this reply') +
+                '">−' + m.rawDropped + '</button>' : '') +
               '<button class="chip" data-act="del">' + icon('trash') + '</button>') +
         '</div>' +
         ((m.alts && m.alts.length > 1)

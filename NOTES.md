@@ -168,6 +168,52 @@ percentages from a per-card digest instead of taking them on trust — which is 
 the unit mix-up surfaced. A review letter is data, not instruction: check the hash,
 check the lines, then count it yourself.
 
+## v1.43.0 — the app does the failover now, and shows you what it cut (2026-11-24)
+
+Three gaps, all of them visible from one bad evening on a free route.
+
+**R1 — model-chain fallback.** Generation settings gained "If a route is
+saturated, try next": up to three model ids, sent as OpenRouter's `models` array
+with the primary first, so a refused route is retried inside the one request
+instead of ending in a red pill and a human opening Settings. Gated on
+`isOpenRouterEndpoint` — the field never reaches the Horde socket or a strict
+self-hosted base URL — and a caller that already built `body.models` is not
+overwritten. Cap is 3 so a fat chain cannot quietly multiply a paid bill.
+
+**R2 — what the cleaner removed.** `cleanReply` truncates a reply at the first
+line that looks like a speaker label, which is right when the model starts
+writing the player's turn and quietly wrong when a character is ADDRESSED by
+name inside the prose. The reader could not tell those apart. New:
+`API.replyProvenance(display, raw)` returns `{dropped, endsEarly}` or null, and
+`App.generateReply` stores the model's own text as `msg.raw` only when the two
+differ and the original is under 12 000 characters — so an untouched reply pays
+nothing in storage. The bubble grows a `−36` chip that opens both texts side by
+side and restores the raw one only if you press "Keep this text"; nothing is
+re-inserted into a prompt or an alt on its own. A burst reply drops its raw copy
+(the text describes the whole burst, not the first bubble), and a reply with no
+kept copy says so in a toast rather than opening an empty sheet.
+
+**R3 — thinking, as a setting.** `reasoning:{enabled:false}` used to be fired
+by a Nemotron-shaped regex and nothing else, but the failure is budget-shaped:
+a model that thinks with 400 tokens of budget returns nothing visible, and that
+is indistinguishable from a refusal. New toggle "Ask for no thinking at all",
+default **off** so nobody's model behaviour changes unasked, applied to any
+OpenRouter model and never beyond it. The existing Nemotron guard is now the
+same boolean, so the four releases of Nemotron-specific patches still hold.
+
+- The Generation reset button gained both keys. `genreset-test` caught that
+  first: the screen owns exactly the keys `generationDefaults()` returns, and
+  adding two controls without two defaults would have left a knob the reset
+  cannot restore. It now asserts "every key the screen owns has a factory value".
+- Tests: `tests/reply-resilience-test.js` (new, 30) and `openrouter-reasoning-test.js`
+  (7 → 10). Mutation-checked: never building the chain fails 3, dropping the
+  OpenRouter-only guard fails 2, removing the `dropped <= 0` floor fails 1,
+  widening `reasoningOff` past OpenRouter fails 1, hiding the chip fails 1,
+  removing the kept-copy guard fails 1, and deleting a stored factory default
+  fails 1. Honest note: `replyProvenance`'s `d === r` identity check is a
+  belt-and-braces guard behind `dropped <= 0` and is NOT mutation-pinned —
+  removing only that clause is not observable.
+
 ## v1.42.3 — a diagnostic that told the truth and stopped one line short (2026-11-24)
 
 The 429 note on the Connection screen was correct and useless at the same time. A user
