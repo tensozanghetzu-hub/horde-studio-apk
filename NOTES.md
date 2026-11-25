@@ -1,5 +1,79 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.0, 2026-11-25 — what they sent while the app was in your pocket
+
+**What shipped.** Three helpers, and one of them is a number. `VH.arrived` records on the
+human that something landed they have not seen (`unread`, capped at 999 by `Math.min`, and
+`unreadAt`, stamped by the *first* arrival only, so "since 02:14" is when they started
+writing and not when they stopped). `VH.read` clears both and stamps `seenAt`; it returns
+whether anything was there to clear, which is what lets opening a chat stay the read-only
+operation it was before. `VH.unreadLine` renders "2 messages since 09:00" or nothing, and is
+the only place the wording lives, so the Life card, the Life screen's summary line and the
+chat list cannot drift into three phrasings of one fact.
+
+**One door for the announcement.** `App.vhArrived(char, count, note)` is the single place
+that decides *how* you are told, and it decides from `document.hidden`: toast when you are
+looking, `Notification` when you are not, count either way. The three delivery sites
+(`saveAutonomous`, `vhPhoto`, and the background branch of `deliverPending`) each lost their
+hand-rolled `UI.toast` + `Views.chats` re-render for one call, which is where the old
+double-toast risk was. A burst counts as the number of bubbles that landed in that chat —
+two messages, not one — because that is what the chat holds when you open it.
+
+**What does not count.** Diary beats, feed posts, world events: they stay on their own
+screens. A reply to *your* message counts only if their chat was not on screen at the moment
+delivery ran, which is re-checked there rather than trusted from the top of the function — you
+may have opened it while the reply was being written, and a message in front of you is not
+one you came back to. The marks are the app's own record, deliberately not re-derived from the
+message list: deleting bubbles by hand does not quietly move a count you already saw.
+`VH.portable` zeroes all three fields in both export modes and `VH.adopt` zeroes them again on
+the way in — `unreadAt`/`seenAt` are timestamps of the publisher's attention, and on the
+receiving phone nobody has unread anything yet.
+
+**The two switches.** `lifeWhileAway` lets the app's own per-minute clock call
+`App.lifeTick({ background: true })` while hidden; `notifyAway` is what permits the system
+notice. Both off, both in `DEFAULTS`, and — decided against the first instinct — both in
+`GEN_KEYS`, because they are cost/announcement knobs that live on Settings → Generation, and a
+reset that left the spend-model-calls one stuck on would be the surprise. That meant
+re-anchoring the two source-shape guards that enumerate the key list (`genreset-test.js`,
+`regex-scripts-test.js`) in the same commit, per the rule in `TESTING.md`. A backgrounded
+`lifeTick` does no view work at all: the screen redraws are gated on `!opts.background`, since
+a minute in a pocket has no viewer to repaint for.
+
+**Notifications, and the limit of them.** `App.notifyAway` is feature-detected with
+`typeof window.Notification === 'function'` — not `in`, because a key can exist and still be
+nothing — wrapped in `try`, tagged `horde-vh-<id>` so three messages from one person update
+one notice instead of stacking three, and auto-dismissed after 8 s. The Android wrapper has no
+notification channel and this release does not add one: no `POST_NOTIFICATIONS`, no
+`WorkManager`, no foreground service. On a phone with the APK the count is the signal, and the
+settings row says so rather than offering a switch that could only ever lie. Permission is
+requested by the switch (`App.setNotifyAway`) and written only on a `granted` answer — denied
+writes `false`, absent writes *nothing* and toasts why, because a toggle lit beside a notice
+that never arrives is a screen telling the author something the platform did not do.
+
+**Why the arithmetic was already safe.** `VH.tick` advances from `vh.lastTick` by elapsed time
+and caps `simHours` at 36, and `shouldReachOut` hard-caps one outreach per real hour with
+`VH.canSpend` over it. So letting the clock run hidden cannot fan out a backlog or start a
+loop; the worst it does is spend a call you were not watching, which is why the switch says
+exactly that. `App.vhOutreach` still claims `state.lifeBusy[id]` and `break`s after one per
+tick.
+
+**Tests.** `tests/vhuman-away-test.js`, 73 checks in five sections: the engine's counting rules
+(zero/negative/blank/NaN no-ops, the cap, the string case, fractional flooring, export/import),
+the app's one door (toast vs notice vs neither, all three landing sites, the read receipt *and*
+its no-write case), the rendered `Views.life` and `Views.chats` HTML, the rendered Generation
+screen (both rows, click-through, refusal), and the clock. Section E fires the installed
+callback rather than waiting a minute, having got at it by firing the real `DOMContentLoaded`
+handler so the shipped `bindGlobal` installs it; that needed the sandbox to carry `themes.js`,
+`navigator` and `location`, because boot touches them before it reaches the timer. 16 new
+breaks in `tools/mutation-check.py` (28 total), all killed. The first version of the "does not
+move since" check compared two `Date.now()` calls and so passed against a break that re-stamps
+on every arrival — on this machine both land in the same millisecond. It now pins
+`unreadAt = 12345` by hand, and the lesson is in `TESTING.md`.
+
+**Version.** 1.48.0 / code 204. Nothing in this release is Android-side; the APK is rebuilt so
+the channel's numbers describe the bytes it is serving, and no phone needs to install it —
+every change above is in `js/`, so v1.42.0 and up get it as the small download.
+
 ## v1.47.0, 2026-11-25 — a card's regex keys and its recursion, each behind a switch the player has to agree to
 
 **What shipped.** Two card fields the app carried and ignored are now read by the lore

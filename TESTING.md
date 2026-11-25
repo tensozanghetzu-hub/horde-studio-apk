@@ -111,6 +111,15 @@ the device is not a guard, which is why a runaway pattern is refused by shape
   rot the moment code moves. Re-anchor them in the same change that moved the code, in
   the same commit, and keep the comment that says what the shape is protecting. Do not
   delete one to get to green.
+- A check that compares two `Date.now()` results is not a check: on a fast machine they
+  land in the same millisecond, so "stamp it once, not on every call" passed against code
+  that re-stamped every time. Write the time you expect into the object by hand and assert
+  the code left it alone (`vhuman-away-test.js`, section A). The same trap waits in any
+  assertion about "first", "only once" or "at least N seconds apart".
+- The two Life clocks live inside the private `bindGlobal()`, so the way to test them is to
+  fire the real `DOMContentLoaded` handler and let it install them — which needs `themes.js`,
+  `navigator` and `location` in the sandbox — then call the captured callback. Never wait a
+  minute, and never re-implement the callback in the test: a copy of it executes the copy.
 - `Store.DEFAULTS`, `app.js`'s `$`/`$$` and the lore engine's `loreAdmit` are
   module-private: test the exported surface (`Store.cardToCharacter`, `API._loreHits`,
   `API.loreDiagnostics`) rather than reaching for an internal that cannot be imported.

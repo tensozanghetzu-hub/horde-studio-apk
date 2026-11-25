@@ -107,6 +107,103 @@ MUTATIONS = [
      "if (regexed) {",
      "if (false) {",
      ['import-warnings-test.js']),
+
+    # ---- v1.48.0: coming back to them --------------------------------------
+    ("an arrival cannot be counted, only announced",
+     'app.js',
+     "    VH.arrived(char, count);",
+     "    /* VH.arrived(char, count); */",
+     ['vhuman-away-test.js']),
+
+    ("the badge survives opening their chat",
+     'app.js',
+     "if (c && c.vh && (c.vh.unread > 0 || c.vh.unreadAt)) { VH.read(c); App.persistVH(c); }",
+     "if (c && c.vh) { App.persistVH(c); }",
+     ['vhuman-away-test.js']),
+
+    ("a toast is fired into a screen nobody is looking at",
+     'app.js',
+     "    else App.notifyAway(char, note);",
+     "    else void 0;",
+     ['vhuman-away-test.js']),
+
+    ("the notification is built whether or not it was allowed",
+     'app.js',
+     "    if (window.Notification.permission !== 'granted') return false;",
+     "",
+     ['vhuman-away-test.js']),
+
+    ("the notify switch turns itself on even when refused",
+     'app.js',
+     "      var granted = p === 'granted';",
+     "      var granted = true;",
+     ['vhuman-away-test.js']),
+
+    ("the away switch does not actually gate the clock",
+     'app.js',
+     "      if ((Store.settings || {}).lifeWhileAway === true) App.lifeTick({ background: true });",
+     "      App.lifeTick({ background: true });",
+     ['vhuman-away-test.js']),
+
+    ("a background tick redraws screens nobody can see",
+     'app.js',
+     "    if (!opts.background) {",
+     "    if (true) {",
+     ['vhuman-away-test.js']),
+
+    ("a zero count becomes an arrival",
+     'vhuman.js',
+     "      if (!isFinite(n) || !(n > 0)) return vh;",
+     "      if (!isFinite(n)) return vh;",
+     ['vhuman-away-test.js']),
+
+    ("the unread count can grow without bound",
+     'vhuman.js',
+     "      vh.unread = Math.min(999, (vh.unread || 0) + n);",
+     "      vh.unread = (vh.unread || 0) + n;",
+     ['vhuman-away-test.js']),
+
+    ("every arrival rewrites when they first wrote",
+     'vhuman.js',
+     "      if (!(vh.unread > 0)) vh.unreadAt = Date.now();",
+     "      vh.unreadAt = Date.now();",
+     ['vhuman-away-test.js']),
+
+    ("a published human carries the publisher's unread state",
+     'vhuman.js',
+     "      copy.vh.unread = 0; copy.vh.unreadAt = 0; copy.vh.seenAt = 0;",
+     "      copy.vh.unreadAt = 0;",
+     ['vhuman-away-test.js']),
+
+    ("the away cost switch ships on",
+     'store.js',
+     "    lifeWhileAway: false,",
+     "    lifeWhileAway: true,",
+     ['vhuman-away-test.js', 'regex-scripts-test.js']),
+
+    ("the Life card says the hint, and nothing about the messages",
+     'views.js',
+     "    var unreadLine = VH.unreadLine(vh, UI.fmtTime);",
+     "    var unreadLine = '';",
+     ['vhuman-away-test.js']),
+
+    ("the Life screen's sentence about the day ignores the setting",
+     'views.js',
+     "    var away = (Store.settings || {}).lifeWhileAway === true;",
+     "    var away = true;",
+     ['vhuman-away-test.js']),
+
+    ("every chat of theirs claims the new messages",
+     'views.js',
+     "        var marks = (c.vh && c.vh.unread > 0 && newestOf[s.charId] === s.id) ? c.vh.unread : 0;",
+     "        var marks = (c.vh && c.vh.unread > 0) ? c.vh.unread : 0;",
+     ['vhuman-away-test.js']),
+
+    ("the away switch is on the screen but wired to nothing",
+     'views.js',
+     "    sc.toggle('#t-away', 'lifeWhileAway');",
+     "",
+     ['vhuman-away-test.js']),
 ]
 
 TIMEOUT = 240

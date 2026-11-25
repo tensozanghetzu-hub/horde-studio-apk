@@ -922,6 +922,11 @@
           if (!c) return UI.toast('The character for this chat is missing');
           return Store.getMessages(id).then(function (msgs) {
             App.state.session = s; App.state.char = c;
+            /* v1.48.0: opening their chat IS the read receipt - no separate "mark as
+               read" to hunt for and nothing to forget to tap. Written back only when
+               there was a mark to clear, so opening a chat stays the read-only
+               operation it was for the last hundred releases. */
+            if (c && c.vh && (c.vh.unread > 0 || c.vh.unreadAt)) { VH.read(c); App.persistVH(c); }
             App.state.groupCharacters = members.length > 1 ? members : [];
             App.state.messages = msgs;
             App.state.screen = null;
@@ -4560,6 +4565,80 @@
     return Store.putCharacter(char).then(function () { return Store.refreshCharacters(); });
   };
 
+  /**
+   * Something of theirs landed while their chat was not in front of you: mark it,
+   * and say so through whichever channel this platform actually has. A toast is for
+   * when you are here; a system notice is for when you are not, and only where the
+   * browser offers one - the Android wrapper has no notification channel, so on a
+   * phone the count is the signal and nothing pretends otherwise. `tag` is per human
+   * so three messages from one person arrive as one notice that updates, not three
+   * that you swipe away one by one.
+   */
+  App.vhArrived = function (char, count, note) {
+    if (!char) return;
+    VH.arrived(char, count);
+    App.persistVH(char);
+    if (!document.hidden) { if (note) UI.toast(note); }
+    else App.notifyAway(char, note);
+    /* the screens that show a badge redraw themselves if one of them is open;
+       nothing else is touched, because a background tick has no viewer */
+    if (App.state.screen === 'chats') Views.chats($('.screen'));
+    if (App.state.screen === 'life' || App.state.screen === 'now') Views.life($('.screen'));
+  };
+
+  /** A system notice, if this platform has them and the player said yes to one.
+      Never a prompt here: permission is asked for by the switch that needs it. */
+  App.notifyAway = function (char, note) {
+    var st = Store.settings || {};
+    if (st.notifyAway !== true) return false;
+    /* typeof, not `in`: a key can exist and still be nothing, and a platform that
+       half-implements this must be treated as one that does not, not crashed on. */
+    if (typeof window.Notification !== 'function') return false;
+    if (window.Notification.permission !== 'granted') return false;
+    try {
+      var n = new Notification((char && char.name) || 'They wrote', {
+        body: note || 'A new message is waiting.',
+        tag: 'horde-vh-' + ((char && char.id) || 'x')
+      });
+      if (n && n.close) setTimeout(function () { try { n.close(); } catch (e) {} }, 8000);
+      return true;
+    } catch (e) {
+      /* a platform that throws on construct is a platform without them; the unread
+         count still says the truth, which is the part that has to work */
+      return false;
+    }
+  };
+
+  /** Owned by the switch and not by the render: whether the toggle is worth writing
+      at all is the browser's answer, and a denied permission must not leave a screen
+      showing "on" beside a notification that will never arrive. */
+  App.setNotifyAway = function (on, done) {
+    if (!on) { Store.saveSettings({ notifyAway: false }); if (done) done(false); return; }
+    if (typeof window.Notification !== 'function') {
+      UI.toast('This platform offers no notifications - their messages wait as a count instead');
+      if (done) done(null);
+      return;
+    }
+    var N = window.Notification;
+    if (N.permission === 'granted') {
+      Store.saveSettings({ notifyAway: true }); if (done) done(true); return;
+    }
+    if (N.permission === 'denied') {
+      UI.toast('Your browser has this app blocked from notifying you - allow it in site settings first');
+      Store.saveSettings({ notifyAway: false }); if (done) done(false);
+      return;
+    }
+    Promise.resolve(N.requestPermission()).then(function (p) {
+      var granted = p === 'granted';
+      Store.saveSettings({ notifyAway: granted });
+      if (!granted) UI.toast('Not allowed - the switch stays off, and their messages still wait for you as a count');
+      if (done) done(granted);
+    }, function () {
+      Store.saveSettings({ notifyAway: false });
+      if (done) done(false);
+    });
+  };
+
   App.openLatestOrNew = function (charId) {
     Store.getSessions(charId).then(function (sessions) {
       if (sessions && sessions.length) App.openSession(sessions[0].id);
@@ -4721,8 +4800,10 @@
     });
     dirty.forEach(function (c) { Store.putCharacter(c); });
 
-    if (App.state.screen === 'now' || App.state.screen === 'life') Views.life($('.screen'));
-    if (App.state.screen === 'feed') Views.feed($('.screen'));
+    if (!opts.background) {
+      if (App.state.screen === 'now' || App.state.screen === 'life') Views.life($('.screen'));
+      if (App.state.screen === 'feed') Views.feed($('.screen'));
+    }
 
     /* pending replies that are due */
     IDB.getAll('sessions').then(function (sessions) {
@@ -4769,10 +4850,12 @@
         }).then(function () {
           VH.noteReply(char, '');
           App.persistVH(char);
+          /* re-checked here rather than trusted from the top of the function: the
+             player may have opened this chat while the reply was being written, and
+             a message they are looking at is not something they came back to */
           if (App.state.screen !== 'chat' || !App.state.session || App.state.session.id !== session.id) {
-            UI.toast((char.name || 'They') + ' replied — open the chat');
+            App.vhArrived(char, 1, (char.name || 'They') + ' replied — open the chat');
           }
-          if (App.state.screen === 'chats') Views.chats($('.screen'));
         }).catch(function (e) { console.error(e); });
       });
       return;
@@ -4870,8 +4953,10 @@
         App.state.messages.push(m);
         Views.appendMessage(char, m);
       } else {
-        UI.toast((char.name || 'They') + ' sent you a message');
-        if (App.state.screen === 'chats') Views.chats($('.screen'));
+        /* the burst's other bubbles land in the same chat, so the whole of it is
+           counted here, once, where the decision "you were not looking" is made */
+        App.vhArrived(char, parts.length, (char.name || 'They') + ' sent you ' +
+          (parts.length === 1 ? 'a message' : parts.length + ' messages'));
       }
       return App.deliverBurst(char, m, parts, { autonomous: true });
     });
@@ -4910,7 +4995,7 @@
         App.state.messages.push(m);
         Views.appendMessage(char, m);
       } else {
-        UI.toast((char.name || 'They') + ' sent you a photo');
+        App.vhArrived(char, 1, (char.name || 'They') + ' sent you a photo');
       }
     }).catch(function (e) {
       /* If the picture itself fails, they still said something. */
@@ -6293,7 +6378,16 @@
     document.addEventListener('visibilitychange', function () {
       if (!document.hidden) App.lifeTick();
     });
-    setInterval(function () { if (!document.hidden) App.lifeTick(); }, 60000);
+    setInterval(function () {
+      if (!document.hidden) { App.lifeTick(); return; }
+      /* v1.48.0: with the switch on, a pocketed app keeps advancing their day and
+         still delivers what came due, so an arrival is a count waiting for you
+         rather than a message generated the instant you unlocked the phone. The
+         WebView is free to stop running this timer entirely while hidden - that is
+         the platform's choice, not a bug this app can fix, and the catch-up on
+         return is what makes either outcome correct. */
+      if ((Store.settings || {}).lifeWhileAway === true) App.lifeTick({ background: true });
+    }, 60000);
 
     window.addEventListener('beforeinstallprompt', function (e) {
       e.preventDefault();

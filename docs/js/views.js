@@ -293,8 +293,30 @@
       return;
     }
 
-    body.innerHTML = '<div class="hint" style="margin:0 2px 10px">Their day advances on real time — ' +
-      'open the app after a few hours away and you may find messages waiting.</div>' +
+    /* v1.48.0: this line used to promise "you may find messages waiting" and leave
+       it there. Now it says what is actually waiting, and — when the away switch is
+       off — why the day did not go on while the app did not: the sentence has to
+       match the setting, because the setting is the only reason it might not. */
+    var waiting = vhs.filter(function (c) { return c.vh && c.vh.unread > 0; });
+    var away = (Store.settings || {}).lifeWhileAway === true;
+    /* two sentences, both always true of this setting: what is waiting, and whether
+       the day went on without you. The second one used to be the only line, so a
+       player with three messages waiting got the count and no way to know the
+       engine had been idle for the whole time they were gone. */
+    var awayLine = '<div class="hint" style="margin:0 2px 10px">' +
+      (waiting.length
+        ? '<b>' + waiting.length + '</b> ' + (waiting.length === 1 ? 'person has' : 'people have') +
+          ' written since you were last here: ' +
+          waiting.map(function (c) {
+            return esc(c.name || 'Unnamed') + ' (' + VH.unreadLine(c.vh, UI.fmtTime) + ')';
+          }).join(', ') + '. '
+        : '') +
+      'Their day advances on real time, and ' +
+      (away
+        ? 'keeps advancing while the app is in your pocket — so an arrival waits as a count rather than being generated the moment you unlock the phone.'
+        : 'stops while the app is closed: catch-up resumes the instant you open it. Settings → Generation can keep it running in the background, and that spends model calls you are not watching.') +
+      '</div>';
+    body.innerHTML = awayLine +
       vhs.map(function (c) { return lifeCard(c); }).join('') +
       '<button class="btn ghost block sm" data-act="pick" style="margin-top:4px">' + icon('plus') + ' Make another character a virtual human</button>' +
       '<button class="btn ghost block sm" data-act="import" style="margin-top:6px">Import a portable human</button>';
@@ -319,6 +341,7 @@
     var st = L.summary, vh = c.vh, where = L.where;
     var last = L.bond.lastContact ? UI.fmtTime(L.bond.lastContact) : 'never';
     var ev = L.calendar.now || L.calendar.next;
+    var unreadLine = VH.unreadLine(vh, UI.fmtTime);
     return '<div class="vh-card" data-vh="' + c.id + '">' +
       '<div class="vh-top">' +
         '<div class="vh-av">' + (c.avatar
@@ -333,6 +356,11 @@
             ' · you last spoke ' + esc(last) + '</div>' +
         '</div>' +
       '</div>' +
+      /* v1.48.0: what they sent while you were not looking, in the same register as
+         the rest of the card. It is a fact about the last few hours, so it sits above
+         the calendar entry rather than down with the meters. */
+      (unreadLine ? '<div class="vh-note" style="color:var(--text);border-color:rgba(255,255,255,.24)">' +
+        icon('chat') + ' <b>' + esc(unreadLine) + '</b> · open the chat' + '</div>' : '') +
       (ev ? '<div class="vh-note">' + icon('time') + ' <b>' + esc(ev.t) + '</b> ' + esc(ev.label) +
         (ev.placeId ? ' · ' + esc(VH.placeName(vh, ev.placeId)) : '') + '</div>' : '') +
       '<div class="meters">' +
@@ -510,8 +538,17 @@
       if (searchEl && searchEl.value !== (App.state.chatSearch || '')) {
         searchEl.value = App.state.chatSearch || '';
       }
+      /* The count belongs to the human, not the chat, so it is shown where their
+         messages actually land — the newest of their sessions, which is the one
+         App.vhOutreach writes to. Marking read follows the same unit: opening any
+         chat of theirs is you looking at them. */
+      var newestOf = {};
+      (all || []).forEach(function (x) {
+        if (x && x.charId && !newestOf[x.charId]) newestOf[x.charId] = x.id;
+      });
       list.innerHTML = sessions.map(function (s) {
         var c = chars[s.charId] || { name: 'Deleted character' };
+        var marks = (c.vh && c.vh.unread > 0 && newestOf[s.charId] === s.id) ? c.vh.unread : 0;
         var groupChars = (s.groupCharIds || []).map(function (id) { return chars[id]; }).filter(Boolean);
         var label = groupChars.length > 1 ? groupChars.map(function (x) { return x.name || 'Unnamed'; }).join(' + ') : c.name;
         return '<div class="item" data-open="' + s.id + '">' +
@@ -520,6 +557,8 @@
             '<div class="item-title">' + esc(label) + (groupChars.length > 1 ? ' <span class="item-badge">group</span>' : '') + ' <span style="color:var(--dim);font-weight:400">· ' + esc(s.title || 'New chat') + '</span>' +
               (s.pinned ? '<span class="item-badge">pinned</span>' : '') +
               (s.archived ? '<span class="item-badge">archived</span>' : '') +
+              (marks ? '<span class="item-badge" style="color:var(--text);border-color:currentColor">' +
+                marks + ' new</span>' : '') +
             '</div>' +
             (bodyHit(s)
               ? '<div class="item-sub hitline"><span class="hit-where">' +
@@ -1248,6 +1287,27 @@
         '<div class="field compact"><label>Finish cut-off replies</label><div class="toggle' + (s.autoFinish ? ' on' : '') + '" id="t-finish"></div></div>' +
         '<div class="field"><div class="hint" style="margin:0">If a reply stops mid-sentence (common on the Horde, which ' +
           'cuts at its token limit), the app asks for the rest and stitches it together — up to 3 passes.</div></div>' +
+        /* v1.48.0: the two away switches, put here rather than on the Life screen
+           because both are about what the app spends or announces, and this is the
+           screen that owns those. Off is what every phone has been doing for eighty
+           releases, and *Reset generation* puts them back to off with the rest. */
+        '<div class="field compact"><label>Keep their life running when backgrounded</label>' +
+          '<div class="toggle' + (s.lifeWhileAway === true ? ' on' : '') + '" id="t-away"></div></div>' +
+        '<div class="hint">Virtual humans advance on real time either way — open the app after a few hours and ' +
+          'their day has moved on. This is the narrower thing: while the app is open but not in front of you, ' +
+          'keep checking whether a reply is due and whether someone has something to say. It costs model calls ' +
+          'you are not watching, and the app may be paused by Android anyway, in which case the catch-up on ' +
+          'return covers for it. Off means what it says: nothing is generated until you look.</div>' +
+        '<div class="field compact"><label>Notify me when they write</label>' +
+          '<div class="toggle' + (s.notifyAway === true ? ' on' : '') + '" id="t-notify"></div></div>' +
+        (typeof window.Notification !== 'function'
+          ? '<div class="hint">This platform offers no notifications, so the switch is not offered: ' +
+            'arrivals wait as a count on the Life screen and on their chat. Nothing is lost and nothing is ' +
+            'promised. (In a browser install, where notifications exist, the switch appears here.)</div>'
+          : '<div class="hint">Asks your browser for permission when you switch it on, and only stays on if ' +
+            'you grant it. One notice per person, updating as they send more, only while the app is in the ' +
+            'background — and it needs the switch above to be on too, because otherwise nothing arrives to ' +
+            'notify you about.</div>') +
         '<div class="field compact"><label>Strip the model\'s thinking</label><div class="toggle' + (s.stripThinking !== false ? ' on' : '') + '" id="t-think"></div></div>' +
         '<div class="field compact"><label>Ask for no thinking at all</label><div class="toggle' + (s.reasoningOff ? ' on' : '') + '" id="t-nothink"></div></div>' +
         '<div class="hint">Sends <code>reasoning:{enabled:false}</code>. A model that spends the whole reply budget on invisible thinking returns nothing you can read, and the app cannot tell that from a refusal. Off keeps each model on its own default; Nemotron free routes are already handled either way.</div>' +
@@ -1369,6 +1429,16 @@
         sc.range('#set-ctx', '#v-ctx', 'contextMessages');
         sc.range('#set-freqp', '#v-freqp', 'frequencyPenalty', function (v) { return v.toFixed(2); });
     sc.toggle('#t-stream', 'streaming');
+    sc.toggle('#t-away', 'lifeWhileAway');
+    /* the notification switch goes through App because the answer decides whether
+       it is worth writing: a denied or absent permission must not leave a toggle
+       lit up beside a notice that will never arrive */
+    sc.bind('#t-notify', 'click', function (e) {
+      var t = (e && e.currentTarget) || $('#t-notify', body);
+      App.setNotifyAway(!(Store.settings || {}).notifyAway, function () {
+        if (t) t.classList.toggle('on', (Store.settings || {}).notifyAway === true);
+      });
+    });
     sc.toggle('#t-finish', 'autoFinish');
     sc.toggle('#t-bursts', 'bursts');
     sc.toggle('#t-think', 'stripThinking');

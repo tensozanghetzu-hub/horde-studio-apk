@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.47.0';
+  var VERSION = '1.48.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -120,6 +120,15 @@
        belongs to the Memory screen, and *Reset generation* has no claim on it. */
     recallOn: false,
     recallCount: 6,
+    /* v1.48.0: whether a virtual human's day keeps advancing while the app is in
+       your pocket, and whether an arrival tells you with a system notice. Both off,
+       and both owned by the Generation screen — which is why they are in GEN_KEYS
+       below: the first spends model calls you are not watching, so a reset that
+       restores generation parameters restores this too, and nobody should have to
+       remember where they left a cost switch. What they count (the unread marks)
+       lives on the characters, and no settings reset touches it. */
+    lifeWhileAway: false,
+    notifyAway: false,
     updateUrl: '',
     autoFinish: true,       /* keep going when a reply comes back cut off */
     hordeKey: '',
@@ -146,7 +155,11 @@
   var GEN_KEYS = ['temperature', 'maxTokens', 'topP', 'contextMessages',
                   'streaming', 'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter', 'replyFallback', 'reasoningOff',
                   /* v1.45.0: the switch only. See DEFAULTS for why the list stays out. */
-                  'regexOn'];
+                  'regexOn',
+                  /* v1.48.0: the two switches, for the reason in DEFAULTS. Neither is
+                     a data list: `regexScripts` stayed out for being somebody's rules,
+                     and the unread marks were never settings at all. */
+                  'lifeWhileAway', 'notifyAway'];
 
   var Store = {
     settings: null,

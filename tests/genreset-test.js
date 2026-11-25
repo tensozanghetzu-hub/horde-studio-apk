@@ -89,7 +89,11 @@ function carve(name) {
        loss dressed as tidiness. */
     const genKeys = ['temperature', 'maxTokens', 'topP', 'contextMessages', 'streaming',
                      'autoFinish', 'stripThinking', 'bursts', 'sendOnEnter',
-                     'replyFallback', 'reasoningOff', 'regexOn'];
+                     'replyFallback', 'reasoningOff', 'regexOn',
+                     /* v1.48.0: the two away switches. They are on the same screen,
+                        they both decide whether the app spends or announces, and a
+                        reset that left one stuck on would be the surprise. */
+                     'lifeWhileAway', 'notifyAway'];
     const stray = Object.keys(patch).filter(k => !genKeys.includes(k));
     ok('...and nothing beyond the twelve generation keys at all', stray.length === 0, stray.join(','));
     ok('the script list survives a generation reset (it is data, not a knob)',

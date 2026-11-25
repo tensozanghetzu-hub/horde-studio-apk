@@ -8,7 +8,20 @@
  * On a phone there are no reliable background timers, so the engine works by
  * "catch-up": every time the app is opened (and every minute while it's in front of
  * you) it advances each human's state by however much real time actually elapsed.
- * Nothing simulates while the app is closed — catch-up resumes when you return.
+ * Because everything is derived from elapsed time rather than from a count of ticks,
+ * the same arithmetic is correct whether the last minute was lived or slept through.
+ *
+ * v1.48.0 made "while it's in front of you" a setting: `lifeWhileAway` lets the app's
+ * own per-minute clock run while it is backgrounded, so a human can reach out while
+ * the app sits in a pocket — and the browser stays free to stop that clock, in which
+ * case the catch-up on return covers for it, exactly as before. With the switch off
+ * (the default) nothing here runs while the app is not in front of you. What the app
+ * can never do is run after it is closed; that would be a different kind of app, and
+ * this file still does not pretend to be one.
+ *
+ * What arrives while you were not looking is recorded per human in `unread` /
+ * `unreadAt` (see VH.arrived), cleared by opening their chat (VH.read) — the Life
+ * screen and the chat list are the two places that say so.
  */
 (function (global) {
   'use strict';
@@ -89,6 +102,13 @@
         lastTick: Date.now(),
         lastContact: 0,
         lastOutreach: 0,
+        /* v1.48.0: what landed in their chat while it was not on screen. Lives here
+           rather than on the session because the human is the thing you come back
+           to, and because `ensure` gives every life from before this release the
+           fields without a migration. */
+        unread: 0,
+        unreadAt: 0,                   // when the FIRST unread arrived
+        seenAt: 0,                     // when you last had their chat open
         chronicle: [],                     // [{ts, text}] — the life beats
 
         /* ---- v18: the life around the inbox ---- */
@@ -435,6 +455,42 @@
       b.exchanges = (b.exchanges || 0) + 1;
       return b;
     },
+    /* ================= coming back to them =================
+       A count of what arrived while their chat was not in front of you, kept as
+       the app's own record rather than re-derived from the transcript: reading
+       every human's chat to render one number on one screen is the wrong trade
+       on a phone, and a badge is something you read, not something the engine
+       decides on. The cost of that choice is written down where it is made —
+       delete bubbles by hand and the count does not know about it. */
+    arrived: function (char, count) {
+      var vh = VH.ensure(char);
+      /* no count at all is "one thing landed", because every caller is reacting to a
+         message it just saved; a count of 0 is a caller that knows nothing arrived,
+         and that must stay a no-op rather than becoming one by an `|| 1` shortcut. */
+      var n = count == null ? 1 : Math.floor(Number(count));
+      if (!isFinite(n) || !(n > 0)) return vh;
+      if (n > 999) n = 999;
+      if (!(vh.unread > 0)) vh.unreadAt = Date.now();
+      vh.unread = Math.min(999, (vh.unread || 0) + n);
+      return vh;
+    },
+    /** Mark them read. Returns whether anything changed, so the caller only
+        writes the character back when there was a badge to clear. */
+    read: function (char) {
+      var vh = VH.ensure(char);
+      var had = (vh.unread || 0) > 0 || !!vh.unreadAt;
+      vh.unread = 0; vh.unreadAt = 0; vh.seenAt = Date.now();
+      return had;
+    },
+    /** "2 messages since 02:14", or '' when there is nothing to say. */
+    unreadLine: function (vh, fmt) {
+      if (!vh || !(vh.unread > 0)) return '';
+      var n = vh.unread;
+      var since = (n === 1 ? '1 message' : n + ' messages') +
+        (vh.unreadAt ? ' since ' + fmt(vh.unreadAt) : '');
+      return since;
+    },
+
     personas: function (vh) { return Object.keys(vh.bonds || {}); },
 
     /* ================= social feed & gallery ================= */
@@ -788,6 +844,12 @@
       var copy = JSON.parse(JSON.stringify(char));
       /* the publisher's private bits never travel */
       delete copy.id;
+      /* v1.48.0: nor do the inbox marks, in either mode. `unreadAt` and `seenAt` are
+         timestamps of when this person last looked, and `unread` is how much of it
+         they had not read — a picture of the publisher's attention, which a template
+         has no business carrying and a full export has no use for: there is nobody
+         on the other side who has not read it yet. */
+      copy.vh.unread = 0; copy.vh.unreadAt = 0; copy.vh.seenAt = 0;
       var payload = {
         format: 'horde.human/1',
         kind: withHistory ? 'full' : 'template',
@@ -849,6 +911,9 @@
       char.vh.spend = { day: '', used: 0, cap: (char.vh.spend && char.vh.spend.cap) || DEFAULT_CAP };
       char.vh.travel = null;
       char.vh.lastOutreach = 0;
+      /* and again on the way in, so a file written by anything else cannot arrive
+         with somebody else's unread state attached to it */
+      char.vh.unread = 0; char.vh.unreadAt = 0; char.vh.seenAt = 0;
       char.vh.lastTick = Date.now();
       return { character: char, sessions: sessions, messages: messages, kind: payload.kind || 'template' };
     }

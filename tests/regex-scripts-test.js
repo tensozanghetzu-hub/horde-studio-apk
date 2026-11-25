@@ -157,8 +157,14 @@ ok('a generation reset does not delete the rules — they are text, not a knob',
   Object.keys(gdef).indexOf('regexScripts') === -1, Object.keys(gdef).join(','));
 ok('the reset patch still carries only generation keys',
   Object.keys(gdef).every(function (k) {
+    /* v1.48.0: `lifeWhileAway` and `notifyAway` joined the list on purpose, not by
+       accident — the Generation screen owns them, and unlike `regexScripts` (text a
+       person wrote) or the card switches (which belong to System prompt and are not
+       swept at all) these are two more knobs about whether the app spends a call or
+       says something. A reset that left one stuck on would be the surprise. */
     return ['temperature', 'maxTokens', 'topP', 'contextMessages', 'streaming', 'autoFinish',
-      'stripThinking', 'bursts', 'sendOnEnter', 'replyFallback', 'reasoningOff', 'regexOn'].indexOf(k) !== -1;
+      'stripThinking', 'bursts', 'sendOnEnter', 'replyFallback', 'reasoningOff', 'regexOn',
+      'lifeWhileAway', 'notifyAway'].indexOf(k) !== -1;
   }), Object.keys(gdef).join(','));
 
 /* where the engine is allowed to be called from */
