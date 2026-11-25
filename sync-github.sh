@@ -37,12 +37,15 @@ fi
 
 # 3. stage explicitly. Never `git add -A`: this workspace also holds the push
 #    key, a browser cache and the Playwright vendor bundle.
+# Every root .md that a release touches is listed here — TESTING.md and POLICY.md
+# included — because the list is fixed rather than `git add -A`, and a doc that is
+# edited but not staged ships the previous release's instructions beside new code.
 # RELEASE-NOTES.md belongs in this list, not in a later "oh right" commit:
 # .github/workflows/release.yml reads it as the body of the release page, so a
 # note that is edited but not staged publishes the PREVIOUS release's warning.
 # That is how "this version needs an uninstall" would survive into a release
 # that installs in place — the sentence that makes someone wipe their chats.
-git add .gitignore README.md NOTES.md CARDS.md GITHUB-SETUP.md RELEASE-NOTES.md sync-github.sh 2>/dev/null || true
+git add .gitignore README.md NOTES.md CARDS.md POLICY.md GITHUB-SETUP.md RELEASE-NOTES.md TESTING.md sync-github.sh 2>/dev/null || true
 git add tools apk-build horde-studio-mobile tests .github 2>/dev/null || true
 git add docs 2>/dev/null || true
 

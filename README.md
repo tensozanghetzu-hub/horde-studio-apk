@@ -2522,12 +2522,22 @@ There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub acc
   see invariants, and `keystore-backup/` for where its only copy is kept), and
   `signing-identity.txt`, which is in git because it holds only the *fingerprint*
   and is what `build.sh` checks every build against.
-- `tests/` — the Node test battery (24 suites, ~570 checks at v1.14.0) plus 2
-  Playwright suites that additionally need `playwright-core`.
+- `tests/` — the Node test battery (135 suites at v1.47.0; the whole sweep runs in
+  about 40 seconds one file at a time) plus 2 Playwright suites that additionally need
+  `playwright-core`. **`TESTING.md` is the rule for what may be added to it**, and
+  `tools/mutation-check.py` is the tool that proves what is there works.
 - `docs/` — the update channel, served by GitHub Pages. Generated, never
   hand-edited.
 - `NOTES.md` — the working memory: one entry per shipped version (report / change /
   tests / ship state) plus accumulated pitfalls. **Read it first.**
+- `TESTING.md` — how a check earns its place: break the source and show the suite go
+  red, render a view instead of grepping it, pin a bound from both sides, never pass a
+  check that checked nothing.
+- `CARDS.md` / `POLICY.md` — what a card may ask this app to do, and what the app may
+  ask of a card.
+- `tools/` — the build and release tooling that has to be right rather than
+  hand-typed: `stamp-version.py`, `build-channel.py`, `mutation-check.py`,
+  `compare-lore-prompt-against-release.js`, `git-doctor.sh`.
 - `sync-github.sh` — the publish script (channel rebuild, identity/remote
   re-assert, commit, push).
 - `HordeStudio-vX.Y.Z.apk` in the repo root — the current local build. `build.sh`
@@ -2538,9 +2548,12 @@ There is no proprietary tooling: plain JS, plain bash, Node, and your GitHub acc
 
 - **JDK 11** (`build.sh`/`setup-sdk.sh` read `JAVA_HOME`; javac targets release 8)
 - **Node 18+** (20 in development) for the test battery
-- Network access — the first build downloads the Android SDK (~500 MB) into
-  `android-sdk/`, which is gitignored and safe to delete at any time
-  (`setup-sdk.sh` reinstalls it)
+- Network access — the first build downloads the Android SDK (~400 MB) into
+  `$HOME/.local/android-sdk`, which is gitignored and safe to delete at any time
+  (`apk-build/setup-sdk.sh` reinstalls it). That location is deliberate: it is outside
+  the workspace snapshot, so the ~10 000 files the build needs do not crowd out the
+  project's own. It also means the SDK is **not** there after a workspace restore, and a
+  build then needs `setup-sdk.sh` run again before `build.sh` will do anything.
 - An **SSH key (or GitHub token) with push access** to this repo
 
 **No character card is needed to build, test or publish.** The build copies only
@@ -2556,24 +2569,32 @@ that proves no card text leaked into the shipped code — and that check reports
 1. Read the relevant `NOTES.md` entries for what you're touching.
 2. Make the change in `horde-studio-mobile/`.
 3. `node --check` each edited JS file, then run the whole battery —
-   `for t in tests/*-test.js; do node "$t"; done`. Every suite must finish with
-   **zero FAIL lines**. (The two Playwright suites fail to *launch* without
-   `playwright-core`; that's a missing dependency, not a regression.)
-4. Bump the version in three places: `js/store.js` (`VERSION`),
-   `js/sw.js` (CACHE `horde-studio-vNN`), `apk-build/AndroidManifest.xml`
-   (`versionCode` / `versionName`).
-5. Update `README.md` (new "What's new" section + header/Download links) and
-   `NOTES.md` (new entry: report / change / tests / ship state, plus the
-   "Current build" header lines).
-6. Build — **one command, no pipes** (a `| tail` can mask a failure):
+   `for f in tests/*.js; do timeout 150 node "$f" >/dev/null 2>&1 || echo "FAIL $f"; done`.
+   Every suite must finish with **zero FAIL lines**. (The two Playwright suites fail to
+   *launch* without `playwright-core`; that's a missing dependency, not a regression.)
+4. Break the source in the way the bug would actually happen and show that your new
+   check goes red; add that break to `tools/mutation-check.py` and run it
+   (`12 killed, 0 survived, 0 anchors lost`). A check nobody has seen fail is the thing
+   this step exists to catch.
+5. Bump the version in one place — `apk-build/AndroidManifest.xml`
+   (`versionCode` / `versionName`) — then `python3 tools/stamp-version.py stamp`, which
+   writes `js/store.js` (`VERSION`) and `js/sw.js` (CACHE) from it. Both files carry
+   copies that cannot read the manifest, and `tests/version-consistency-test.js` fails
+   the sweep if any of the three — or the copy in `docs/` — disagrees, or if the notes
+   lead with a different release than this one.
+6. Update `README.md` (header/Download links, the feature bullets) and `NOTES.md` (new
+   entry: report / change / tests / ship state), and rewrite `RELEASE-NOTES.md` — that
+   file is the body of the GitHub release page, so an uninstall warning that belongs to
+   last release ships as this release's advice if it is not rewritten.
+7. Build — **one command, no pipes** (a `| tail` can mask a failure):
    `cd apk-build && bash setup-sdk.sh && bash build.sh`.
    Output: `HordeStudio-vX.Y.Z.apk` in the repo root. Older root APKs are removed
    by the same run — one build file on disk, always.
-7. **Verify in the APK**: unzip it and grep the packaged files for your change's
+8. **Verify in the APK**: unzip it and grep the packaged files for your change's
    markers (plus `aapt dump badging` for versionCode/Name). A build that hasn't
    been opened is not a build.
-8. Delete the previous root APK (the GitHub release keeps that copy).
-9. Commit locally. **Publishing happens only on explicit ask**:
+9. Delete the previous root APK (the GitHub release keeps that copy).
+10. Commit locally. **Publishing happens only on explicit ask**:
    `bash sync-github.sh "<message>"` rebuilds the channel, commits and pushes;
    `.github/workflows/release.yml` then creates the release with both assets, and
    the channel goes live at
