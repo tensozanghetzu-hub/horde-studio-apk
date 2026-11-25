@@ -670,8 +670,11 @@
            here, so when the prompt moved to 10 entries / 5000 bytes this
            screen kept reporting 6 / 1536 - it told the author that entries
            were "over the byte budget" which the request was happily sending. */
+        /* the switches are part of the answer: the prompt reads them through the same
+           loreOpts, so a readout that left them out would tell a player who switched
+           regex keys on that their book is still being matched as plain text. */
         var diag = API.loreDiagnostics(c.lorebook || [], sample, API.LORE_LIMIT, API.LORE_BUDGET,
-          stage, API.loreOpts(c));
+          stage, API.loreOpts(c, Store.settings));
         var stageNote = '';
         if (diag.stageSkipped) {
           /* A staged book with no stage set is dark in every chat. Without
@@ -709,6 +712,26 @@
            when both bit. This was a plain if/else on the budget counter, so a book
            trimmed mainly by the 10-entry limit was told to shrink entries or raise
            the budget — a dial that cannot help while the limit is what is full. */
+        /* The two asks, in the summary rather than buried in rows: an author who
+            just wondered "why is my regex entry quiet" should read the answer in the
+            line they are already looking at, and one who turned a switch on should
+            see that it is doing something here. */
+        var askNote = '';
+        if (diag.patternAsked) {
+          askNote = ' <b>' + diag.patternAsked + '</b> ' + (diag.patternAsked === 1 ? 'entry uses' : 'entries use') +
+            ' regex keys' +
+            (diag.regexOn
+              ? (diag.brokenPatterns
+                ? ', and <b>' + diag.brokenPatterns + '</b> ' + (diag.brokenPatterns === 1 ? 'pattern was' : 'patterns were') +
+                  ' refused — an entry whose pattern does not compile cannot match, which is the card spec’s rule'
+                : ', and ' + diag.patterns + ' ' + (diag.patterns === 1 ? 'one matched' : 'of them matched') + ' on this turn')
+              : ', switched off in Settings → System prompt, so those keys were searched for as plain text');
+        }
+        if (diag.chainOn) {
+          askNote += ' This book also chains: <b>' + diag.chained + '</b> ' + (diag.chained === 1 ? 'entry came' : 'entries came') +
+            ' in from another entry rather than from the conversation (up to ' + diag.chainDepth +
+            ' hops, ranked behind everything the chat matched).';
+        }
         var cuts = [];
         if (diag.droppedByLimit) cuts.push({ n: diag.droppedByLimit, text: limitCut });
         if (diag.droppedByBudget) cuts.push({ n: diag.droppedByBudget, text: budgetCut });
@@ -717,7 +740,7 @@
         summary.innerHTML = 'Checking the conversation “' + esc(newest.title || 'New chat') +
           '”. <b>' + diag.admitted + ' of ' + diag.rows.length + '</b> ' +
           (diag.rows.length === 1 ? 'entry is' : 'entries are') + ' in the prompt now · ' +
-          diag.used + ' of ' + diag.cap + ' bytes used.' + modeNote + cutNote + stageNote;
+          diag.used + ' of ' + diag.cap + ' bytes used.' + modeNote + cutNote + stageNote + askNote;
         list.innerHTML = diag.rows.length ? diag.rows.map(function (r, i) {
           return '<div class="kv" data-lore="' + i + '" style="cursor:pointer;align-items:flex-start">' +
             '<span style="flex:1">' +
@@ -726,10 +749,23 @@
               '<span style="font-size:12px">' + esc((r.content || '').slice(0, 70)) + '</span>' +
               /* v1.40.0: the flags the matcher now reads, on the row that made
                  the entry behave that way, plus the one field it cannot read. */
-              (r.essential || r.caseSensitive || r.selective || r.ignored || r.insertionOrder !== null
+              (r.essential || r.caseSensitive || r.selective || r.ignored || r.broken ||
+               r.useRegex || r.patterns || r.chained || r.insertionOrder !== null
                 ? '<span style="display:block;font-size:11px;margin-top:2px;color:var(--dim)">' +
                   [r.essential ? 'essential' : '', r.caseSensitive ? 'case-sensitive' : '',
                    r.selective ? 'needs a second key' : '',
+                   /* v1.47.0: an entry is allowed to say something about how it is
+                      matched, and this screen is where a player finds out whether this
+                      app listened. Both labels say which way round it went. */
+                   r.useRegex ? (diag.regexOn ? 'regex keys' : '<span style="color:var(--warn,#fbbf24)">regex keys, switched off</span>') : '',
+                   r.patterns ? 'matched on a pattern' : '',
+                   /* v1.47.0: the one case the reason line cannot cover on its own. A
+                      refused pattern on an entry that is in anyway would otherwise read
+                      as "my regex works" while the key does nothing — so the row says
+                      which of its fields is carrying it. */
+                   r.broken ? '<span style="color:var(--warn,#fbbf24)">its pattern ' + esc(r.broken) +
+                     ' — in because it is constant</span>' : '',
+                   r.chained ? 'chained from another entry' : '',
                    r.insertionOrder !== null ? 'order ' + esc(String(r.insertionOrder)) : '',
                    r.position ? esc(r.position) : '',
                    r.ignored ? '<span style="color:var(--warn,#fbbf24)">' + esc(r.ignored) + ' not applied</span>' : ''
@@ -1445,6 +1481,27 @@
           'its Horde fields gets it without being asked again — for those cards and any you import later. ' +
           'It never overrides a choice you made on a character, and it does nothing at all to a card ' +
           'that never asked. Switch it back off and those cards go quiet again.</div>' +
+        /* The two lorebook asks, put where the third one already lives, because all
+           three are the same question: may a card change what the model is sent. */
+        '<div class="field compact"><label>Cards may use regex keys</label>' +
+          '<div class="toggle' + (s.honorCardRegex === true ? ' on' : '') + '" id="set-card-regex"></div></div>' +
+        '<div class="hint">A lorebook entry can say <i>use_regex</i>, which means its keys are regular ' +
+          'expressions rather than words to find. Off — the default — those keys are searched for as plain ' +
+          'text, exactly as every other key is, and the Lore screen tells you the entry asked. On, a ' +
+          'pattern is compiled and run against the same short window the keywords use: a key that does not ' +
+          'compile takes its entry out of the prompt (that is the card spec’s own rule, not this app’s), and ' +
+          'a shape that would take exponential time to run is refused outright — ' +
+          '<b>' + (API.LORE_SCAN_MAX || 40) + '</b> turns at most are scanned, once per message, and nothing ' +
+          'about a card can change that.</div>' +
+        '<div class="field compact"><label>Cards may chain lore entries</label>' +
+          '<div class="toggle' + (s.honorCardRecursion === true ? ' on' : '') + '" id="set-card-chain"></div></div>' +
+        '<div class="hint">A book can ask for <i>recursive_scanning</i>: an entry that came in is read again, ' +
+          'so it can wake a second entry the conversation never mentioned. That is the one lorebook setting ' +
+          'that changes what the model sees the most, so it is off until you say otherwise, and even when a ' +
+          'book asks and you agree: at most <b>three</b> hops, an entry can wake up once, only what your own ' +
+          'words brought in is read, and a chained entry always ranks below everything the chat matched — it ' +
+          'can fill the space your turn left over, never take a slot an entry the chat mentioned would have ' +
+          'had. A book that does not ask is unaffected, and a character’s own lore rules still win.</div>' +
       '</div>';
     var sc = settingsScope(body);
     sc.bind('#set-system', 'change', function (e) { sc.set({ systemPrompt: e.target.value }); });
@@ -1452,6 +1509,18 @@
     if (cardPromptEl) cardPromptEl.onclick = function () {
       this.classList.toggle('on');
       sc.set({ honorCardSystemPrompt: this.classList.contains('on') });
+    };
+    /* Two more of the same shape on purpose: a switch that grants something to every
+       card, and a card that never asked for it sees no difference at all. */
+    var cardRegexEl = $('#set-card-regex', body);
+    if (cardRegexEl) cardRegexEl.onclick = function () {
+      this.classList.toggle('on');
+      sc.set({ honorCardRegex: this.classList.contains('on') });
+    };
+    var cardChainEl = $('#set-card-chain', body);
+    if (cardChainEl) cardChainEl.onclick = function () {
+      this.classList.toggle('on');
+      sc.set({ honorCardRecursion: this.classList.contains('on') });
     };
     sc.bind('#btn-reset-sys', 'click', function () {
       /* Reset to the real default (store.js) — this handler used to carry a

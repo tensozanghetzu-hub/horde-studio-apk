@@ -129,8 +129,21 @@ ok('...but position is read now, so it is not listed',
   droppedNote && droppedNote.indexOf('position') === -1, droppedNote);
 ok('...nor priority', droppedNote && droppedNote.indexOf('priority') === -1, droppedNote);
 ok('...scan_depth', droppedNote && droppedNote.indexOf('scan_depth') !== -1, droppedNote);
-ok('...use_regex', droppedNote && droppedNote.indexOf('use_regex') !== -1, droppedNote);
 ok('...comment', droppedNote && droppedNote.indexOf('comment') !== -1, droppedNote);
+/* v1.47.0: `use_regex` left this list for the same reason position and priority did —
+   the matcher reads it now, when the player's switch allows it. Listing it as unused
+   would be a false warning, and saying nothing would hide that a card asked, so it
+   gets its own line, worded for whichever state the switch is in. */
+var regexNote = notes.filter(function (n) { return n.indexOf('use_regex') !== -1; })[0];
+ok('use_regex is not in the dropped-fields list any more',
+  droppedNote && droppedNote.indexOf('use_regex') === -1, droppedNote);
+ok('…and is named on its own line, as a pattern request',
+  !!regexNote && /1 entry sets "use_regex"/.test(regexNote), regexNote);
+ok('…which says the keys are searched as plain text while the switch is off',
+  /searched for as plain text/.test(regexNote || '') && /Cards may use regex keys/.test(regexNote || '') &&
+  /Settings → System prompt/.test(regexNote || ''), String(regexNote).slice(0, 220));
+ok('…and does not claim anything ran, because Store.settings says it did not',
+  !/is on, so/.test(regexNote || ''), String(regexNote).slice(0, 120));
 ok('...and says what entries fire on',
   droppedNote && droppedNote.indexOf('keys, content, constant, stage') !== -1, droppedNote);
 
@@ -138,6 +151,30 @@ var plainNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', enab
 ok('a plain keys/content book gets no dropped-fields note',
   !plainNotes.some(function (n) { return n.indexOf('does not use (') !== -1; }),
   JSON.stringify(plainNotes));
+
+/* the recursion ask is book-level, so a book that never mentions it must stay quiet
+   about it, and one that does must say who decides */
+var chainCard = cardWith([{ keys: ['a'], content: 'x' }]);
+chainCard.data.character_book.recursive_scanning = true;
+var chainNote = App.importLossNotes(chainCard).filter(function (n) { return n.indexOf('recursive_scanning') !== -1; })[0];
+ok('a book that asks for recursive_scanning is answered with where to decide it',
+  /cannot approve itself/.test(chainNote || '') && /Cards may chain lore entries/.test(chainNote || ''),
+  String(chainNote).slice(0, 200));
+var plainChain = cardWith([{ keys: ['a'], content: 'x' }]);
+ok('…and a book that never asks gets no such line',
+  !App.importLossNotes(plainChain).some(function (n) { return n.indexOf('recursive_scanning') !== -1; }),
+  JSON.stringify(App.importLossNotes(plainChain)));
+ok('…and a string "true" is not the book asking',
+  !(function () {
+    var c3 = cardWith([{ keys: ['a'], content: 'x' }]);
+    c3.data.character_book.recursive_scanning = 'true';
+    return App.importLossNotes(c3).some(function (n) { return n.indexOf('recursive_scanning') !== -1; });
+  })(), 'a string was read as a request');
+ok('…while use_regex only counts when an entry really says true',
+  !(function () {
+    var c4 = cardWith([{ keys: ['a'], content: 'x', use_regex: 'yes' }]);
+    return App.importLossNotes(c4).some(function (n) { return n.indexOf('use_regex') !== -1; });
+  })(), 'a non-boolean was read as a request');
 
 var secNotes = App.importLossNotes(cardWith([{ keys: ['a'], content: 'x', secondary_keys: ['b'], selective: true }]));
 ok('secondary keys are matched now, so they are no longer a warning',

@@ -157,11 +157,64 @@ candidates are still the entries the scan matched, ranked by relevance.
 
 **Not honoured, and said so.** `selectiveLogic` is SillyTavern's, with four modes
 that neither card spec defines; the boolean rule above is applied instead and the
-import note plus the entry's own row name the field. `use_regex`,
-`recursive_scanning`, `comment`, `display` and the entry `id` spellings are
-preserved and not applied. A `selective` or `case_sensitive` that is neither `true`
-nor `false` is treated as absent, exactly as the spec's boolean type implies, and
-is reported as malformed rather than guessed at.
+import note plus the entry's own row name the field. `comment`, `display` and the
+entry `id` spellings are carried and not applied — they change nothing about what
+reaches the model, and they ride back out on export untouched. A `selective` or
+`case_sensitive` that is neither `true` nor `false` is treated as absent, exactly as
+the spec's boolean type implies, and is reported as malformed rather than guessed at.
+
+**Honoured, but only if the player agrees.** `use_regex` on an entry, and
+`recursive_scanning` (plus SillyTavern's `recursion_depth`, which the spec does not
+define) on the book, are read by the matcher behind two switches in
+Settings → System prompt, **both off**, beside the system-prompt one and for the same
+reason: a card's keys are user data, not code, and a card cannot approve itself. A
+book with those fields and a player who never opens Settings gets exactly what the
+paragraph above described before they existed — keys as plain text, one pass over the
+chat, the same ranking.
+
+*Regex keys.* With the switch on, an entry whose `use_regex` is the boolean `true`
+has its keys compiled and matched against the recent transcript instead of being
+looked for as strings in one turn's text. Two shapes are refused, and the entry is
+then a non-match rather than a fallback to plain text — that is the spec's own rule
+for invalid patterns, and an entry authored as `/cat|dog/` finding the literal
+characters `/cat|dog/` would be a card quietly doing something nobody wrote:
+a pattern `new RegExp` rejects, and one whose shape costs exponential time to fail,
+which is the display scripts' test reused deliberately, because this runs on the
+phone every turn and a timeout is not a bound. `/pattern/flags` is unwrapped so the
+author's flags win; a pattern that merely begins with a slash keeps its slash.
+`secondary_keys` is ignored while `use_regex` is true, as the spec asks. One thing is
+**not** what the spec suggests: it says an entry's `constant` *"SHOULD be ignored"*
+when `use_regex` is true, and this app keeps honouring it — a MUST ("the lorebook
+field MUST be considered as a match") is not overruled by a SHOULD, and a
+badly-written key should not delete a fact the author marked as always present. The
+row on the Lore screen says both parts: that the entry is constant, and that its
+pattern was refused.
+
+The lorebook *decorators* — `@@additional_keys`, `@@exclude_keys`, `@@depth`,
+`@@scan_depth` — are the spec's other way of qualifying a match, and this app
+implements none of them, in regex mode or out of it: the fields above are the whole
+of what a book can ask here. (A book's own `scan_depth` is read, but only in
+compatibility mode and only to narrow the window, and `token_budget` likewise only to
+cap what the Lore screen shows.)
+
+*Chaining.* With the other switch on, an entry whose text mentions another entry's key
+can bring that entry in — which is what `recursive_scanning` means, and the spec
+leaves the how to the application, so the bounds are this app's and they are tight:
+three hops whatever the book asks for (a book asking for 1 gets 1, one asking for
+unlimited gets 3), only the first twenty entries the chat matched are read for links,
+an entry is admitted once however many wake it, a circular reference terminates, and
+a chained entry never displaces one the conversation itself matched — it takes only
+what the count and the token budget leave over. That last part matters more than the
+depth: an entry that shuffles the order of what the model sees would cost the cache
+discount on every turn, so chaining only ever adds to what the plain scan already
+ranked.
+
+Neither is hidden where it bites. The Lore screen's per-entry rows say *"the switch is
+off, so its pattern was searched for as plain text"*, or *"its `nested repeat` pattern
+was refused"*, and the summary line counts how many entries asked for patterns, how
+many matched on one, and how many were chained. The import note names both asks and
+points at the two switches, so a card's request is visible at the moment the card
+arrives rather than only in a settings screen nobody opens.
 
 ## Instructions a card leaves for this app
 

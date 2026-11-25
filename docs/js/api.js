@@ -344,13 +344,18 @@
   function loreDiagnostics(entries, recent, limit, budget, stage, opts) {
     var max = limit || LORE_LIMIT;
     var cap = (typeof budget === 'number' && budget > 0) ? budget : LORE_BUDGET;
-    var ranked = loreRanks(entries, recent, stage);
+    var ranked = loreRanks(entries, recent, stage, opts);
     var byIndex = {};
     ranked.forEach(function (r) { byIndex[r.index] = r; });
     /* Decide against the ranked list, so this reports what the prompt will
        actually contain. It used to walk the book in order, which described a
        selection nobody used. */
     var chosen = {};
+    /* the entries this app could not use as patterns, by book index: the spec's own
+       rule is that a broken pattern means "not a match", so the row has to say that
+       rather than reporting a missed keyword, which reads as a typo in the key */
+    var badBy = {};
+    (ranked.bad || []).forEach(function (b) { badBy[b.index] = b.why; });
     /* v1.40.0: the same options the prompt path uses, so what this reports is
        what the request does - including compat mode's priority-ordered cuts.
        v1.42.2: and the reason each entry was cut, carried out of the same pass. */
@@ -371,6 +376,13 @@
         essential: e.essential === true,
         caseSensitive: e.caseSensitive === true,
         selective: e.selective === true,
+        /* v1.47.0: the two asks a book can make that need the player's switch. Named
+           per row because the row is where an author looks when an entry is quiet,
+           and "the switch is off" is not an answer this screen could give before. */
+        useRegex: e.useRegex === true,
+        /* patterns / chained / broken are filled in below, once the ranked row for
+           this entry is in hand: a property read off a `var` that has not been
+           assigned yet is `undefined`, and every row would have said "no". */
         insertionOrder: e.insertionOrder === undefined ? null : e.insertionOrder,
         position: e.position || '',
         /* v1.40.0 (item 4a): the entry says something about matching that this
@@ -384,6 +396,17 @@
             : (e.caseSensitive !== undefined && e.caseSensitive !== true && e.caseSensitive !== false
               ? 'case_sensitive' : '')) };
       var r = byIndex[i];
+      row.patterns = !!(r && r.patterns);
+      row.chained = !!(r && r.chain);
+      row.broken = (r && r.broken) || badBy[i] || '';
+      /* V3 says a pattern entry SHOULD ignore `secondary_keys`, and it does. Named
+         on the row, the way `selectiveLogic` is, so an author whose entry fires on
+         half its declared conditions reads why. */
+      if (!row.ignored && e.useRegex === true && (opts && opts.regex) &&
+        ((e.selective === true && Array.isArray(e.secondaryKeys) && e.secondaryKeys.length) ||
+         (Array.isArray(e.secondaryKeys) && e.secondaryKeys.length && e.selective !== true && e.selective !== false))) {
+        row.ignored = 'secondary_keys';
+      }
       row.stage = String(e.stage || '').trim();
       if (e.enabled === false) { row.reason = 'disabled'; rows.push(row); return; }
       var need = String(e.stage || '').trim().toLowerCase();
@@ -399,7 +422,21 @@
           : 'needs stage "' + row.stage + '" - this chat has no stage set, so it is dark';
         rows.push(row); return;
       }
-      if (!r) { row.reason = 'no keyword matched in the recent messages'; rows.push(row); return; }
+      if (!r) {
+        if (badBy[i]) {
+          row.reason = 'its “' + badBy[i] + '” pattern was refused, so the entry cannot match — ' +
+            (badBy[i] === 'nested repeat'
+              ? 'a group repeated inside and after itself is exponential on a backtracking engine, ' +
+                'and this runs on your phone every turn'
+              : 'it is not a regular expression JavaScript can compile');
+        } else if (e.useRegex === true && !(opts && opts.regex)) {
+          row.reason = 'this entry asks for regex keys and the switch is off, so its pattern was ' +
+            'searched for as plain text';
+        } else {
+          row.reason = 'no keyword matched in the recent messages';
+        }
+        rows.push(row); return;
+      }
       row.matched = true;
       row.rank = ranked.indexOf(r);
       if (chosen[i]) {
@@ -448,7 +485,15 @@
       droppedEssential: droppedEssential,
       /* the settings the matcher ran with, so the screen can name them instead of
          the reader having to remember which mode this character is in */
-      compat: !!(opts && opts.compat), turns: (opts && opts.turns) || LORE_SCAN_TURNS };
+      compat: !!(opts && opts.compat), turns: (opts && opts.turns) || LORE_SCAN_TURNS,
+      /* what the two switches did here, so the screen reports the state it saw rather
+         than reading settings of its own and risking a different answer */
+      regexOn: !!(opts && opts.regex), chainOn: !!(opts && opts.chain),
+      chainDepth: (opts && opts.chainDepth) || 0,
+      patterns: ranked.filter(function (r) { return r.patterns; }).length,
+      chained: ranked.filter(function (r) { return r.chain; }).length,
+      patternAsked: (entries || []).filter(function (e) { return e && e.useRegex === true; }).length,
+      brokenPatterns: Object.keys(badBy).length };
   }
 
   /* v1.39.109: how much of a book may reach one prompt.
@@ -582,16 +627,88 @@
     if (char && char.loreCompat && book > 0) n = Math.min(n, Math.ceil(book / 2));
     return Math.max(LORE_SCAN_MIN, Math.min(LORE_SCAN_MAX, n));
   }
+  /* What the book itself asked for, read out of the record the importer keeps whole
+     (`cardSource.book` is the card's own book object, entries aside). Nothing is
+     copied into a second field, so a character imported before this release answers
+     the question exactly as one imported after it does — and a book that writes
+     "true" as a string did not ask, which is the same strictness every other
+     mirrored card flag gets. */
+  function loreBookAsk(char) {
+    var out = { recursion: false, depth: 0 };
+    var b = char && char.cardSource && char.cardSource.book;
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return out;
+    out.recursion = b.recursive_scanning === true;
+    var d = Number(b.recursion_depth);
+    if (isFinite(d) && d > 0) out.depth = Math.floor(d);
+    return out;
+  }
+
+  /* v1.47.0: a card's `use_regex` keys, compiled. The V3 spec is exact about the
+     failure: "if the value in keys has invalid regex patterns the application MUST
+     consider the lorebook field as not a match". So a pattern that will not compile
+     takes the entry out; it does not fall back to plain text, because an entry
+     authored as `/cat|dog/` matching the literal characters `/cat|dog/` is a card
+     quietly doing something nobody wrote. The same refusal covers a pattern this
+     engine cannot be asked to run — a group quantified inside and after itself, the
+     shape that goes exponential — which is the check the display scripts already
+     use, reused rather than re-invented: this runs on the phone on every turn.
+     Compiled once per pattern, and the cache forgets rather than growing. */
+  var LORE_CHAIN_MAX = 3;          /* hops a book may chain, whatever it asks for */
+  var LORE_CHAIN_FROM = 20;        /* only this many of what the chat matched is read */
+  var loreReCache = Object.create(null);
+  var loreReN = 0;
+
+  function lorePattern(key, caseSensitive) {
+    var src = String(key == null ? '' : key).trim();
+    if (!src) return { re: null, why: 'empty' };
+    /* `/pattern/flags` is how several editors save a regex key; unwrapping it means
+       the flags the author wrote are the flags that run, instead of a pattern whose
+       leading slash matches nothing. */
+    var flags = caseSensitive ? '' : 'i';
+    var wrap = /^\/(.+)\/([a-z]{0,4})$/.exec(src);
+    if (wrap && wrap[1].trim()) {
+      src = wrap[1];
+      if (wrap[2]) flags = wrap[2].replace(/[^imsuy]/g, '');
+    }
+    var ck = src + '\u0000' + flags;
+    if (Object.prototype.hasOwnProperty.call(loreReCache, ck)) return loreReCache[ck];
+    var out;
+    if (scriptLooksEvil(src)) out = { re: null, why: 'nested repeat' };
+    else {
+      try { out = { re: new RegExp(src, flags), why: '' }; }
+      catch (e) { out = { re: null, why: 'does not compile' }; }
+    }
+    if (loreReN > 256) { loreReCache = Object.create(null); loreReN = 0; }
+    loreReCache[ck] = out; loreReN++;
+    return out;
+  }
+
   /** The options the lore matcher runs with for this character. */
-  function loreOpts(char) {
+  function loreOpts(char, s) {
     var budget = parseInt(char && char.loreBookBudget, 10);
+    /* Two things a book can ask for that change what the model sees: regex keys, and
+       one entry waking another. A card cannot approve itself — the same rule
+       `honorCardSystemPrompt` runs on — so each needs the player's switch, and both
+       ship off. `s` is optional because callers that have no settings to hand must
+       keep getting today's behaviour, and "the card asked, the player did not agree"
+       is that behaviour, not a bug in the caller. */
+    var ask = loreBookAsk(char);
+    var chain = ask.recursion && !!(s && s.honorCardRecursion === true);
+    var depth = ask.depth;
     return {
       compat: !!(char && char.loreCompat),
       turns: loreScanTurns(char),
       /* the book's own token_budget, read only in compat mode, and only ever to
          narrow what the app allows - a card may tighten, never spend past the cap
          the Lore screen shows */
-      tokenBudget: (char && char.loreCompat && budget > 0) ? budget : 0
+      tokenBudget: (char && char.loreCompat && budget > 0) ? budget : 0,
+      regex: !!(s && s.honorCardRegex === true),
+      chain: chain,
+      /* `recursion_depth` is SillyTavern's bound on its own feature, and a card that
+         asks for unlimited recursion gets this app's bound instead: three hops, no
+         more. Below the floor and above the ceiling are both refused by clamping
+         rather than by ignoring the field, so a book that says 1 really does one. */
+      chainDepth: chain ? Math.max(1, Math.min(LORE_CHAIN_MAX, depth > 0 ? depth : 2)) : 0
     };
   }
   /** This character's scan window, or the shared one when they take the default. */
@@ -625,18 +742,10 @@
     return '';
   }
 
-  /* Rank every entry that may join this prompt, best first.
-
-     Order of precedence, and why:
-       1. constant      - the author's own "always" flag, honoured first
-       2. newest match  - key appears in the message being answered
-       3. key count     - how many of its keys matched in the window
-       4. specificity   - fewer keys on the entry means a more deliberate match
-       5. shorter       - when otherwise equal, the cheaper entry wins
-
-     Nothing here looks at book order. On a real card the chapters are listed
-     before the characters, and with a flat scan the chapters always won. */
-  function loreRanks(entries, sample, stage) {
+  /* Rank every entry that may join this prompt, best first, and — when the book asks
+     for it and the player agreed — read what those entries say for a second hop. */
+  function loreRanks(entries, sample, stage, opts) {
+    var o = opts || {};
     var raw = scanText(sample);
     var text = raw.toLowerCase();
     var activeStage = String(stage || '').trim().toLowerCase();
@@ -647,31 +756,73 @@
     var lines = (sample && typeof sample === 'object' && Array.isArray(sample.parts))
       ? sample.parts.map(function (p) { return String(p || '').toLowerCase(); })
       : null;
-    var rawLines = lines && (sample.parts || []).map(function (p) { return String(p || ''); });
-    function recencyOf(keys, cs) {
+    var rawLines = lines && (sample || {}).parts
+      ? sample.parts.map(function (p) { return String(p || ''); }) : null;
+
+    /* One key, one answer, for both places a key is asked about — the match and the
+       recency score. If those two used different rules an entry would rank by a
+       sighting that never happened, which is how "it matched but came in last" gets
+       reported as a bug in the ranking. */
+    function stands(e, patterns, key, hay, low) {
+      var cs = e.caseSensitive === true;
+      if (patterns) {
+        var p = lorePattern(key, cs);
+        return p.re ? p.re.test(hay) : false;
+      }
+      return keyStands(cs ? hay : low, key, cs);
+    }
+    function recencyOf(e, patterns, keys) {
       if (!lines) return 0;
-      var where = cs ? rawLines : lines;
+      var cs = e.caseSensitive === true;
+      var where = (cs || patterns) ? (rawLines || [raw]) : (lines || [text]);
       for (var back = 0; back < where.length; back++) {
         var line = where[where.length - 1 - back];
         for (var i = 0; i < keys.length; i++) {
-          if (keys[i] && keyStands(line, keys[i], cs)) return back;
+          if (keys[i] && stands(e, patterns, keys[i], line, String(line).toLowerCase())) return back;
         }
       }
       return where.length;
     }
-    var out = [];
-    (entries || []).forEach(function (e, index) {
-      if (e.enabled === false) return;
+
+    var out = [], bad = Object.create(null);
+    var seen = Object.create(null);
+
+    function evaluate(e, index, isChain) {
+      if (!e || e.enabled === false) return null;
       var requiredStage = String(e.stage || '').trim().toLowerCase();
-      if (requiredStage && requiredStage !== '*' && (!activeStage || requiredStage !== activeStage)) return;
+      if (requiredStage && requiredStage !== '*' && (!activeStage || requiredStage !== activeStage)) return null;
       var constant = e.constant === true;
       var keys = e.keys || [];
+      /* `use_regex` is V3's per-entry flag and it is strict: a card that writes
+         "true" as a string is not asking for patterns, exactly as `selective` and
+         `case_sensitive` already behave. Only when the player's switch is on. */
+      var patterns = !!(o.regex && e.useRegex === true);
       /* `case_sensitive` (V2/V3) decides which casing of the scan window the
-         keys are looked for in. Everything else in the ranking is unaffected. */
-      var cs = e.caseSensitive === true;
-      var hay = cs ? raw : text;
-      var matched = keys.filter(function (k) { return k && keyStands(hay, k, cs); });
-      if (!constant && !matched.length) return;
+         keys are looked for in. Everything else in the ranking is unaffected —
+         except a pattern entry, where the pattern's own flags decide and the text
+         is matched as written, because lowercasing "Vlad" would silently rewrite
+         what the author's regular expression says. */
+      var broken = '';
+      var row_broken = '';
+      if (patterns) {
+        for (var ki = 0; ki < keys.length; ki++) {
+          if (!String(keys[ki] || '').trim()) continue;   /* no key, not a broken one */
+          var pr = lorePattern(keys[ki], e.caseSensitive === true);
+          if (!pr.re) { broken = pr.why || 'invalid'; break; }
+        }
+        /* A constant entry stays constant: the spec says a pattern entry SHOULD
+           ignore `constant`, and obeying that would delete an always-on fact because
+           a key was written badly — the one outcome an author cannot see coming. */
+        /* once per entry, whatever the pass: a chain re-reads the same book and must
+           not report the same broken key three times to the screen */
+        row_broken = broken;   /* a constant entry still says it, below */
+        if (broken && !constant) {
+          if (!bad[index]) bad[index] = { index: index, why: broken, keys: keys.length };
+          return null;
+        }
+      }
+      var hay = raw, matched = keys.filter(function (k) { return k && stands(e, patterns, k, hay, text); });
+      if (!constant && !matched.length) return null;
       /* `selective` + `secondary_keys`, the V2 pair, honoured since v1.40.0.
          The spec is exact, and this follows it word for word: `selective: true`
          requires a key from `keys` AND a key from `secondary_keys`; with
@@ -681,32 +832,91 @@
          is always required. A `selectiveLogic` (a SillyTavern field, not a spec
          one) is not implemented: its four variants are that client's meaning,
          not a meaning verified here, so the entry falls back to the boolean
-         rule above and the import note says so rather than guessing. */
-      var sec = (e.selective === true && Array.isArray(e.secondaryKeys))
+         rule above and the import note says so rather than guessing.
+         V3 says a pattern entry SHOULD ignore `secondary_keys`, and it does: a
+         `selective` pair on a regex entry is two different rules for one key, and
+         the pattern is the one the author wrote last. The Lore screen says so. */
+      var sec = (!patterns && e.selective === true && Array.isArray(e.secondaryKeys))
         ? e.secondaryKeys.filter(function (k) { return !!k; }) : [];
-      if (sec.length && !sec.some(function (k) { return keyStands(hay, k, cs); })) return;
-      out.push({
+      if (sec.length && !sec.some(function (k) { return stands(e, patterns, k, hay, text); })) return null;
+      return {
         entry: e, index: index, constant: constant,
+        /* v1.47.0: what this row is made of, so the Lore screen can say it without
+           recomputing anything: `patterns` is why it fired on a shape rather than a
+           word, `broken` that a key was unusable, `chain` that the chat did not
+           mention it at all. */
+        patterns: patterns, broken: row_broken, chain: !!isChain,
         /* v1.40.0 (item 6.6): an entry the author marked essential is admitted
            ahead of everything that is not constant, so a tight budget spends
            itself on what the card says the story cannot do without. */
         essential: e.essential === true,
         /* 0 = mentioned in the message being answered; higher = older */
-        recency: constant ? -1 : recencyOf(matched.length ? matched : keys, cs),
+        recency: constant ? -1
+          : (isChain ? LORE_CHAIN_FROM + isChain : recencyOf(e, patterns, matched.length ? matched : keys)),
         keyCount: constant ? keys.length : matched.length,
         keys: keys.length, cost: String(e.content || '').length
-      });
+      };
+    }
+
+    (entries || []).forEach(function (e, index) {
+      var r = evaluate(e, index, 0);
+      if (r) { out.push(r); seen[index] = 1; }
     });
-    out.sort(function (a, b) {
-      if (a.constant !== b.constant) return a.constant ? -1 : 1;
-      if (a.essential !== b.essential) return a.essential ? -1 : 1;
-      if (a.recency !== b.recency) return a.recency - b.recency;
-      if (a.keyCount !== b.keyCount) return b.keyCount - a.keyCount;
-      if (a.keys !== b.keys) return a.keys - b.keys;
-      if (a.cost !== b.cost) return a.cost - b.cost;
-      return a.index - b.index;
-    });
+
+    /* Chaining: a book whose `recursive_scanning` is true asks that an entry which
+       came in can wake a second one, which is the one lorebook behaviour that
+       changes what the model sees the most. So it is bounded three times: at most
+       this many hops however long the book asks, an entry can only come in once,
+       and only what the chat itself matched is read for the next hop. A chained row
+       is scored below every row the chat matched, so a chain can fill the space the
+       conversation left over and can never displace an entry the player's own words
+       brought in. */
+    if (o.chain) {
+      out.sort(function (a, b) { return rankCompare(a, b); });
+      var pool = out.slice(0, LORE_CHAIN_FROM);
+      var extra = pool.map(function (r) { return String(r.entry.content || ''); }).join('\n');
+      for (var pass = 1; pass <= (o.chainDepth || 1); pass++) {
+        if (!extra) break;
+        raw = scanText(sample) + '\n' + extra;
+        text = raw.toLowerCase();
+        var added = 0, more = [];
+        (entries || []).forEach(function (e, index) {
+          if (seen[index]) return;
+          var r = evaluate(e, index, pass);
+          if (r) { more.push(r); seen[index] = 1; added++; }
+        });
+        out = out.concat(more);
+        if (!added) break;
+        extra += '\n' + more.map(function (r) { return String(r.entry.content || ''); }).join('\n');
+      }
+    }
+    out.sort(function (a, b) { return rankCompare(a, b); });
+    /* What the card asked for that this app could not use, reported on the array for
+       the Lore screen (the same trick loreAdmit uses for `skips`: it belongs to this
+       one call, and every other caller maps the list and never sees it). */
+    out.bad = Object.keys(bad).map(function (k) { return bad[k]; }).sort(function (x, y) { return x.index - y.index; });
+    out.ranked = out.length;
     return out;
+  }
+
+  /* The order of precedence, once, for the ranking and for the chain's source pool.
+     1. constant - the author's own "always" flag, honoured first
+     2. not chained - what the conversation mentioned outranks what an entry said
+     3. essential - then recency: mentioned in the message being answered beats
+        mentioned forty turns ago
+     4. key count, 5. specificity (fewer keys = a more deliberate match),
+     6. shorter, 7. book order.
+     Nothing here looks at book order except last. On a real card the chapters are
+     listed before the characters, and with a flat scan the chapters always won. */
+  function rankCompare(a, b) {
+    if (a.constant !== b.constant) return a.constant ? -1 : 1;
+    if (!!a.chain !== !!b.chain) return a.chain ? 1 : -1;
+    if (a.essential !== b.essential) return a.essential ? -1 : 1;
+    if (a.recency !== b.recency) return a.recency - b.recency;
+    if (a.keyCount !== b.keyCount) return b.keyCount - a.keyCount;
+    if (a.keys !== b.keys) return a.keys - b.keys;
+    if (a.cost !== b.cost) return a.cost - b.cost;
+    return a.index - b.index;
   }
 
   /* Admit ranked entries until the count or the byte budget runs out. A single
@@ -810,7 +1020,7 @@
 
   function loreHits(entries, sample, limit, budget, stage, opts) {
     if (!entries || !entries.length) return [];
-    var admitted = loreAdmit(loreRanks(entries, sample, stage), limit, budget, opts);
+    var admitted = loreAdmit(loreRanks(entries, sample, stage, opts), limit, budget, opts);
     var out = admitted.map(function (r) { return r.entry; });
     /* v1.44.0: the entries that did not get in, and why. `map` above used to
        drop the `skips` loreAdmit attaches, and the prompt path has no use for
@@ -1765,7 +1975,7 @@
        with the narrator rules plus live state. Fall back to the global prompt. */
     var system = macros(systemTextOf(character, s), character, s);
     system += '\n' + macros(OOC_RULE, character, s);
-    var sheet = charSheet(character, s, session, recent, assistantTurns, loreOpts(character), stats);
+    var sheet = charSheet(character, s, session, recent, assistantTurns, loreOpts(character, s), stats);
     if (sheet) system += '\n\n' + sheet;
     var rpg = rpgStatusPrompt(session);
     if (rpg) system += '\n\n' + rpg;
@@ -2014,7 +2224,7 @@
     var assistantTurns = history.filter(function (m) { return m.role === 'assistant'; }).length;
     var stats = {};
     var head = macros(systemTextOf(character, s), character, s) +
-      '\n\n' + charSheet(character, s, session, recent, assistantTurns, loreOpts(character), stats);
+      '\n\n' + charSheet(character, s, session, recent, assistantTurns, loreOpts(character, s), stats);
     var rpg = rpgStatusPrompt(session);
     if (rpg) head += '\n\n' + rpg;
     if (note) head += '\n\n' + note;
@@ -4505,7 +4715,8 @@
     /* item 6: the authoring fields, in the order the sheet prints them */
     CARD_DIRECTIVES: DIRECTIVES,
     directiveBlock: directiveBlock,
-    loreRanks: loreRanks,
+    loreRanks: loreRanks, lorePattern: lorePattern, loreBookAsk: loreBookAsk,
+    LORE_CHAIN_MAX: LORE_CHAIN_MAX, LORE_CHAIN_FROM: LORE_CHAIN_FROM,
     LORE_LIMIT: LORE_LIMIT, LORE_BUDGET: LORE_BUDGET, LORE_SCAN_TURNS: LORE_SCAN_TURNS,
     requestWindow: requestWindow, lastTurns: lastTurns, labelledName: labelledName,
     speakerNames: speakerNames,

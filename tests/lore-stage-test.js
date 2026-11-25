@@ -98,8 +98,14 @@ eq('...even though the chat is blank', p.stageBlank, true);
 console.log('\nthe Lore screen reports it');
 
 ok('the screen reads the ceilings from the engine',
-  /API\.loreDiagnostics\(c\.lorebook \|\| \[\], sample, API\.LORE_LIMIT, API\.LORE_BUDGET,\s*\n?\s*stage, API\.loreOpts\(c\)\)/.test(viewsSrc),
+  /API\.loreDiagnostics\(c\.lorebook \|\| \[\], sample, API\.LORE_LIMIT, API\.LORE_BUDGET,\s*\n?\s*stage, API\.loreOpts\(c, Store\.settings\)\)/.test(viewsSrc),
   (viewsSrc.match(/API\.loreDiagnostics\([^;]*/) || [''])[0]);
+/* v1.47.0: the settings are part of "the same call the request makes". loreOpts with
+   no second argument is today's matcher, so a screen that omitted them would tell a
+   player who switched regex keys on that their book is still plain text — the drift
+   the line above exists to prevent, one field further along. */
+ok('...and reads the card-feature switches from the store, as the prompt does',
+  /loreOpts\(c, Store\.settings\)/.test(viewsSrc));
 ok('...and no longer carries its own copies', !/loreDiagnostics\(c\.lorebook \|\| \[\], sample, 6, 1536/.test(viewsSrc));
 ok('it reports entries hidden by staging', /diag\.stageSkipped/.test(viewsSrc));
 ok('it distinguishes a blank stage from a wrong one', /diag\.stageBlank/.test(viewsSrc));

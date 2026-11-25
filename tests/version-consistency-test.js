@@ -100,6 +100,17 @@ console.log('\nthe README names the release it ships');
 var readme = read('README.md');
 same('the README headline matches', (readme.match(/v(\d+\.\d+\.\d+)/) || [])[1], versionName);
 
+console.log('\nthe release notes are the release they ship with');
+/* store.js's copy of the version went six releases behind once, and the prose has the
+   same failure mode with no build step to write it: the newest heading in each notes
+   file has to be the release this commit is, or the repo tells two different stories
+   about what just shipped. */
+var notes = read('NOTES.md');
+same('NOTES.md leads with this release', (notes.match(/^## v(\d+\.\d+\.\d+)/m) || [])[1], versionName);
+var rel = read('RELEASE-NOTES.md');
+ok('RELEASE-NOTES.md opens by naming this release',
+  new RegExp('v' + versionName.replace(/\./g, '\\.')).test(rel.slice(0, 400)), rel.slice(0, 70));
+
 console.log('\nthe stamp is wired into both build paths');
 var buildSh = read('apk-build/build.sh');
 var channel = read('tools/build-channel.py');

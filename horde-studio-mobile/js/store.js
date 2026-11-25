@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.46.0';
+  var VERSION = '1.47.0';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -79,6 +79,12 @@
        asking; a card's own request lives on the character as `systemPromptAsked`
        until this is on or the player grants it there. */
     honorCardSystemPrompt: false,
+    /* v1.47.0: the two lorebook asks a card can make that change what the model sees
+       — regex keys, and one entry waking another. Both off, both global, both
+       honoured only when the book also asked: a card cannot approve itself, and a
+       switch that changed matching for every card at once is a preference, not a
+       migration. See `loreOpts` in api.js for what each one unlocks. */
+    honorCardRegex: false, honorCardRecursion: false,
     userName: 'You',
     userPersona: '',
     /* pronoun macros: {{sub}} {{obj}} {{poss}} {{poss_p}} {{ref}} */
@@ -768,6 +774,11 @@
           selective: e.selective,
           secondaryKeys: Array.isArray(e.secondary_keys) ? e.secondary_keys.slice() : [],
           caseSensitive: e.case_sensitive,
+          /* `use_regex` is V3's, and it is mirrored as the card wrote it: the matcher
+             requires the boolean `true`, so a card carrying "true" keeps that string
+             in the live entry, survives an export byte for byte, and the Lore screen
+             calls the entry what it is rather than guessing. */
+          useRegex: e.use_regex,
           position: e.position === undefined ? '' : String(e.position),
           insertionOrder: e.insertion_order === undefined ? null : e.insertion_order,
           priority: e.priority === undefined ? null : e.priority,
@@ -1447,6 +1458,7 @@
           selective: [e.selective, r.selective],
           secondary_keys: [e.secondaryKeys || [], r.secondary_keys || []],
           case_sensitive: [e.caseSensitive, r.case_sensitive],
+          use_regex: [e.useRegex, r.use_regex],
           position: [e.position || '', r.position || ''],
           insertion_order: [e.insertionOrder, r.insertion_order],
           priority: [e.priority, r.priority]
@@ -1454,7 +1466,7 @@
         /* For these, absence IS the default: never written into an entry the card
            did not have, so importing a plain V1 book and exporting it does not
            turn every entry into a declared one. */
-        var UNSET_OK = { constant: 1, selective: 1, case_sensitive: 1, position: 1,
+        var UNSET_OK = { constant: 1, selective: 1, case_sensitive: 1, use_regex: 1, position: 1,
           insertion_order: 1, priority: 1 };
         function isNothing(v) {
           return v === false || v === null || v === undefined || v === '' ||

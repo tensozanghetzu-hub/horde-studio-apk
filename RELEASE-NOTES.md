@@ -1,88 +1,123 @@
-**You do not need to uninstall for this one.** v1.46.0 is signed with the same key as
-v1.42.0 through v1.45.0, so Android installs it over the top and every chat, character
+**You do not need to uninstall for this one.** v1.47.0 is signed with the same key as
+v1.42.0 through v1.46.0, so Android installs it over the top and every chat, character
 and setting stays where it is. Install from inside the app: **Settings → App updates →
 Check for update**, or run the APK file itself. Everything in this release is
 JavaScript, so a phone on v1.42.0 or newer also picks it up as a small download and
 needs no APK at all.
 
-The exception is six releases old, and it is still true: a phone on **v1.41.1 or
+The exception is seven releases old, and it is still true: a phone on **v1.41.1 or
 older** has no update path across the signing-key rotation done in v1.42.0. That one
 still needs **Settings → Data → Backup**, uninstall, install, **Restore**, and a
 re-typed API key. `MIGRATION-signing-key.md` is that walk-through.
 
-## The recap now reads the transcript the model was actually shown
+## Your card's regex lore keys are read now — if you say so
 
-Story memory summarizes the chat so old turns can leave the window and still be known.
-Until now it did that work on its own copy of the chat: the request was built from a
-budget, the recap from a slice of forty messages. When your history budget is smaller
-than forty — and on a free route it usually is — the summariser was handed a
-transcript that included turns the model had never seen and left out turns it had. Its
-output was then filed as what the model "knows". Two wrongs, one of them quiet.
+Some cards write a lorebook entry whose keys are regular expressions rather than words:
+`\bVlad(?:'s)?\b` catches *Vlad*, *Vlad's* and *Vlads* where the plain string would
+catch one of them. Until this release the app carried `use_regex` in and out untouched
+and matched the key as literal text, because the only thing an import has to go on is
+the card asking. That is no longer the whole answer, and it is still not a licence: the
+field is read **when the switch in Settings → System prompt is on**, and the switch
+ships off.
 
-The recap now takes the **same window the chat took**: one budget, one selection, read
-by both. The slider is honoured rather than argued with — if your window is eight
-messages, the recap is built from those eight (with a floor of twelve so a recap is not
-a snapshot of a single exchange, and a byte cap so the request still fits the model that
-has to answer it). Nothing here raises a limit anywhere: the fix is that the two views
-of the chat are the same view, which is the only version of "what the model saw" that
-can be true.
+**Settings → System prompt → Cards may use regex keys**, off. And when a card that sets
+`use_regex` arrives, the import note now tells you: *this card's lore keys are regular
+expressions, and this app does not run a card's pattern until you say so — switch on
+"Cards may use regex keys" in Settings → System prompt.* A card cannot approve itself,
+for the same reason its `system_prompt` is a choice and not a default: its keys are
+user data, not code.
 
-## Recall: fetch the turn the window dropped, when it fits this one
+What "on" means, precisely:
 
-**Settings → Memory → Recall**, off until you turn it on.
+- An entry whose `use_regex` is the boolean `true` has its keys compiled and matched
+  against the recent transcript, not against your message alone. A `use_regex` written
+  as `"true"` (a string) is not `true` — no coercion, no guessing at an author's typo.
+- `/harbour|the port/i` is unwrapped so the **flags the author wrote** run. A key that
+  merely begins with a slash keeps its slash; `/home` is not treated as a delimited
+  pattern.
+- A pattern that does not compile, or whose shape can cost exponential time to fail —
+  `(a+)+b` — makes the entry a **non-match**, exactly as the card spec requires. It is
+  refused before it is ever run, by the same check the display scripts use, because this
+  runs on the phone every turn. No time limit is involved, so a slow day cannot turn a
+  refusal into a hang.
+- A `constant` entry stays constant even when its pattern had to be refused. The spec
+  says a regex entry should ignore `constant`; obeying that would let a badly written
+  key delete an always-present fact, which is the one outcome an author cannot see
+  coming. `CARDS.md` says so in writing.
+- `secondary_keys` is ignored while `use_regex` is true, because the spec says so, and
+  the Lore screen says it too.
 
-The window is a budget, not a memory. When it pushes a turn out, the model does not
-forget it — it never received it, and it will happily invent a replacement. Recall
-scores the messages the window left out against your last line and appends the handful
-that match, on the phone, with no model, no dependency and nothing uploaded: BM25-lite,
-term frequencies, a length norm, inverse document frequency.
+Patterns compile **once per key** and are cached, so the first turn pays and every later
+turn does not: 400 regex entries scan in tens of milliseconds on this machine, and the
+same 400 entries cost less on the second turn than the first.
 
-What it deliberately will not do:
+## Lorebooks may chain — capped, and never at the front of the queue
 
-- **It does not move anything.** The block goes *after* the transcript, first in the
-  trailing instructions, so the prompt prefix is byte-for-byte what it was and the cache
-  discount on the free routes stays. Reordering history into relevance order is how a
-  recall feature costs more than it saves; this is append-only on purpose.
-- **It does not fetch on one shared word.** A passage has to share two of your words to
-  be fetched at all, and a word the whole chat repeats — *the lamp*, in a story about a
-  lighthouse — is not one of your words. Without that rule the fourteenth near-copy of
-  the turn you just read ranks above the fact you asked about, and the model weaves it
-  in. A single rare word is enough on its own, which is the turn where all you typed was
-  a name.
-- **It does not quote the whole message.** A recalled line is the stretch around the
-  match, not its opening: a four-thousand-character post is useless if the sentence that
-  matters is at the far end.
-- **It does not settle anything.** The block arrives under a heading that says these are
-  real lines from outside the window, that they are background rather than the present
-  moment, and that where one contradicts something newer, the newer one wins.
+`recursive_scanning` is a book asking that an entry which came in be read again, so a
+second entry keyed on something *inside* it can come in too. The card spec defines the
+flag and no behaviour, and SillyTavern's own documentation says unbounded recursion can
+loop on a circular reference; so this is the second switch in the same settings group —
+**Cards may chain lore entries**, off — and with it on:
 
-Up to twelve passages per reply (six by default), and the whole block is capped at about
-700 tokens, so it cannot spend the turn's own window. Below the cap it keeps the
-strongest matches; what it left out is counted, not quietly missing. The Memory screen
-prints what the last request did — how many messages were looked through, how many
-passages were kept, what they cost — and past the search cap it names how many were never
-read, because "nothing matched" about lines nobody examined would be a lie.
+- **three hops, whatever the book asks for.** A `recursion_depth` of 9 is clamped; 1
+  means 1. A card that asks for unlimited gets the app's bound, not the number it
+  wrote.
+- **only what the chat matched is read**, and only its best twenty entries. A chain is
+  built from the conversation, not from the whole book.
+- **an entry is admitted once**, so a circular reference terminates.
+- **a chained entry never displaces one the chat matched.** It fills space the
+  conversation left over, and the ranking for everything the chat brought in is
+  byte-for-byte what it was. That is the same rule recall ships on: reshuffling what
+  the model is shown is what forfeits the stable prompt prefix and its cache discount,
+  and a lorebook feature is not allowed to cost you that.
 
-**The limit worth knowing:** this matches *words*, not meanings. Ask
-*"is the Sorrow of Dunmore still rotting at the pier?"* and the turn where you named her
-comes back. Ask *"how did that all end for us?"* and nothing is fetched — no guess, no
-invented recollection. It is a lookup, not a model.
+Neither switch changes anything for a card that did not ask. A book with no `use_regex`
+and no `recursive_scanning` gets the prompt it got yesterday, byte for byte — the
+release ships with that checked, not asserted: 16 prompt shapes across two builders,
+four and forty turns and empty and full books, compared against the previous release
+(`node tools/compare-lore-prompt-against-release.js`).
 
-One turn costs 9 ms on a 240-message chat and 50 ms on a 2 000-message one the first
-time; after that the message shapes are cached and the same scan takes 2 ms. The scan is
-bounded to the newest 1 500 out-of-window messages so no chat, however long, can spend
-a turn on arithmetic. That bound is also why it reads the newest lines first: on a chat
-older than the cap, the oldest episodes are out of reach.
+## The Lore screen says which way each one went
+
+A quiet entry is only fixable if you can see why it is quiet, so every new field is
+visible where it bites — on the row, and in the summary line, from the engine's own
+record rather than from the screen re-deriving it:
+
+- **regex keys, switched off** — the amber badge on an entry whose card asked for
+  patterns, and the import note's own advice: switch it on, or leave it off and know
+  that its keys are being read as plain text.
+- **matched on a pattern**, on the rows where a compiled key is what fired.
+- **chained from another entry**, on a row the conversation never mentioned.
+- **secondary_keys not applied**, on the one field the spec says to ignore.
+- *this entry's `[unclosed` pattern was refused, so it cannot match — it is not a
+  regular expression JavaScript can compile*; and for the exponential shape, that the
+  cost is the reason rather than the syntax.
+- the summary counts it all: *7 entries use regex keys, switched off in Settings →
+  System prompt*, or *and 2 patterns were refused*; and when chaining is on, *this
+  book also chains: 2 entries came in from another entry rather than from the
+  conversation (up to 2 hops, ranked behind everything the chat matched).*
 
 ## Checks
 
-`tests/recall-bm25-test.js` (108 checks) and `tests/recap-window-test.js` (22). The
-recall suite is not a set of string matches: it ranks a 60-turn campaign through the
-LongMemEval question types (extract, combine, temporal, update, abstain) and asserts on
-the request the app would send, including one check that documents the limit above. The
-mutation harness grew from twelve breaks to twenty-four, every one of them in this
-release's two paths: dropping the two-word gate, the rarity floor, the token budget, the
-search cap, the append-after-transcript position, the single speaker label, the window
-exclusion, the snippet's centring, the tie-break, the off-by-default switch, the
-plain-text shape, and giving the recap its own slice back. Each one turns a suite red,
-and each was added by breaking the code on purpose and watching what stayed green.
+`tests/lore-card-features-test.js` (100 checks) and `tests/import-warnings-test.js`
+(44). The new suite reads both ways at everything it can: the switches and what off
+means, the pattern compiler and its two refusals, the chain bounds including a
+two-sided check that the twenty-entry pool is a real pool, the import and export
+bytes, and the rendered screens — Settings is built in a stub DOM and the two toggles
+are clicked, and the World screen is rendered through the real `Views.world` so its
+HTML is asserted against what `buildChat` would actually send. That rendered check found
+two things a grep could not: a badge the view computed but never showed, and a
+`loreDiagnostics` call that forgot to pass the player's settings — which would have
+made the screen lie to exactly the reader it exists for.
+
+The mutation harness moved out of `/tmp` and into the repo, because a quality bar that
+lives in a scratch file is not a bar: **`tools/mutation-check.py`**, now 12 deliberate
+breaks for this release — the gate that lets a card approve itself, the refusal of the
+exponential shape, both chain bounds, chained rows out-ranking the chat's own, the
+importer's `use_regex`, both off-by-default switches, the readout's settings argument,
+the badge line, the pattern count and the import note. `12 killed, 0 survived, 0
+anchors lost`. `tests/mutation-harness-test.js` runs on every sweep and checks the
+harness itself: every anchor matches its source exactly once, every named suite still
+exists, and the list covers `api.js`, `store.js`, `views.js` and `app.js`. A stale
+harness would print "every break is caught" while replacing nothing, which is the
+failure mode worth engineering against. Full sweep: **135 suites, 0 problems.**

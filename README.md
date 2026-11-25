@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.46.0
+# Horde Studio — Mobile (Android) · v1.47.0
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,11 +6,11 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.46.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.47.0](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
-> **v1.46.0 installs straight over v1.42.0 through v1.45.0 — no backup, no reinstall.** The one-time
+> **v1.47.0 installs straight over v1.42.0 through v1.46.0 — no backup, no reinstall.** The one-time
 > exception is behind you unless it is not: v1.42.0 rotated the signing key, so a phone still on
 > **v1.41.1 or older** has no update path across that boundary and must back up
 > (Settings → Data → Backup), uninstall, install, restore. Android refuses such an
@@ -25,7 +25,7 @@ https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest/download/
 ```
 
 That URL never changes — it follows whatever release is newest. (The newest release
-also carries a copy named `HordeStudio-v1.46.0.apk`, so you can tell which version
+also carries a copy named `HordeStudio-v1.47.0.apk`, so you can tell which version
 you have after downloading.)
 
 Only the newest release keeps an APK attached. Older releases stay in the list with
@@ -390,10 +390,14 @@ nothing when a provider already stops cleanly (one pass, then it stops).
   image comes along too**, normalized like every other imported image (a PNG-embedded
   card uses its own picture); export back to card JSON, avatar included.
   Opening a card does not damage it: fields this app has no use for are kept and put
-  back on export, `post_history_instructions` and the card's own `system_prompt` are
-  choices you can see, and the lorebook matcher reads `case_sensitive`, `selective`
-  and `secondary_keys`. **[CARDS.md](CARDS.md)** documents every field, limit,
-  default and what stays unapplied.
+  back on export, `post_history_instructions`, the card's own `system_prompt`, its
+  regex lore keys and its recursive-scanning request are all choices you can see, and
+  the lorebook matcher reads `case_sensitive`, `selective` and `secondary_keys`. The
+  three card features that change what the model is shown are each behind a switch in
+  Settings → System prompt, every one of them off until you turn it on — a card's keys
+  are user data, not code, and a card cannot approve itself.
+  **[CARDS.md](CARDS.md)** documents every field, limit, default and what stays
+  unapplied.
   Cards that ship several starting scenarios (`scenario_list`) keep all of them —
   the editor offers a *Card scenarios* picker to choose which one to start from.
 - **Chats** — one character, many sessions. Streaming replies, **Reroll**,
@@ -417,7 +421,19 @@ nothing when a provider already stops cleanly (one pass, then it stops).
   words, not meanings: ask about *the Sorrow of Dunmore* and the turn where you named her
   comes back; ask *how did that all end* and nothing is invented.
 - **Lorebook** — keyword-triggered world entries per character, injected only when
-  their keywords show up in recent messages.
+  their keywords show up in recent messages. The World screen reads out exactly what
+  the last turn did: which entries are in, and for the rest, whether a keyword missed,
+  the entry limit was reached, the byte budget was full, a stage excluded it, or the
+  card asked for regex keys this app is not running because the switch is off.
+- **Lore keys as patterns, and lore that chains** (both opt-in, Settings → System
+  prompt) — a card can ask for either: `use_regex` on an entry makes its keys patterns
+  matched against the recent transcript, and the book's `recursive_scanning` lets an
+  entry that came in wake a second one. Switched off, the keys are searched as plain
+  text and nothing chains, which is what every card got before this existed. Switched
+  on, a pattern that will not compile — or whose shape costs exponential time to fail —
+  takes its entry out of the match rather than running, and chaining is capped at three
+  hops over the twenty best-matching entries, ranked behind everything the chat itself
+  matched. Every one of those refusals is named on the entry's row, not swallowed.
 - **Images** — generate a picture into the chat (or a character avatar) using the free
   **AI Horde** image cluster, with queue progress shown inline.
 - **Prompt control** — global system prompt with `{{char}}` / `{{user}}` macros,

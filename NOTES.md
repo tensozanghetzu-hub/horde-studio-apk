@@ -1,5 +1,96 @@
 # Horde Studio Mobile — release notes
 
+## v1.47.0, 2026-11-25 — a card's regex keys and its recursion, each behind a switch the player has to agree to
+
+**What shipped.** Two card fields the app carried and ignored are now read by the lore
+matcher: `use_regex` on an entry (keys compiled as patterns, matched against the recent
+transcript) and book-level `recursive_scanning` + `recursion_depth` (an entry that came in
+is read again, so it can wake a second one). One switch each — `honorCardRegex`,
+`honorCardRecursion` — in Settings → System prompt beside `honorCardSystemPrompt`, all
+three off, all three named in the import note when a card asks. They are deliberately
+*outside* `GEN_KEYS`: they change what the model is shown, and "reset my generation
+settings" is not a place a card gets approved. `genreset-test.js` stays green because of
+that, which is the check, not an accident.
+
+**Why off when the card already said yes.** A card's `keys` are user data, not code, so
+turning them into executable patterns is a change of kind: the same rule the system prompt
+and the persona overrides run on, and the one the user's standing "honour the slider"
+choice implies — no new control nobody asked for, nothing bigger by default. SillyTavern
+defaults `world_info_recursive` false and recommends caps of 3–5 hops; that is context,
+not authority, so `SPEC_V3.md` was read raw this time (`/tmp/spec_v3.md`, 48 247 bytes)
+rather than trusting a search-result rendering — which is also how the `constant`
+deviation got found, because the line is in the `constant` section and not in `use_regex`.
+
+**The two refusals, and why neither is a timeout.** `new RegExp` rejects `[unclosed`, and
+the spec's own words ("if the value in `keys` has invalid regex patterns the application
+MUST consider the lorebook field as not a match") make that a non-match instead of a
+fall-back to plain text: an entry authored as `/cat|dog/` matching the literal characters
+`/cat|dog/` is a card quietly doing something nobody wrote. The second refusal is the
+exponential shape — a group quantified inside and after itself — tested by `scriptLooksEvil`,
+the display scripts' check, reused rather than re-invented. Measured by *shape* on purpose:
+a time-boxed guard is a function of how fast the phone happens to be that day, and this
+runs on every turn on the device, on a stranger's string. Compiled once per (text, flags)
+through `loreReCache`, reset past 256 entries so it forgets rather than grows; the
+`/^\/(.+)\/([a-z]{0,4})$/` unwrap is guarded by a non-empty inner group so `/home` survives
+and an unclosed delimiter is left alone.
+
+**Chaining, bounded four ways**, because the spec defines the flag and no behaviour: 3
+hops whatever the book asks (`Math.max(1, Math.min(LORE_CHAIN_MAX, depth || 2))` — a
+clamp, so a book asking for 1 really does one); only the first `LORE_CHAIN_FROM = 20`
+chat-matched rows are read for links; `seen[index]` admits an entry once, so a circular
+reference terminates; and a chained row is scored `LORE_CHAIN_FROM + isChain` behind every
+chat-matched row, so a chain can only fill what the conversation left over. The last bound
+is the expensive one: reordering admitted entries breaks the stable prompt prefix and with
+it the cache discount that makes the free routes cheap, so "append only" is enforced by
+rank, not by convention. `skips` proves it at a limit of three: `_loreHits` returns
+`always,pat,plain` and the chained rows never displace them.
+
+**The deviation, written down where it can be read:** the spec says a pattern entry SHOULD
+ignore `constant`. Honouring that lets one badly written key delete a fact the author
+marked always-present — the one outcome nobody can see coming — so `constant` wins (a MUST
+is not overruled by a SHOULD) while `secondary_keys` and `@@exclude_keys` are dropped as
+asked. `CARDS.md` states the deviation and the World-screen row carries both halves
+(`its pattern does not compile — in because it is constant`). Lorebook *decorators*
+(`@@additional_keys` etc.) are not implemented in either mode and the doc says so, because
+a draft of it had claimed `@@additional_keys` supplied patterns — that was the spec's
+rule, not this app's behaviour, and the difference is the whole point of the file.
+
+**Three bugs, all of them in the readout, and one of them only visible by rendering:**
+(1) `patterns`/`chained`/`broken` were read inside the row literal, before `var r =
+byIndex[i]` was assigned, so every row reported `patterns:false` — `node --check` passed and
+only a probe showed it; (2) `Views.world` called `API.loreOpts(c)` without the settings, so
+the screen would have told a player who switched regex on that their keys were plain text —
+fixed to `loreOpts(c, Store.settings)` and `lore-stage-test.js` re-anchored to require the
+argument (it fails, with a second assertion, when the argument is removed again); (3) the
+badge line was gated on flags that did not include the new ones, so a `useRegex`-only row
+showed **no** badge at all. Only (3) was invisible to grep: it needed `Views.world` rendered
+against a stub document and its HTML asserted. Lesson: a grep of a view is not a test of a
+view, so section H renders the screen and then cross-checks its claims against what
+`buildChat` puts on the wire.
+
+**The harness moved out of `/tmp`.** A bar that lives in a scratch file is not a bar — the
+27-entry list from v1.46.0 was gone with the sandbox, so it is `tools/mutation-check.py`
+now, rebuilt with this release's 12 breaks, and `tests/mutation-harness-test.js` (6 checks)
+runs every sweep to keep it honest: each anchor must match its source exactly once, each
+named suite must exist, and the list must cover `api.js`/`store.js`/`views.js`/`app.js`. It
+also refuses to run against a red baseline, because a suite that is already broken turns
+every "killed" into a lie. Result: `12 killed, 0 survived, 0 anchors lost`, 7 seconds. One
+break *did* survive its first draft — `LORE_CHAIN_FROM = 999999` — because the pool test was
+written entirely in terms of the constant, so it stayed true at any value; that is why G now
+also pins the pair at a literal 40 rows. `tools/compare-lore-prompt-against-release.js` is
+the other new permanent thing: it compares the working tree's prompts with a named rev
+(16/16 identical with the switches off, and the only differences across 64 cases are the
+ones where the player agreed), so "off means nothing changed" can be re-checked in a year
+instead of asserted.
+
+**Numbers.** `lore-card-features-test.js` 100/0, `import-warnings-test.js` 44/0 (it had
+pinned "preserved and not applied", so it was re-anchored in the same change as `app.js` —
+planned, not a regression), full sweep **135 suites / 0 problems**. Cost, measured here: 400
+pattern entries scan in tens of milliseconds the first turn and less the second; the chain
+pass over the same book stays inside a turn's worth of work. Round-trip is intact both ways
+(`card-roundtrip-test.js`: `use_regex:false` and `recursion_depth:2` survive; a hand-made
+entry exports `keys/content/enabled/stage` and nothing invented).
+
 ## v1.46.0, 2026-11-24 — recall, and the recap that had been reading a different chat
 
 **The bug first, because it is the reason the feature is shaped the way it is.** Story

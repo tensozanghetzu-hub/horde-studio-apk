@@ -460,6 +460,33 @@
         ' "selective" or "case_sensitive" value (neither true nor false). The spec treats those as absent, ' +
         'so the entry matches on its primary keys, ignoring case. The Lore screen names the field.');
     }
+    /* The two asks a book can make that depend on a switch. Worded the way the
+       prompt ask is worded: the field is not lost, it is waiting, and the note says
+       where to decide it. Nothing here changes which entries fire — the sentence is
+       the only thing an import writes. */
+    var regexed = entries.filter(function (e) { return e && e.use_regex === true; }).length;
+    if (regexed) {
+      notes.push(regexed + ' ' + (regexed === 1 ? 'entry sets' : 'entries set') + ' "use_regex", which means their keys are ' +
+        'regular expressions instead of words to find. ' +
+        (Store.settings && Store.settings.honorCardRegex
+          ? 'Your "Cards may use regex keys" switch is on, so this app runs them — against the same short ' +
+            'window as every keyword, with the spec\u2019s rule that an entry whose pattern does not compile ' +
+            'cannot match, and with the shapes that would hang a phone refused. The Lore screen for this ' +
+            'character says which of them fired.'
+          : 'This app does not run a card\u2019s pattern until you say so: switch on "Cards may use regex keys" ' +
+            'in Settings → System prompt. Until then those keys are searched for as plain text, which is why ' +
+            'such an entry can look broken. The value stays in your card either way.'));
+    }
+    var bookAsk = book && book.recursive_scanning === true;
+    if (bookAsk) {
+      notes.push('This book asks for "recursive_scanning": an entry that came in is read again, so it can wake a ' +
+        'second entry the conversation never mentioned. ' +
+        (Store.settings && Store.settings.honorCardRecursion
+          ? 'Your "Cards may chain lore entries" switch is on, so it does — three hops at most, each entry once, ' +
+            'and always behind everything your own words brought in.'
+          : 'A card cannot approve itself, so nothing chains until you switch on "Cards may chain lore entries" ' +
+            'in Settings → System prompt. The value stays in your card either way.'));
+    }
     var ordered = entries.filter(function (e) {
       return e && typeof e.insertion_order === 'number';
     }).length;
@@ -491,6 +518,11 @@
     var KEPT = {
       keys: 1, content: 1, enabled: 1, constant: 1, stage: 1, id: 1,
       selective: 1, case_sensitive: 1, position: 1, insertion_order: 1, priority: 1,
+      /* v1.47.0: `use_regex` is read now — it is on the live entry and the matcher
+         acts on it when the player's switch allows it — so leaving it in the list of
+         fields this app "does not use" would be a false confession. It gets its own
+         line below, because what it does depends on a setting. */
+      use_regex: 1,
       extensions: 1
     };
     /* Fields the two notes above already name stay on their own lines; this
