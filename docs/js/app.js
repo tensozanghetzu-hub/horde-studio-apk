@@ -902,7 +902,10 @@
         if (alt && alts.indexOf(alt) === -1) alts.push(alt);
       });
       var first = greeting
-        ? Store.addMessage({ sessionId: s.id, role: 'assistant', text: greeting, alts: alts, altIdx: 0 })
+        /* the flag the bubble footer reads to keep from diagnosing a stop that
+           never happened: this text came out of the card, not out of a model.
+           Only the write side knows that, so it says so here. */
+        ? Store.addMessage({ sessionId: s.id, role: 'assistant', text: greeting, alts: alts, altIdx: 0, fromGreeting: true })
         : Promise.resolve(null);
       return first.then(function () { App.openSession(s.id); });
     });

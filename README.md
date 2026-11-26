@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.48.2
+# Horde Studio — Mobile (Android) · v1.48.3
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,7 +6,7 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.48.2](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.48.3](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 

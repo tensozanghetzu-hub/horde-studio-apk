@@ -3340,8 +3340,27 @@
      stop early, says so in words and points at the button that fixes it. */
   function replyFooter(body, m, s) {
     var words = altWordCount(body) + ' words in this reply';
-    var ends = /[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim());
-    if (ends) return words + ' \u00b7 complete';
+    /* v1.48.3, half 2: a greeting is not a reply. The card wrote it, nothing
+       generated it, and a message that was never generated has no finish reason -
+       not because the model kept quiet, but because there was no model. Asking
+       "why did it stop?" of that text can only ever produce a guess, and under a
+       400-word opening paragraph a guess reads as a bug report. So: the count,
+       and no verdict. */
+    if (m && m.fromGreeting) return words;
+    /* v1.48.3, half 1: ONE rule for "did this stop early?", the same one the
+       auto-continue consults (API.looksTruncated). This view used to keep its own
+       list of acceptable endings, and the two drifted apart: the list had no `*`,
+       so a reply that closed on an action beat (`…she shrugs.*`) was called cut
+       here and complete everywhere else - the footer promised a Continue for text
+       that had finished. The fallback below is that old list, kept only for a
+       context where api.js is not loaded, and it says nothing a card can exploit. */
+    var cut;
+    if (typeof API !== 'undefined' && API && API.looksTruncated) {
+      cut = API.looksTruncated(body);
+    } else {
+      cut = !/[.!?\u2026"\u201d\u2019)\]]\s*$/.test(String(body).trim());
+    }
+    if (!cut) return words + ' \u00b7 complete';
     if (m.finishReason === 'length') {
       var cap = (s && s.maxTokens) || API.DEFAULT_MAX_TOKENS;
       return words + ' \u00b7 the model hit your ' + cap + '-token limit, so it stopped mid-thought ' +

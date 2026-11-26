@@ -111,6 +111,15 @@ the device is not a guard, which is why a runaway pattern is refused by shape
   rot the moment code moves. Re-anchor them in the same change that moved the code, in
   the same commit, and keep the comment that says what the shape is protecting. Do not
   delete one to get to green.
+- When a view restates a rule the engine already has, the test is the **pairing**, not
+  the outcome. `footer-says-complete ⟺ !API.looksTruncated(text)` over a table of
+  endings cannot go stale the way "and accept `*` as well" can — the second just
+  records today's list. A suite that stubs the engine (`API: {}`) passes while the
+  shipped pairing stays broken, so load the real file behind the view.
+- A mutation row that nothing catches is a finding, not a nuisance: either the test is
+  weak or the line is redundant. Check which before you keep the row. (v1.48.3: removing
+  a guard from `shaped()` changed nothing because the label regex above it rejects the
+  same input — the second guard made the first untestable.)
 - Java is testable here without a device: keep the decision in a `static` with no
   Android types between two markers, and have the suite slice it out, compile it with
   `javac -encoding UTF-8` and run the cases (see `export-name-test.js`). The rest of the

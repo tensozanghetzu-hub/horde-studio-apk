@@ -1,5 +1,60 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.3, 2026-11-26 — a bubble footer stopped inventing reasons
+
+**Reported from a screenshot:** a card's own greeting, 403 words, ending
+`…she's very obviously listening.*`, carried the line *"it stopped mid-sentence;
+Continue finishes it"*. The player's words: "Greeting is actually complete. Doesn't need
+a continue. But why did it detect it as stopped mid sentence?"
+
+**Reproduced, then read back to the cause.** The card came out of the PNG's `tEXt chara`
+chunk and its `first_mes` counted 403 words — the number on screen, so the same string.
+`Views.replyFooter` decides with its **own** list of acceptable endings,
+`/[.!?…""')\\]]\\s*$/`, and that list has no `*`. `API.looksTruncated` — the rule the
+auto-continue actually acts on — has had the clause `// ended on an action beat` since
+v1.39.17. Two implementations of one question, drifted: called "cut" by the view and
+"complete" everywhere else, on the most common ending a roleplay card writes. Measured
+over 17 realistic endings, exactly three disagreed and all three closed on `*`.
+
+**The second half was worse, and is why the wording was a lie rather than a mistake.**
+A greeting has no `finishReason` — that field is stamped only on generated replies — and
+`replyFooter` treats "no reason" as "an unexplained stop", falling through to a diagnosis
+it never checked. So: the footer now asks `API.looksTruncated` (one rule; the fallback
+list survives only for a context where `api.js` isn't loaded, which is a test harness, not
+a phone), and the message that is a greeting prints its word count and **no verdict**.
+`app.js` stamps `fromGreeting: true` where the greeting is written, because only the write
+side knows. Existing chats have no flag; they get the correct "· complete" from the shared
+rule instead of silence, which is the honest outcome for text we can no longer label.
+
+**Tested as a pairing, not as an outcome.** `message-footer-test.js` (37 → 51) now loads
+the real `api.js` behind the view — otherwise it would exercise only the fallback and pass
+while the shipped pairing stayed broken — and asserts *for every ending* that the footer's
+verdict equals `!looksTruncated(text)`, which is the assertion that cannot go stale the way
+"and here we also accept `*`" could. Plus: a beat-ending reply rendered through
+`Views.messageHtml` reads complete, a genuine dangling word still reads cut, a greeting
+carries no verdict at all, and the flag is written exactly once and only for the card's
+greeting.
+
+**One break I deleted, and why that is the finding.** My first mutation row removed
+`shaped()`'s `[{}<>]` guard, expecting the `{{char}}:` checks to go red; nothing moved, so
+the harness reported SURVIVED. `{{char}}` is stopped twice over — the dialogue-label regex
+requires a capital letter, so a macro never reaches `shaped` at all. A break no suite can
+see means either a weak test or a redundant line, and the answer here was the line. The row
+now aims at the evidence rule the new checks *do* depend on (`if (!c.strong)`), which fails
+them loudly. **50 rows, 0 survived, 0 anchors lost.**
+
+**What the player's card taught, now documented.** Their fixer run produced a working
+Scene bar, and the reason was not the description: the app found nothing until
+`mes_example` stopped writing `{{char}}:` on every line and started naming each speaker
+(`Mira: *leans on the doorframe.* "He is late."`). Measured: same persona, examples
+untouched → `[]`; examples relabelled → the three names. That is not a quirk of one card —
+it is what the detector reads — so `CARDS.md` gained a section on it and
+`scenecast-test.js` (114 → 118) pins all four cases so the guidance can't rot.
+
+**Version.** 1.48.3 / code 207. **Interface update only** — no APK needed for this one;
+`Settings → App updates → Check for update` and the download is enough. (v1.48.2's export
+filename fix does need the APK, and is unchanged here.)
+
 ## v1.48.2, 2026-11-26 — an export is saved under the name it asked for
 
 **Reported by the player, one line long:** "the export transcript option for .md saves

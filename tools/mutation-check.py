@@ -305,6 +305,37 @@ MUTATIONS = [
      'String stored = name;',
      ['export-name-test.js']),
 
+    ("a person who speaks once in quoted speech is not believed",
+     'app.js',
+     "      if (!c.strong) {",
+     "      if (true) {",
+     ['scenecast-test.js']),
+
+    # ---- v1.48.3: what the footer claims about how a reply ended ------------
+    ("the footer goes back to its own list of endings",
+     'views.js',
+     "    if (typeof API !== 'undefined' && API && API.looksTruncated) {",
+     "    if (false) {",
+     ['message-footer-test.js']),
+
+    ("an action beat is treated as a cut again",
+     'api.js',
+     "    if (/\\*\\s*$/.test(t)) return false;",
+     "    if (false) return false;",
+     ['message-footer-test.js']),
+
+    ("a greeting gets diagnosed as a reply that stopped early",
+     'views.js',
+     "    if (m && m.fromGreeting) return words;",
+     "    if (false) return words;",
+     ['message-footer-test.js']),
+
+    ("the greeting is no longer marked as one",
+     'app.js',
+     "alts: alts, altIdx: 0, fromGreeting: true }",
+     "alts: alts, altIdx: 0 }",
+     ['message-footer-test.js']),
+
     ("the toast names the file it hoped for, not the one it got",
      'apk-build/src/com/hordestudio/mobile/MainActivity.java',
      'final String shown = savedName;',

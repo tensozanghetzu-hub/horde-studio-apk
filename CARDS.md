@@ -293,6 +293,29 @@ Two consequences worth knowing:
   reads the ask off its preserved copy instead and applies the same rule — the
   clearing fix works for cards that were already imported.
 
+## What the app can read about who is in the room
+
+A card that holds several people can tell the app they exist, and the Scene bar (send
+one away, address the next line to one person, stop the others narrating) appears by
+itself. What it takes is a name used **as a speaker**, somewhere the app looks:
+
+| the card writes | the app sees |
+|---|---|
+| `Mira: *leans on the doorframe.* "He is late."` in `mes_example`, each speaker named on her own line | everyone who speaks like that |
+| a `Cast:` / `Characters:` / `Who is here:` heading with `- **Name** — who they are` bullets | everyone listed, even one who has not spoken yet |
+| `[MIRA - "the tease"]` blocks in `description` | nothing — a heading with no speaker attached is prose to the app |
+| `{{char}}:` on every example line, whatever the prose says | **one speaker.** A card that labels its three people as a single `{{char}}` is telling the app there is one person in the room, and no amount of "they are three distinct people" overrides that |
+
+So for a multi-person card the useful edit is in the example block: name the speaker.
+`{{user}}:` and `{{char}}:` are macros the app substitutes when it builds the prompt,
+and using `{{char}}:` to mean "whichever of us is talking" loses the information before
+the app ever reads it.
+
+A player can always type the list instead — Chat settings → Scene cast — and a list
+typed by a person wins over the card from then on: the app never overwrites it, not
+even when the card changes and disagrees. That is the door for a card that structures
+its people as prose or as bracketed blocks and would rather not be edited.
+
 ## Who decides what
 
 Three parties can say something about a card: the author, this app, and the person

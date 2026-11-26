@@ -59,6 +59,21 @@ function makeContext() {
   return ctx;
 }
 var ctx = makeContext();
+/* v1.48.3: the footer no longer keeps its own rule about how a reply ended - it
+   asks api.js, the same answer the auto-continue acts on. So this suite has to
+   load the real api.js behind the view, or it would only ever exercise the
+   "api.js is absent" fallback and pass while the shipped pairing stayed broken. */
+var apiSb = {
+  console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise, Object: Object,
+  Array: Array, String: String, Number: Number, RegExp: RegExp, Error: Error, isNaN: isNaN,
+  parseFloat: parseFloat, parseInt: parseInt, setTimeout: setTimeout, clearTimeout: clearTimeout,
+  TextEncoder: typeof TextEncoder !== 'undefined' ? TextEncoder : Object, Uint8Array: Uint8Array,
+  document: { addEventListener: function () {}, querySelector: function () { return null; }, querySelectorAll: function () { return []; } }
+};
+apiSb.window = apiSb; apiSb.global = apiSb;
+vm.runInNewContext(fs.readFileSync(path.join(JS, 'api.js'), 'utf8'), apiSb, { filename: 'api.js' });
+ctx.API = apiSb.API;
+var LOOKS_CUT = apiSb.API.looksTruncated;
 vm.runInNewContext(fs.readFileSync(path.join(JS, 'views.js'), 'utf8'), ctx, { filename: 'views.js' });
 var Views = ctx.Views;
 var char = { id: 'c1', name: "Nira'veth", avatar: '' };
@@ -162,6 +177,87 @@ ok('the subtitle carries the turn', /'turn ' \+ turn/.test(appSrc));
 ok('…and says "opening" before the first message', /: 'opening'/.test(appSrc));
 ok('sending a message refreshes it', /App\.refreshChatHead\(\);[\s\S]{0,120}stickToBottom/.test(appSrc));
 ok('a finished reply refreshes it', /App\.refreshChatHead\(\);\s*\n\s*var thrF/.test(appSrc));
+
+console.log('\nan ending that closes on an action beat is a finished reply');
+/* Reported from a screenshot: a card's own greeting, 403 words, ending
+   `…she's very obviously listening.*` — a complete paragraph — was labelled
+   "it stopped mid-sentence; Continue finishes it". The view's punctuation list
+   had no `*`, and cards close beats in italics constantly. */
+var BEAT = 'She looks up at last, unimpressed. "Took you long enough, roomie." *She pats the bed beside her.*';
+var beatMsg = { id: 'm7', role: 'assistant', text: BEAT, alts: [] };
+var beatHtml = Views.messageHtml(beatMsg, char, ctx.Store.settings);
+ok('a reply closing on `*` is not called cut', /in this reply · complete/.test(beatHtml),
+  (beatHtml.match(/mstat[^>]*>[^<]*/) || [''])[0]);
+ok('…and no Continue is offered for it', beatHtml.indexOf('stopped mid-sentence') === -1);
+ok('the same text with a plain ending also reads complete',
+  /· complete/.test(Views.messageHtml({ id: 'm8', role: 'assistant',
+    text: BEAT.replace(/\s*\*She pats the bed beside her\.\*\s*$/, ''), alts: [] }, char, ctx.Store.settings)));
+ok('a real cut still is a cut: no punctuation to end on',
+  /stopped mid-sentence/.test(Views.messageHtml({ id: 'm9', role: 'assistant',
+    text: 'She looks up at last, unimpressed. "Took you', alts: [] }, char, ctx.Store.settings)));
+
+console.log('\nthe footer and the auto-continue answer with one voice');
+/* The defect was never the missing `*` on its own — it was the view keeping a
+   SECOND rule that could drift. So the check is the pairing: whatever api.js calls
+   unfinished, the footer must report as unfinished, and the reverse. Endings are
+   the ones cards actually produce, including the two the old list got wrong. */
+var ENDINGS = [
+  'She smiles.', 'She smiles!', 'She smiles?', 'She smiles…', 'she says "no"',
+  'she says “no”', 'an aside (quietly)', 'an aside [again]', 'a beat*',
+  'a beat.*', 'a beat **bold** *', 'each other, don’', 'each other, don\'',
+  'a dangling word', 'a comma, here', 'an em dash —', 'Vlad:'
+];
+var drift = ENDINGS.filter(function (t) {
+  var line = Views.replyFooter(t, { role: 'assistant' }, ctx.Store.settings);
+  var footerSaysComplete = /· complete/.test(line);
+  return footerSaysComplete !== !LOOKS_CUT(t);
+});
+ok('every ending gets the same verdict from both', drift.length === 0,
+  drift.map(function (t) { return JSON.stringify(t.slice(-14)); }).join(' '));
+ok('the view keeps no second list of endings of its own',
+  !/var ends = /.test(viewsSrc.split('function replyFooter')[1].split('  }\n')[0]) &&
+  /API\.looksTruncated\(body\)/.test(Views.replyFooter.toString()),
+  Views.replyFooter.toString().replace(/\s+/g, ' ').slice(0, 120));
+
+console.log('\na greeting is not a reply that stopped');
+/* Half 2 of the fix: a greeting has no finish reason because nothing generated it,
+   and "no reason" was being read as "we don't know why it stopped". The card wrote
+   it; the honest line is the count and nothing else. */
+var GREETING = 'The door opens. Three faces look up.\n\n*Behind her, Vlad groans into his knees, and ' +
+  'Mira\'s thumb stops scrolling. She isn\'t looking up, but she\'s very obviously listening.*';
+var greet = { id: 'g1', role: 'assistant', text: GREETING, alts: ['a', 'b', 'c', 'd', 'e'], altIdx: 0, fromGreeting: true };
+var greetHtml = Views.messageHtml(greet, char, ctx.Store.settings);
+var greetLine = (greetHtml.match(/mstat[^>]*>([^<]*)/) || [, ''])[1];
+ok('the word count is still there', /^\d+ words in this reply$/.test(greetLine.trim()), JSON.stringify(greetLine));
+ok('no verdict about how it ended', !/complete|cut|stopped|Continue|token limit/.test(greetLine), JSON.stringify(greetLine.trim()));
+ok('the same text, not marked as a greeting, still gets a verdict',
+  /· complete/.test(Views.replyFooter(GREETING, { role: 'assistant' }, ctx.Store.settings)));
+
+console.log('\nand the write side says which bubbles are greetings');
+var appSrcForGreet = fs.readFileSync(path.join(JS, 'app.js'), 'utf8');
+var stampLine = /Store\.addMessage\(\{[^\n]*fromGreeting: true[^\n]*\}\)/.exec(appSrcForGreet);
+ok('the greeting is written with the flag', !!stampLine,
+  stampLine ? 'found' : 'the first assistant message is not marked as a greeting');
+ok('…and it is the card greeting being stored, not a generated reply',
+  !!stampLine && /text: greeting/.test(stampLine[0]), (stampLine || [''])[0].slice(0, 110));
+ok('no other Store.addMessage in the app claims to be a greeting',
+  (appSrcForGreet.match(/fromGreeting/g) || []).length === 1,
+  (appSrcForGreet.match(/fromGreeting/g) || []).length + ' mentions');
+
+console.log('\nthe fallback is only for a context without api.js');
+/* views.js is loaded standalone by the life/feed screens in tests; the footer must
+   not throw when API is a stub. The fallback keeps its own (older, stricter) list,
+   which is why it is asserted as a fallback and never as the rule. */
+var stub = makeContext();
+vm.runInNewContext(fs.readFileSync(path.join(JS, 'views.js'), 'utf8'), stub, { filename: 'views.js' });
+var stubLine = '';
+try { stubLine = stub.Views.replyFooter(BEAT, { role: 'assistant' }, stub.Store.settings); }
+catch (e) { stubLine = 'THREW ' + e.message; }
+ok('it renders a line rather than throwing', /words in this reply/.test(stubLine), stubLine.slice(0, 60));
+ok('and a greeting is left alone even there',
+  stub.Views.replyFooter(GREETING, { role: 'assistant', fromGreeting: true }, stub.Store.settings)
+    === altCount(GREETING) + ' words in this reply');
+function altCount(t) { return String(t).trim().split(/\s+/).filter(Boolean).length; }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

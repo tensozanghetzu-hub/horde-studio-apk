@@ -694,6 +694,42 @@ openSheet({
     ok('…and the strip on screen was redrawn', e4.sb.App.state.renders >= 1, String(e4.sb.App.state.renders));
   });
 }).then(function () {
+  /* From a player's three-person card, reproduced without its names. The card
+     declared its people as `[NAME - "tag"]` blocks, which no rule reads, and the
+     bar stayed empty until the example block started saying who speaks. That is a
+     general lesson, not a card quirk: a card that writes `{{char}}:` on every
+     line is telling the app it has one speaker, however many people its prose
+     describes. Pinned here so the guidance in CARDS.md stays true. */
+  var THREE = {
+    name: 'Vlad, Mira & Ivan',
+    persona: 'Vlad, Mira and Ivan are three distinct people.\n\n' +
+      '[VLAD - "the grump"]\nAge: 31. Likes: quiet.\n\n' +
+      '[MIRA - "the tease"]\nAge: 30.\n\n' +
+      '[IVAN - "the planner"]\nAge: 32.\n\n' +
+      '[GROUP DYNAMICS]\nThey bicker and close ranks.',
+    greeting: '*Mira opens the door.* "You made it."',
+    scenario: 'One flat, three roommates.',
+    examples: ''
+  };
+  ok('bracketed blocks alone give the app nothing',
+    detectCast(THREE).length === 0, JSON.stringify(detectCast(THREE)));
+  var labelled = Object.assign({}, THREE, { examples:
+    '<START>\nMira: *leans on the doorframe.* "He is late."\n' +
+    'Vlad: "He is not late. You are early."\n<START>\n' +
+    'Ivan: "Both of you, inside."\nMira: "Make me."' });
+  ok('the same card, its examples naming who speaks, is read',
+    detectCast(labelled).slice().sort().join('|') === 'Ivan|Mira|Vlad',
+    JSON.stringify(detectCast(labelled)));
+  var charOnly = Object.assign({}, THREE, { examples:
+    '<START>\n{{char}}: *leans on the doorframe.* "He is late."\n' +
+    '{{char}}: "He is not late. You are early."\n<START>\n' +
+    '{{char}}: "Both of you, inside."\n{{char}}: "Make me."' });
+  ok('and `{{char}}:` on every line is the card claiming one speaker',
+    detectCast(charOnly).length === 0, JSON.stringify(detectCast(charOnly)));
+  ok('…so the fix is in the card’s examples, not in its prose',
+    detectCast(Object.assign({}, THREE, { examples: labelled.examples,
+      persona: 'Vlad, Mira and Ivan are three distinct people.' })).length === 3);
+}).then(function () {
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 }).catch(function (err) {

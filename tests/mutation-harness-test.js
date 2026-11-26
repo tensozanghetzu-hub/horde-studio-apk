@@ -44,7 +44,13 @@ var entries = [];
   var m;
   while ((m = re.exec(src))) {
     var suites = (m[5].match(/'([^']+)'/g) || []).map(function (x) { return x.replace(/'/g, ''); });
-    entries.push({ name: m[1], file: m[2], find: m[3].replace(/\\"/g, '"'), repl: m[4].replace(/\\"/g, '"'), suites: suites });
+    /* Unescape the way Python would, for every escape it understands — not just
+       \". An anchor that carries a regex (`/\*\s*$/`) is written in the harness as
+       a doubled backslash, and reading it literally looks for a string that no
+       file contains, so the anchor check would report a missing break instead of
+       a broken one. */
+    function unquote(x) { return x.replace(/\\([^\n])/g, '$1'); }
+    entries.push({ name: unquote(m[1]), file: m[2], find: unquote(m[3]), repl: unquote(m[4]), suites: suites });
   }
 })();
 ok('the list has entries to check', entries.length >= 10, entries.length + ' parsed');
