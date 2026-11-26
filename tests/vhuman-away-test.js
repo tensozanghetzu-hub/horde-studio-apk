@@ -210,6 +210,10 @@ function world(opts) {
       getSessions: function () { return Promise.resolve([session]); },
       getMessages: function () { return Promise.resolve([{ id: 'm0', role: 'user', text: 'earlier', createdAt: 1 }]); },
       addMessage: function (m) { calls.add.push(m); return Promise.resolve(Object.assign({ id: 'm' + calls.add.length }, m)); },
+      /* v1.48.6: the prompt history asks the store which rows are turns. Copied
+         here so this file keeps checking the away path; tests/
+         session-counter-test.js proves the real rule against the real store. */
+      transcript: function (list) { return (list || []).filter(function (m) { return m && m.role !== 'system'; }); },
       putSession: function (s) { return Promise.resolve(s); },
       putCharacter: function () { calls.putChar++; return Promise.resolve(); },
       refreshCharacters: function () { return Promise.resolve([char]); },

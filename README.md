@@ -1,4 +1,4 @@
-# Horde Studio — Mobile (Android) · v1.48.5
+# Horde Studio — Mobile (Android) · v1.48.6
 
 A phone-native build of the Horde Studio idea: a local-first AI roleplay studio with
 characters, persistent chats, story memory, lorebooks and AI-generated images —
@@ -6,14 +6,14 @@ rewritten from the ground up for a 6-inch screen and packaged as an installable 
 
 ## Download
 
-**Releases → [Horde Studio v1.48.5](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
+**Releases → [Horde Studio v1.48.6](https://github.com/tensozanghetzu-hub/horde-studio-apk/releases/latest)**
 — signed APK for Android 7.0 (API 24) and up. This is the one to use: it shows in the
 **Releases** box on the repo's front page, so nobody has to go looking.
 
-> **v1.48.5 needs no reinstall at all: Settings → App updates is the update.** The app loads its
+> **v1.48.6 needs no reinstall at all: Settings → App updates is the update.** The app loads its
 > interface from the overlay that download swaps in, and the APK's own copy is only the fallback
 > — so take the APK for a fresh phone, the download for one that already has Horde Studio.
-> **v1.42.0 through v1.48.4 all install over each other**, no backup needed. The one-time
+> **v1.42.0 through v1.48.5 all install over each other**, no backup needed. The one-time
 > exception is behind you unless it is not: v1.42.0 rotated the signing key, so a phone still on
 > **v1.41.1 or older** has no update path across that boundary and must back up
 > (Settings → Data → Backup), uninstall, install, restore. Android refuses such an

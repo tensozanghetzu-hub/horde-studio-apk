@@ -941,6 +941,15 @@
             $('#input').focus();
             /* v1.45.0: a search hit is only useful if it takes you to the line. */
             if (opts.focusMid) App.focusMessage(opts.focusMid);
+            /* v1.48.6: the one write opening a chat makes, and only when the
+               cached count disagrees with the rows this call just loaded for
+               the thread. It is what heals a chat whose number a stale save
+               (or an archive restored over a live one) wrote back: the row
+               label is the visible half, but `since = messageCount - memAt`
+               gates auto-summarising, so an unrepaired cache can leave a chat
+               permanently unable to remember anything, silently. Returned so
+               a failed write is not simply swallowed. */
+            return Store.reconcile(s, msgs);
           });
         });
       });
@@ -1629,7 +1638,6 @@
       }
       if (m.autonomous) auto++;
     });
-    var memAt = session.memAt || session.memoryAt || 0;
     var windowed = messages.slice(-(settings.contextMessages || 40))
       .map(function (m) { return (m.role === 'user' ? 'You' : 'They') + ': ' + (m.text || ''); }).join('\n');
     /* v1.39.104: session.facts holds records now, so a raw join() would count
@@ -1643,7 +1651,7 @@
       rerolls: rerolls,
       autonomousMessages: auto,
       wordsPerReply: replies ? Math.round(words / replies) : 0,
-      sinceSummary: Math.max(0, (session.messageCount || messages.length) - memAt),
+      sinceSummary: Store.sinceMemory(session, Store.countTranscript(messages)),
       memoryEvery: settings.memoryEvery || 14,
       contextTokens: Math.ceil(contextChars / 4)
     };
@@ -2044,9 +2052,16 @@
         createdAt: m.createdAt || Date.now()
       };
     });
-    s.messageCount = msgs.filter(function (m) { return m.role !== 'system'; }).length;
+    /* v1.48.6: this used to be the second definition of "how many messages" in
+       the app — it excluded system notices, the `+1` in `Store.addMessage`
+       counted them, so the two writers of the number disagreed about one chat.
+       One rule now (`Store.countTranscript`), applied after the rows are in,
+       and through the counter's door rather than a whole-row write that
+       `putSession` is no longer allowed to move. */
     return Store.putSession(s).then(function () {
       return IDB.putMany('messages', msgs);
+    }).then(function () {
+      return Store.reconcile(s, msgs);
     }).then(function () { return s; });
   };
 
@@ -3603,12 +3618,12 @@
         return Store.putSession(sess).then(function () {
           st.session = sess;
           App.renderGroupSpeaker();
-          var since = (sess.messageCount || 0) - (sess.memAt || 0);
+          var since = Store.sinceMemory(sess);
           if (s.autoMemory && since >= (s.memoryEvery || 14)) App.updateMemory(sess, true);
         });
       }
       st.session = sess;
-      var since = (sess.messageCount || 0) - (sess.memAt || 0);
+      var since = Store.sinceMemory(sess);
       if (s.autoMemory && since >= (s.memoryEvery || 14)) App.updateMemory(sess, true);
     });
   };
@@ -4625,8 +4640,12 @@
     function run() {
       msg.text = text;
       return Store.updateMessage(msg).then(function () {
-        var del = after.map(function (x) { return Store.delMessage(x.id); });
-        return Promise.all(del).then(function () {
+        /* v1.48.6: `after.map(Store.delMessage)` deleted the rows and left
+           `messageCount` on the old total forever — an over-count nobody ever
+           saw, because nothing displays it as wrong. The batch recounts once:
+           N parallel `messageCount - 1` writes would read the same row and
+           lose all but one of the decrements. */
+        return Store.removeMessages(after).then(function () {
           st.messages = st.messages.slice(0, st.messages.indexOf(msg) + 1);
           /* force the bottom pin: the accepted edit is the new "you were
              here", and the fresh reply lands below it - a mid-thread anchor
@@ -4927,7 +4946,7 @@
         var note = VH.latenessNote(char, waited, wasAsleep);
         return API.generate({
           settings: Store.settings, character: char, session: session,
-          history: msgs.filter(function (m) { return m.role !== 'system'; }), note: note
+          history: Store.transcript(msgs), note: note   /* v1.48.6: the same selector the counter uses */
         }).then(function (text) {
           return Store.addMessage({
             sessionId: session.id, role: 'assistant', text: (text || '').trim(),
@@ -6451,7 +6470,7 @@
       } else if (act === 'del') {
         UI.confirm('Delete this message?', '', { danger: true, okLabel: 'Delete' }).then(function (ok) {
           if (!ok) return;
-          Store.delMessage(msg.id).then(function () {
+          Store.removeMessages([msg]).then(function () {
             App.state.messages = App.state.messages.filter(function (m) { return m.id !== msg.id; });
             Views.thread(App.state.char, App.state.session, App.state.messages);
           });

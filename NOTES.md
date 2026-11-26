@@ -1,5 +1,84 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.6, 2026-11-26 — the message count is derived, and a wrong one heals itself
+
+**Reported as "a chat of thirty turns listed 1 message", and left open through v1.48.4 and
+v1.48.5 because the first explanation did not fit.** The player's chat had been created after
+their restore, so the archive was not the source. What is, is a shape in the store: `messageCount`
+is a cache of a fact the message rows own, and it was maintained by a single `+1`
+(`store.js:479`, in `addMessage`) that nothing ever subtracted from. `Store` has no
+`getSession(id)` — only `getSessions`/`allSessions` — so a caller that wants one session loads a
+list and keeps the object; 33 places in `app.js` hand such an object to `putSession`, which wrote
+the whole record, last writer wins, every field. A job that read the row, waited on a model, and
+saved it back rewrote the count as whatever it had been when the job started.
+
+**Reproduced against the shipped `Store` before anything was designed** (a fake IndexedDB whose
+reads return copies, as IDB's structured-clone does — without that, a "stale snapshot" test
+mutates the live row and proves nothing): 12 rows on disk, `messageCount` 1, and `memAt` stamped
+to 1 by the same write. Then the part that makes this more than a label: the auto-memory gate is
+`since = messageCount - memAt >= memoryEvery` (`app.js:3606`, `3611`), so `since` reads 0 and
+**stays** 0 — the chat cannot reach its own memory again, and nothing anywhere says so.
+
+**The counter has an owner now.** `Store.transcript(list)` / `countTranscript(list)` define what
+a turn is — every row except the vhuman "is busy right now" notice, which is a bubble in the
+thread and is already excluded from the prompt history and the export — and `reconcile(s, list)`
+/ `recountSession(id)` are the only way the number is written. `addMessage` keeps its cheap
+`+1`, because it runs on every reply and its base is reconciled whenever the chat is opened;
+it skips the increment for a notice, which is where the app's two definitions of "message" had
+disagreed (the importer's recount excluded notices, the `+1` did not). `Store.removeMessages(list)`
+is the batch door for edit-and-resend: one recount after the deletes, because N parallel
+`messageCount - 1` writes read the same row and lose all but one of them. `delMessage` stays the
+raw delete, with a comment saying so.
+
+**`putSession` carries the stored value forward** rather than the one in the caller's hand, so a
+stale snapshot cannot move the counter — and it still writes everything else the job came to
+write (asserted: the title lands, `memAt` lands, the count does not). That guard alone was the
+plan until a probe showed what it cannot do: it preserves whatever number is in the row,
+*including a poisoned one*, so 999 stayed 999 and `addMessage` dutifully incremented to 1000.
+Hence the second half.
+
+**Opening a chat reconciles, and that is what makes forgetting the door survivable.**
+`App.openSession` already loads every message row for the thread, so comparing the cache with
+`countTranscript` costs nothing and heals any chat by looking at it — including a chat whose
+number an archive restore wrote back, which was the other open item and needs no migration.
+`reconcile` writes only when something disagrees (checked: opening a healthy chat performs
+zero session writes), and `App.checkMemoryBasis` and "clear memory" still move `memAt` freely —
+the guard touches the count and nothing else.
+
+**A bookmark past the end of the transcript is clamped in the same breath**, which is not
+decoration: with the count healed to 7 and `memAt` still 999, `since` would be negative forever
+and the chat would remain unable to summarise *after* being repaired. `Store.sinceMemory` is now
+the single answer to "how many turns since the memory bookmark" for all three callers (the gate
+twice, and the health readout — which had a third variant that preferred `messages.length`),
+it clamps at 0, and it still honours the pre-v1.39 name `memoryAt`, because dropping that alias
+in the move would have read every legacy session as never-summarised.
+
+**What the build almost shipped, and the check that now stops it.** The first `build.sh` run of
+this release died halfway (its Android SDK had gone missing from the restored workspace — the
+directory is excluded from snapshots), so there was no new APK at the workspace root and
+`build-channel.py` copied the *previous* release's bytes into `docs/` while announcing
+`app 1.48.6 (code 210)`. Size matched, existence matched, and `version-consistency-test.js`
+passed all 23 of its checks: only the binary knew. So the tool now asks it — `apk_version(path)`
+reads the release out of `assets/js/store.js` inside the APK, which `stamp-version.py` wrote — and
+refuses before anything lands in `docs/`, and `main()`'s return value is wired to `sys.exit`, so a
+refusal fails `build.sh` and `sync-github.sh` instead of reading to them as a publish. Two
+mutation rows cover it (a reader that cannot read, a refusal that reports success); the
+"checked before the copy" ordering is asserted as a labelled source contract, because a
+single-line break of the copy step cannot be observed against an already-built `docs/`.
+
+**`tests/session-counter-test.js`, 42 checks**, runs the real `Store` throughout: the notice
+pairing, the lost-update scenario from the report, batch deletes, `reconcile` and `recountSession`
+both healing a poisoned row, zero writes when the cache is right, and the gate agreeing with the
+readout on the same chat. Two source contracts are named as such (openSession reconciles; nothing
+in `app.js` assigns `messageCount` at all — only the store does). Nine rows in
+`tools/mutation-check.py` (74 total, all killed, 0 anchors lost); removing the belt alone turns
+four checks red.
+
+**The cost of changing the store's surface:** three test files hand `App` a fake `Store` and each
+needed the new methods — and where a stub copies a shipped rule, it is now commented to say which
+file owns the claim, so nobody reads a stub's copy as evidence about the real one
+(`TESTING.md` has the rule).
+
 ## v1.48.5, 2026-11-26 — a chat's memory stops being the model's raw answer
 
 **Spotted in the v1.48.4 screenshot, not reported as a bug.** One row of the Chats list

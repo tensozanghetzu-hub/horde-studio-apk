@@ -93,6 +93,29 @@ def app_version():
     return name, code
 
 
+def apk_version(path):
+    """What the binary on disk says it is.
+
+    The APK carries its own copy of the app, and tools/stamp-version.py writes
+    the release into `js/store.js` inside it, so the file can be asked rather
+    than trusted. `newest_apk()` picks by name at the workspace root, which
+    means a build that died halfway leaves the PREVIOUS APK sitting there — and
+    it gets copied into the channel and advertised under the new number, with a
+    `versionCode` high enough that every phone offers it as an update. Seen on
+    2026-11-26: build.sh failed for a missing SDK, the run reported
+    `apk 1.48.6 (code 210)`, and the bytes were 1.48.5.
+    """
+    try:
+        import re as _re
+        import zipfile
+        with zipfile.ZipFile(path) as z:
+            raw = z.read("assets/js/store.js").decode("utf-8", "replace")
+    except Exception:
+        return None
+    m = _re.search(r"var VERSION = '([^']+)'", raw)
+    return m.group(1) if m else None
+
+
 def newest_apk():
     import glob
     cands = [p for p in glob.glob(os.path.join(ROOT, "HordeStudio-*.apk"))]
@@ -225,9 +248,16 @@ def main():
     apk = newest_apk()
     apk_size = 0
     retained = False
+    stale = None
     if apk:
-        shutil.copy2(apk, os.path.join(OUT, APK_NAME))
-        apk_size = os.path.getsize(apk)
+        # check the bytes BEFORE they land in docs/: refusing after the copy
+        # would leave the channel holding the very file it just rejected
+        inside = apk_version(apk)
+        if inside != version:
+            stale = inside
+        else:
+            shutil.copy2(apk, os.path.join(OUT, APK_NAME))
+            apk_size = os.path.getsize(apk)
     else:
         published = os.path.join(OUT, APK_NAME)
         if os.path.exists(published):
@@ -235,6 +265,18 @@ def main():
             # reports the size of the bytes that are actually there.
             retained = True
             apk_size = os.path.getsize(published)
+            inside = apk_version(published)
+            if inside != version:
+                stale = inside
+    if stale is not None:
+        # Refuse, rather than write a version.json that promises an update no phone
+        # can tell from the one it already has.
+        sys.stderr.write(
+            "error    docs/%s carries %s, not %s (code %s) from the manifest.\n"
+            "         The APK on this channel is the previous release's bytes.\n"
+            "         Run apk-build/build.sh, then publish again.\n"
+            % (APK_NAME, stale or "no readable version", version, code))
+        return 1
 
     info = {
         "apk": version,
@@ -280,4 +322,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # sys.exit, not a bare call: `apk-build/build.sh` and `sync-github.sh` both
+    # run this script, and a refusal that returns 0 reads to them as a publish
+    # that succeeded.
+    sys.exit(main())

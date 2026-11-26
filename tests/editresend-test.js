@@ -49,6 +49,13 @@ function freshWorld(overrides) {
       settings: { provider: 'horde', hordeKey: '0000000000', userName: 'Sam', maxTokens: 300, temperature: 0.8 },
       updateMessage: function (m) { calls.update.push(m); return Promise.resolve(m); },
       delMessage: function (id) { calls.del.push(id); return Promise.resolve(); },
+      /* v1.48.6: edit-and-resend hands the whole batch to the store, which
+         deletes it and recounts once. This file records which rows went; the
+         recount itself is tests/session-counter-test.js's claim to keep. */
+      removeMessages: function (list) {
+        (list || []).forEach(function (m) { calls.del.push(m.id); });
+        return Promise.resolve((list || []).length);
+      },
       addMessage: function (m) { calls.add.push(m); return Promise.resolve(m); },
       putSession: function (s) { calls.putSession++; return Promise.resolve(s); },
       putCharacter: function () { return Promise.resolve(); },

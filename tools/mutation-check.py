@@ -433,6 +433,73 @@ MUTATIONS = [
      "? '<button type=\"button\" class=\"btn ghost sm\" id=\"recoverbad\">Recover the summary</button> '",
      "? ''",
      ['memory-wreckage-test.js']),
+
+    # ---- v1.48.6: the message counter, its owner, and the memory gate --------
+    ("a generic session save can move the counter",
+     'store.js',
+     "        if (cur) s.messageCount = cur.messageCount;",
+     "        /* the belt is off: last writer wins, as it was */",
+     ['session-counter-test.js']),
+
+    ("the counter counts a status notice as a turn",
+     'store.js',
+     "        if (msg.role !== 'system') s.messageCount = (s.messageCount || 0) + 1;",
+     "        s.messageCount = (s.messageCount || 0) + 1;",
+     ['session-counter-test.js']),
+
+    ("a bookmark past the end of the transcript is left there",
+     'store.js',
+     "    if (at > n) s.memAt = n;",
+     "    /* no clamp */",
+     ['session-counter-test.js']),
+
+    ("the memory gate can answer negative",
+     'store.js',
+     "      return Math.max(0, seen - at);",
+     "      return seen - at;",
+     ['session-counter-test.js']),
+
+    ("the pre-v1.39 bookmark name is forgotten",
+     'store.js',
+     "      var at = s.memAt || s.memoryAt || 0;",
+     "      var at = s.memAt || 0;",
+     ['session-counter-test.js']),
+
+    ("the recount becomes a read",
+     'store.js',
+     "          if (!applyCount(s, n)) return n;",
+     "          return n;",
+     ['session-counter-test.js']),
+
+    ("opening a chat no longer heals the cache",
+     'app.js',
+     "            return Store.reconcile(s, msgs);",
+     "            return null;",
+     ['session-counter-test.js']),
+
+    ("an edit-and-resend deletes rows and keeps the total",
+     'app.js',
+     "        return Store.removeMessages(after).then(function () {",
+     "        return Promise.all(after.map(function (x) { return Store.delMessage(x.id); })).then(function () {",
+     ['session-counter-test.js', 'editresend-test.js']),
+
+    ("the prompt history decides for itself which rows are turns",
+     'app.js',
+     "          history: Store.transcript(msgs), note: note",
+     "          history: msgs, note: note",
+     ['session-counter-test.js']),
+
+    ("the channel cannot tell what an APK really is",
+     'tools/build-channel.py',
+     "var VERSION = '([^']+)'",
+     "var NOPE = '([^']+)'",
+     ['version-consistency-test.js']),
+
+    ("a refusal that reports success",
+     'tools/build-channel.py',
+     "    sys.exit(main())",
+     "    main()",
+     ['version-consistency-test.js']),
 ]
 
 TIMEOUT = 240

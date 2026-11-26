@@ -83,15 +83,43 @@ if (fs.existsSync(vjPath)) {
   var advertised = chanVj.apkUrl || 'HordeStudio-latest.apk';
   var apkOnChannel = path.join(ROOT, 'docs', advertised);
   var hasApk = fs.existsSync(apkOnChannel);
+  var chan = read('tools/build-channel.py');
   ok('docs/ holds the file named by apkUrl', hasApk, advertised);
   if (hasApk) {
     var apkBytes = fs.statSync(apkOnChannel).size;
     same('apkSize is the real size of those bytes', chanVj.apkSize, apkBytes);
     ok('and the channel is not advertising an empty APK', apkBytes > 100000, apkBytes);
+    /* The next day, and worse: build.sh died halfway (its SDK had gone missing
+       from a restored workspace), so no new APK existed, and build-channel
+       copied the PREVIOUS release's bytes into docs/ while announcing
+       `app 1.48.6 (code 210)`. Size matched. Existence matched. Every check
+       above passed. Only the binary knew, because tools/stamp-version.py writes
+       the release into the store.js inside it — so the channel is now made to
+       ask, and to refuse rather than publish a number phones cannot tell from
+       the one they already have. */
+    var inside = '';
+    try {
+      inside = require('child_process').execFileSync('python3', ['-c',
+        'import importlib.util, sys\n' +
+        'spec = importlib.util.spec_from_file_location("bc", sys.argv[1])\n' +
+        'mod = importlib.util.module_from_spec(spec)\n' +
+        'spec.loader.exec_module(mod)\n' +
+        'print(mod.apk_version(sys.argv[2]) or "")\n',
+        path.join(ROOT, 'tools', 'build-channel.py'), apkOnChannel],
+        { encoding: 'utf8', timeout: 60000 }).trim();
+    } catch (e) {
+      inside = 'python3 could not run: ' + (e.message || e).slice(0, 80);
+    }
+    same('the APK on the channel says it IS this release', inside, versionName);
+    ok('…and the tool refuses instead of advertising it, before the copy',
+      /inside = apk_version\(apk\)/.test(chan) &&
+      chan.indexOf('inside = apk_version(apk)') < chan.indexOf('shutil.copy2(apk'),
+      'the bytes must be read before they land in docs/');
+    ok('…and a refusal fails the run, so build.sh and sync-github.sh cannot read it as a publish',
+      /sys\.exit\(main\(\)\)/.test(chan), 'a bare main() returns 0 whatever it returns');
   } else {
     ok('apkSize says so when there is no APK yet', chanVj.apkSize === 0, chanVj.apkSize);
   }
-  var chan = read('tools/build-channel.py');
   ok('the mirror step exempts the published APK from deletion',
     /keep = \{APK_NAME\}/.test(chan) && /if f in keep/.test(chan));
 }

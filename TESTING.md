@@ -139,6 +139,7 @@ the device is not a guard, which is why a runaway pattern is refused by shape
   not the pixels. Name such a suite for the rule it guards, and let the notes say out loud that
   the symptom came from a device while the cure was reasoned from the stylesheet — never imply a
   phone was measured when a file was parsed.
+- A fake `Store` in a test is a second implementation of the store. When shipped code starts asking it a new question the harness fails, which is the good case; the bad case is quietly copying the rule into the stub and reading the pass as proof of it. Copy what you must to keep the suite running, name the file that owns the real claim, and say so in the comment (`chat-health-test.js`, `vhuman-away-test.js`, `session-counter-test.js`).
 - A check that compares two `Date.now()` results is not a check: on a fast machine they
   land in the same millisecond, so "stamp it once, not on every call" passed against code
   that re-stamped every time. Write the time you expect into the object by hand and assert

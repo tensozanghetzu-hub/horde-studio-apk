@@ -76,6 +76,16 @@ var sb = {
   Store: {
     settings: { contextMessages: 40, memoryEvery: 14 },
     getMessages: function (sid) { return Promise.resolve(msgs.filter(function (m) { return m.sessionId === sid; })); },
+    /* the selector App.chatHealth asks the store for. Copied, not re-derived:
+       what this file checks is the health numbers, and tests/
+       session-counter-test.js owns the claim about which rows count. */
+    transcript: function (list) { return (list || []).filter(function (m) { return m && m.role !== 'system'; }); },
+    countTranscript: function (list) { return (list || []).filter(function (m) { return m && m.role !== 'system'; }).length; },
+    sinceMemory: function (s, liveCount) {
+      if (!s) return 0;
+      var seen = typeof liveCount === 'number' ? liveCount : (s.messageCount || 0);
+      return Math.max(0, seen - (s.memAt || s.memoryAt || 0));
+    },
     characters: [], personas: []
   },
   IDB: {

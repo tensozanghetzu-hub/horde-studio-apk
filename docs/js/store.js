@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.48.5';
+  var VERSION = '1.48.6';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -160,6 +160,21 @@
                      a data list: `regexScripts` stayed out for being somebody's rules,
                      and the unread marks were never settings at all. */
                   'lifeWhileAway', 'notifyAway'];
+
+  /* One repair, so the two ways in cannot drift apart: the count becomes the
+       truth, and a bookmark that now sits past the end of the transcript is
+       pulled back to it. That second half is not decoration — `memAt` ahead of
+       `messageCount` makes `since` negative, and a negative `since` clears no
+       `>=` gate, so a chat left in that state could never summarise again even
+       after its count was fixed. Clamping only ever lowers a bookmark that is
+       beyond the end, which cannot mean anything true. */
+  function applyCount(s, n) {
+    var at = s.memAt || 0;
+    var changed = s.messageCount !== n || at > n;
+    s.messageCount = n;
+    if (at > n) s.memAt = n;
+    return changed;
+  }
 
   var Store = {
     settings: null,
@@ -432,9 +447,80 @@
       };
     },
 
+    /* v1.48.6: `messageCount` is a cache of something the message store owns,
+       and it used to be maintained by one `+1` that nobody ever subtracted
+       from — so a whole transcript of repairs hung on every caller being
+       well-behaved. They were not: 33 places in `app.js` hand `putSession` an
+       object they loaded earlier (there is no `getSession(id)`, only
+       `getSessions`/`allSessions`, so a snapshot is what you get by default),
+       and a background job that finished after its own read wrote the old
+       number back over the new one. Measured: 12 rows on disk, `messageCount`
+       1. Because `since = messageCount - memAt` gates auto-summarising, the
+       chat did not just display a wrong figure — it silently stopped being
+       able to reach the gate again.
+       So: the number has an owner (recountSession / reconcile / addMessage),
+       a generic save carries the STORED value forward instead of the one in
+       the caller's hand, and opening a chat reconciles the cache against the
+       rows it loaded anyway. That last part is what makes forgetting the door
+       survivable: a missed update costs one re-open, not a permanent lie. */
     putSession: function (s) {
+      var self = this;
+      return IDB.get('sessions', s.id).then(function (cur) {
+        if (cur) s.messageCount = cur.messageCount;
+        s.updatedAt = Date.now();
+        return IDB.put('sessions', s);
+      });
+    },
+
+    /* What "how many messages" means, in one place. It is the transcript, not
+       every row: a vhuman "is busy right now" notice is a bubble in the
+       thread and deliberately not a turn — `app.js` keeps it out of the prompt
+       history and out of the export for the same reason. Written twice before
+       (the `+1` counted it, the importer's recount did not), which is how the
+       two writers of this number could disagree about the same chat. */
+    transcript: function (list) {
+      return (list || []).filter(function (m) { return m && m.role !== 'system'; });
+    },
+    countTranscript: function (list) { return Store.transcript(list).length; },
+
+    /* The door for a caller holding only an id: read the rows, count them,
+       store the truth. */
+    recountSession: function (sessionId) {
+      return IDB.getAllByIndex('messages', 'sessionId', sessionId).then(function (list) {
+        var n = Store.countTranscript(list);
+        return IDB.get('sessions', sessionId).then(function (s) {
+          if (!s) return n;
+          if (!applyCount(s, n)) return n;
+          s.updatedAt = Date.now();
+          return IDB.put('sessions', s).then(function () { return n; });
+        });
+      });
+    },
+
+    /* The same repair for a caller that already has the rows — which is every
+       path that matters, since opening a chat loads all of them for the thread.
+       Writes only when something is actually wrong. */
+    reconcile: function (s, list) {
+      var n = Store.countTranscript(list);
+      if (!s) return Promise.resolve(n);
+      if (!applyCount(s, n)) return Promise.resolve(n);
       s.updatedAt = Date.now();
-      return IDB.put('sessions', s);
+      return IDB.put('sessions', s).then(function () { return n; });
+    },
+
+    /* One question with three callers in `app.js`: the chat's health readout,
+       and both halves of the auto-memory trigger. Un-clamped, a bookmark ahead
+       of the count answered negative — and a negative number never reaches
+       `>= memoryEvery`, so a chat whose count had been rewound could not
+       remember again, ever, without an error message anywhere. */
+    sinceMemory: function (s, liveCount) {
+      if (!s) return 0;
+      var seen = typeof liveCount === 'number' ? liveCount : (s.messageCount || 0);
+      /* `memoryAt` is what the bookmark was called before v1.39; a session
+         that only carries the old name must not read as "never summarised",
+         which is what dropping the alias would have done here. */
+      var at = s.memAt || s.memoryAt || 0;
+      return Math.max(0, seen - at);
     },
 
     /* Every persona gets its own threads with a character. Sessions written
@@ -476,7 +562,13 @@
       return IDB.put('messages', msg).then(function () {
         return IDB.get('sessions', msg.sessionId);
       }).then(function (s) {
-        if (s) { s.updatedAt = Date.now(); s.messageCount = (s.messageCount || 0) + 1; return IDB.put('sessions', s); }
+        if (!s) return null;
+        s.updatedAt = Date.now();
+        /* a delta, not a recount: this runs on every reply, and the base it
+           increments is reconciled whenever the chat is opened. A system notice
+           is a notice in the thread but not a turn — see countTranscript. */
+        if (msg.role !== 'system') s.messageCount = (s.messageCount || 0) + 1;
+        return IDB.put('sessions', s);
       }).then(function () { return msg; });
     },
 
@@ -484,8 +576,25 @@
       return IDB.put('messages', msg);
     },
 
+    /* The raw delete. Anything that changes the transcript through this had
+       better recount: `removeMessages` does, in one pass for a whole batch. */
     delMessage: function (id) {
       return IDB.del('messages', id);
+    },
+
+    /* Edit-and-resend deletes every turn after the edited one. `delMessage`
+       alone left `messageCount` holding the old total forever — an over-count
+       is as invisible as a rewind, and the memory gate reads it either way.
+       One recount after the batch, rather than one per row: the deletes are
+       issued in parallel, so N decrements would race each other and lose. */
+    removeMessages: function (list) {
+      var ids = (list || []).map(function (m) { return m && m.id; }).filter(Boolean);
+      var self = this;
+      var sessionId = null;
+      (list || []).some(function (m) { if (m && m.sessionId) { sessionId = m.sessionId; return true; } return false; });
+      return Promise.all(ids.map(function (id) { return IDB.del('messages', id); })).then(function () {
+        return sessionId === null ? ids.length : self.recountSession(sessionId);
+      });
     },
 
     getMessages: function (sessionId) {
