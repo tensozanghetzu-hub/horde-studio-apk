@@ -30,6 +30,13 @@ the bar no longer needs anything behind it to be visible. `backdrop-filter` stay
 sheet and the composer, where content genuinely is meant to be readable through it (6 uses
 left, was 8).
 
+**Confirmed on the device the day it shipped.** The player's screenshot of the same Chats
+screen — six icons on the bar, the ⤓ import control back beside *New group*, the row reading
+*1 message* — arrived with the words "bar and button is back". That upgrades the layer from a
+reasoned guess to the explanation that survived contact with the phone it was reported on, and
+it is worth recording that the diagnosis came from the *shape* of the complaint (gone, but
+tappable; back after a scroll) rather than from anything measured locally.
+
 **The scroll the report mentioned was a second, real bug.** `.view` measured itself against
 `100vh`, which is the *largest* viewport the device offers — URL bar hidden, keyboard away —
 so the page was routinely taller than what you can see by about the height of the bar
