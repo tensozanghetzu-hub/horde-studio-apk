@@ -5775,10 +5775,24 @@
           : '') +
         (typeof API !== 'undefined' && API.memoryLooksBroken && API.memoryLooksBroken(s.summary)
           ? '<div class="field" style="border-color:#b45309"><div class="hint" style="margin:0 0 8px">' +
-            '<b>This memory does not read like a summary.</b> Older versions stored whatever the model ' +
-            'replied — including a refusal — as the story so far, and that text has been standing in for ' +
-            'the whole past on every prompt since. Clearing it costs you nothing you do not still have in ' +
-            'the chat above.</div><button type="button" class="btn ghost sm" id="clearbad">Clear it</button></div>'
+            '<b>This memory does not read like a summary.</b> ' +
+            (API.memoryIsWrapper && API.memoryIsWrapper(s.summary)
+              /* v1.48.5: the shape in the player's screenshot — a whole JSON
+                 answer kept as the chat's past. Named, because "does not read
+                 like a summary" is not what you want to hear about text you can
+                 read perfectly well; what you want is the button that fixes it. */
+              ? 'What is stored here is the model\u2019s raw answer — braces, quotes and all — kept by an ' +
+                'older version as the story so far, and handed back to the model on every prompt since. ' +
+                'Recover pulls the summary out of it, and the facts too if the answer ever finished. ' +
+                'Nothing changes until you tap Save.'
+              : 'Older versions stored whatever the model replied — including a refusal — as the story so ' +
+                'far, and that text has been standing in for the whole past on every prompt since. ' +
+                'Clearing it costs you nothing you do not still have in the chat above.') +
+            '</div>' +
+            (API.memoryIsWrapper && API.memoryIsWrapper(s.summary)
+              ? '<button type="button" class="btn ghost sm" id="recoverbad">Recover the summary</button> '
+              : '') +
+            '<button type="button" class="btn ghost sm" id="clearbad">Clear it</button></div>'
           : '') +
           '<div class="field"><div class="field-head"><label>Summary</label></div>' +
           '<textarea id="sum" class="tall">' + esc(s.summary || '') + '</textarea></div>' +
@@ -5804,6 +5818,28 @@
         ],
         onMount: function (body, close) {
           render(body);
+          var recoverBad = body.querySelector('#recoverbad');
+          if (recoverBad) recoverBad.onclick = function () {
+            var r = API.recoverMemory(s.summary);
+            if (!r.ok) { UI.toast('Nothing to recover — ' + r.reason); return; }
+            /* into the field the player is already editing, not straight into the
+               store: recovering a memory must not quietly replace what they typed. */
+            body.querySelector('#sum').value = r.text;
+            if (r.facts.length && !facts.length) {
+              var nextId = 1;
+              facts.forEach(function (f) {
+                var m = /^f(\d+)$/.exec(f.id);
+                if (m) nextId = Math.max(nextId, parseInt(m[1], 10) + 1);
+              });
+              r.facts.forEach(function (f) {
+                facts.push({ id: 'f' + (nextId++), text: f, from: 0, to: null, by: null });
+              });
+            }
+            render(body);
+            UI.toast(r.salvaged
+              ? 'Recovered from an unfinished answer — check it, then tap Save'
+              : 'Recovered — check it, then tap Save');
+          };
           var clearBad = body.querySelector('#clearbad');
           if (clearBad) clearBad.onclick = function () {
             body.querySelector('#sum').value = '';

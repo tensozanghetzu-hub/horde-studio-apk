@@ -542,6 +542,15 @@
          messages actually land — the newest of their sessions, which is the one
          App.vhOutreach writes to. Marking read follows the same unit: opening any
          chat of theirs is you looking at them. */
+      /* A chat's sub-line is how you find it again. When the stored "summary" is
+         the model's raw JSON answer, printing it identifies nothing and hides the
+         one number that would — so a memory the engine calls broken falls back to
+         the count and says which of the two it is showing. Same question as the
+         Memory sheet's warning, never a second copy of the rule. */
+      function memoryIsUnreadable(s) {
+        return !!(s.summary && typeof API !== 'undefined' && API.memoryLooksBroken &&
+          API.memoryLooksBroken(s.summary));
+      }
       var newestOf = {};
       (all || []).forEach(function (x) {
         if (x && x.charId && !newestOf[x.charId]) newestOf[x.charId] = x.id;
@@ -566,7 +575,13 @@
                   '<span style="color:var(--dim)"> · ' + (bodyHit(s).count > 24 ? '24+' : bodyHit(s).count) +
                   ' matching message' + (bodyHit(s).count === 1 ? '' : 's') + '</span></span>' +
                   '<button class="chip" data-jump="' + esc(s.id) + ':' + esc(bodyHit(s).first) + '">Jump</button></div>'
-              : '<div class="item-sub">' + esc(s.summary ? s.summary.slice(0, 90) : (s.messageCount || 0) + ' message' + ((s.messageCount || 0) === 1 ? '' : 's')) + '</div>') +
+              : '<div class="item-sub">' + (function () {
+                  var unreadable = memoryIsUnreadable(s);
+                  var n = s.messageCount || 0;
+                  return esc(unreadable || !s.summary
+                    ? n + ' message' + (n === 1 ? '' : 's') + (unreadable ? ' · memory needs a look' : '')
+                    : s.summary.slice(0, 90));
+                })() + '</div>') +
           '</div>' +
           '<div class="item-side">' + esc(UI.fmtTime(s.updatedAt)) +
             '<button class="chip" style="margin-left:6px" data-menu="' + s.id + '">' +

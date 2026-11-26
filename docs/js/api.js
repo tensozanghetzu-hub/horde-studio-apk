@@ -4084,14 +4084,56 @@
      model refusal, twice if the retry said something similar. A refusal is
      the whole of what the model said, and it starts the answer. */
   var MEMORY_REFUSAL = /^(?:(?:i\s+)?(?:cannot|can\s*not|can't|won't|will not|am unable to|am not able to|i'm unable to|i'm not able to)\b|as an ai\b|no transcript\b|there (?:is|was) no (?:transcript|conversation|roleplay|content|history|text)\b|the (?:transcript|conversation|content|text|input) (?:was|is) (?:not provided|missing|empty|absent)\b|(?:transcript|conversation|content|text|input) (?:was|were) not provided\b|nothing to (?:summari[sz]e|extract)\b|unable to (?:summari[sz]e|process|comply|extract)\b)/i;
-  /* Does a stored summary read like a refusal, or like nothing at all? Used by
-     the Memory sheet to flag a chat whose past was quietly replaced by the
-     model's excuse. */
+  /* v1.48.5: one question, asked once. Is this text a JSON memory ANSWER kept
+     in place of a summary? `proseOnly` below has to answer it to know when to
+     salvage, and the Memory sheet has to answer it to know when to warn — and
+     `Views.chats` has to answer it before it prints the string as a chat's
+     description. Two implementations of one judgement is how a wrapper ends up
+     on screen and back in the prompt: the sheet says nothing, and every later
+     turn is told that braces are the plot. */
+  function memoryIsWrapper(text) {
+    var t = String(text || '').trim();
+    if (!t) return false;
+    /* Only something demonstrably JSON-shaped can be a wrapper. A brace, a
+       bracket or a fence is the evidence; the bare word "summary" is not,
+       because "Here is a summary: the mill burned" is prose. */
+    return /^[\[{]/.test(t) || /^```/.test(t) || /\{\s*["\u201c]?summary["\u201d]?\s*:/.test(t);
+  }
+
+  /* Does a stored summary read like a refusal, like nothing at all, or like the
+     model's raw answer? Used by the Memory sheet to flag a chat whose past was
+     quietly replaced, and by the chats list before it prints that past. */
   function memoryLooksBroken(text) {
     var t = String(text || '').trim();
     if (!t) return false;
+    if (memoryIsWrapper(t)) return true;
     if (t.length < 24) return true;
     return MEMORY_REFUSAL.test(t) && t.length < 400;
+  }
+
+  /* The player tapped "Recover": read the stored text the way a fresh reply is
+     read, and hand back what is inside it. A whole wrapper gives up its facts
+     too; one cut off by the token ceiling usually still holds the summary, which
+     is the half that matters. Nothing is written here — the sheet shows the
+     result in the editable field and the player saves it or does not. */
+  function recoverMemory(text) {
+    var t = String(text || '').trim();
+    if (!memoryIsWrapper(t)) {
+      return { ok: false, text: '', facts: [], reason: 'that memory is not a JSON wrapper' };
+    }
+    var j = parseMemory(t);
+    if (j && j.summary && !MEMORY_REFUSAL.test(j.summary)) {
+      return { ok: true, text: j.summary, facts: (j.facts || []).slice(0, 12),
+               reason: '', salvaged: !!j.salvaged };
+    }
+    var body = proseOnly(t);
+    if (!body || body.length < 24) {
+      return { ok: false, text: '', facts: [], reason: 'the wrapper holds no readable summary' };
+    }
+    if (MEMORY_REFUSAL.test(body)) {
+      return { ok: false, text: '', facts: [], reason: 'the wrapper holds a refusal, not a summary' };
+    }
+    return { ok: true, text: body, facts: [], reason: '' };
   }
 
   /* v1.39.105: this summary is prose, and it is going straight back into the
@@ -4134,8 +4176,7 @@
        that merely quoted the word - both were stored as memories before and
        were rejected by that version. A brace, a bracket or a fence is the
        evidence; the word alone is not. */
-    var jsonish = /^[\[{]/.test(t) || /^```/.test(t) || /\{\s*["\u201c]?summary["\u201d]?\s*:/.test(t);
-    if (!jsonish) return t;
+    if (!memoryIsWrapper(t)) return t;   /* v1.48.5: the test moved up, shared */
     /* Take the *quoted* key first. A single regex with optional quotes matched
        the word inside a preamble ("Here is the summary: {"summary":"...") and
        captured nothing, because the quote after the colon belongs to the key
@@ -4663,6 +4704,7 @@
     summarizeWorld: summarizeWorld,
     streamChat: streamChat, quickText: quickText, examplesToMessages: examplesToMessages,
     splitSpeaker: splitSpeaker, parseMemory: parseMemory, memoryLooksBroken: memoryLooksBroken,
+    memoryIsWrapper: memoryIsWrapper, recoverMemory: recoverMemory,
     clipProse: clipProse, continuityHasState: continuityHasState, proseOnly: proseOnly,
     styleLock: styleLock,
     providerError: providerError,

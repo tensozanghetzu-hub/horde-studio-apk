@@ -1,5 +1,64 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.5, 2026-11-26 — a chat's memory stops being the model's raw answer
+
+**Spotted in the v1.48.4 screenshot, not reported as a bug.** One row of the Chats list
+read `{ "summary": "Blu …` where its description should have been. The row is the only
+thing saying what that chat is about, so it was saying: braces, quotes, key names — and the
+same string is handed back to the model on every later turn as "the story so far", which is
+the expensive half of the problem.
+
+**The data was genuinely wrong, not the display.** `session.summary` can hold a whole JSON
+memory answer: stored by a version before v1.39.106 taught the summariser's reader to
+salvage those, or typed straight into the Memory sheet's field, which keeps whatever it is
+given (`app.js:5795`). Nothing in the app disputes that afterwards. `proseOnly` in `api.js`
+has recognised the shape since v1.39.106 — that is how a cut-off answer is rescued — while
+`memoryLooksBroken`, the predicate the Memory sheet consults before it warns anybody, only
+noticed text under 24 characters or a refusal. Two implementations of one question, drifted,
+and the one that talks to the player was the narrower of the two.
+
+**Fixed by making it one question.** `memoryIsWrapper(text)` now answers it — a leading brace
+or bracket, a fence, or a `{"summary"`-shaped key anywhere — and three callers share it:
+`proseOnly`'s gate, `memoryLooksBroken`, and `Views.chats` before it prints a summary as a
+chat's description. `proseOnly`'s own inline copy of the test is gone, so the pairing cannot
+drift again. The wrapper test stays deliberately narrow: `Here is a summary: the mill burned`
+is prose, and prose must not be nagged about.
+
+**`API.recoverMemory(text)` reads the stored string the way a fresh reply is read** —
+whole wrapper: summary *and* facts; cut off by the token ceiling: the summary, which is
+written first and is usually intact, marked as salvaged, with no half-written fact kept;
+wrapper holding nothing: it says so, and does not invent a sentence. **It writes nothing.**
+The Memory sheet puts the result in the textarea the player is already editing, says "check
+it, then tap Save", and a failed recovery touches neither the field nor the store — the
+`Store.putSession` that does exist in that sheet belongs to Save and nowhere else. The sheet
+also distinguishes the two shapes now: a refusal still reads "does not read like a summary",
+a wrapper is named as the model's raw answer, because "does not read like" is not what you
+want to be told about text you can read perfectly well.
+
+**The list falls back to what it knows.** A chat whose memory the engine calls broken shows
+its message count and the words `· memory needs a look` instead of the wreckage — the count
+is the same line a chat with no summary gets, so nothing new is invented, and the nag only
+appears where there is something to fix.
+
+**Measured before and after, in `tests/memory-wreckage-test.js` (38 checks).** The pairing is
+asserted as a rule rather than a list: for a corpus of five wrapper shapes (pretty-printed,
+compact, fenced, preamble-then-JSON, cut off mid-array) and four prose strings, **anything the
+salvage path would rewrite must be something the warning flags** — the direction the bug went.
+Plus: `proseOnly` must call the shared predicate, not keep a copy; the view checks render
+`Views.chats` for real with the *same* `API` object the engine loaded, so the row cannot pass
+by disagreeing with it; and the sheet's wiring is read out of `app.js` — the recover handler
+must be found, must call `API.recoverMemory`, must fill `#sum`, and must not contain a store
+write. Six rows went into `tools/mutation-check.py` (59 → 65, all killed, 0 anchors lost); one
+of them — the warning forgetting the wrapper — turns four of these checks red at once,
+including the rendered row printing raw JSON.
+
+**An apology carried in the release notes.** v1.48.4 told you the fix needed the APK
+reinstalled. Reading `MainActivity` for this one showed that was over-cautious: the app
+opens `http://localhost/index.html` served from the update overlay and only falls back to
+the bundled `file:///android_asset/` copy when that fails, so an interface fix arrives with
+**Settings → App updates** and swaps in as one rename with a rollback watchdog. The APK is
+for a fresh install. This version's notes say so, and both are attached either way.
+
 ## v1.48.4, 2026-11-26 — the bottom bar comes back on the Chats tab
 
 **Reported from the phone, and the wording did most of the diagnosis.** "when i switch to

@@ -393,9 +393,46 @@ MUTATIONS = [
 
     ("one message is counted in the plural",
      'views.js',
-     "+ ' message' + ((s.messageCount || 0) === 1 ? '' : 's')",
-     "+ ' messages'",
+     "n + ' message' + (n === 1 ? '' : 's')",
+     "n + ' messages' + (n === 1 ? '' : 's')",
      ['shell-chrome-test.js']),
+
+    # ---- v1.48.5: a stored memory that is really a JSON answer --------------
+    ("the warning forgets the JSON wrapper",
+     'api.js',
+     "    if (memoryIsWrapper(t)) return true;",
+     "    if (false) return true;",
+     ['memory-wreckage-test.js']),
+
+    ("the salvage path grows a second copy of the wrapper test",
+     'api.js',
+     "    if (!memoryIsWrapper(t)) return t;",
+     "    if (!/^\\[{/.test(t)) return t;",
+     ['memory-wreckage-test.js']),
+
+    ("the chats list prints whatever is stored",
+     'views.js',
+     "                  return esc(unreadable || !s.summary",
+     "                  return esc(!s.summary",
+     ['memory-wreckage-test.js']),
+
+    ("recovery writes straight to the store",
+     'app.js',
+     "            body.querySelector('#sum').value = r.text;",
+     "            s.summary = r.text; Store.putSession(s); UI.toast('Fixed');",
+     ['memory-wreckage-test.js']),
+
+    ("a failed recovery empties the field anyway",
+     'app.js',
+     "            if (!r.ok) { UI.toast('Nothing to recover — ' + r.reason); return; }",
+     "            if (!r.ok) { body.querySelector('#sum').value = ''; UI.toast('Cleared'); return; }",
+     ['memory-wreckage-test.js']),
+
+    ("the sheet keeps the warning but drops the repair",
+     'app.js',
+     "? '<button type=\"button\" class=\"btn ghost sm\" id=\"recoverbad\">Recover the summary</button> '",
+     "? ''",
+     ['memory-wreckage-test.js']),
 ]
 
 TIMEOUT = 240
