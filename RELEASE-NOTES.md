@@ -1,47 +1,43 @@
-**You do not need to uninstall for this one.** v1.48.1 is signed with the same key as
-v1.42.0 through v1.48.0, so Android installs it over the top and every chat, character
-and setting stays where it is. Install from inside the app: **Settings → App updates →
-Check for update**, or run the APK file itself. And you will not need to: this is a small
-fix to the interface, so a phone on v1.42.0 or newer picks it up as a download with no
-reinstall. The APK is here for new installs and so the numbers on this page describe the
-file they point at.
+**This one is worth installing.** The fix lives in the Android wrapper, not in the
+interface, so a phone that only takes the small download keeps the problem. v1.48.2 is
+signed with the same key as v1.42.0 through v1.48.1, so **Android installs it over the
+top** and every chat, character and setting stays exactly where it is: **Settings → App
+updates → Check for update** (then tap the app update, not just the interface one), or
+run the APK file below.
 
 The exception is eight releases old, and it is still true: a phone on **v1.41.1 or
 older** has no update path across the signing-key rotation done in v1.42.0. That one
 still needs **Settings → Data → Backup**, uninstall, install, **Restore**, and a
 re-typed API key. `MIGRATION-signing-key.md` is that walk-through.
 
-## The Scene bar comes back for cards whose people aren't written as dialogue
+## Exported transcripts are called what you named them
 
-If your card holds several people and the Scene strip above the keyboard had gone
-missing, this is for you. It was not removed — but for a card that lists its cast as
-headings or prose instead of `Vlad: …` lines, the app decided the card had one person in
-it and deleted the list of names, including **the list you had typed in yourself**, every
-time you opened the chat. And because the ✎ that edits the cast sits inside that strip,
-once the strip was gone there was no way to bring it back.
+You asked for `chat.md` and got `chat.md.txt`, so every transcript you shared or opened
+somewhere else started with deleting four characters. That was the app's doing on the way
+into storage: Android's download store looks at the *type* of file it is being told about
+and corrects a name that doesn't match it, and the app had described a markdown file as
+plain text. Plain text means `.txt`, so `.txt` was appended — to a name that already ended
+in `.md`.
 
-The app still only counts a name as a person when the card actually uses it to speak, or
-the writing vouches for it — a `Relationship:` heading is not someone standing in the
-room, and that rule is what stopped the strip filling up with section titles. What has
-changed is what beats that guess: **a cast you typed in is yours now**. It is not
-re-scanned away, and the card is not consulted over your head again unless you clear the
-list yourself.
+It is fixed where it started. A transcript is now declared as markdown, and after the
+write the app asks the system what the file actually ended up being called and takes back
+an extension that got appended. Nothing is forced: if the store already had a file with
+that name and saved yours as `chat (1).md`, that is left alone, because renaming it would
+be the app tidying up its own mess into someone else's.
 
-**And there is a second way in: Chat settings → Scene cast.** Open a chat's settings and
-you'll see the field there, one name per line. It tells you what the app could read from
-your card — "Read from this card: 3 people (Vlad, Mira, Ivan)" — or says plainly that it
-could not, and that two names typed here will bring the strip back. Whoever is in the
-room now follows the list you wrote: tap names in the strip to send them away or bring
-them back, and pick who your next message is addressed to.
+And when it toasts "Saved to Downloads/HordeStudio/…", it now reports the name the phone
+gave the file rather than the one it asked for. If a particular Android build still insists
+on changing the name, the message will tell you so instead of politely lying — which is the
+difference between a bug you can report and one you have to find yourself.
 
-Two things it deliberately does not do. A chat with **several characters** in it still
-has no Scene bar: that's what *Next speaker* above the keyboard is for, and each of them
-brings their own card. The field says so rather than offering you a list the app would
-never show. And **Reset to defaults** in chat settings does not empty your scene — who is
-standing in the room is not a style setting.
+Other exports were checked while we were in there: backups and character cards (`.json`,
+`.png`, `.webp`) were never affected, and a world pack (`…horde_world`) keeps its name
+because there was no matching extension for Android to append. Reading files back into the
+app is unchanged, including how a `.md` previews as text inside the app.
 
 ## Everything else in this version
 
-Nothing. This is a patch on v1.48.0, which arrived the same day with the two away
-switches (Settings → Generation: *Keep their life running when backgrounded*, *Notify me
-when they write*) and the unread counts on the Life screen and in Chats.
+Nothing changed in the interface: v1.48.2 is this fix alone. The Scene-cast fix (v1.48.1)
+and the two away switches with the unread counts (v1.48.0) are already in the web part of
+this app, so you have them whichever way you updated — installing the APK does not add or
+remove anything else on your phone.

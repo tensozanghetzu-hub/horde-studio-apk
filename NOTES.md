@@ -1,5 +1,55 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.2, 2026-11-26 — an export is saved under the name it asked for
+
+**Reported by the player, one line long:** "the export transcript option for .md saves
+the file as .md.txt, that makes users need to delete the .txt part for it to remain a
+.md." A manual step on every transcript. It was not the web layer: `app.js:2924` already
+asks for `stem + '.md'` and hands `UI.download` the `text/markdown` type. The name was
+being changed on the way into storage.
+
+**The cause.** `NativeBridge.saveFile` inserts into `MediaStore.Downloads` with
+`MIME_TYPE = guessMime(name)`, and that table said `text/plain` for `.md`
+(`MainActivity.java:1097`). Android's provider corrects a display name whose extension
+does not match the MIME it was given — canonical extension for `text/plain` is `txt` — so
+`chat.md` was stored as `chat.md.txt`. The pre-API-29 branch writes the file itself and
+was never affected, which is why this looked like a per-phone mystery rather than a bug.
+
+**The fix, three parts.** `guessMime` now delegates to a new `mimeForExport`, which says
+`text/markdown` for `.md` — nothing to correct, nothing appended. Then `saveFile` *asks
+the provider what the file is actually called* (`queryDisplayName`) and, if the only
+difference is an appended extension (`renamedByThePlatform`, which recognises
+`.txt`/`.json`/`.png`/`.jpe?g`/`.webp`/`.gif`/`.bin` tacked onto the requested name and
+nothing else), updates `DISPLAY_NAME` back once. A numbered copy (`chat (1).md`) is
+deliberately *not* fought over: that is the system deciding there was already a file, and
+renaming it would be the app making a mess to win an argument. Finally the toast prints
+the name that came back from the read — not the name that was asked for — so on a ROM that
+refuses the rename the user is told what they have instead of being told what we wanted.
+`mimeFor` (the little server that previews files inside the app) still serves `.md` as
+`text/plain`, and the suite pins that, because a preview wants a text viewer and a
+"consistency" tidy-up would quietly change how exports open.
+
+**How a Java change gets tested here.** `mimeForExport` and `renamedByThePlatform` are
+plain statics with no Android types, written between two markers, and
+`tests/export-name-test.js` (35 checks) slices them out of `MainActivity.java`, compiles
+them with `javac -encoding UTF-8` and **runs** 18 cases through a generated `main` — the
+same compiler and `--release 8` level the APK build uses. Everything that needs a device
+(the query, the update, the toast) is asserted as a contract on the source that compiles
+it, under labels that say so. Two rules this exercised: the test harness for `tools/
+mutation-check.py` and its own anchor check both learned that a file with a `/` in it is
+repo-root-relative, so the wrapper is now breakable like everything else (5 new breaks,
+45 total, all killed — each fails with a line naming the behaviour, e.g.
+`FAIL mime("chat.md") → got "text/plain" want "text/markdown"`); and two of my own test
+expectations were wrong before they were fixed — `chat.md.md` is not an append worth
+reversing, and a case I had labelled "a different file" actually compared a name to
+itself. A fixture that agrees with a wrong assumption is the same failure as a grep that
+agrees with a dead branch.
+
+**Version.** 1.48.2 / code 206. **This one does need the APK** — nothing else in it
+changes behaviour, but the filename is fixed in the wrapper, so a phone that only takes
+the web download keeps the `.txt` suffix. The web bundle is still where the fix's other
+half lives (the truthful toast needs no JS change; the exports themselves are unchanged).
+
 ## v1.48.1, 2026-11-26 — a Scene cast the player vouched for is not the scanner's to take back
 
 **Reported from a real card.** "Did we get rid of scene? I am in a multiple character card chat

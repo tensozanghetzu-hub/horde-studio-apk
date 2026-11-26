@@ -14,8 +14,10 @@ Run from the repo root:
     python3 tools/mutation-check.py --list    # names only
     python3 tools/mutation-check.py --only regex
 
-An entry is (name, file, find, replace, [suites]). `find` has to occur exactly
-once in the file: that is also what keeps this list honest as the source moves,
+An entry is (name, file, find, replace, [suites]). `file` is a name in
+`horde-studio-mobile/js/`, or a repo-root path with a slash in it —
+`apk-build/src/…/MainActivity.java` — for the few checks that reach the wrapper.
+`find` has to occur exactly once in the file: that is also what keeps this list honest as the source moves,
 because a stale anchor is reported as ANCHOR rather than the mutation quietly
 replacing nothing. `tests/mutation-harness-test.js` re-runs those anchor checks
 and the suite-name checks on every sweep, so this file cannot rot in silence.
@@ -277,6 +279,37 @@ MUTATIONS = [
      "          if (castChanged && App.state.session && App.state.session.id === s.id) App.renderSceneCast();",
      "          void castChanged;",
      ['chat-settings-save-test.js']),
+
+    # ---- v1.48.2: what an export is called on the phone ---------------------
+    ("a markdown export is declared as plain text again",
+     'apk-build/src/com/hordestudio/mobile/MainActivity.java',
+     'if (n.endsWith(".md")) return "text/markdown";',
+     'if (n.endsWith(".md")) return "text/plain";',
+     ['export-name-test.js']),
+
+    ("the export path stops using the tested table",
+     'apk-build/src/com/hordestudio/mobile/MainActivity.java',
+     'return mimeForExport(name);',
+     'return "application/octet-stream";',
+     ['export-name-test.js']),
+
+    ("the append is never recognised, so nothing is taken back",
+     'apk-build/src/com/hordestudio/mobile/MainActivity.java',
+     'if (wanted.equals(stored)) return false;',
+     'if (true) return false;',
+     ['export-name-test.js']),
+
+    ("the saved file is never read back after the write",
+     'apk-build/src/com/hordestudio/mobile/MainActivity.java',
+     'String stored = queryDisplayName(uri);',
+     'String stored = name;',
+     ['export-name-test.js']),
+
+    ("the toast names the file it hoped for, not the one it got",
+     'apk-build/src/com/hordestudio/mobile/MainActivity.java',
+     'final String shown = savedName;',
+     'final String shown = name;',
+     ['export-name-test.js']),
 ]
 
 TIMEOUT = 240
@@ -299,13 +332,19 @@ def run_suite(name):
     return p.returncode == 0, why
 
 
+def resolve(rel):
+    """A bare name is a file in horde-studio-mobile/js; a path with a slash in it is
+    relative to the repo root, which is how the Android wrapper is covered too."""
+    return rel if '/' in rel else os.path.join(JS, rel)
+
+
 def read(rel):
-    with open(os.path.join(JS, rel), encoding='utf-8') as f:
+    with open(resolve(rel), encoding='utf-8') as f:
         return f.read()
 
 
 def write(rel, text):
-    with open(os.path.join(JS, rel), 'w', encoding='utf-8') as f:
+    with open(resolve(rel), 'w', encoding='utf-8') as f:
         f.write(text)
 
 

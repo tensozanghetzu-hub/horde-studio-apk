@@ -648,10 +648,46 @@ public class MainActivity extends Activity {
         return v.replace(Q, "'").replace(BS, "'").replace(NL, " ").replace(CR, " ");
     }
 
+    /* ---- export filenames -------------------------------------------------
+       MediaStore corrects a display name whose extension does not match the MIME
+       type it was given: for `text/plain` the canonical extension is `txt`, so an
+       export that asked for `chat.md` landed as `chat.md.txt` and every transcript
+       needed renaming by hand. Both decisions are plain statics with no Android
+       types in them, because tests/export-name-test.js compiles this block with
+       javac and runs it — a grep over Java would only prove a string is in a file.
+     */
+    static String mimeForExport(String name) {
+        String n = name == null ? "" : name.toLowerCase(java.util.Locale.US);
+        if (n.endsWith(".md")) return "text/markdown";
+        if (n.endsWith(".txt")) return "text/plain";
+        if (n.endsWith(".json")) return "application/json";
+        if (n.endsWith(".png")) return "image/png";
+        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+        if (n.endsWith(".webp")) return "image/webp";
+        if (n.endsWith(".gif")) return "image/gif";
+        return "application/octet-stream";
+    }
+
+    /** Whether the name MediaStore kept is the name we asked for with an extension
+        appended — the one case the app can put back by itself. Anything else
+        ("chat (1).md", a different file entirely) is the system's business and is
+        reported as it is rather than fought over. */
+    static boolean renamedByThePlatform(String wanted, String stored) {
+        if (wanted == null || stored == null || wanted.length() == 0) return false;
+        if (wanted.equals(stored)) return false;
+        String w = wanted.toLowerCase(java.util.Locale.US);
+        String st = stored.toLowerCase(java.util.Locale.US);
+        if (!st.startsWith(w)) return false;
+        return stored.substring(wanted.length()).matches("(?i)\\.(txt|json|png|jpe?g|webp|gif|bin)");
+    }
+
+    /* -- end of the block the test compiles -- */
+
     /** Lets the web UI write exports (backups, character cards, transcripts) to Downloads. */
     private final class NativeBridge {
         @JavascriptInterface
         public boolean saveFile(final String name, final String base64) {
+            String savedName = name;
             try {
                 byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
                 if (Build.VERSION.SDK_INT >= 29) {
@@ -670,6 +706,21 @@ public class MainActivity extends Activity {
                     cv.clear();
                     cv.put(MediaStore.Downloads.IS_PENDING, 0);
                     getContentResolver().update(uri, cv, null, null);
+                    /* Ask what it is called now, rather than assume. If the platform
+                       appended an extension anyway, take it back once; if it will not
+                       be taken back, the toast below says the truth either way. */
+                    String stored = queryDisplayName(uri);
+                    if (renamedByThePlatform(name, stored)) {
+                        cv.clear();
+                        cv.put(MediaStore.Downloads.DISPLAY_NAME, name);
+                        getContentResolver().update(uri, cv, null, null);
+                        stored = queryDisplayName(uri);
+                    }
+                    /* report what the provider says the file is called. Only fall back
+                       to the wanted name when there was nothing to read back — after a
+                       rename attempt that the platform refused, "chat.md" would be the
+                       toast lying about the phone. */
+                    savedName = stored == null ? name : stored;
                 } else {
                     File dir = new File(Environment.getExternalStoragePublicDirectory(
                             Environment.DIRECTORY_DOWNLOADS), "HordeStudio");
@@ -680,8 +731,9 @@ public class MainActivity extends Activity {
                     out.flush();
                     out.close();
                 }
+                final String shown = savedName;
                 runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                        "Saved to Downloads/HordeStudio/" + name, Toast.LENGTH_SHORT).show());
+                        "Saved to Downloads/HordeStudio/" + shown, Toast.LENGTH_SHORT).show());
                 return true;
             } catch (Exception e) {
                 Log.e(TAG, "saveFile failed", e);
@@ -1087,15 +1139,21 @@ public class MainActivity extends Activity {
             });
         }
 
+        private String queryDisplayName(Uri uri) {
+            android.database.Cursor c = null;
+            try {
+                c = getContentResolver().query(uri,
+                        new String[]{MediaStore.Downloads.DISPLAY_NAME}, null, null, null);
+                if (c != null && c.moveToFirst()) return c.getString(0);
+            } catch (Exception ignored) { } finally {
+                if (c != null) { try { c.close(); } catch (Exception ignored) { } }
+            }
+            return null;
+        }
+
         private String guessMime(String name) {
-            String n = name == null ? "" : name.toLowerCase(Locale.US);
-            if (n.endsWith(".json")) return "application/json";
-            if (n.endsWith(".png")) return "image/png";
-            if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
-            if (n.endsWith(".webp")) return "image/webp";
-            if (n.endsWith(".gif")) return "image/gif";
-            if (n.endsWith(".txt") || n.endsWith(".md")) return "text/plain";
-            return "application/octet-stream";
+            /* one table, shared with the rename-back check below and with the test */
+            return mimeForExport(name);
         }
     }
 }

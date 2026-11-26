@@ -111,6 +111,12 @@ the device is not a guard, which is why a runaway pattern is refused by shape
   rot the moment code moves. Re-anchor them in the same change that moved the code, in
   the same commit, and keep the comment that says what the shape is protecting. Do not
   delete one to get to green.
+- Java is testable here without a device: keep the decision in a `static` with no
+  Android types between two markers, and have the suite slice it out, compile it with
+  `javac -encoding UTF-8` and run the cases (see `export-name-test.js`). The rest of the
+  wrapper is a contract on the source that compiles — label it as one, out loud. Entries
+  in `tools/mutation-check.py` follow the same split: a bare file name is `js/`, a path
+  with a `/` in it is repo-root-relative, so the wrapper can be broken too.
 - A grep for a flag in a file proves the flag exists somewhere. `ok('hand-edited casts
   are left alone', /!session\.castEdited/.test(appAll))` sat in `scenecast-test.js` and
   passed while the code path that wiped those casts never read the flag. Keep such greps

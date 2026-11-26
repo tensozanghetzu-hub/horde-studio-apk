@@ -56,7 +56,9 @@ entries.forEach(function (e) {
   var label = e.name.length > 40 ? e.name.slice(0, 40) + '…' : e.name;
   if (seen[e.name]) bad.push(label + ': duplicate name');
   seen[e.name] = 1;
-  var fp = path.join(JS, e.file);
+  /* the same rule the harness uses: a bare name is js/, a path with a slash is
+     repo-root-relative, so the wrapper's statics can be broken here too */
+  var fp = e.file.indexOf('/') === -1 ? path.join(JS, e.file) : path.join(ROOT, e.file);
   if (!fs.existsSync(fp)) { bad.push(label + ': no such file ' + e.file); return; }
   var body = fs.readFileSync(fp, 'utf8');
   var n = body.split(e.find).length - 1;
