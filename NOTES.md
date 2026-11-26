@@ -1,5 +1,72 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.4, 2026-11-26 — the bottom bar comes back on the Chats tab
+
+**Reported from the phone, and the wording did most of the diagnosis.** "when i switch to
+chat tabs the lower bar with the Cast/Life/Chats/Lore/Worlds/Settings disappears. i need
+to scroll max below and tap in the general area the bar/buttons was … or enter a chat just
+to see the bar." A bar that has been *hidden* by code does not take a tap where it used to
+be; a bar that has simply stopped being **painted** does exactly that, and starts again on
+any scroll, because scrolling is a repaint. The screenshot that came with the earlier report
+showed the same screen's other half: the header read "Chats · 2" with one icon, the
+import control's glyph and label gone past the right edge.
+
+**Layout was ruled out before anything was changed.** `#nav` is a child of `<body>`
+(`index.html:172`, after `</main>` at 169) with `position:fixed;bottom:0`, and `App.go`
+ends by scrolling the document to the top (`app.js:160`), so on a tab switch the bar is on
+screen by definition. `grep` for `'#nav'`, `nav.hidden`, `hideNav`, `nav-hidden` across
+`js/*.js`: zero hits. No ancestor between the nav and the root carried a `transform`,
+`filter` or `backdrop-filter` — the only one nearby was `.screen{animation:fade}`, and the
+nav is not inside a `.screen`.
+
+**The mechanism is a hypothesis, stated as one.** `.nav` (and `.appbar`) painted a 94 %-alpha
+`--bar-bg` (86 % in the day theme) **on top of `backdrop-filter:blur(16px)`**. That filter
+puts the bar on a GPU layer of its own, and a compositor that skips the layer on a repaint
+takes everything painted only on it — the six icons — while hit-testing keeps working. There
+is no browser in this workspace (`require('playwright')` fails; no chromium, no
+`~/.cache/ms-playwright`), so nothing here is measured on a device: what shipped is the
+removal of the thing the symptom points at, plus an opaque colour under the theme tint so
+the bar no longer needs anything behind it to be visible. `backdrop-filter` stays on the
+sheet and the composer, where content genuinely is meant to be readable through it (6 uses
+left, was 8).
+
+**The scroll the report mentioned was a second, real bug.** `.view` measured itself against
+`100vh`, which is the *largest* viewport the device offers — URL bar hidden, keyboard away —
+so the page was routinely taller than what you can see by about the height of the bar
+reserving space at the bottom, and the last row sat below the fold. The chat screen had been
+moved to `100dvh` some versions ago; the shell never was. `@supports (height:100dvh)` now
+gives the whole shell the viewport as it is, with `100vh` still the fallback for engines that
+do not know it.
+
+**One census while the file was open.** A `flex:1` child of a `display:flex` row that is not
+told `min-width:0` refuses to shrink below its content and pushes the rest of the row off the
+screen — which is how "Import a chat backup" (the only route to a chat archive) left the
+Chats header. A census of `app.css` found seven rules with that shape; the three that hold
+typed text — `.chat-tools input[type="search"]`, `.field.row input`, `.composer textarea` —
+now carry `min-width:0`, and `.chat-tools` can wrap. The other four (`.seg button`,
+`.sheet-actions .btn`, `.vh-acts .btn`, `.attach-stage .attach-cap`) are labels and
+fixed-size buttons with no text that could overflow, so they were left alone.
+
+**What keeps it fixed.** `tests/shell-chrome-test.js` (22 checks) polices the rules rather
+than the pixels, and does it as invariants, not today's list: a bar that the page makes room
+for by height must paint from an opaque `background-color` with no `backdrop-filter`; **every**
+theme in `themes.js` must set an opaque `--bg-2`, so a future palette cannot make the bars
+translucent again; **every** rule sized to `100vh` must have a `100dvh` upgrade for the same
+selector, so the next screen added cannot repeat the mistake; no `flex:1` form control in a
+flex row may lack `min-width:0`. The chat row's "1 messages" is fixed in `views.js:569` and
+covered by rendering `Views.chats` for real, which also keeps "a chat with a summary shows
+the summary, not a count" from being un-said. Nine rows went into
+`tools/mutation-check.py`: 59 killed, 0 survived, 0 anchors lost.
+
+**Deliberately not in this version.** The count itself. `Store.putSession`
+(`store.js:471`) writes the whole record with `IDB.put('sessions', s)` — last writer wins, on
+every field — and 33 call sites in `app.js` hand it an object they loaded earlier, any one of
+which can rewind `messageCount` (and `memAt`) to whatever it was when that object was read.
+That fits "a chat of 30 turns listed as 1 message" far better than the restore does, and
+explains why it looks one-off: it only bites when a slow background job lands after the turns
+it never saw. Left open on purpose — the fix is a guard in the store, not a tweak at the call
+site, and that is a decision to make next.
+
 ## v1.48.3, 2026-11-26 — a bubble footer stopped inventing reasons
 
 **Reported from a screenshot:** a card's own greeting, 403 words, ending

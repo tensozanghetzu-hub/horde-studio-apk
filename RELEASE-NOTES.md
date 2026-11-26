@@ -1,64 +1,63 @@
-**Nothing to install over, nothing to back up.** v1.48.3 is signed with the same key as
-v1.42.0 through v1.48.2, and this fix is in the **interface** part of the app: **Settings
-→ App updates → Check for update** and take the download — no APK needed for this one.
+**This one needs the APK.** v1.48.4 is signed with the same key as v1.42.0 through v1.48.3,
+so there is nothing to back up and nothing to lose: install it over the app you have. Checking
+for an update is still worth doing — **Settings → App updates → Check for update** brings the
+interface build with it — but the bar that went missing lives inside the installed app's own
+window, so the copy of the interface the APK carries has to be rebuilt to change what you see.
 
 The exception is eight releases old and still true: a phone on **v1.41.1 or older** has no
 update path across the signing-key rotation done in v1.42.0. That one still needs
 **Settings → Data → Backup**, uninstall, install, **Restore**, and a re-typed API key.
 `MIGRATION-signing-key.md` is that walk-through.
 
-## A finished reply is no longer described as a broken one
+## The bottom bar stays on screen when you switch to Chats
 
-If a bubble ever told you *"it stopped mid-sentence; Continue finishes it"* when the
-writing plainly ended where it meant to — that was the app, not the model, and not the
-card. Two things were wrong and both are fixed.
+You described it exactly right: after tapping to Chats, the Cast/Life/Chats/Lore/Worlds/Settings
+row was simply not there — and scrolling to the bottom brought it back, and a tap in the empty
+space where it had been still worked.
 
-The first is small and silly. The line under a reply decides whether the text finished by
-looking at its last character, and its list of "finished" characters had no `*` in it. A
-reply that closes on an action beat — *she shrugs.* written in italics, the most common ending in
-roleplay — therefore looked cut off. Meanwhile the part of the app that actually reacts to
-truncation has accepted `*` for a long time, so the same reply was "finished" in one place
-and "stopped early" in another, and only the place that talks to you was wrong. Those two
-answers are now the same question asked once, and there is a test that compares them
-across every ending a card produces, so they cannot quietly drift apart again.
+That combination is the whole diagnosis. A bar that something *hid* cannot be tapped where it
+used to be. A bar that has only stopped being **painted** can: the buttons never moved, the
+scroll that forced a redraw made the picture reappear. Nothing in the app hides the bar — no
+code path touches it at all — so what remained was the one thing about it that needs a layer of
+its own to draw: a blur behind it, sitting on a colour that was barely opaque. A bar that the
+page already makes room for has nothing meant to be read through it, so the blur was buying a
+smudge and the risk of losing the row. It now paints from a solid colour, tinted by your theme
+exactly as before, and the top bar follows the same rule. The blur stays where content really is
+meant to show through it — the panels that slide up, and the composer.
 
-The second is the one that mattered. **A greeting is not a reply.** The first message in a
-chat was written by the card, never generated, so it has no record of why a model stopped —
-and "no record" was being read as "an unexplained stop", which turned into a confident
-diagnosis about text nobody had generated. A greeting now shows its word count and nothing
-else. No verdict, no nudge to press Continue. Older chats that already exist get the
-correct "complete" instead of silence, because the rule they are measured with is now the
-right one.
+The scroll you needed was a second, separate bug, and it is fixed too. The page measured itself
+against the *tallest* viewport your phone ever offers it — browser bar gone, keyboard away — so
+it was habitually longer than what you can actually see, by about the height of the bar at the
+bottom. The chat screen had been switched to measuring the viewport as it is right now some
+versions ago; the rest of the app never was. Now it is, on every screen, with the old
+measurement kept as a fallback for anything that does not understand the new one.
 
-If a reply really did stop early, you still hear about it, and still with the reason: a
-reply that ran into your token limit says so and names the limit; one the model chose to
-end says that instead; and a reply that genuinely trails off mid-thought says so. Nothing
-was removed to fix this.
+## The import control was being pushed off the screen
 
-## Also: why the Scene bar appears for some group cards and not others
-
-Worth ten seconds if you use cards that hold several people, because it decides whether the
-app can see them. The Scene bar appears when the card shows a name **being used as a
-speaker** — the clearest place is the example block, writing
-
-```
-Mira: *leans on the doorframe.* "He is late."
-Vlad: "He is not late. You are early."
-```
-
-rather than `{{char}}:` on every line. A card that labels all of its people as one
-`{{char}}` is telling the app there is a single person in the room, and no amount of "they
-are three distinct individuals" in its description overrules that. A `Cast:` heading with
-bullets works too. `[MIRA - "the tease"]` blocks in a description do not — to the app those
-are prose, not a speaker list. This is written up properly in `CARDS.md` now.
-
-And if a card structures its people in a way the app can't read: **Chat settings → Scene
-cast** takes the names typed in, one per line, and the app keeps them from then on — it
-never overwrites a list a person typed, even when the card changes and disagrees.
+Your screenshot had one icon where two belonged. The row of tools on the Chats screen had no way
+to shrink: its search field refused to get narrower than its own text, so the row overflowed and
+whatever sat at the end of it — *Import a chat backup*, the only way back into a chat archive —
+was pushed past the edge of the screen. Pushed, not hidden: there was no scroll to reveal it.
+The field can shrink now and the row can wrap, so the tools stay reachable whatever the phone
+does with its keyboard. The same fix went to the two other rows that had that shape, and the
+count on a chat's line finally reads *1 message*.
 
 ## Everything else in this version
 
-Nothing else changed. The export-filename fix (v1.48.2, transcripts saving as
-`chat.md.txt`) lives in the Android wrapper rather than the interface, so **that** one
-still needs the app update rather than the download — if you have not installed v1.48.2 or
-newer yet, take both now and this arrives with it.
+- **What was tested, and how far that goes.** There is no phone in the workshop and no browser
+  in this build environment, so nothing above was measured on a device — it was reasoned from the
+  stylesheet, and the reasoning is written down in `NOTES.md` next to the change so a later
+  reader can disagree with it. What was tested is the *rule*: a new suite reads the stylesheet and
+  fails if any bar that reserves space in the page ever grows a blur again, if a bar's colour turns
+  translucent, if any theme ships a translucent bar colour, or if any screen sizes itself to the
+  tall viewport without the fix. Nine deliberate breakages were tried against it and all nine were
+  caught.
+- **The chat count is still open, on purpose.** Your restored chat listing 1 message out of 30
+  was not this version's to fix, and the explanation you were given earlier — an archive restored
+  over a live app — turned out not to fit a chat created after the restore. The likelier cause,
+  found while writing this up, is that the app saves a whole chat record wherever a background
+  job finishes, and the last writer wins: a job that started when the chat held one message can
+  land after thirty and write the old number back over the new one, silently, taking the memory
+  bookmark with it. That would look one-off, because it only happens when the timing falls wrong.
+  The right fix is a guard in the save itself rather than a patch at any one of the thirty-odd
+  places that call it, and that is the next thing this project owes you.

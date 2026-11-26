@@ -341,6 +341,61 @@ MUTATIONS = [
      'final String shown = savedName;',
      'final String shown = name;',
      ['export-name-test.js']),
+
+    # ---- v1.48.4: the two bars that frame every screen ----------------------
+    ("a shell bar goes back onto a composited layer",
+     'horde-studio-mobile/css/app.css',
+     "  background-color:var(--bg-2);background-image:linear-gradient(var(--bar-bg),var(--bar-bg));",
+     "  background:var(--bar-bg);backdrop-filter:blur(16px);",
+     ['shell-chrome-test.js']),
+
+    ("the bottom bar's colour turns translucent again",
+     'horde-studio-mobile/css/app.css',
+     "  background-color:var(--bg-2);background-image:linear-gradient(var(--bar-bg),var(--bar-bg));",
+     "  background-color:rgba(11,10,18,.94);background-image:linear-gradient(var(--bar-bg),var(--bar-bg));",
+     ['shell-chrome-test.js']),
+
+    ("the top bar loses the colour behind its tint",
+     'horde-studio-mobile/css/app.css',
+     "  background-color:var(--bg-2);background-image:linear-gradient(to bottom,",
+     "  background-image:linear-gradient(to bottom,",
+     ['shell-chrome-test.js']),
+
+    ("the top bar goes back onto a composited layer",
+     'horde-studio-mobile/css/app.css',
+     "background-image:linear-gradient(to bottom,rgba(11,10,18,.96),rgba(11,10,18,.72));",
+     "background-image:linear-gradient(to bottom,rgba(11,10,18,.96),rgba(11,10,18,.72));backdrop-filter:blur(16px);",
+     ['shell-chrome-test.js']),
+
+    ("a theme tints its bars with alpha only",
+     'themes.js',
+     "t('#0b0a12','#12101c'",
+     "t('#0b0a12','rgba(18,16,28,.94)'",
+     ['shell-chrome-test.js']),
+
+    ("the viewport upgrade is written for the wrong unit",
+     'horde-studio-mobile/css/app.css',
+     ".view{min-height:100dvh}",
+     ".view{min-height:100vh}",
+     ['shell-chrome-test.js']),
+
+    ("the chats search field refuses to shrink",
+     'horde-studio-mobile/css/app.css',
+     '.chat-tools input[type="search"]{flex:1;min-width:0;',
+     '.chat-tools input[type="search"]{flex:1;',
+     ['shell-chrome-test.js']),
+
+    ("the chats tools row cannot wrap",
+     'horde-studio-mobile/css/app.css',
+     '.chat-tools{display:flex;flex-wrap:wrap;',
+     '.chat-tools{display:flex;',
+     ['shell-chrome-test.js']),
+
+    ("one message is counted in the plural",
+     'views.js',
+     "+ ' message' + ((s.messageCount || 0) === 1 ? '' : 's')",
+     "+ ' messages'",
+     ['shell-chrome-test.js']),
 ]
 
 TIMEOUT = 240

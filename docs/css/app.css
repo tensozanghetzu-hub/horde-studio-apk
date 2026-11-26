@@ -60,8 +60,10 @@ h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
   position:fixed;top:0;left:0;right:0;height:calc(var(--bar-h) + var(--safe-t));
   padding:var(--safe-t) 8px 0;z-index:40;
   display:flex;align-items:center;gap:6px;
-  background:linear-gradient(to bottom,rgba(11,10,18,.96),rgba(11,10,18,.72));
-  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  /* v1.48.4: same rule as the bottom bar (see .nav) — a shell bar reserves its own
+     space in .view, so the blur was buying nothing but a layer that can be skipped.
+     The dissolve down the page is kept as a gradient painted ON an opaque colour. */
+  background-color:var(--bg-2);background-image:linear-gradient(to bottom,rgba(11,10,18,.96),rgba(11,10,18,.72));
   border-bottom:1px solid var(--line-soft);
 }
 .appbar-title{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.15;padding-left:2px}
@@ -80,6 +82,13 @@ h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
   padding:calc(var(--bar-h) + var(--safe-t)) 0 calc(var(--nav-h) + var(--safe-b) + 8px);
   min-height:100vh;
 }
+/* `100vh` is the LARGEST height the device will ever offer — URL bar hidden, keyboard
+   away — so on a phone the page is routinely taller than what you can see, by the exact
+   height of the bar that reserves space at the bottom. The chat screen was moved to
+   `100dvh` (the viewport as it is right now) some versions ago; the shell never was. */
+@supports (height:100dvh){
+  .view{min-height:100dvh}
+}
 .screen{padding:10px 14px 18px;animation:fade .22s var(--ease)}
 .screen[hidden]{display:none}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
@@ -88,7 +97,13 @@ h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.01em}
 .nav{
   position:fixed;left:0;right:0;bottom:0;z-index:40;display:grid;grid-template-columns:repeat(6,1fr);
   height:calc(var(--nav-h) + var(--safe-b));padding-bottom:var(--safe-b);
-  background:var(--bar-bg);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  /* v1.48.4: the bar is the only route out of this screen, so it must not depend on
+     a composited layer to be SEEN. `backdrop-filter` puts the bar on a GPU layer of
+     its own, and on Android WebView that layer can be skipped on a repaint — taking
+     the icons with it, which reads as "the bar disappeared" while the buttons stay
+     exactly where they were and still take the tap. An opaque colour under the
+     theme's tint paints the same bar without the layer. */
+  background-color:var(--bg-2);background-image:linear-gradient(var(--bar-bg),var(--bar-bg));
   border-top:1px solid var(--line-soft);
 }
 .nav-btn{
@@ -336,7 +351,7 @@ pre,code{overflow-wrap:anywhere;word-break:break-word;max-width:100%}
   border-top:1px solid var(--line-soft);
 }
 .composer textarea{
-  flex:1;resize:none;max-height:120px;padding:10px 13px;border-radius:14px;border:1px solid var(--line);
+  flex:1;min-width:0;resize:none;max-height:120px;padding:10px 13px;border-radius:14px;border:1px solid var(--line);
   background:var(--surface);outline:none;line-height:1.45;
 }
 .composer textarea:focus{border-color:var(--accent)}
@@ -599,7 +614,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 .wc-quest em{font-style:normal;color:var(--dim);font-size:11px}
 .wc-quest.done{color:var(--dim)}
 .field.row{display:flex;gap:8px;align-items:center}
-.field.row input{flex:1}
+.field.row input{flex:1;min-width:0}
 .wr-card{
   display:flex;align-items:flex-start;gap:10px;padding:11px 14px;
   border-bottom:1px solid var(--line-soft);cursor:pointer;
@@ -628,8 +643,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 
 /* ============ v1.39.0 chatwork ============ */
 /* chats screen toolbar: the search grows beside the import button */
-.chat-tools{display:flex;gap:8px;align-items:center;padding:8px 12px 0}
-.chat-tools input[type="search"]{flex:1;padding:9px 12px;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);outline:none}
+/* v1.48.4: this row carries the one way in to "Import a chat backup", and it had no
+   way to shrink: the search field took `flex:1` without `min-width:0`, so it refused to
+   go below its own text, the row overflowed, and the icon button at the end was pushed
+   off the edge of the screen — clipped, not hidden, so no scroll reveals it. */
+.chat-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px 0}
+.chat-tools input[type="search"]{flex:1;min-width:0;padding:9px 12px;border-radius:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);outline:none}
 .chat-tools .icon-btn{flex:none}
 /* staged attachment above the composer */
 .attach-stage{display:flex;align-items:center;gap:10px;padding:6px 12px;background:var(--surface-alt, var(--surface));border-top:1px solid var(--line-soft)}

@@ -566,7 +566,7 @@
                   '<span style="color:var(--dim)"> · ' + (bodyHit(s).count > 24 ? '24+' : bodyHit(s).count) +
                   ' matching message' + (bodyHit(s).count === 1 ? '' : 's') + '</span></span>' +
                   '<button class="chip" data-jump="' + esc(s.id) + ':' + esc(bodyHit(s).first) + '">Jump</button></div>'
-              : '<div class="item-sub">' + esc(s.summary ? s.summary.slice(0, 90) : (s.messageCount || 0) + ' messages') + '</div>') +
+              : '<div class="item-sub">' + esc(s.summary ? s.summary.slice(0, 90) : (s.messageCount || 0) + ' message' + ((s.messageCount || 0) === 1 ? '' : 's')) + '</div>') +
           '</div>' +
           '<div class="item-side">' + esc(UI.fmtTime(s.updatedAt)) +
             '<button class="chip" style="margin-left:6px" data-menu="' + s.id + '">' +

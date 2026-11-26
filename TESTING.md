@@ -133,6 +133,12 @@ the device is not a guard, which is why a runaway pattern is refused by shape
 - A DOM stub that answers *every* selector turns "this element was not rendered" into
   "this element is empty". Return `null` for anything the captured HTML does not contain,
   or the absent-field case passes for the wrong reason (`chat-settings-save-test.js`).
+- A suite that reads `css/app.css` can police the **rule text** and nothing else: no browser runs
+  here, so `shell-chrome-test.js` asserts that no shell bar holds a `backdrop-filter`, that
+  every bar colour is opaque, and that every `100vh` has its `100dvh` upgrade. That is the rule,
+  not the pixels. Name such a suite for the rule it guards, and let the notes say out loud that
+  the symptom came from a device while the cure was reasoned from the stylesheet — never imply a
+  phone was measured when a file was parsed.
 - A check that compares two `Date.now()` results is not a check: on a fast machine they
   land in the same millisecond, so "stamp it once, not on every call" passed against code
   that re-stamped every time. Write the time you expect into the object by hand and assert
