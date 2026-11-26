@@ -1,5 +1,54 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.1, 2026-11-26 — a Scene cast the player vouched for is not the scanner's to take back
+
+**Reported from a real card.** "Did we get rid of scene? I am in a multiple character card chat
+and it's not there." It was not removed — `git diff b6cac80 b407b33` over `app.js`, `views.js`
+and `index.html` has no line mentioning scene or cast — and a probe that booted the shipped
+`app.js` at both revisions gave the same table for a group chat, a living character, a card
+whose people speak, and a card whose people are headings. The Scene strip is for **one card
+holding several people**; a chat built from several characters gets *Next speaker* instead
+(`App.initSceneCast` and `App.renderSceneCast` both bail on `members.length > 1`, as of
+v1.39.52). What the user was in was the last case, and there the strip really was broken.
+
+**The defect.** `detectCast` counts a name as a person only when the card uses it to speak, or
+prose vouches for it (`CAST_REV = 9`) — deliberately, since v1.39.77 put "Main INTRO" and
+"Relationship" in the strip as people. When that reads fewer than two names, the v1.39.95
+"one-person card has no scene" clear wipes `session.sceneCast`. It did so **even when the
+player had typed the cast in by hand**, and since the ✎ editor lives inside the strip, a
+hidden strip left no way to put it back: the editor's own comment said "player's call — leave
+it alone", and the clear path did not read it.
+
+**The fix, and the door.** `App.applyCast` / `App.parseCast` are now the one rule for what a
+cast is (one name per line, ≤24 chars, dedup, first eight) and what stays coherent with it
+(present, addressed, last speaker, `castEdited`, `castRev`); both the strip's ✎ and the new
+**Chat settings → Scene cast** field go through them, so the two entry points cannot drift.
+The clear now honours `castEdited`, and only that: an unvouched cast on a one-person card is
+still dropped, so v1.39.95 remains true for the case it was written for. The settings field is
+offered only where the strip can appear — a group chat and a living character are *told* why
+there is no bar, and are not handed a textarea whose effect the screen would hide.
+`chatSettingsSheet` now reads the chat's character (`Store.getCharacter`) purely to phrase
+that: "Read from this card: 3 people (Vlad, Mira, Ivan)" versus "this card names its people in
+a way the app will not infer…". Saving repaints the strip when — and only when — that chat is
+the one on screen, and *Reset to defaults* does not touch the cast: who is in the room is not
+a style setting.
+
+**Tests.** `scenecast-test.js` 69 → 114 checks, and one of the new ones is a *counter*-check:
+`a shape grep alone would not have caught this`. The file's old `ok('hand-edited casts are
+still left alone', /!session\.castEdited/.test(appAll))` had passed the entire time the clear
+path ignored that flag — the string exists, in the other branch. It stays, renamed to say what
+it is not, and the behaviour is now tested by running the real `initSceneCast` twice: once
+with `castEdited`, where the cast and `addressedTo` must survive and `putSession` must not be
+called, once without, where they must not. The rendered checks call the real
+`App.chatSettingsSheet` and read the HTML it hands `UI.sheet`, and `chat-settings-save-test.js`
+(6 → 11 checks) picked up the new field because that suite exists to catch exactly this sheet's
+"values read after the form was cleared" bug — with a stub `querySelector` that returns `null`
+for anything the body did not render, because a stub that answers every selector turns
+"absent" into "empty" and the group-chat case would have passed on an invisible textarea.
+12 new breaks, `tools/mutation-check.py` at 40, all killed.
+
+**Version.** 1.48.1 / code 205. `js/` only; no phone needs the APK.
+
 ## v1.48.0, 2026-11-25 — what they sent while the app was in your pocket
 
 **What shipped.** Three helpers, and one of them is a number. `VH.arrived` records on the

@@ -204,6 +204,79 @@ MUTATIONS = [
      "    sc.toggle('#t-away', 'lifeWhileAway');",
      "",
      ['vhuman-away-test.js']),
+
+    # ---- v1.48.1: a cast the player vouched for ----------------------------
+    ("the one-person-card clear deletes a cast the player typed",
+     'app.js',
+     "if (session.sceneCast && session.sceneCast.length && !session.castEdited) {",
+     "if (session.sceneCast && session.sceneCast.length) {",
+     ['scenecast-test.js']),
+
+    ("eight names is a suggestion",
+     'app.js',
+     "    return names.slice(0, 8);",
+     "    return names;",
+     ['scenecast-test.js']),
+
+    ("a 25-character label becomes a person",
+     'app.js',
+     "      if (!n || n.length > 24 || seen[n.toLowerCase()]) return;",
+     "      if (!n || seen[n.toLowerCase()]) return;",
+     ['scenecast-test.js']),
+
+    ("a name that left the scene is still being spoken to",
+     'app.js',
+     "    if (session.addressedTo && list.indexOf(session.addressedTo) === -1) session.addressedTo = '';",
+     "    /* left as it was */;",
+     ['scenecast-test.js']),
+
+    ("a save that changed nothing rewrites the chat",
+     'app.js',
+     "    if (same) return false;",
+     "    if (false) return false;",
+     ['scenecast-test.js']),
+
+    ("the cast box opens empty, whatever the chat holds",
+     'app.js',
+     "      var castNames = Array.isArray(s.sceneCast) ? s.sceneCast : [];",
+     "      var castNames = [];",
+     ['chat-settings-save-test.js']),
+
+    ("the sheet's excuse is invented rather than read from the card",
+     'app.js',
+     "      var castSeen = castChar ? App.detectCast(castChar) : [];",
+     "      var castSeen = [];",
+     ['scenecast-test.js']),
+
+    ("a group chat is handed a cast field its strip will not show",
+     'app.js',
+     "      if (groupChat) {",
+     "      if (false) {",
+     ['scenecast-test.js']),
+
+    ("a living character is handed the field too",
+     'app.js',
+     "      } else if (castChar && castChar.vh && castChar.vh.enabled) {",
+     "      } else if (false) {",
+     ['scenecast-test.js']),
+
+    ("the cast is read after the sheet has cleared its form",
+     'app.js',
+     "              cast: b.querySelector('#cs-cast') ? b.querySelector('#cs-cast').value : null",
+     "              cast: null",
+     ['chat-settings-save-test.js']),
+
+    ("resetting a chat empties its room as well",
+     'app.js',
+     "          s.sceneNotePlacement = 'end';",
+     "          s.sceneNotePlacement = 'end'; s.sceneCast = [];",
+     ['chat-settings-save-test.js']),
+
+    ("the strip is left showing the old cast after a save",
+     'app.js',
+     "          if (castChanged && App.state.session && App.state.session.id === s.id) App.renderSceneCast();",
+     "          void castChanged;",
+     ['chat-settings-save-test.js']),
 ]
 
 TIMEOUT = 240

@@ -369,5 +369,336 @@ var rev = parseInt((appAll.match(/var CAST_REV = (\d+);/) || [])[1], 10);
 ok('CAST_REV was bumped past the version that shipped the bug', rev >= 3, String(rev));
 ok('hand-edited casts are still left alone', /!session\.castEdited/.test(appAll));
 
-console.log('\n' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+/* ------------------------------------------------------------------
+   v1.48.1 — the two ways this feature failed a real card: a cast typed by hand
+   was deleted when the chat opened, and once the strip was hidden there was no
+   way back to its editor. Both are behaviour checks. The grep that used to sit
+   here — `/!session\.castEdited/` anywhere in app.js — passed the whole time the
+   clear path ignored it, which is exactly the failure TESTING.md rule 1 is for,
+   so it stays as a smoke check under a name that says what it is not.
+   ------------------------------------------------------------------ */
+/* the file's own `rev` is declared further down and hoists to undefined at this
+   point, so read the revision here rather than compare undefined to undefined */
+var revNow = parseInt((appSrcAll.match(/var CAST_REV = (\d+);/) || [])[1], 10);
+ok('the current cast revision is a number the test can pin', revNow >= 9, String(revNow));
+
+console.log('\nbut a cast the player typed is not deleted on open');
+var clearSb = {
+  App: { state: {} }, console: console, CAST_REV: revNow,
+  Store: { putSession: function () { clearSb.puts++; return Promise.resolve(); } }, puts: 0
+};
+vm.runInNewContext(appSrcAll.slice(initStart, initEnd) + '\nthis.App = App;', clearSb, { filename: 'initSceneCast3.js' });
+clearSb.App.detectCast = function () { return []; };        /* the scanner sees one person */
+clearSb.App.castFingerprint = function () { return 'fp'; };
+var typed = {
+  sceneCast: ['Vlad', 'Mira', 'Ivan'], scenePresent: ['Vlad', 'Mira', 'Ivan'],
+  addressedTo: 'Mira', lastSpeaker: 'Vlad', castChecked: true, castEdited: true, castRev: revNow, castFp: 'fp'
+};
+clearSb.App.initSceneCast({ name: 'The House', persona: '', greeting: '', scenario: '', examples: '', vh: {} }, typed);
+same('the three names stay', typed.sceneCast, ['Vlad', 'Mira', 'Ivan']);
+same('…and who is in the room', typed.scenePresent, ['Vlad', 'Mira', 'Ivan']);
+same('…and who is being spoken to', typed.addressedTo, 'Mira');
+same('…and who spoke last', typed.lastSpeaker, 'Vlad');
+ok('…and nothing was written, because nothing needed changing', clearSb.puts === 0, String(clearSb.puts));
+
+/* the same chat without the player's edit still loses the cast — v1.39.95 stays
+   true for a cast nobody vouched for, and that is what makes the line above a
+   choice rather than a blanket disable */
+var unedited = JSON.parse(JSON.stringify(typed));
+delete unedited.castEdited;
+clearSb.App.initSceneCast({ name: 'The House', persona: '', greeting: '', scenario: '', examples: '', vh: {} }, unedited);
+same('a cast nobody typed is still dropped from a one-person card', unedited.sceneCast, []);
+ok('…and the shape grep alone would not have caught this',
+  /!session\.castEdited/.test(appSrcAll), 'the grep passes while the behaviour was wrong');
+
+/* ------------------------------------------------------------------ */
+console.log('\nthe editor text becomes a cast by one rule, shared by both doors');
+var pcStart = appSrcAll.indexOf('  App.parseCast = function (text) {');
+var pcEnd = appSrcAll.indexOf('\n  };', pcStart) + 4;
+ok('parseCast is where the test expects it', pcStart > 0 && pcEnd > pcStart);
+var acStart = appSrcAll.indexOf('  App.applyCast = function (session, names) {');
+var acEnd = appSrcAll.indexOf('\n  };', acStart) + 4;
+ok('…and applyCast too', acStart > 0 && acEnd > acStart);
+var hsb = { console: console, CAST_REV: revNow, Object: Object, Array: Array, String: String, RegExp: RegExp, Math: Math };
+hsb.App = {};
+vm.runInNewContext(appSrcAll.slice(pcStart, pcEnd) + '\n' + appSrcAll.slice(acStart, acEnd) +
+  '\nthis.App = App;', hsb, { filename: 'cast-helpers.js' });
+
+same('one name per line, runs of space collapsed',
+  hsb.App.parseCast('  Vlad   the elder \n  Mira\n'), ['Vlad the elder', 'Mira']);
+same('the same name twice is one name, whatever the case',
+  hsb.App.parseCast('Mira\nmira\nMIRA'), ['Mira']);
+ok('a blank line is not a person', hsb.App.parseCast('\n \nVlad\n\n').length === 1);
+same('a label too long for the strip is not a name either',
+  hsb.App.parseCast(new Array(26).join('a') + '\nVlad'), ['Vlad']);
+same('eight is the ceiling, and the first eight win',
+  hsb.App.parseCast('a b c d e f g h i j'.replace(/ /g, '\n')), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+same('nothing typed is no cast, not a cast of the word "undefined"',
+  hsb.App.parseCast(undefined), []);
+
+var target = {
+  sceneCast: ['Vlad', 'Mira'], scenePresent: ['Mira'], addressedTo: 'Mira',
+  lastSpeaker: 'Vlad', castRev: 1, castFp: 'old', castChecked: false
+};
+ok('applying a different cast reports a change', hsb.App.applyCast(target, ['Vlad', 'Ivan']) === true);
+same('…the cast', target.sceneCast, ['Vlad', 'Ivan']);
+same('…a name added is in the room, a name removed is out of it', target.scenePresent, ['Vlad', 'Ivan']);
+same('…the removed name is no longer being spoken to', target.addressedTo, '');
+same('…a name still in the cast stays the last speaker', target.lastSpeaker, 'Vlad');
+/* a second target for the next step, because reusing `target` here would move the
+   state the three checks after it read — a fixture that mutates under the assertions
+   is how a suite starts passing for the wrong reason */
+var leaving = { sceneCast: ['Vlad', 'Mira'], scenePresent: ['Vlad', 'Mira'], addressedTo: 'Mira', lastSpeaker: 'Mira' };
+hsb.App.applyCast(leaving, ['Vlad']);
+same('…and once they leave, the addressed state and the last speaker go too',
+  [leaving.addressedTo, leaving.lastSpeaker, leaving.scenePresent], ['', '', ['Vlad']]);
+ok('…and the chat is now the player’s own, at this revision',
+  target.castEdited === true && target.castChecked === true && target.castRev === revNow,
+  JSON.stringify({ e: target.castEdited, c: target.castChecked, r: target.castRev }));
+ok('applying the same cast again changes nothing', hsb.App.applyCast(target, 'Vlad\nIvan') === false);
+same('…and takes the text form exactly as the textarea gives it', target.sceneCast, ['Vlad', 'Ivan']);
+same('clearing the cast is a change the strip honours', hsb.App.applyCast(target, []), true);
+same('…and it empties both lists', [target.sceneCast, target.scenePresent], [[], []]);
+
+/* ------------------------------------------------------------------
+   the second door: Chat settings, rendered by calling the shipped
+   App.chatSettingsSheet and reading the HTML it asked UI.sheet to show.
+   ------------------------------------------------------------------ */
+console.log('\nChat settings carries the cast, and says what the card showed');
+
+function sheetEnv(opts) {
+  var seen = { body: '', title: '', put: 0, toasts: [], saves: 0 };
+  var body = '';
+  var nodes = {};
+  function node(key) {
+    if (nodes[key]) return nodes[key];
+    var n = {
+      key: key, hidden: true, innerHTML: '', textContent: '', value: '', style: {}, names: {},
+      classList: {
+        toggle: function (c, on) { if (arguments.length < 2) on = !n.names[c]; if (on) n.names[c] = 1; else delete n.names[c]; },
+        add: function (c) { n.names[c] = 1; }, remove: function (c) { delete n.names[c]; },
+        contains: function (c) { return !!n.names[c]; }
+      },
+      addEventListener: function () {}, removeEventListener: function () {},
+      querySelector: function (sel) { return node(String(sel).replace(/^[#.]/, '')); },
+      querySelectorAll: function () { return []; },
+      setAttribute: function () {}, getAttribute: function () { return null; }, remove: function () {},
+      focus: function () {}, blur: function () {}, click: function () {}
+    };
+    nodes[key] = n;
+    return n;
+  }
+  var sessions = opts.sessions || {};
+  var chars = opts.characters || {};
+  var sb = {
+    console: console, JSON: JSON, Math: Math, Date: Date, Promise: Promise, Object: Object, Array: Array,
+    String: String, Number: Number, RegExp: RegExp, Error: Error, isNaN: isNaN, parseFloat: parseFloat,
+    parseInt: parseInt, setTimeout: setTimeout, clearTimeout: clearTimeout, setImmediate: setImmediate,
+    setInterval: function () { return 1; }, clearInterval: function () {},
+    navigator: { userAgent: 'node', onLine: true },
+    location: { protocol: 'file:', href: 'file:///' },
+    localStorage: { getItem: function () { return null; }, setItem: function () {} },
+    document: {
+      hidden: false, body: node('body'), documentElement: node('html'),
+      querySelector: function (sel) { return node(String(sel).replace(/^[#.]/, '')); },
+      getElementById: function (id) { return node(id); },
+      querySelectorAll: function () { return []; },
+      createElement: function () { return node('x' + Math.random()); },
+      addEventListener: function () {}, removeEventListener: function () {}
+    },
+    UI: {
+      esc: function (x) { return String(x == null ? '' : x); },
+      md: function (x) { return String(x == null ? '' : x); },
+      icon: function (n) { return '<svg data-i="' + n + '"></svg>'; },
+      fmtTime: function () { return '09:00'; }, fmtDate: function () { return '24 Nov'; },
+      toast: function (t) { seen.toasts.push(t); },
+      uid: function (p) { return p + '-' + Math.random().toString(36).slice(2, 7); },
+      confirm: function () { return Promise.resolve(true); },
+      prompt: function () { return Promise.resolve(''); },
+      sheet: function (cfg) {
+        seen.title = cfg.title;
+        seen.body = cfg.body;
+        seen.cfg = cfg;          /* so a test can drive a button the sheet offers */
+        body = cfg.body;
+        /* the real sheet hands onClick the sheet's own DOM, so a field that the
+           body did not render must read as absent — that is the difference between
+           "the group chat has no cast field" and "it has an empty one" */
+        var save = cfg.actions.filter(function (a) { return a.onClick; })[0];
+        var values = opts.resolve;
+        /* the values the app returns are keyed by what they MEAN, while the fields
+           are keyed by their id — `cast` lives in `#cs-cast`. Fill the ids, or the
+           stub hands the app an empty textarea and the test proves only that an
+           empty textarea saves nothing. */
+        var IDS = {
+          temperature: 'cs-temp', maxTokens: 'cs-maxtok', note: 'cs-note', sceneNote: 'cs-scene',
+          sceneNotePlacement: 'cs-scene-place', sceneNoteFrequency: 'cs-scene-frequency', cast: 'cs-cast'
+        };
+        if (save && values && values.action === 'save') {
+          seen.saves++;
+          Object.keys(values).forEach(function (k) {
+            var id = IDS[k] || k;
+            if (new RegExp('id="' + id + '"').test(body)) node(id).value = values[k] == null ? '' : String(values[k]);
+          });
+          return Promise.resolve(save.onClick({
+            querySelector: function (sel) {
+              var id = String(sel).replace(/^#/, '');
+              return new RegExp('id="' + id + '"').test(body) ? node(id) : null;
+            }
+          })).then(function (v) { return v; });
+        }
+        return Promise.resolve(values === undefined ? null : values);
+      }
+    },
+    Store: {
+      settings: { userName: 'Sam' },
+      characters: Object.keys(chars).map(function (k) { return chars[k]; }),
+      getCharacter: function (id) { return Promise.resolve(chars[id] || null); },
+      putSession: function (st) { seen.put++; return Promise.resolve(st); },
+      putCharacter: function () { return Promise.resolve(); },
+      refreshCharacters: function () { return Promise.resolve([]); },
+      getMessages: function () { return Promise.resolve([]); },
+      getSessions: function () { return Promise.resolve(Object.keys(sessions).map(function (k) { return sessions[k]; })); },
+      allSessions: function () { return Promise.resolve(Object.keys(sessions).map(function (k) { return sessions[k]; })); }
+    },
+    Views: { thread: function () {}, chats: function () {}, life: function () {}, feed: function () {} },
+    VH: { ensure: function (c) { return c.vh; }, read: function () { return false; }, arrived: function () {}, life: function () { return {}; } },
+    API: {}, HW: {}, Logs: { push: function () {} },
+    IDB: {
+      get: function (store, id) { return Promise.resolve(store === 'sessions' ? (sessions[id] || null) : null); },
+      put: function () { return Promise.resolve(); }, all: function () { return Promise.resolve([]); },
+      getAll: function () { return Promise.resolve([]); }
+    }
+  };
+  sb.window = sb; sb.global = sb;
+  sb.addEventListener = function () {}; sb.removeEventListener = function () {};
+  vm.runInNewContext(appSrcAll, sb, { filename: 'app.js' });
+  sb.App.state = Object.assign({}, sb.App.state, { renders: 0 });
+  sb.App.renderSceneCast = function () { sb.App.state.renders++; };
+  return {
+    sb: sb, seen: seen, node: node, body: function () { return seen.body; },
+    settle: function () {
+      var p = Promise.resolve();
+      for (var i = 0; i < 6; i++) p = p.then(function () { return new Promise(function (r) { setImmediate(r); }); });
+      return p;
+    }
+  };
+}
+
+function openSheet(opts) {
+  var e = sheetEnv(opts);
+  return Promise.resolve(e.sb.App.chatSettingsSheet(opts.openId)).then(function () { return e.settle(); }).then(function () { return e; });
+}
+
+var house = { id: 'cHouse', name: 'The House', persona: 'A house with one keeper.', greeting: 'The door opens.', scenario: '', examples: '', vh: {} };
+var speaking = Object.assign({}, house, {
+  persona: 'Vlad: Welcome to the inn.\nMira: Wipe your boots.\nVlad: Ale is two coppers.\n' +
+    'Mira: The dog is mine.\nIvan: I brought the wine.\nIvan: Two cups, then.'
+});
+
+openSheet({
+  openId: 'sHouse', characters: { cHouse: house },
+  sessions: { sHouse: { id: 'sHouse', charId: 'cHouse', title: 'House', groupCharIds: [] } }
+}).then(function (e) {
+  ok('a card the app cannot read is told so, and given the field',
+    /names its people in a way the app will not infer/.test(e.body()) &&
+    /Type them here, one per line/.test(e.body()) && /id="cs-cast"/.test(e.body()),
+    e.body().slice(-300));
+  return openSheet({
+    openId: 'sHouse', characters: { cHouse: speaking },
+    sessions: { sHouse: { id: 'sHouse', charId: 'cHouse', title: 'House', groupCharIds: [] } }
+  });
+}).then(function (e) {
+  ok('a card the app can read says who it read, by name',
+    /Read from this card: 3 people/.test(e.body()) && /Vlad, Mira, Ivan/.test(e.body()),
+    e.body().slice(-300));
+  ok('…and promises not to re-scan over what the player types',
+    /re-scanned over your head/.test(e.body()), e.body().slice(-300));
+  return openSheet({
+    openId: 'sGroup',
+    characters: { cA: { id: 'cA', name: 'Ava', persona: '', greeting: '', scenario: '', examples: '', vh: {} } },
+    sessions: { sGroup: { id: 'sGroup', charId: 'cA', title: 'Group', groupCharIds: ['cA', 'cB'] } }
+  });
+}).then(function (e) {
+  ok('a group chat is told why there is no Scene bar, and is not handed a field it cannot show',
+    /several characters, so the Scene bar is not used/.test(e.body()) &&
+    !/id="cs-cast"/.test(e.body()), e.body().slice(-300));
+  return openSheet({
+    openId: 'sVh',
+    characters: { cV: { id: 'cV', name: 'Sera', persona: '', greeting: '', scenario: '', examples: '', vh: { enabled: true } } },
+    sessions: { sVh: { id: 'sVh', charId: 'cV', title: 'With Sera', groupCharIds: [] } }
+  });
+}).then(function (e) {
+  ok('a living character gives its own reason instead', 
+    /living \(Life is on\)/.test(e.body()) && !/id="cs-cast"/.test(e.body()), e.body().slice(-300));
+
+  /* saving through the sheet: the cast lands on the chat, marked as the player's */
+  var saved = { id: 'sHouse2', charId: 'cHouse', title: 'House', groupCharIds: [], sceneCast: [], scenePresent: [] };
+  var e2 = sheetEnv({
+    openId: 'sHouse2', characters: { cHouse: house }, sessions: { sHouse2: saved },
+    resolve: {
+      action: 'save', temperature: '', maxTokens: '', note: '', sceneNote: '',
+      sceneNotePlacement: 'end', sceneNoteFrequency: '1', cast: 'Vlad\nMira\nIvan\nVlad'
+    }
+  });
+  return Promise.resolve(e2.sb.App.chatSettingsSheet('sHouse2')).then(function () {
+    return e2.settle();
+  }).then(function () {
+    same('the saved cast is the cast, deduplicated and in order', saved.sceneCast, ['Vlad', 'Mira', 'Ivan']);
+    same('…everyone starts in the room', saved.scenePresent, ['Vlad', 'Mira', 'Ivan']);
+    ok('…marked as the player’s own, so no future scan undoes it', saved.castEdited === true);
+    ok('…and the chat was written', e2.seen.put === 1, String(e2.seen.put));
+    ok('…while a chat that is not on screen gets no strip redraw',
+      e2.sb.App.state.renders === 0, String(e2.sb.App.state.renders));
+
+    /* and the same save, on the chat that IS open, does redraw it */
+    var saved2 = { id: 'sOpen', charId: 'cHouse', title: 'Open one', groupCharIds: [], sceneCast: [], scenePresent: [] };
+    var e3 = sheetEnv({
+      openId: 'sOpen', characters: { cHouse: house }, sessions: { sOpen: saved2 },
+      resolve: {
+        action: 'save', temperature: '', maxTokens: '', note: '', sceneNote: '',
+        sceneNotePlacement: 'end', sceneNoteFrequency: '1', cast: 'Vlad\nMira'
+      }
+    });
+    e3.sb.App.state.session = saved2;
+    return Promise.resolve(e3.sb.App.chatSettingsSheet('sOpen')).then(function () { return e3.settle(); }).then(function () {
+      same('the open chat gets its cast', saved2.sceneCast, ['Vlad', 'Mira']);
+      ok('…and its strip is repainted, so the bar appears without reopening the chat',
+        e3.sb.App.state.renders >= 1, String(e3.sb.App.state.renders));
+    });
+  });
+}).then(function () {
+  /* the first door: the ✎ inside the strip. Same helper, same rules — the two
+     entry points must not drift into two ideas of what a cast is. */
+  var stripChat = {
+    id: 'sStrip', charId: 'cHouse', title: 'House', groupCharIds: [],
+    sceneCast: ['Vlad', 'Mira'], scenePresent: ['Vlad', 'Mira'], castEdited: false
+  };
+  var e4 = sheetEnv({ openId: 'sStrip', characters: { cHouse: house }, sessions: { sStrip: stripChat } });
+  e4.sb.App.state.session = stripChat;
+  e4.sb.App.editSceneCast();
+  return e4.settle().then(function () {
+    var acts = (e4.seen.cfg.actions || []).filter(function (a) { return a.onClick; });
+    var box = /<textarea id="scene-cast-text"[^>]*>([\s\S]*?)<\/textarea>/.exec(e4.seen.cfg.body);
+    ok('the strip’s editor opens with the current names in the box',
+      !!box && box[1] === 'Vlad\nMira', e4.seen.cfg.body.slice(0, 240));
+    var before = e4.seen.put;
+    e4.node('scene-cast-text').value = 'Vlad\nOlive\nOlive';
+    return acts[acts.length - 1].onClick({
+      querySelector: function (sel) { return e4.node(String(sel).replace(/^#/, '')); }
+    });
+  }).then(function () { return e4.settle(); }).then(function () {
+    same('saving from the strip writes the same shape of cast', stripChat.sceneCast, ['Vlad', 'Olive']);
+    same('…and the same presence rule', stripChat.scenePresent, ['Vlad', 'Olive']);
+    ok('…marked as the player’s own', stripChat.castEdited === true);
+    ok('…the chat written once', e4.seen.put === 1, String(e4.seen.put));
+    ok('…and the strip on screen was redrawn', e4.sb.App.state.renders >= 1, String(e4.sb.App.state.renders));
+  });
+}).then(function () {
+  console.log('\n' + pass + ' passed, ' + fail + ' failed');
+  process.exit(fail ? 1 : 0);
+}).catch(function (err) {
+  ok('the sheet section ran', false, String((err && err.stack) || err));
+  console.log('\n' + pass + ' passed, ' + fail + ' failed');
+  process.exit(1);
+});
+

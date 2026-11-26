@@ -1056,7 +1056,13 @@
     /* v1.39.95: a one-person card has no scene to keep. Whatever a chat is
        carrying — a cast from an older version of the card, or a scan that
        mistook a mood for a person — is dropped here, and the bar hides. */
-    if (session.sceneCast && session.sceneCast.length) {
+    /* v1.48.1: `castEdited` outranks this. The cast editor's own comment says
+       "player's call — leave it alone", and the re-detect below honours it while
+       this clear did not — so on a card whose people are written as headings rather
+       than dialogue, every name typed in by hand was deleted the next time the chat
+       opened, and the strip never came back to edit it in. A scanner's opinion is
+       not evidence that the player was wrong. */
+    if (session.sceneCast && session.sceneCast.length && !session.castEdited) {
       var one = App.detectCast(char);
       if (one.length < 2) {
         session.sceneCast = [];
@@ -1521,8 +1527,46 @@
     });
   };
 
-  App.editSceneCast = function () {
-    var session = App.state.session;
+  /** The editor's text into a cast list: one name per line, de-duplicated,
+      inside the bounds the strip can actually render. Shared with Chat settings so
+      the two entry points cannot disagree about what a name is. */
+  App.parseCast = function (text) {
+    var names = [], seen = {};
+    String(text || '').split('\n').forEach(function (line) {
+      var n = line.replace(/\s+/g, ' ').trim();
+      if (!n || n.length > 24 || seen[n.toLowerCase()]) return;
+      seen[n.toLowerCase()] = true;
+      names.push(n);
+    });
+    return names.slice(0, 8);
+  };
+
+  /** Put a cast on a session and keep the rest of the scene state coherent with
+      it: whoever left the stage cannot still be addressed, and cannot still be the
+      last speaker. Resolves to whether anything actually changed, so a Save that
+      changed nothing does not rewrite the chat. */
+  App.applyCast = function (session, names) {
+    if (!session) return false;
+    var list = Array.isArray(names) ? names : App.parseCast(names);
+    var was = Array.isArray(session.sceneCast) ? session.sceneCast : [];
+    var same = list.length === was.length && list.every(function (n, i) { return n === was[i]; });
+    if (same) return false;
+    session.sceneCast = list;
+    var present = (session.scenePresent || []).filter(function (n) { return list.indexOf(n) !== -1; });
+    list.forEach(function (n) { if (present.indexOf(n) === -1) present.push(n); });
+    session.scenePresent = present;
+    if (session.addressedTo && list.indexOf(session.addressedTo) === -1) session.addressedTo = '';
+    if (session.lastSpeaker && list.indexOf(session.lastSpeaker) === -1) session.lastSpeaker = '';
+    session.castChecked = true;
+    session.castEdited = true;      /* player's call — the scanner does not undo it */
+    session.castRev = CAST_REV;
+    return true;
+  };
+
+  /** Open the cast sheet for a chat. Takes the session so the Chat-settings field
+      can use it too; defaults to the chat that is on screen. */
+  App.editSceneCast = function (sessionFor) {
+    var session = sessionFor || App.state.session;
     if (!session) return;
     var cast = Array.isArray(session.sceneCast) ? session.sceneCast : [];
     UI.sheet({
@@ -1532,24 +1576,17 @@
       actions: [
         { label: 'Cancel', cls: 'ghost', value: null },
         { label: 'Save cast', cls: 'primary', onClick: function (b) {
-          var text = b.querySelector('#scene-cast-text').value || '';
-          var names = [], seen = {};
-          text.split('\n').forEach(function (line) {
-            var n = line.replace(/\s+/g, ' ').trim();
-            if (!n || n.length > 24 || seen[n.toLowerCase()]) return;
-            seen[n.toLowerCase()] = true;
-            names.push(n);
-          });
-          names = names.slice(0, 8);
-          session.sceneCast = names;
-          session.scenePresent = (session.scenePresent || []).filter(function (n) { return names.indexOf(n) !== -1; });
-          names.forEach(function (n) { if (session.scenePresent.indexOf(n) === -1) session.scenePresent.push(n); });
-          if (session.addressedTo && names.indexOf(session.addressedTo) === -1) session.addressedTo = '';
-          if (session.lastSpeaker && names.indexOf(session.lastSpeaker) === -1) session.lastSpeaker = '';
-          session.castChecked = true;
-          session.castEdited = true;      /* player's call — leave it alone */
-          session.castRev = CAST_REV;
-          Store.putSession(session).then(function () { App.renderSceneCast(); });
+          var names = App.parseCast(b.querySelector('#scene-cast-text').value || '');
+          if (App.applyCast(session, names)) {
+            Store.putSession(session).then(function () {
+              /* only the chat on screen has a strip to redraw, and only a write
+                 that changed something has anything to redraw */
+              if (App.state.session && App.state.session.id === session.id) {
+                App.state.session = session;
+                App.renderSceneCast();
+              }
+            });
+          }
           return null;
         } }
       ]
@@ -1643,6 +1680,10 @@
   App.chatSettingsSheet = function (sessionId) {
     IDB.get('sessions', sessionId).then(function (s) {
       if (!s) return;
+      /* v1.48.1: the cast field has to be able to say *why* the Scene bar is or is
+         not there, which means reading the card the same way the strip does. Read
+         only — opening a settings sheet must not write a cast into the chat. */
+      return Promise.resolve(Store.getCharacter(s.charId)).then(function (castChar) {
       var ov = s.overrides || {};
       var scenePlace = ['character', 'memory', 'end'].indexOf(s.sceneNotePlacement) >= 0 ? s.sceneNotePlacement : 'end';
       var sceneFrequency = parseInt(s.sceneNoteFrequency, 10);
@@ -1657,6 +1698,36 @@
             if (message) UI.toast(message);
         });
       }
+      var castNames = Array.isArray(s.sceneCast) ? s.sceneCast : [];
+      var groupChat = Array.isArray(s.groupCharIds) ? s.groupCharIds.length > 1 : false;
+      var castSeen = castChar ? App.detectCast(castChar) : [];
+      var castRow;
+      if (groupChat) {
+        castRow = '<div class="field"><div class="field-head"><label>Scene cast</label></div>' +
+          '<div class="hint">This chat has several characters, so the Scene bar is not used — who replies is ' +
+          'chosen above the keyboard, and each of them brings their own card. The Scene bar is for one card ' +
+          'that holds several people.</div></div>';
+      } else if (castChar && castChar.vh && castChar.vh.enabled) {
+        castRow = '<div class="field"><div class="field-head"><label>Scene cast</label></div>' +
+          '<div class="hint">This character is living (Life is on), and the people around them come from their ' +
+          'own life rather than from this chat, so the Scene bar is not used here.</div></div>';
+      } else {
+        /* the sentence has to explain the two ways this ends up doing nothing: a
+           card whose people are written as headings, and a cast of one, which is not
+           a scene — so the number is stated, not the promise */
+        castRow = '<div class="field"><div class="field-head"><label>Scene cast — who is in this chat</label></div>' +
+          '<textarea id="cs-cast" class="tall" placeholder="One name per line">' + esc(castNames.join('\n')) + '</textarea>' +
+          '<div class="hint">' + (castSeen.length >= 2
+            ? 'Read from this card: ' + castSeen.length + ' people (' + esc(castSeen.slice(0, 4).join(', ')) +
+              (castSeen.length > 4 ? ', …' : '') + '). Names you type here replace that list, and the card is not ' +
+              're-scanned over your head.'
+            : 'This card names its people in a way the app will not infer — it only counts a name as someone ' +
+              'in the scene when the card has them speak or is told so in prose, so headings and profile fields ' +
+              'do not qualify. Type them here, one per line: two names or more and the Scene bar appears above ' +
+              'the keyboard, and stays as you left it.') +
+          '</div></div>';
+      }
+
       UI.sheet({
         title: 'Chat settings — ' + (s.title || 'New chat'),
         body:
@@ -1675,7 +1746,8 @@
             '<option value="end"' + (scenePlace === 'end' ? ' selected' : '') + '>At the end of the context block</option></select></div>' +
           '<div class="field"><div class="field-head"><label>Repeat scene note</label></div>' +
             '<input id="cs-scene-frequency" type="number" min="1" max="20" step="1" value="' + sceneFrequency + '">' +
-            '<div class="hint">Every N assistant replies (1 means every reply; 2 means every other reply). Leave the note blank to turn it off.</div></div>',
+            '<div class="hint">Every N assistant replies (1 means every reply; 2 means every other reply). Leave the note blank to turn it off.</div></div>' +
+            castRow,
         actions: [
           /* UI.sheet clears its body before resolving the returned promise.
              Capture every field inside onClick, while the form still exists;
@@ -1688,7 +1760,8 @@
               note: b.querySelector('#cs-note').value,
               sceneNote: b.querySelector('#cs-scene').value,
               sceneNotePlacement: b.querySelector('#cs-scene-place').value,
-              sceneNoteFrequency: b.querySelector('#cs-scene-frequency').value
+              sceneNoteFrequency: b.querySelector('#cs-scene-frequency').value,
+              cast: b.querySelector('#cs-cast') ? b.querySelector('#cs-cast').value : null
             };
           } },
           { label: 'Reset to defaults', cls: 'ghost', value: 'reset' },
@@ -1721,7 +1794,17 @@
         if (maxt > 0) s.overrides.maxTokens = maxt;
         if (note) s.overrides.note = note;
         if (!Object.keys(s.overrides).length) s.overrides = null;
-        return persistSettings('Chat settings saved');
+        /* a group chat and a living character get no field, so `cast` is null and
+           nothing here touches a cast they never offered to change */
+        var castChanged = res.cast !== null && res.cast !== undefined
+          ? App.applyCast(s, App.parseCast(res.cast)) : false;
+        /* the strip is on the chat screen, not in this sheet: it only needs
+           redrawing when this chat is the one being looked at, and only when the
+           cast actually moved — a Save that changed nothing has nothing to show */
+        return persistSettings('Chat settings saved').then(function () {
+          if (castChanged && App.state.session && App.state.session.id === s.id) App.renderSceneCast();
+        });
+        });
       });
     });
   };

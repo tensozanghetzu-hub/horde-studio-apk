@@ -111,6 +111,13 @@ the device is not a guard, which is why a runaway pattern is refused by shape
   rot the moment code moves. Re-anchor them in the same change that moved the code, in
   the same commit, and keep the comment that says what the shape is protecting. Do not
   delete one to get to green.
+- A grep for a flag in a file proves the flag exists somewhere. `ok('hand-edited casts
+  are left alone', /!session\.castEdited/.test(appAll))` sat in `scenecast-test.js` and
+  passed while the code path that wiped those casts never read the flag. Keep such greps
+  under a name that admits what they are, and test the path by running it.
+- A DOM stub that answers *every* selector turns "this element was not rendered" into
+  "this element is empty". Return `null` for anything the captured HTML does not contain,
+  or the absent-field case passes for the wrong reason (`chat-settings-save-test.js`).
 - A check that compares two `Date.now()` results is not a check: on a fast machine they
   land in the same millisecond, so "stamp it once, not on every call" passed against code
   that re-stamped every time. Write the time you expect into the object by hand and assert
