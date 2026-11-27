@@ -62,6 +62,19 @@ with `repr()` (all 9 of this release's first batch) was anchor-checked by nobody
 reported itself clean. `mutation-check.py --dump` now prints the rows as JSON and the test reads
 that, so the strings compared are the strings the sweep will use; a deliberately stale row injected
 into the list fails it (checked, then removed).
+**Card authoring docs, same day**: `CARDS.md` gained `The RPG status ledger: what a card can and
+cannot drive` — the field table a card author has to write against (which `field`/`op` pairs the parser
+takes, which it drops, every bound that truncates rather than errors), the four ways a well-formed
+`<rpg_update>` goes nowhere silently, and the two things a card may not do: set the curve, or put a
+block in `first_mes` where nothing strips it. The section is not prose pinned to nothing —
+`tests/card-rpg-doc-test.js` (64 checks) probes the real `parseRpgUpdate` for each documented pair in
+both directions, finds the accepted-field set out of the parser's own source so a field added to the
+grammar without a doc row goes red, derives every bound by offering the parser one more character than
+allowed, and rebuilds the section's worked example from `API.rpgStatusPrompt` so a quoted sentence
+that stops being what the app writes fails the run. Verified in both directions: a stale anchor row in
+the doc's table, a digit changed in the quoted example, and `DIRECTIVE_CHARS` moved from 600 to 500 in
+`api.js` each produce failures (the source was restored from git afterwards, `git status` clean).
+
 **Not measured**: no browser in this workspace — the sheet's log lines are asserted as text, not as
 pixels on the phone.
 

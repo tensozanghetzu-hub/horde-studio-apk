@@ -227,7 +227,10 @@ story is meant to move), `stages` (slow-burn gates), `priority` (what must survi
 the budget).
 
 Every one is off by default: nothing is added to the prompt for a card that does
-not set them.
+not set them. A card with ranks, thresholds or a skill tree should reach for
+`progression` and read [the RPG status ledger](#the-rpg-status-ledger-what-a-card-can-and-cannot-drive)
+before it writes a number anywhere else: that section is the whole list of what the app
+will track for you, and what it will refuse to take from you.
 
 The four per-character switches next to them — placement, prompt source, compat
 mode, scan window — are not all the same kind of thing, and the app treats them
@@ -240,6 +243,99 @@ HORDE STUDIO`, inside the character sheet, above the examples. Macros expand as
 elsewhere. Each line is cut at **600 characters** when it enters the prompt, and
 the cut is marked in the prompt and shown in the editor — while the character and
 the card keep the whole text up to the storage bound below.
+
+## The RPG status ledger: what a card can and cannot drive
+
+The app keeps one **player-owned RPG ledger per chat** (`⋮ → RPG status`): a level, an XP total, a
+curve, an attribute map, three lists, and a history of what was approved. A card cannot create it,
+seed it, or edit it — no card field is read into it, and a card that wants levels has to earn them
+through replies the player approves. Everything below is the whole interface between a card and that
+ledger: one tag in a reply, one authoring field, and a set of bounds the app enforces by truncating
+or refusing rather than by trusting.
+
+**Say the economy in `progression`, not the arithmetic.** `extensions.horde_studio.progression`
+(heading: `Story progression`, ≤ **600 characters** into the prompt, 4000 stored) is where a card
+describes what a level *means* and what is worth XP in this world: "crossing a Threshold is worth a
+rank, and nothing less; a rank bought in the Guild is permanent; a failed Rite costs the rank it
+was trying to buy". The curve, the per-turn cap and the level number are **not** yours to set — the
+player picks them per chat, and the app already puts them in the model's head:
+
+> `Level 3 needs 225 XP to advance; the next threshold is 475 total, so 70 to go. Curve: 100 XP per
+> level, each one ×1.5 the last. The level and its threshold are computed by the app: never state, set
+> or restate a level or a target of your own.` … `One turn may move at most 225 XP; more than that is
+> cut to the cap and the player sees the cut.`
+
+Quoted rather than paraphrased — that is the generated text for a chat at 405 XP on `100 x1.5`, and
+`tests/card-rpg-doc-test.js` rebuilds both sentences from the generator and fails if this prose drifts
+from it. Because the text is generated from the ledger, restating figures in your card builds a second authority
+the model has to reconcile, and the app wins the argument while the model writes a confused sentence.
+Give the card the *judgement* ("an ambush survived is worth more than a rumour repeated") and leave
+it the *numbers*.
+
+**Propose in `<rpg_update>`, and only there.** One block, after the narrative and after any `<state>`
+block, JSON inside, `reason` plus `changes` — and story prose never goes in the tag:
+
+```
+The bridge holds. Sera drags you back by the collar, and the Guild clerk writes a line
+against your name without being asked.
+<rpg_update>{"reason":"Held the bridge through a full night against the Tide","changes":[
+  {"field":"xp","op":"add","value":150},
+  {"field":"attributes","op":"set","key":"Standing","value":"Tidekeeper (probationary)"},
+  {"field":"skills","op":"add","value":"Bridge defence (night watch)"}
+]}</rpg_update>
+```
+
+| Field in `changes[]` | Ops | Value the app keeps | Kept when |
+|---|---|---|---|
+| `xp` | `add` · `set` | integer, magnitude ≤ 1000000; `set` ≥ 0 | always accepted; then clamped to the turn's cap, which every `xp` row in the turn shares |
+| `attributes` | `set` · `remove` | `key` ≤ 48 chars, `value` ≤ 160 chars | always; `remove` needs only the key, and an over-long key or value is cut rather than dropped |
+| `skills` | `add` · `remove` | string ≤ 240 chars | always; added only if that exact string is not already there, ≤ 80 entries |
+| `inventory` | `add` · `remove` | string ≤ 240 chars | as `skills` |
+| `notes` | `add` · `remove` | string ≤ 240 chars | as `skills`; the player sees this list as *Player notes* |
+| `level` | `set` | string ≤ 40 chars | parsed always, **applied only while the chat's curve is `manual`**; under a curve the review shows it as refused |
+| `xpToNext` | — | — | **never**: the parser does not know the field, so a change naming it is dropped silently |
+
+Bounds on the block itself: the JSON inside is ≤ **8000 characters**, `changes` has **1 to 20**
+entries, and the shape has to be `{"changes":[…]}` — a block that misses any of those is dropped
+whole, not repaired, and the valid rows in it go with it. If a field is unknown or a value has the
+wrong type, that one row is dropped and the rest survive. The `reason` is read at ≤ **400 characters**
+for the review; the permanent log keeps ≤ **200**, so put the story fact first.
+
+**Four ways a well-formed block goes nowhere**, none of them an error the player is told about:
+
+* the chat's ledger is off, or its **Status suggestions** switch is off — the tag is stripped from the
+  reply before the reply is stored, so nothing shows and nothing is offered;
+* the reply is a **reroll**, a **replace-bubble** or a **continue** — the block is stripped and no
+  review is created, because the turn it would attach to is not a fresh answer;
+* the player has already **dismissed** that change in this chat — it is in the prompt as
+  `REFUSED BY THE PLAYER, do not offer again in this chat: …`, and offering it again reads as not
+  listening;
+* the reply carries **more than one** block — the last one wins and the earlier ones are ignored.
+
+**What approval does to your words.** An accepted change is applied to the ledger *and logged on the
+reply that earned it* (`msg.rpgAward` carries `xp` — the amount that was actually applied, after
+the curve and the cap — `from`, the total before it, `at`, the turn index, `label`, the change's own
+short name, `reason`, `speaker`, and `cut`, what the cap refused). So the `reason` is the one line of
+your prose that survives into the player's *Progress log* — write it as the event, not as a rules
+citation. And never write `rpgAward`, `rpgStatus`, `xpBase` or `declined` in a reply expecting the app
+to read them: the reply pipeline reads one tag, `<rpg_update>`, and nothing else, so those names in
+your prose or in your own JSON are simply part of the sentence. Do not claim a change was applied
+either; the prompt forbids it and the player has the counter-evidence in their own sheet.
+
+**One class, on purpose.** The ledger is one XP pool with one derived level — no tracks, no
+multiclass, no subclass — because a derived level is only checkable if there is exactly one total it
+comes from. A second specialisation is a `skills` string (`Smithing (journeyman)`), and if the chat
+is running an **authored world** the world's own class and trainings (`run.classId`, `run.skills` with
+levels 0–5, raised by `[[skill:]]`/`[[teach:]]` against the card's catalog) are a *separate* system:
+the two never share XP, a level in one says nothing in the other, and a card should not narrate one
+ledger's numbers as the other's progress.
+
+**Do not** put a block in `first_mes` or an alternate greeting: the greeting is not run through the
+reply pipeline, so the tag is neither parsed nor stripped and the player reads raw JSON as your
+opening prose. `mes_example` is a safer demonstration if you feel the format needs one — but a card
+that shows an award in its examples teaches the model to hand out awards on sight, which is the one
+behaviour the ledger's whole design is built to refuse; the example worth writing is the turn where
+nothing was earned and the tag is **absent**.
 
 ## The persona editor: two boxes or one
 
@@ -327,6 +423,7 @@ let the card take over.
 | place its post-history text, set compat ordering, widen its scan window | these decide **how the card's own content is laid out** |
 | set the six `horde_studio` authoring fields | they add prose inside the sheet this app builds |
 | carry a prompt, and *ask* for it to be used | the text is the character's; **applying** it is the player's call |
+| propose XP, attributes, skills and items in one `<rpg_update>` block | that is the ledger's front door; **computing** the level and **applying** the change are the app's and the player's, in that order |
 | not replace the global prompt, not write this app's preferences, not mark itself approved | a card that can silence the rules it is judged by is not a card, it is a prompt injection with artwork |
 
 ## Limits
@@ -338,6 +435,7 @@ let the card take over.
 | chat-only lorebook | 6 entries / 2048 bytes | a per-chat book supplements the card's, it does not replace it |
 | keyword window | 6 turns default, 1–24 allowed | measured on a 160-message chat; wider buys nothing past a few turns |
 | one instruction field into the prompt | 600 characters | keeps a sheet from squeezing the transcript out of the request |
+| one RPG proposal in a reply | 8000 characters of JSON, 1 to 20 changes, one block | a block that misses either bound is dropped whole rather than half-applied, and the player is not told — see [the ledger](#the-rpg-status-ledger-what-a-card-can-and-cannot-drive) |
 | text this app carries from a card | 4000 characters per instruction field, 6000 for `system_prompt` | storage bound; over it the character is shortened, the card is left whole, and the import says which fields were shortened |
 | source copy kept for non-destructive export | 2 MB of JSON, 200 levels deep, 60 000 values | above the size nothing is preserved and the character is told so at import; above the shape bounds the copy is kept short and every path left out is named at import and counted at export |
 
