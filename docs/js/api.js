@@ -1451,23 +1451,352 @@
     return m ? t.slice(0, m.index).replace(/\s+$/, '') : t;
   }
 
+  /* ---- v1.48.7: who does the arithmetic.
+     A ledger the model restates drifts, because the model has no reason to keep
+     it straight: it reads its own last answer as the source and walks off from
+     the story that earned it. So the curve lives here, the model proposes XP and
+     nothing else, and the level plus the next threshold are recomputed on every
+     write by the same functions the prompt quotes back to the model. `manual` is
+     what every chat had before this release: the player owns the level string and
+     the target, untouched. Choosing a curve is therefore a decision a player
+     makes, never an upgrade that silently rewrites somebody's sheet. */
+  var RPG_CURVES = ['manual', 'linear', 'geometric', 'table'];
+  var RPG_COST_MAX = 1000000000;
+
+  function rpgInt(v, dflt, min, max) {
+    var n = Math.floor(Number(v));
+    if (!isFinite(n)) return dflt;
+    return Math.max(min === undefined ? 1 : min, Math.min(max === undefined ? RPG_COST_MAX : max, n));
+  }
+
+  /* One grammar for both places a rule can come from — the RPG sheet and a card's
+     `hs_rpg.level_curve` — because two grammars is how a card ends up saying one
+     thing while the app enforces another:
+        manual          the player keeps the level and the target by hand
+        100             linear, 100 XP per level
+        100 x1.5        geometric, 100 for the first step and each one 50 % more
+        100,150,300     a table of steps, repeating the last once it runs out
+        max:20          cap one turn at 20 XP (works on its own or after a curve)
+     Anything unreadable is `manual`, because a silent default to "the maths is
+     yours" is how a ledger ends up inventing levels. */
+  function rpgRule(raw) {
+    var out = { curve: 'manual', step: 100, base: 100, growth: 1, steps: [], max: 0, text: 'manual' };
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      var c = String(raw.curve || 'manual').trim().toLowerCase();
+      out.curve = RPG_CURVES.indexOf(c) !== -1 ? c : 'manual';
+      out.step = rpgInt(raw.step, 100);
+      out.base = rpgInt(raw.base, 100);
+      var go = Number(raw.growth);
+      if (isFinite(go) && go > 1) out.growth = Math.max(1.01, Math.min(4, go));
+      if (Array.isArray(raw.steps)) {
+        out.steps = raw.steps.map(function (x) { return rpgInt(x, 100); }).filter(function (n) { return n > 0; }).slice(0, 200);
+      }
+      out.max = rpgInt(raw.max, 0, 0, 1000000);
+      if (out.curve === 'table' && !out.steps.length) out.curve = 'manual';
+      out.text = rpgRuleText(out);
+      return out;
+    }
+    var t = String(raw === undefined || raw === null ? '' : raw).trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!t || t === 'manual' || t === 'off' || t === 'none') return out;
+    /* A named curve, so "linear 100" reads the same as "100": a player who types
+       the word deserves the answer they typed, and the number keeps its meaning. */
+    var named = t.match(/^(manual|linear|geometric|table)\b\s*/);
+    if (named) {
+      t = t.slice(named[0].length);
+      if (named[1] === 'manual' && !t) return out;
+      out.named = named[1];
+    }
+    var capped = t.match(/(?:^|\s)max[:=]?(\d+)(?:\s|$)/);
+    if (capped) t = t.replace(capped[0], ' ').trim();
+    if (/^[\d][\d ,]*$/.test(t) && t.indexOf(',') !== -1) {
+      var nums = t.split(/[,\s]+/).map(function (x) { return rpgInt(x, 0); }).filter(function (n) { return n > 0; }).slice(0, 200);
+      if (nums.length >= 2) { out.curve = 'table'; out.steps = nums; }
+      else if (nums.length === 1) { out.curve = 'linear'; out.step = nums[0]; }
+    } else {
+      var geo = t.match(/^(\d+)\s*(?:x|\*)\s*(\d+(?:\.\d+)?)$/);
+      var lin = t.match(/^(\d+)(?:\s*(?:xp)?\s*(?:\/|per)\s*level)?$/);
+      if (geo) {
+        out.curve = 'geometric';
+        out.base = rpgInt(geo[1], 100);
+        var gg = Number(geo[2]);
+        if (isFinite(gg) && gg > 1) out.growth = Math.max(1.01, Math.min(4, gg));
+      } else if (lin) {
+        out.curve = 'linear';
+        out.step = rpgInt(lin[1], 100);
+      }
+    }
+    if (capped) out.max = rpgInt(capped[1], 0, 0, 1000000);
+    if (out.named === 'geometric' && out.curve !== 'geometric') {
+      var gb = t.match(/^(\d+)/);
+      out.curve = 'geometric';
+      if (gb) out.base = rpgInt(gb[1], 100);
+      var gr = t.match(/(?:x|\*)\s*(\d+(?:\.\d+)?)/);
+      if (gr && Number(gr[1]) > 1) out.growth = Math.max(1.01, Math.min(4, Number(gr[1])));
+    } else if (out.named === 'linear' && out.curve !== 'linear') {
+      var lb = t.match(/^(\d+)/);
+      if (lb) { out.curve = 'linear'; out.step = rpgInt(lb[1], 100); }
+      else if (out.curve === 'manual') { out.curve = 'linear'; }
+    } else if (out.named === 'table' && out.curve !== 'table') {
+      var tn = t.split(/[,\s]+/).map(function (x) { return rpgInt(x, 0); }).filter(function (n) { return n > 0; });
+      if (tn.length) { out.curve = 'table'; out.steps = tn.slice(0, 200); }
+    }
+    if (out.curve === 'manual' && !out.max) { out.text = 'manual'; return out; }
+    out.text = rpgRuleText(out);
+    return out;
+  }
+
+  /* The shape a rule is WRITTEN in, as opposed to the shape it is READ out in:
+     a sheet that prints its own words back into the field would otherwise feed
+     the parser a sentence it cannot read, and saving twice would quietly turn a
+     curve into manual — the level stops moving and nothing says why. */
+  function rpgRuleInput(rule) {
+    var r = rule && rule.curve ? rule : rpgRule(rule);
+    var body = 'manual';
+    if (r.curve === 'linear') body = String(r.step || 100);
+    else if (r.curve === 'geometric') body = (r.base || 100) + ' x' + (r.growth > 1 ? r.growth : 1);
+    else if (r.curve === 'table') body = (r.steps || []).join(',');
+    return r.max > 0 ? (body === 'manual' ? 'max:' + r.max : body + ' max:' + r.max) : body;
+  }
+
+  function rpgRuleText(rule) {
+    if (!rule || rule.curve === 'manual') return 'manual';
+    if (rule.curve === 'linear') return rule.step + ' XP per level';
+    if (rule.curve === 'geometric') return rule.base + ' XP per level, each one ×' + (rule.growth > 1 ? rule.growth : 1) + ' the last';
+    return 'steps of ' + (rule.steps || []).slice(0, 8).join(', ') + ((rule.steps || []).length > 8 ? '…' : '') + ' (the last repeats)';
+  }
+
+  /* XP needed to advance FROM a 1-based level. */
+  function rpgCost(level, rule) {
+    var r = rule && rule.curve ? rule : rpgRule(rule);
+    if (!r || r.curve === 'manual') return 0;
+    var n = Math.max(1, Math.floor(Number(level) || 1));
+    if (r.curve === 'linear') return Math.max(1, r.step || 100);
+    if (r.curve === 'geometric') {
+      var g = r.growth > 1 ? r.growth : 1;
+      return Math.max(1, Math.min(RPG_COST_MAX, Math.round((r.base || 100) * Math.pow(g, n - 1))));
+    }
+    var steps = r.steps && r.steps.length ? r.steps : [100];
+    return Math.max(1, steps[Math.min(steps.length - 1, n - 1)]);
+  }
+
+  /* Where a pile of XP leaves the player, walked from level 1 — so the answer is
+     a fact about the ledger rather than about the model's arithmetic. The walk is
+     bounded, and a curve that outruns the bound says `capped` instead of spinning:
+     a geometric rule with a growth of 1 is a player saying "the same step for
+     ever", which is linear in disguise and must not hang the sheet. */
+  function rpgStanding(xp, rule) {
+    var r = rule && rule.curve ? rule : rpgRule(rule);
+    if (!r || r.curve === 'manual') return { level: null, nextAt: null, toNext: null, cost: 0, capped: false };
+    var total = Math.max(0, Math.floor(Number(xp) || 0));
+    var level = 1, at = 0, cost = 0, guard = 0;
+    while (guard++ < 2000) {
+      cost = rpgCost(level, r);
+      if (cost <= 0) break;
+      if (at + cost > total) return { level: level, nextAt: at + cost, toNext: at + cost - total, cost: cost, capped: false };
+      at += cost;
+      level++;
+      if (at >= RPG_COST_MAX) break;
+    }
+    cost = Math.max(1, cost || 1);
+    return { level: level, nextAt: at + cost, toNext: Math.max(0, at + cost - total), cost: cost, capped: true };
+  }
+
+  /* The ceiling the model is TOLD and the ceiling the parser ENFORCES are read
+     from this one function by both, so they cannot drift apart — the exact
+     mistake v1.48.3 found in a bubble footer and v1.48.6 in a message counter.
+     Under a curve the default cap is one level's worth of XP per turn, which is
+     what stops a bar racing while the story says nothing was earned; `max: 0` is
+     a player choosing not to cap it. */
+  function rpgLimits(rule, standingCost) {
+    var r = rule && rule.curve ? rule : rpgRule(rule);
+    var ahead = Math.max(0, Math.floor(Number(standingCost) || 0));
+    if (!r || r.curve === 'manual') {
+      var m0 = r && r.max ? r.max : 0;
+      return { curve: false, allowSet: true, max: m0, cost: 0, toNext: null, nextAt: null, text: 'manual' };
+    }
+    var cost = Math.max(1, ahead || rpgCost(1, r) || 100);
+    /* toNext/nextAt stay null here and are filled from the standing, so the bar
+       and the sentence cannot be computed twice in two ways. */
+    return { curve: true, allowSet: false, max: r.max > 0 ? r.max : cost, cost: cost,
+      toNext: null, nextAt: null, text: rpgRuleText(r) };
+  }
+
+  /* The single place a raw ledger becomes a displayable, enforceable one. The
+     prompt, the RPG sheet, the chat row and the write path all read this, so the
+     curve, the cap and the refused list cannot be three different truths: the
+     number a player sees on the bar is the number the model was told, and the
+     number the model was told is the number the apply path enforces. */
+  function rpgView(raw) {
+    var status = rpgNormalize(raw);
+    var rule = rpgRule(status.rule);
+    var standing = rpgStanding(status.xp, rule);
+    var lim = rpgLimits(rule, rule.curve === 'manual' ? 0 : (standing.cost || 0));
+    lim.nextAt = standing.nextAt;
+    lim.toNext = standing.toNext;
+    /* A manual sheet has no curve to compute from: the target the player typed is
+       the target, and the number shown is simply what is left of it. */
+    if (rule.curve === 'manual' && status.xpToNext !== null) {
+      lim.nextAt = status.xpToNext;
+      lim.toNext = Math.max(0, status.xpToNext - status.xp);
+    }
+    var view = { status: status, rule: rule, standing: standing, limits: lim,
+      curve: rule.curve !== 'manual', level: status.level, xp: status.xp,
+      toNext: lim.toNext, nextAt: lim.nextAt, refused: status.declined || [],
+      text: rpgRuleText(rule) };
+    return view;
+  }
+
+  /* A chat carries its own rules, which is what makes a campaign's maths stop at
+     that chat: a card cannot rewrite the numbers a player has been playing by,
+     and two chats with the same character can run on different systems. */
+  function rpgStatusDefaults() {
+    return { enabled: true, level: '1', xp: 0, xpToNext: null, rule: 'manual',
+      declined: [], attributes: {}, skills: [], inventory: [], notes: [], suggestionsEnabled: true };
+  }
+
+  /* Normalising is where a curve is allowed to speak: the level and the next
+     threshold are re-derived from the XP total, so a sheet edit, an accepted
+     proposal and an imported backup cannot each keep their own idea of the
+     maths. `manual` keeps exactly what the player typed — the level stays a
+     string there, because a card may want "Apprentice" as a rank, and that is
+     the player's business rather than the arithmetic's. */
+  function rpgNormalize(raw) {
+    var out = Object.assign(rpgStatusDefaults(), raw || {});
+    out.enabled = true;
+    var rule = rpgRule(out.rule);
+    /* manual-with-no-cap is the plain string, so an untouched ledger stays small
+       and an old backup reads the same as it wrote; manual-WITH-a-cap has to keep
+       the object, or the one rule the player asked for would be deleted on save. */
+    out.rule = (rule.curve === 'manual' && !rule.max) ? 'manual' : rule;
+    out.level = String(out.level === undefined || out.level === null ? '' : out.level).trim().slice(0, 40) || '1';
+    out.xp = Math.max(0, Math.floor(Number(out.xp) || 0));
+    var next = Number(out.xpToNext);
+    out.xpToNext = (out.xpToNext === '' || out.xpToNext === undefined || out.xpToNext === null || !isFinite(next)) ? null : Math.max(0, Math.floor(next));
+    if (rule.curve !== 'manual') {
+      var st = rpgStanding(out.xp, rule);
+      out.level = String(st.level);
+      out.xpToNext = st.nextAt;
+    }
+    var attrs = {};
+    Object.keys(out.attributes || {}).slice(0, 40).forEach(function (key) {
+      var k = String(key).trim().slice(0, 48);
+      var value = String((out.attributes || {})[key] === undefined || (out.attributes || {})[key] === null ? '' : (out.attributes || {})[key]).trim().slice(0, 160);
+      if (k && value) attrs[k] = value;
+    });
+    out.attributes = attrs;
+    ['skills', 'inventory', 'notes'].forEach(function (key) {
+      out[key] = Array.isArray(out[key]) ? out[key].map(function (x) { return String(x === undefined || x === null ? '' : x).trim().slice(0, 240); }).filter(Boolean).slice(0, 80) : [];
+    });
+    /* The refused list is the model's only memory of a dismissal, because the tag
+       is stripped from the reply before the reply is stored: without it the same
+       +10 comes back every turn for ever. Bounded, newest first, and shown back
+       verbatim — which is why the label is built here and nowhere else. */
+    var dec = [];
+    (Array.isArray(out.declined) ? out.declined : []).forEach(function (e) {
+      var label = String(typeof e === 'string' ? e : (e && e.label) || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      if (!label || dec.some(function (x) { return x.label === label; })) return;
+      dec.push({ label: label, at: Math.max(0, Math.floor(Number(e && e.at) || 0)) });
+    });
+    out.declined = dec.slice(0, 5);
+    out.suggestionsEnabled = out.suggestionsEnabled !== false;
+    return out;
+  }
+
+  /* One label for one change list, built by the code that sees the change and
+     read by the sheet, the chat row and the ledger — three places that otherwise
+     invent three ways of saying "+10 XP". */
+  function rpgChangeLabel(c) {
+    if (!c) return '';
+    if (c.field === 'xp') return (c.value >= 0 ? '+' : '') + c.value + ' XP';
+    if (c.field === 'level') return 'level → ' + c.value;
+    return c.field + (c.key ? ' ' + c.key : '') + (c.op === 'remove' ? ' − ' : ' + ') + String(c.value || '');
+  }
+
+  function rpgDeclinedLabel(changes) {
+    return (changes || []).slice(0, 4).map(rpgChangeLabel).filter(Boolean).join(', ').slice(0, 160);
+  }
+
+  /* The one write path for a model proposal: apply it, then let rpgNormalize
+     re-derive the level and the threshold. It returns what was thrown away as
+     well, because a half-awarded request has to be visible to the player and to
+     the model rather than silently repaired — a cap that trims in the dark is a
+     cap nobody can see working. */
+  function rpgApplyUpdate(raw, changes, opts) {
+    var o = opts || {};
+    var before = Object.assign({}, raw || {});
+    var next = Object.assign({}, before);
+    var dropped = [];
+    /* The cap is read off the step the player is AT, so a growing curve keeps
+       letting the story pay for itself instead of freezing every turn at the
+       price of level 1. */
+    var rule0 = rpgRule(before.rule);
+    var lim = rpgLimits(rule0, rule0.curve === 'manual' ? 0
+      : (rpgStanding(Math.max(0, Math.floor(Number(before.xp) || 0)), rule0).cost || 0));
+    /* A refusal writes nothing but the record of itself. The label is built from
+       the very changes the player said no to, so what the model is told not to
+       offer again is exactly what was offered. */
+    if (o.decline) {
+      var dl = rpgDeclinedLabel(changes);
+      var dec = (dl ? [{ label: dl, at: Math.floor(Number(o.at) || 0) }] : []).concat(before.declined || []);
+      return { status: rpgNormalize(Object.assign({}, before, { declined: dec })), dropped: [], label: dl };
+    }
+    (changes || []).forEach(function (c) {
+      if (!c) return;
+      if (c.field === 'xp') {
+        if (c.op === 'add') next.xp = Math.max(0, Math.floor(Number(next.xp) || 0) + c.value);
+        else next.xp = Math.max(0, Math.floor(Number(c.value) || 0));
+      } else if (c.field === 'attributes') {
+        var attrs = Object.assign({}, next.attributes || {});
+        if (c.op === 'remove') delete attrs[c.key]; else attrs[c.key] = c.value;
+        next.attributes = attrs;
+      } else if (c.field === 'level' || c.field === 'xpToNext') {
+        if (lim.curve) dropped.push(rpgChangeLabel(c) + ' — the app computes ' + (c.field === 'level' ? 'the level' : 'the target') + ' from the curve');
+        else if (c.field === 'level') next.level = c.value;
+        else next.xpToNext = c.value;
+      } else {
+        var list = Array.isArray(next[c.field]) ? next[c.field].slice() : [];
+        if (c.op === 'remove') list = list.filter(function (x) { return x !== c.value; });
+        else if (list.indexOf(c.value) === -1) list.push(c.value);
+        next[c.field] = list;
+      }
+    });
+    /* Two `xp add` rows in one turn draw on one budget, so the cap is spent
+       across the turn instead of being checked per line. */
+    var asked = 0;
+    (changes || []).forEach(function (c) {
+      if (c && c.field === 'xp') asked += c.op === 'add' ? c.value : (c.value - (Math.floor(Number(before.xp) || 0)));
+    });
+    if (lim.max > 0 && Math.abs(asked) > lim.max) {
+      next.xp = Math.max(0, Math.floor(Number(before.xp) || 0) + (asked < 0 ? -lim.max : lim.max));
+      dropped.push((asked > 0 ? '+' : '') + asked + ' XP in one turn is over the cap of ' + lim.max + ', so ' + (asked < 0 ? '-' : '') + lim.max + ' is what was applied');
+    }
+    next = rpgNormalize(next);
+    return { status: next, dropped: dropped, label: rpgDeclinedLabel(changes) };
+  }
+
   function rpgStatusPrompt(session) {
-    var st = session && session.rpgStatus;
-    if (!st || st.enabled !== true) return '';
+    var raw = session && session.rpgStatus;
+    if (!raw || raw.enabled !== true) return '';
+    var v = rpgView(raw);
+    var st = v.status, lim = v.limits;
     var lines = [
       'PLAYER RPG STATUS — APP-MANAGED LEDGER',
       'This is one player-facing ledger shared by this conversation (including a group chat). It is for continuity and game bookkeeping; it does not grant any character knowledge of private events or make the sheet visible in-fiction unless the story establishes that.',
       'Level: ' + String(st.level || '1'),
       'XP: ' + String(Math.max(0, Number(st.xp) || 0))
     ];
-    if (st.xpToNext !== null && st.xpToNext !== undefined && st.xpToNext !== '') lines.push('XP target for next level: ' + String(st.xpToNext));
+    if (v.curve) lines.push('Level ' + v.level + ' needs ' + lim.cost + ' XP to advance; the next threshold is ' + lim.nextAt + ' total, so ' + lim.toNext + ' to go. Curve: ' + v.text + '. The level and its threshold are computed by the app: never state, set or restate a level or a target of your own.');
+    else if (st.xpToNext !== null && st.xpToNext !== undefined && st.xpToNext !== '') lines.push('XP target for next level: ' + String(st.xpToNext));
+    /* The refusals the model cannot otherwise see: its tag is stripped from the
+       reply before the reply is stored, so a dismissal leaves no trace. */
+    if (Array.isArray(st.declined) && st.declined.length) lines.push('REFUSED BY THE PLAYER, do not offer again in this chat: ' + st.declined.map(function (d) { return d.label; }).join('; '));
     if (st.attributes && Object.keys(st.attributes).length) lines.push('Attributes: ' + JSON.stringify(st.attributes));
     if (Array.isArray(st.skills) && st.skills.length) lines.push('Skills: ' + JSON.stringify(st.skills));
     if (Array.isArray(st.inventory) && st.inventory.length) lines.push('Inventory: ' + JSON.stringify(st.inventory));
     if (Array.isArray(st.notes) && st.notes.length) lines.push('Player notes: ' + JSON.stringify(st.notes));
     lines.push('Do not silently change this ledger. Do not invent rewards, losses, items, skill changes, or level-ups. Only propose a change supported by events explicitly established in this conversation and by the stated game rules.');
     if (st.suggestionsEnabled !== false) {
-      lines.push('When a concrete event clearly warrants a status change, append one machine-readable proposal after the narrative (and after any <state> block): <rpg_update>{"reason":"brief reason","changes":[{"field":"xp","op":"add","value":10}]}</rpg_update>. Never put story prose inside the tag. Allowed changes: xp add/set (integer), level set, attributes set/remove with key and value, skills/inventory/notes add/remove with a value. The app hides this block and asks the player to approve it; never claim it was applied. Omit the tag entirely when there is no well-supported change.');
+      lines.push('When a concrete event clearly warrants a status change, append one machine-readable proposal after the narrative (and after any <state> block): <rpg_update>{"reason":"brief reason","changes":[{"field":"xp","op":"add","value":10}]}</rpg_update>. Never put story prose inside the tag. Allowed changes: xp add/set (integer), attributes set/remove with key and value, skills/inventory/notes add/remove with a value. ' + (lim.curve ? 'The level and its threshold are computed by the app from the curve, so a `level` or `xpToNext` change is refused. ' : 'You may also set `level` to a short string. ') + (lim.max ? 'One turn may move at most ' + lim.max + ' XP; more than that is cut to the cap and the player sees the cut. ' : '') + 'The app hides this block and asks the player to approve it; never claim it was applied, and do not offer a change the player has already refused. Omit the tag entirely when there is no well-supported change.');
     } else {
       lines.push('Status suggestions are disabled. Do not output an <rpg_update> block.');
     }
@@ -4714,6 +5043,12 @@
     statePrompt: statePrompt, parseState: parseState, stripState: stripState,
     rpgStatusPrompt: rpgStatusPrompt, parseRpgUpdate: parseRpgUpdate,
     stripRpgUpdate: stripRpgUpdate, hideRpgUpdate: hideRpgUpdate,
+    /* v1.48.7: the RPG rules live here so the ceiling the model is told and the
+       ceiling the app enforces are the same read of the same object. */
+    rpgRule: rpgRule, rpgRuleText: rpgRuleText, rpgCost: rpgCost, rpgStanding: rpgStanding,
+    rpgLimits: rpgLimits, rpgView: rpgView, rpgNormalize: rpgNormalize, rpgRuleInput: rpgRuleInput,
+    rpgApplyUpdate: rpgApplyUpdate, rpgStatusDefaults: rpgStatusDefaults,
+    rpgChangeLabel: rpgChangeLabel, rpgDeclinedLabel: rpgDeclinedLabel,
     emptyContinuity: emptyContinuity, normalizeContinuity: normalizeContinuity,
     /* v1.39.104: chat facts keep a history, the same way a world's do */
     chatFactObjects: chatFactObjects, currentChatFacts: currentChatFacts,

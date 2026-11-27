@@ -2147,28 +2147,16 @@
     });
   };
 
+  /* v1.48.7: the ledger's maths moved into API.rpgNormalize, because the same
+     numbers are read by the prompt that tells the model the rules and by the
+     write path that enforces them. Two copies of that arithmetic is how a bar
+     starts disagreeing with the story it is supposed to be tracking. */
   App.rpgStatusDefaults = function () {
-    return { enabled: true, level: '1', xp: 0, xpToNext: null, attributes: {}, skills: [], inventory: [], notes: [], suggestionsEnabled: true };
+    return API.rpgStatusDefaults();
   };
 
   function normalizeRpgStatus(raw) {
-    var d = App.rpgStatusDefaults(), out = Object.assign(d, raw || {});
-    out.enabled = true;
-    out.level = String(out.level || '1').slice(0, 40);
-    out.xp = Math.max(0, Math.floor(Number(out.xp) || 0));
-    var next = Number(out.xpToNext);
-    out.xpToNext = out.xpToNext === '' || out.xpToNext == null || !isFinite(next) ? null : Math.max(0, Math.floor(next));
-    var attrs = {};
-    Object.keys(out.attributes || {}).slice(0, 40).forEach(function (key) {
-      var k = String(key).trim().slice(0, 48), value = String(out.attributes[key] == null ? '' : out.attributes[key]).trim().slice(0, 160);
-      if (k && value) attrs[k] = value;
-    });
-    out.attributes = attrs;
-    ['skills', 'inventory', 'notes'].forEach(function (key) {
-      out[key] = Array.isArray(out[key]) ? out[key].map(function (x) { return String(x || '').trim().slice(0, 240); }).filter(Boolean).slice(0, 80) : [];
-    });
-    out.suggestionsEnabled = out.suggestionsEnabled !== false;
-    return out;
+    return API.rpgNormalize(raw || {});
   }
 
   function rpgLines(value) {
@@ -2317,6 +2305,17 @@
       if (!session) return UI.toast('Chat not found');
       var current = normalizeRpgStatus(session.rpgStatus || {});
       var wasEnabled = !!(session.rpgStatus && session.rpgStatus.enabled);
+      /* One view of the ledger for the whole sheet: the level, the threshold and
+         the cap shown here are the ones API.rpgStatusPrompt tells the model and
+         the ones rpgApplyUpdate enforces, read off the same object. */
+      var v = API.rpgView(session.rpgStatus || {});
+      var ruleText = API.rpgRuleInput(v.rule);
+      var ruleSay = v.curve || (v.rule && v.rule.max)
+        ? '<div class="hint">' + esc(v.curve ? v.text : 'no curve') + (v.limits.max ? ' · at most ' + v.limits.max + ' XP a turn' : '') +
+          (v.curve ? ' · level ' + esc(String(v.level)) + ' at ' + v.xp + ' XP' : '') + '</div>'
+        : '';
+      var refusedLine = (v.status.declined && v.status.declined.length)
+        ? '<div class="hint">Not offered again after you dismissed them: ' + esc(v.status.declined.map(function (d) { return d.label; }).join('; ')) + '</div>' : '';
       var statusActions = [{ label: 'Cancel', cls: 'ghost', value: null }];
       if (wasEnabled) statusActions.push(
         { label: 'Stop tracking', cls: 'ghost', value: 'stop' },
@@ -2326,11 +2325,17 @@
       UI.sheet({
         title: 'RPG status — ' + (session.title || 'chat'),
         body:
-          '<div class="hint">This sheet belongs to you in this conversation. Group chats share the same player sheet. AI changes are suggestions only; approve each one before it affects your ledger.</div>' +
+          '<div class="hint">This sheet belongs to you in this conversation. Group chats share the same player sheet. AI changes are suggestions only; approve each one before it affects your ledger. With a level curve set, the app works the level and its target out of your XP — the model cannot set them, and one turn cannot move more XP than the cap.</div>' +
           '<div class="group"><div class="group-title">Progression</div>' +
-            '<div class="field"><label>Level</label><input id="rpg-level" type="text" maxlength="40" value="' + esc(current.level) + '"></div>' +
-            '<div class="field"><label>XP</label><input id="rpg-xp" type="number" min="0" step="1" value="' + current.xp + '"></div>' +
-            '<div class="field"><label>XP target for next level (optional)</label><input id="rpg-next" type="number" min="0" step="1" value="' + (current.xpToNext == null ? '' : current.xpToNext) + '"></div>' +
+            '<div class="field"><label>Level</label><input id="rpg-level" type="text" maxlength="40" value="' + esc(v.level) + '"' + (v.curve ? ' readonly' : '') + '></div>' +
+            '<div class="field"><label>XP</label><input id="rpg-xp" type="number" min="0" step="1" value="' + v.xp + '"></div>' +
+            (v.curve
+              /* Under a curve the target is arithmetic, so it is shown, not typed —
+                 a field a player edits and the app overwrites is a field that lies. */
+              ? '<div class="field"><label>Next level</label><input type="text" value="' + esc(v.limits.toNext + ' more XP (at ' + v.limits.nextAt + ' total)') + '" readonly></div>'
+              : '<div class="field"><label>XP target for next level (optional)</label><input id="rpg-next" type="number" min="0" step="1" value="' + (current.xpToNext == null ? '' : current.xpToNext) + '"></div>') +
+            '<div class="field"><label>Level curve <span class="hint">manual, a step like 100, a growing one like 100 x1.5, or steps like 100,150,300 — add "max:20" to cap one turn</span></label><input id="rpg-rule" type="text" maxlength="80" value="' + esc(ruleText) + '">' + ruleSay + '</div>' +
+            refusedLine +
           '</div>' +
           '<div class="group"><div class="group-title">Character sheet</div>' +
             '<div class="field"><label>Attributes <span class="hint">one per line: Strength: 8</span></label><textarea id="rpg-attributes" class="tall" placeholder="Strength: 8\nAgility: 6">' + esc(rpgAttributesText(current.attributes)) + '</textarea></div>' +
@@ -2354,15 +2359,17 @@
           });
         }
         if (typeof result !== 'object') return;
-        session.rpgStatus = {
+        session.rpgStatus = API.rpgNormalize({
           enabled: true,
-          level: String(result.level || '1').trim().slice(0, 40) || '1',
-          xp: Math.max(0, Math.floor(Number(result.xp) || 0)),
-          xpToNext: result.xpToNext === '' ? null : Math.max(0, Math.floor(Number(result.xpToNext) || 0)),
+          level: result.level, xp: result.xp,
+          /* Under a curve the target the player typed is not a fact about the
+             ledger, it is a wish: leave it out so the derived one stands. */
+          xpToNext: v.curve ? null : (result.xpToNext === '' || result.xpToNext === undefined ? null : result.xpToNext),
+          rule: result.rule,
           attributes: parseRpgAttributes(result.attributes),
           skills: rpgLines(result.skills), inventory: rpgLines(result.inventory), notes: rpgLines(result.notes),
-          suggestionsEnabled: !!result.suggestionsEnabled
-        };
+          declined: current.declined, suggestionsEnabled: !!result.suggestionsEnabled
+        });
         return Store.putSession(session).then(function () {
           if (App.state.session && App.state.session.id === session.id) App.state.session = session;
           UI.toast(wasEnabled ? 'RPG status saved' : 'RPG status tracking started');
@@ -2375,7 +2382,8 @@
     return {
       level: body.querySelector('#rpg-level').value,
       xp: body.querySelector('#rpg-xp').value,
-      xpToNext: body.querySelector('#rpg-next').value,
+      xpToNext: (body.querySelector('#rpg-next') || {}).value,
+      rule: body.querySelector('#rpg-rule').value,
       attributes: body.querySelector('#rpg-attributes').value,
       skills: body.querySelector('#rpg-skills').value,
       inventory: body.querySelector('#rpg-inventory').value,
@@ -2385,6 +2393,7 @@
   }
 
   function rpgChangeLabel(change) {
+    if (!change) return '';
     if (change.field === 'xp') return (change.op === 'add' && change.value >= 0 ? '+' : '') + change.value + ' XP' + (change.op === 'set' ? ' (set total)' : '');
     if (change.field === 'level') return 'Level → ' + change.value;
     if (change.field === 'attributes') return change.op === 'remove' ? 'Remove attribute: ' + change.key : change.key + ' → ' + change.value;
@@ -2392,26 +2401,16 @@
     return (change.op === 'add' ? 'Add ' : 'Remove ') + label + ': ' + change.value;
   }
 
-  function applyRpgProposal(status, proposal) {
-    var next = normalizeRpgStatus(status);
-    proposal.changes.forEach(function (change) {
-      if (change.field === 'xp') {
-        next.xp = change.op === 'set' ? Math.max(0, change.value) : Math.max(0, next.xp + change.value);
-      } else if (change.field === 'level') {
-        next.level = String(change.value).slice(0, 40);
-      } else if (change.field === 'attributes') {
-        if (change.op === 'remove') delete next.attributes[change.key];
-        else next.attributes[change.key] = String(change.value).slice(0, 160);
-      } else if (['skills', 'inventory', 'notes'].indexOf(change.field) !== -1) {
-        var list = next[change.field];
-        if (change.op === 'add') {
-          if (list.indexOf(change.value) === -1 && list.length < 80) list.push(change.value);
-        } else {
-          next[change.field] = list.filter(function (item) { return item !== change.value; });
-        }
-      }
-    });
-    return next;
+  /* The only writer of the ledger besides this sheet, so it is where the rules
+     are enforced: `API.rpgApplyUpdate` re-derives the level and the target from
+     the curve, spends the per-turn XP cap across the whole change list rather
+     than per line, and reports what it had to throw away. `notes` is an optional
+     object the caller hands in to read that report — a refusal trimmed silently
+     is a cap nobody can see working. */
+  function applyRpgProposal(status, proposal, notes) {
+    var res = API.rpgApplyUpdate(status, proposal.changes, { at: (App.state.session && App.state.session.messageCount) || 0 });
+    if (notes) { notes.dropped = res.dropped; notes.label = res.label; }
+    return res.status;
   }
 
   App.reviewRpgStatusProposal = function (message) {
@@ -2426,14 +2425,23 @@
         UI.toast('Start RPG status tracking before applying this suggestion');
         return;
       }
+      var v = API.rpgView(session.rpgStatus);
       var changes = proposal.changes.map(function (change) {
         return '<div class="kv"><span>' + esc(rpgChangeLabel(change)) + '</span></div>';
       }).join('');
+      /* Compute the answer before asking, with the functions that will be used to
+         write it: "Apply" then promises nothing the sheet has not already shown,
+         and a refusal by the curve is visible before it happens, not after. */
+      var after = API.rpgApplyUpdate(session.rpgStatus, proposal.changes, {});
       UI.sheet({
         title: 'Review RPG status update',
         body: '<div class="field"><b>Why it was suggested</b><div class="hint">' + esc(proposal.reason || 'Story event') + '</div></div>' +
           '<div class="group"><div class="group-title">Proposed changes</div>' + changes + '</div>' +
-          '<div class="hint">Nothing changes unless you choose Apply. The fictional characters will not be told about this bookkeeping unless the story establishes they know.</div>',
+          '<div class="hint">Nothing changes unless you choose Apply. The fictional characters will not be told about this bookkeeping unless the story establishes they know.</div>' +
+          (v.curve ? '<div class="hint">Level and target come from your curve (' + esc(v.text) + (v.limits.max ? ', at most ' + v.limits.max + ' XP per turn' : '') + '), not from the model.</div>' : '') +
+          '<div class="hint">Your ledger after Apply: level ' + esc(String(after.status.level)) + ' · ' + after.status.xp + ' XP' + (after.status.xpToNext == null ? '' : ' · ' + Math.max(0, after.status.xpToNext - after.status.xp) + ' to the next one') + '</div>' +
+          (after.dropped && after.dropped.length ? '<div class="hint">The curve will cut this down: ' + esc(after.dropped.join('; ')) + '</div>' : '') +
+          (v.status.declined && v.status.declined.length ? '<div class="hint">Dismissed here are not offered again: ' + esc(v.status.declined.map(function (d) { return d.label; }).join('; ')) + '</div>' : ''),
         actions: [
           { label: 'Later', cls: 'ghost', value: null },
           { label: 'Dismiss', cls: 'ghost', value: 'dismiss' },
@@ -2441,16 +2449,29 @@
         ]
       }).then(function (choice) {
         if (!choice) return;
+        var notes = {};
         if (choice === 'apply') {
-          session.rpgStatus = applyRpgProposal(session.rpgStatus, proposal);
+          session.rpgStatus = applyRpgProposal(session.rpgStatus, proposal, notes);
           proposal.state = 'applied';
-        } else proposal.state = 'dismissed';
+          if (notes.dropped && notes.dropped.length) proposal.dropped = notes.dropped;
+        } else {
+          /* Dismissal used to be invisible: the tag is stripped from the reply
+             before the reply is stored, so the model never learned it had been
+             refused and asked for the same +10 XP every turn for ever. "Later"
+             is not a refusal and stays out of this list. */
+          proposal.state = 'dismissed';
+          session.rpgStatus = API.rpgApplyUpdate(session.rpgStatus, proposal.changes, {
+            decline: true, at: session.messageCount || 0
+          }).status;
+        }
         return Promise.all([Store.putSession(session), Store.updateMessage(message)]).then(function () {
           if (App.state.session && App.state.session.id === session.id) {
             App.state.session = session;
             Views.thread(App.state.char, session, App.state.messages);
           }
-          UI.toast(choice === 'apply' ? 'RPG status updated' : 'Suggestion dismissed');
+          UI.toast(choice === 'apply'
+            ? 'RPG status updated' + (notes.dropped && notes.dropped.length ? ' — the curve refused: ' + notes.dropped.join('; ') : '')
+            : 'Dismissed — the model was told not to ask for that again', 3800);
         });
       });
     });
@@ -2459,6 +2480,7 @@
   App.sessionMenu = function (id) {
     IDB.get('sessions', id).then(function (s) {
       if (!s) return;
+      var rpg = s.rpgStatus && s.rpgStatus.enabled ? API.rpgView(s.rpgStatus) : null;
       UI.sheet({
         title: s.title || 'New chat',
         body:
@@ -2467,7 +2489,10 @@
           '<div class="opt" data-a="rename">' + icon('edit') + ' Rename</div>' +
           '<div class="opt" data-a="settings">' + icon('edit') + ' Chat settings</div>' +
           '<div class="opt" data-a="rpg-status">' + icon('brain') + (s.rpgStatus && s.rpgStatus.enabled
-            ? ' RPG status · level ' + esc(s.rpgStatus.level || '1') + ' · ' + Math.max(0, Number(s.rpgStatus.xp) || 0) + ' XP'
+            /* Read through the same view as the sheet and the prompt, so the menu
+               cannot show a target the curve has already passed. */
+            ? ' RPG status · level ' + esc(String(rpg.level)) + ' · ' + rpg.xp + ' XP' +
+              (rpg.limits.toNext > 0 ? ' · ' + rpg.limits.toNext + ' to go' : '')
             : ' Start RPG status tracking') + '</div>' +
           '<div class="opt" data-a="continuity">' + icon('brain') + (s.continuity && s.continuity.enabled
             ? ' Continuity · ' + esc(s.continuity.stage || s.continuity.location || 'enabled')

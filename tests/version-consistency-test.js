@@ -117,6 +117,26 @@ if (fs.existsSync(vjPath)) {
       'the bytes must be read before they land in docs/');
     ok('…and a refusal fails the run, so build.sh and sync-github.sh cannot read it as a publish',
       /sys\.exit\(main\(\)\)/.test(chan), 'a bare main() returns 0 whatever it returns');
+    /* The day after that, a version string can be right while the code inside is
+       yesterday's — the near-miss above is exactly that shape, one stamp away from
+       being invisible. So the channel's APK is asked which files it carries, and
+       they have to be these files, byte for byte. */
+    var carry = '';
+    try {
+      carry = require('child_process').execFileSync('python3', ['-c',
+        'import sys, zipfile\n' +
+        'z = zipfile.ZipFile(sys.argv[1])\n' +
+        'want = 0\n' +
+        'for name, dest in zip(sys.argv[2::2], sys.argv[3::2]):\n' +
+        '    want += 1 if z.read("assets/js/" + name) == open(dest, "rb").read() else 0\n' +
+        'print(want)\n',
+        apkOnChannel, 'app.js', path.join(ROOT, 'horde-studio-mobile', 'js', 'app.js'),
+        'api.js', path.join(ROOT, 'horde-studio-mobile', 'js', 'api.js')],
+        { encoding: 'utf8', timeout: 60000 }).trim();
+    } catch (e) {
+      carry = 'python3 could not run: ' + (e.message || e).slice(0, 80);
+    }
+    same('the APK on the channel carries THIS release\u2019s code, not only its number', carry, '2');
   } else {
     ok('apkSize says so when there is no APK yet', chanVj.apkSize === 0, chanVj.apkSize);
   }

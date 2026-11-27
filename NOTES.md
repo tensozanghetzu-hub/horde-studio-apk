@@ -1,5 +1,106 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.7, 2026-11-27 — the ledger does its own arithmetic, and a refusal is a fact
+
+**What was wrong is not that the RPG status was missing. It was that nothing in it could be
+depended on.** The sheet had a `level` and an `xpToNext`, and the prompt called them
+"APP-MANAGED LEDGER" while the app managed neither. `level` was a string the model could write:
+`parseRpgUpdate` accepted any `level set` of ≤ 40 characters and `applyRpgProposal` assigned it
+verbatim, so pressing Apply could move a character from 1 to 999, or set them to `∞`, and the app
+would store it as its own number. `xpToNext` was an absolute the player typed once and nothing
+decremented, so a chat at 12 XP, at 88 XP and at 188 XP each went on telling the model "target
+100" — and the model, being told the target, wrote the level to match. The prompt then deferred
+every judgement to "the stated game rules", which lived nowhere in the app, so there was no
+ceiling to enforce even had something wanted one.
+
+**Progression is per chat, and the rules live where the data does** (the player's call): the curve
+is a field on `session.rpgStatus`, edited in the sheet that `⋮` already opens. No new screen, and
+nothing crosses between chats — two campaigns with the same character can run on different
+systems, and a card cannot rewrite numbers a player has been playing by.
+
+**One copy of the maths, read by both sides.** `API.rpgRule` parses a rule, `rpgCost` prices one
+step, `rpgStanding` walks the pile of XP from level 1 (so an answer is a fact about the ledger,
+not about the model's arithmetic), `rpgLimits` says what is allowed, and `rpgView` is the single
+place a raw ledger becomes a displayable, enforceable one. The prompt quotes `rpgView`; the sheet
+prints it; the write path enforces it. That is the same lesson as v1.48.3's bubble footer and
+v1.48.6's counter, applied before the bug was reported rather than after: a rule told in one place
+and checked in another drifts, so they read one object.
+
+**The grammar is deliberately small** — `manual`, `100`, `100 x1.5`, `100,150,300`, and `max:20`
+appended to any of them, with `linear 100` and friends accepted too, because a player who types the
+word deserves the answer they typed. Anything unreadable stays `manual`: a default that silently
+turns "the maths is yours" into "the maths is the model's" is how a ledger starts inventing levels.
+A sheet in `manual` keeps the level as a *string*, because "Apprentice" is a rank someone wanted,
+not arithmetic to correct.
+
+**A curve is derived on every write** — the sheet, an approved proposal, an imported chat backup —
+through `rpgNormalize`, which recomputes `level` and `xpToNext` from `xp`. Under a curve the level
+box is read-only and the target is shown rather than typed: a field a player edits and the app
+overwrites is a field that lies. A model `level` or `xpToNext` change is refused, and the refusal
+is *named* on the review sheet and in the toast — silently repaired is what a cap that nobody can
+see working is for.
+
+**The cap spends one budget per turn, not one per line**: two `xp add` rows in the same turn are
+summed before they are judged, which is the same class of bug v1.48.6 found in N parallel
+`messageCount - 1` writes. The default ceiling is one step at the level the character is *at*
+(`100 x1.5` at level 3 permits 225, not 100), so a growing curve keeps letting the story pay for
+itself instead of freezing every turn at the price of level 1. Going over it is cut to it and
+shown — the prompt says so in the same words `rpgLimits` produces, so the ceiling told and the
+ceiling enforced cannot disagree.
+
+**A dismissal is now a fact the model is told.** `<rpg_update>` is stripped from the reply before
+the reply is stored, so a "No thanks" left no trace anywhere: the same +10 XP came back every turn
+for ever, politely, forever. `rpgStatus.declined` is newest-first, capped at five, built by
+`rpgDeclinedLabel` (the same function that writes the row label, so three surfaces cannot invent
+three ways of saying "+10 XP"), quoted into the next prompt under `REFUSED BY THE PLAYER, do not
+offer again in this chat`, shown in the sheet and in the review, and bounded to 160 characters per
+entry — it is pasted into a prompt, so it is not a place to smuggle prose. **`Later` is not a
+refusal**: it writes nothing and the row stays pending, because deciding later must not be
+recorded as never.
+
+**Two traps the shape of this feature sets, closed deliberately.** `rpgRuleInput` exists because a
+field that displays `100 XP per level, each one ×1.5 the last` and re-parses its own display would
+turn a curve into `manual` on the second save — the level stops moving and nothing says why; the
+round-trip through the parser is asserted for every shape. And `manual` with a cap is stored as an
+object rather than the plain string, because flattening it to `manual` deletes the one rule the
+player asked for the moment the sheet closes.
+
+**What is not here, on purpose.** No event log: the ledger is still a snapshot, so edit-and-resend
+deletes the turns that granted XP without subtracting the credit, and a group chat cannot be
+audited back to the message that awarded a level. That is the reconciliation shape v1.48.6 just
+proved out, and it is the next release's own version, not a rider on this one. Nothing migrates
+existing chats either: every chat in the world starts on `manual` and reads exactly as it did
+yesterday until somebody types a curve.
+
+**Tests.** `tests/rpg-status-test.js` was extended to the grammar, the derived numbers, the
+told-equals-enforced ceiling, the bounded refusals and the round-trip. It was not enough: it
+checks the maths, and the failures this feature could still have had were UI-shaped — a sheet that
+never sends the rule field, a review that shows one number and stores another. So
+`tests/rpg-progression-test.js` is new and drives the real `App.rpgStatusSheet`,
+`App.reviewRpgStatusProposal` and `App.sessionMenu` against a fake IDB/UI with the real engine,
+including pressing the buttons and reading what reached `putSession`. 43 checks. Two of its
+assertions were wrong before the code was, and the code was right: the review sheet's arithmetic
+(`213 to the next one`, `next 813`) came out of `100 x1.5` walked honestly, and I had hand-guessed
+linear numbers. 140 test files, 0 failures. 11 mutation rows added — each one a shipped break that
+must go red (a trusted model level, an unenforced cap, an unmentioned cap, per-line budgets, an
+undeived target, an invisible refused list, an unbounded one, a display form that will not
+re-parse, an editable box under a curve, a dismissal that says nothing, a stale menu target) — and
+all 11 are killed; the full sweep is 87 rows, 0 survived, 0 anchors lost.
+
+**One more check, because shipping taught it.** `version-consistency-test.js` now unpacks the
+channel APK and compares the `app.js` and `api.js` inside it with the files in this repo, byte for
+byte. v1.48.6's guard asks the binary for its version string, which is right about the release
+number and silent about everything else — a stamp is one edit, and a build that carries a fresh
+`store.js` beside a stale `app.js` is exactly the failure that nearly shipped. Proved red before it
+was trusted: one appended comment line in `app.js`, no rebuild, and the check reports `1 != 2`;
+take the line back out and it passes again.
+
+**Limits.** There is no browser in this workspace, so the sheet's layout is reasoned from the
+markup it emits and the assertions are about the HTML and the stored record, not about pixels. And
+the derivation applies from the next write onward: a chat whose `xp` was already wrong stays wrong
+until something writes to it, because there is nothing here yet to reconcile it against — that is
+the deferred log.
+
 ## v1.48.6, 2026-11-26 — the message count is derived, and a wrong one heals itself
 
 **Reported as "a chat of thirty turns listed 1 message", and left open through v1.48.4 and
