@@ -214,6 +214,13 @@ function reviewSection() {
     var msg = w3.seen.msgUpdate[0];
     ok('the message records what was refused', msg && msg.rpgStatusProposal.state === 'applied' &&
       /cap of 225/.test((msg.rpgStatusProposal.dropped || []).join(' ')), JSON.stringify(msg && msg.rpgStatusProposal));
+    /* v1.48.8: the award belongs to the reply, so it is written on the reply —
+       and it is the number that was applied, not the number that was asked for. */
+    ok('the award is logged on the reply that earned it', msg && msg.rpgAward && msg.rpgAward.xp === 225 && msg.rpgAward.from === 375,
+      JSON.stringify(msg && msg.rpgAward));
+    ok('the log line names the reason the model gave', msg && /forge work pays off/.test(msg.rpgAward.reason || ''),
+      msg && msg.rpgAward.reason);
+    ok('the review says the award is logged there', /logged on the reply that earned it/.test(textOf(w3.seen.sheets[0].opts.body)));
     ok('the toast says it out loud', w3.seen.toasts.some(function (t) { return /cap of 225/.test(String(t)); }),
       w3.seen.toasts.join(' | '));
   });
@@ -256,6 +263,54 @@ function refusalSection() {
   });
 }
 
+function logSection() {
+  console.log('\nthe sheet: the log is what the total is made of');
+  var logged = { enabled: true, level: '3', xp: 250, xpToNext: 300, xpBase: 0, rule: '100',
+    attributes: {}, skills: [], inventory: [], notes: [], declined: [], suggestionsEnabled: true };
+  var w9 = world({
+    status: logged,
+    message: { role: 'assistant', text: 'You hold the line.', createdAt: 3,
+      rpgAward: { xp: 100, from: 0, at: 4, reason: 'The line is held.', label: '+100 XP' }, speakerName: 'Sera' },
+    values: {}
+  });
+  w9.App.rpgStatusSheet('s1');
+  return tickAll().then(function () {
+    var raw = w9.seen.sheets[0].opts.body, body = textOf(raw);
+    ok('the sheet lists the logged change', /Progress log · 1 approved change/.test(body), find(/Progress log[^·]*·[^·]*/, body));
+    ok('with its amount, its reason and who said it', /\+100 XP.*The line is held.*Sera/s.test(body), find(/\+100 XP[^·]{0,90}/, body));
+    ok('and the floor the log started from', /Your own 0 XP, then \+100 from the log/.test(body), find(/Your own[^.]*\./, body));
+    ok('it says an award follows the reply that earned it', /reroll it, swipe past it or delete it/.test(body));
+    /* The stored total said 250; the log says 100. The sheet reads the rows, so
+       it must show the truth rather than the memo — and write it down. */
+    ok('a total the log contradicts is corrected in the field, not only below it',
+      /id="rpg-xp" type="number" min="0" step="1" value="100"/.test(raw) && w9.session.rpgStatus.xp === 100,
+      find(/id="rpg-xp"[^>]*/, raw) + ' / xp now ' + w9.session.rpgStatus.xp);
+    ok('the level box shows the level the log adds up to, not the memo',
+      /id="rpg-level" type="text" maxlength="40" value="2" readonly/.test(raw), find(/id="rpg-level"[^>]*/, raw));
+    ok('and the correction is stored, not only displayed', w9.seen.put.length === 1 && w9.seen.put[0].rpgStatus.xp === 100,
+      w9.seen.put.length + ' write(s)');
+    ok('the player is told the number moved', /The ledger said 250, so it now says 100/.test(body), find(/The ledger said[^.]*\./, body));
+    /* Save with a curve: the floor is what makes the typed number stick. Rebase
+       here (typed 250, log +100) so the log still explains the difference. */
+    return press(w9, 0, 'Save status', {
+      'rpg-level': '1', 'rpg-xp': '250', 'rpg-rule': '100', 'rpg-attributes': '', 'rpg-skills': '',
+      'rpg-inventory': '', 'rpg-notes': '', 'rpg-suggestions': { on: true }
+    });
+  }).then(function () {
+    var s2 = w9.seen.put[w9.seen.put.length - 1].rpgStatus;
+    ok('typing a total moves the floor, not the log', s2.xp === 250 && s2.xpBase === 150 && s2.rule.step === 100,
+      JSON.stringify({ xp: s2.xp, floor: s2.xpBase }));
+    var w10 = world({ status: s2, message: w9.message });
+    w10.App.rpgStatusSheet('s1');
+    return tickAll().then(function () {
+      ok('and the log still explains it on the next open', /Your own 150 XP, then \+100 from the log/.test(textOf(w10.seen.sheets[0].opts.body)),
+        find(/Your own[^.]*\./, textOf(w10.seen.sheets[0].opts.body)));
+      ok('so the total the player typed is not walked back down', /value="250"/.test(w10.seen.sheets[0].opts.body),
+        find(/id="rpg-xp"[^>]*/, w10.seen.sheets[0].opts.body));
+    });
+  });
+}
+
 function menuSection() {
   console.log('\nthe ⋮ row, the prompt and the sheet agree');
   var w6 = world({ status: { enabled: true, level: '1', xp: 0, xpToNext: null, rule: '100', attributes: {}, skills: [], inventory: [], notes: [], declined: [], suggestionsEnabled: true } });
@@ -287,7 +342,7 @@ function menuSection() {
   });
 }
 
-Promise.resolve().then(sheetSection).then(reviewSection).then(refusalSection).then(menuSection).then(function () {
+Promise.resolve().then(sheetSection).then(reviewSection).then(refusalSection).then(logSection).then(menuSection).then(function () {
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   if (fail) process.exit(1);
 }).catch(function (e) {

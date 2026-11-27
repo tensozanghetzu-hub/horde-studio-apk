@@ -43,7 +43,7 @@
     return t.charAt(0) === '{' || t.charAt(0) === '[';
   }
 
-  var VERSION = '1.48.7';
+  var VERSION = '1.48.8';
 
   var PRESETS = {
     openrouter: { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1', keyRequired: true, note: 'One key, hundreds of models. Best default for phones.' },
@@ -490,11 +490,31 @@
         var n = Store.countTranscript(list);
         return IDB.get('sessions', sessionId).then(function (s) {
           if (!s) return n;
-          if (!applyCount(s, n)) return n;
+          var dirty = applyCount(s, n);
+          if (Store.reconcileLedger(s, list)) dirty = true;
+          if (!dirty) return n;
           s.updatedAt = Date.now();
           return IDB.put('sessions', s).then(function () { return n; });
         });
       });
+    },
+
+    /* v1.48.8: the ledger gets the same repair through the same door. Its
+       history lives on the replies that earned it (`msg.rpgAward`), so the total
+       is a cache of those rows and a batch delete — an edit-and-resend, a
+       removed message — is the moment it has to follow. One function rather than
+       a rule each of the callers has to remember, which is the mistake v1.48.6
+       was about. The arithmetic is not repeated here: `API.rpgLedger` owns it, so
+       the log, the sheet and the prompt cannot disagree about what the rows say.
+       A store that has no API loaded (a bare harness) reconciles nothing rather
+       than inventing its own rules. */
+    reconcileLedger: function (s, list) {
+      if (!s || !s.rpgStatus || s.rpgStatus.enabled !== true) return false;
+      if (typeof API === 'undefined' || !API.rpgLedger) return false;
+      var res = API.rpgLedger(s.rpgStatus, list);
+      if (!res.changed) return false;
+      s.rpgStatus = res.status;
+      return true;
     },
 
     /* The same repair for a caller that already has the rows — which is every
@@ -503,7 +523,9 @@
     reconcile: function (s, list) {
       var n = Store.countTranscript(list);
       if (!s) return Promise.resolve(n);
-      if (!applyCount(s, n)) return Promise.resolve(n);
+      var dirty = applyCount(s, n);
+      if (Store.reconcileLedger(s, list)) dirty = true;
+      if (!dirty) return Promise.resolve(n);
       s.updatedAt = Date.now();
       return IDB.put('sessions', s).then(function () { return n; });
     },

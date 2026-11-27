@@ -25,6 +25,7 @@ and the suite-name checks on every sweep, so this file cannot rot in silence.
 Add to it with every release: for each check you write, break the thing it
 guards and show it fails. That is the whole quality bar for this repo.
 """
+import json
 import os
 import subprocess
 import sys
@@ -467,7 +468,9 @@ MUTATIONS = [
 
     ("the recount becomes a read",
      'store.js',
-     "          if (!applyCount(s, n)) return n;",
+     # v1.48.8: this line gained a second fact to check; the break is the same
+     # one — recount, then refuse to write it down.
+     "          if (!dirty) return n;",
      "          return n;",
      ['session-counter-test.js']),
 
@@ -556,6 +559,71 @@ MUTATIONS = [
      "(rpg.limits.toNext > 0 ? ' · ' + rpg.limits.toNext + ' to go' : '')",
      "''",
      ['rpg-progression-test.js']),
+    # ---- v1.48.8: the ledger has a history, and the rows are its source ----
+    ('the award is never written on the reply that earned it',
+     'app.js',
+     'if (notes.award) message.rpgAward = notes.award;',
+     'if (false) message.rpgAward = notes.award;',
+     ['rpg-progression-test.js', 'rpg-log-test.js']),
+    ('a re-spun reply keeps the award its old words earned',
+     'app.js',
+     '           cap and the curve are still applied by their one owner. */\n        delete msg.rpgAward;',
+     '           cap and the curve are still applied by their one owner. */',
+     ['rpg-log-test.js']),
+    ('an imported award is trusted instead of clamped',
+     'app.js',
+     'rpgAward: API.rpgAwardIn ? API.rpgAwardIn(m.rpgAward, null) : null,',
+     'rpgAward: m.rpgAward || null,',
+     ['rpg-log-test.js']),
+    ('a typed total rebases the log instead of the floor',
+     'app.js',
+     'xpBase: ledger.awards ? (Math.max(0, Math.floor(Number(result.xp) || 0)) - ledger.sum) : null,',
+     'xpBase: null,',
+     ['rpg-progression-test.js']),
+    ('the sheet stops reading the rows it summarizes',
+     'app.js',
+     "    Promise.all([IDB.get('sessions', sessionId), Store.getMessages(sessionId)]).then(function (got) {",
+     "    Promise.all([IDB.get('sessions', sessionId), Promise.resolve([])]).then(function (got) {",
+     ['rpg-progression-test.js']),
+    ('the floor is read off whatever entries survive',
+     'api.js',
+     '    var floor = (status.xpBase === null || status.xpBase === undefined)\n      ? (entries.length ? entries[0].from : null) : status.xpBase;',
+     '    var floor = entries.length ? entries[0].from\n      : (status.xpBase === null || status.xpBase === undefined ? null : status.xpBase);',
+     ['rpg-log-test.js']),
+    ('opening a chat no longer reconciles the ledger',
+     'store.js',
+     '      var dirty = applyCount(s, n);\n      if (Store.reconcileLedger(s, list)) dirty = true;',
+     '      var dirty = applyCount(s, n);',
+     ['rpg-log-test.js']),
+    ('a batch delete no longer brings the ledger down with it',
+     'store.js',
+     '          var dirty = applyCount(s, n);\n          if (Store.reconcileLedger(s, list)) dirty = true;',
+     '          var dirty = applyCount(s, n);',
+     ['rpg-log-test.js']),
+    ("an approval that moved nothing is logged anyway",
+     'api.js',
+     "if (to === from && !dropped.length && !o.reason) return null;",
+     "if (false) return null;",
+     ['rpg-log-test.js']),
+
+    ("an edited reply keeps the award its old words earned",
+     'app.js',
+     "including when the player edits the reply by hand. */\n          delete msg.rpgAward;",
+     "including when the player edits the reply by hand. */",
+     ['rpg-log-test.js']),
+
+    ("a swiped-to alternative take keeps the award the first one earned",
+     'app.js',
+     "the award the other take earned is withdrawn with it. */\n        delete msg.rpgAward;",
+     "the award the other take earned is withdrawn with it. */",
+     ['rpg-log-test.js']),
+
+    ("a stored blank award is not clamped away",
+     'api.js',
+     "if (!xp && !cut.length && !reason) return null;",
+     "if (false) return null;",
+     ['rpg-log-test.js']),
+
 ]
 
 TIMEOUT = 240
@@ -600,6 +668,15 @@ def main():
     if '--only' in sys.argv:
         only = args[0] if args else ''
     entries = [m for m in MUTATIONS if not only or only.lower() in m[0].lower()]
+
+    if '--dump' in sys.argv:
+        # The list is data, and a test that re-parses this file to read it will get
+        # it wrong the way tests/mutation-harness-test.js did twice: a row written
+        # with single quotes, or an anchor carrying a newline, slipped past its
+        # anchor check. So the harness is asked what it holds, in its own terms.
+        print(json.dumps([{'name': m[0], 'file': m[1], 'find': m[2], 'repl': m[3],
+                           'suites': list(m[4])} for m in MUTATIONS], indent=1))
+        return 0
 
     if '--list' in sys.argv:
         for m in MUTATIONS:

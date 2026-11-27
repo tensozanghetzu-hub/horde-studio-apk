@@ -1,4 +1,4 @@
-**Nothing to install.** v1.48.7 is signed with the same key as v1.42.0 through v1.48.6 and every
+**Nothing to install.** v1.48.8 is signed with the same key as v1.42.0 through v1.48.7 and every
 change is in the interface layer, so **Settings → App updates → Check for update** brings it (the
 app also applies it by itself on the next start). The APK is attached for a phone that has never
 had Horde Studio on it.
@@ -8,62 +8,49 @@ no update path across the signing-key rotation done in v1.42.0, and needs **Sett
 Backup**, uninstall, install, **Restore**, and a re-typed API key. `MIGRATION-signing-key.md` is
 that walk-through.
 
-## Your level is now computed, not suggested
+## Your XP now has a history, and it follows the reply that earned it
 
-The RPG status ledger has been in the app for a while, and the honest summary is that you could
-not rely on it. Two things were wrong, and they were wrong together.
+The last update made the ledger's arithmetic trustworthy. What it could still not do was answer a
+question you are bound to ask eventually: *why does this chat say 305 XP?* A total is a sum, and a
+sum with no addends can't be checked, argued with, or cleaned up. In a group chat it was worse —
+an award Sera's turn earned and an award the narrator invented were the same event with the same
+claim on your number.
 
-**The model could set your level.** It was asked not to, and nothing stopped it. A reply could
-propose "level 999" — or "level ∞" — and if you pressed Apply, the app stored that as your level,
-in your ledger, written by its own hand. Now the level is *computed*. You choose an XP curve once,
-in the same place you already edit your status — **⋮ → RPG status → Level curve** — and the level
-follows your XP total: `100` for one hundred XP a level, `100 x1.5` for a ladder that grows by half
-again each step, `100,150,300` for steps you name yourself. A proposal that tries to set a level is
-refused, and the refusal is shown to you rather than swallowed, so you can see what was asked for.
+**Every approved change is now logged on the reply that earned it.** Approve a proposal and the
+reward becomes part of that message, along with what it was for and who said it. Open your status
+— **⋮ → RPG status** — and under *Progress log* you get one line per change: `+100 XP`, the reason
+the reply gave, the speaker, the turn, and what the cap cut down. Long histories fold to the recent
+end with a count of what is older.
 
-**Your bar never moved.** The "XP target for next level" was a number you typed once and nothing
-subtracted from it, so a chat at 12 XP, at 88 XP and at 188 XP each kept telling the model "target
-100" — and the model, being told a target, wrote a level to match it. The target is derived from
-the curve now, on every change, and the chat list and the ⋮ row read it off the same arithmetic, so
-what you see is what the rules say and not what a sheet remembered from the first week.
+**Which means removing the reply removes the award.** Edit and resend a message and its reward goes
+with the words that earned it; reroll it, or swipe to another take, and the same. This was the hole
+the last release named out loud — an award outliving the sentence it was for, your total drifting
+upward for turns that no longer exist. It is closed by the obvious rule rather than by bookkeeping:
+the number in your status is *what the replies add up to*, recomputed when you open the chat and
+every time the chat changes under you. If a total and its log ever disagree — an interrupted
+generation, a restored backup, a file you edited by hand — the log wins and the number is repaired,
+with a line in the sheet telling you what it said before.
 
-Choosing **manual** (which is what every chat is on today) keeps it exactly as it was: your own
-level words, your own target, nothing computed over what you typed. Nothing in this update touches
-a chat until you set a curve in it, and progression stays per chat — a character does not carry one
-campaign's numbers into another, and two chats with the same character can run on different systems.
-
-**A cap that exists.** Alongside the curve there is a per-turn ceiling, and it is the same number
-the model is told. Left alone it means "one level's worth of XP a turn", which is what stops a bar
-lurching forward while the scene described nothing worth that much; write `max:20` if you want a
-different rule. If a reply asks for more than the cap, only the cap is applied and you are shown
-both figures — before you press Apply and after. Two rewards in one message draw on one budget, not
-two, so the cap means what it says.
-
-**When you say no, that is now on the record.** Proposals are stripped out of the reply before the
-reply is kept, which meant a dismissal left no trace at all: the same "+10 XP for the errand"
-would come back the next turn, and the turn after that, politely, forever. **Dismiss** now records
-what you refused and tells the model it was refused, so it stops asking; the refused list is visible
-in your status sheet and in the review, so you can see what the app is holding on your behalf.
-**Later** still means later — nothing is written, the row stays in the chat, and if you change your
-mind the proposal is exactly where you left it.
+**Your own numbers stay yours.** Type `50` into the XP field and that becomes the floor the log
+sits on: your total is your typed figure plus what the replies earned, so your correction is never
+quietly walked back down by a recompute, and the log doesn't erase itself because you edited the
+sum by hand. If you type a number *below* what the log adds up to, that's treated as a correction
+rather than clipped to zero. A chat that has never approved anything is untouched by all of this:
+no history, no rebase, no write, and a curve you never chose still computes nothing over what you
+typed.
 
 ## Everything else in this version
 
-- **The rules you see are the rules that run.** This is the third time this month the app has had
-  the same bug in a different costume: something is stated to the model in one place, enforced (or
-  not) in another, and the two drift. The curve, the cap and the refusals are computed once and
-  read from that one place by the prompt, the review sheet, the status sheet and the save, so the
-  sentence the model is given and the number you are shown are the same number.
-- **Your old chats read exactly as before.** No migration, no recompute, nothing adopted on your
-  behalf: a curve only ever applies to a chat where you asked for one.
-- **What this still does not do.** The ledger is still a running total, not a history. So an
-  *edit and resend* that deletes the turn which granted an award leaves the award in place, and a
-  group chat cannot be audited back to the message that earned a level. Keeping a record per award,
-  and checking the total against it when a chat opens, is the next release; it is deliberately not
-  squeezed into this one.
-- **Measured, not asserted.** The two test files driving this put the real sheets through their
-  paces — typing a curve, saving, re-opening, seeing the field come back in the shape the parser
-  reads, then pressing **Apply** and reading what actually got stored. 43 checks on the UI path and
-  the maths, and 11 deliberate breakages aimed at exactly the promises made above (a trusted model
-  level, an enforced cap nobody mentions, a per-line budget, a dismissal that says nothing): all 11
-  are caught. The whole suite is 140 files, 0 failures, with 87 registered breakages all killed.
+- **A chat that has never seen the ledger is not changed by this update.** No migration, no
+  recompute, nothing adopted on your behalf — the log starts the first time you approve something,
+  in that chat, and nothing travels between chats.
+- **Backups carry the history with them.** Export a chat and the awards come out in the file; import
+  it and they go back in, checked on the way in, so a hand-edited file cannot smuggle a billion XP
+  into your status or a log line that is really a script.
+- **The refusals still stick.** Dismissing a proposal keeps the model from offering it again in that
+  chat, and a refusal is logged on the reply it belongs to rather than dropped on the floor.
+- **What this still does not do.** The log records what the app approved — it cannot reconstruct
+  history for a chat that has been running for months, and it does not try to read your prose to
+  decide what a turn was *worth*. If you hand-edit an approved reply into something that no longer
+  earns its award, the award is withdrawn rather than re-priced. Progression remains per chat: no
+  character sheet carries a level from one campaign into the next.

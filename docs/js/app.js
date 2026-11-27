@@ -1994,7 +1994,10 @@
           messages: msgs.map(function (m) {
             return { role: m.role, text: m.text || '', createdAt: m.createdAt, image: m.image || null, imageCaption: m.imageCaption || null, autonomous: !!m.autonomous,
               rpgStatusProposal: m.rpgStatusProposal && m.rpgStatusProposal.state === 'pending' ? m.rpgStatusProposal : null,
-              continuityProposal: m.continuityProposal && m.continuityProposal.state === 'pending' ? m.continuityProposal : null };
+              continuityProposal: m.continuityProposal && m.continuityProposal.state === 'pending' ? m.continuityProposal : null,
+              /* the log goes with the reply that earned it, or a restored chat's
+                 total would be re-derived from an empty history and fall to 0 */
+              rpgAward: m.rpgAward || null };
           })
         };
         UI.download(((c && c.name) || 'chat') + '-' + (s.title || 'chat') + '.hordechat.json',
@@ -2049,6 +2052,10 @@
         autonomous: !!m.autonomous,
         rpgStatusProposal: safeImportedRpgProposal(m.rpgStatusProposal),
         continuityProposal: safeImportedContinuityProposal(m.continuityProposal),
+        /* Untrusted, like everything in a file: clamped by the same function the
+           live rows go through, so a hand-edited backup cannot mint a million XP
+           or paste a paragraph into the sheet. */
+        rpgAward: API.rpgAwardIn ? API.rpgAwardIn(m.rpgAward, null) : null,
         createdAt: m.createdAt || Date.now()
       };
     });
@@ -2301,8 +2308,18 @@
   };
 
   App.rpgStatusSheet = function (sessionId) {
-    IDB.get('sessions', sessionId).then(function (session) {
+    /* The rows are read here for the same reason `openSession` reads them: the
+       approved changes live ON the replies, so a sheet that displayed only the
+       cached total could show a number the transcript contradicts. */
+    Promise.all([IDB.get('sessions', sessionId), Store.getMessages(sessionId)]).then(function (got) {
+      var session = got[0];
+      var rows = got[1] || [];
       if (!session) return UI.toast('Chat not found');
+      var ledger = API.rpgLedger(session.rpgStatus || {}, rows);
+      if (ledger.changed) {
+        session.rpgStatus = ledger.status;
+        Store.putSession(session);
+      }
       var current = normalizeRpgStatus(session.rpgStatus || {});
       var wasEnabled = !!(session.rpgStatus && session.rpgStatus.enabled);
       /* One view of the ledger for the whole sheet: the level, the threshold and
@@ -2316,6 +2333,17 @@
         : '';
       var refusedLine = (v.status.declined && v.status.declined.length)
         ? '<div class="hint">Not offered again after you dismissed them: ' + esc(v.status.declined.map(function (d) { return d.label; }).join('; ')) + '</div>' : '';
+      var logged = ledger.entries.slice(-8).reverse().map(function (e) {
+        return '<div class="opt" style="white-space:normal">' + esc(API.rpgAwardText(e)) + '</div>';
+      }).join('');
+      var logHtml = logged
+        ? '<div class="group"><div class="group-title">Progress log · ' + ledger.awards +
+          ' approved change' + (ledger.awards === 1 ? '' : 's') + '</div>' + logged +
+          (ledger.awards > 8 ? '<div class="hint">…and ' + (ledger.awards - 8) + ' older, folded into the total</div>' : '') +
+          '<div class="hint">' + (ledger.floor === null ? '' : 'Your own ' + ledger.floor + ' XP, then ') +
+          (ledger.sum >= 0 ? '+' : '') + ledger.sum + ' from the log. An award belongs to the reply that earned it: reroll it, swipe past it or delete it and the total comes back down.' +
+          (ledger.changed ? ' The ledger said ' + ledger.xp + ', so it now says ' + ledger.expected + '.' : '') + '</div></div>'
+        : (ledger.changed ? '<div class="hint">Nothing is logged yet.</div>' : '');
       var statusActions = [{ label: 'Cancel', cls: 'ghost', value: null }];
       if (wasEnabled) statusActions.push(
         { label: 'Stop tracking', cls: 'ghost', value: 'stop' },
@@ -2336,7 +2364,7 @@
               : '<div class="field"><label>XP target for next level (optional)</label><input id="rpg-next" type="number" min="0" step="1" value="' + (current.xpToNext == null ? '' : current.xpToNext) + '"></div>') +
             '<div class="field"><label>Level curve <span class="hint">manual, a step like 100, a growing one like 100 x1.5, or steps like 100,150,300 — add "max:20" to cap one turn</span></label><input id="rpg-rule" type="text" maxlength="80" value="' + esc(ruleText) + '">' + ruleSay + '</div>' +
             refusedLine +
-          '</div>' +
+          '</div>' + logHtml +
           '<div class="group"><div class="group-title">Character sheet</div>' +
             '<div class="field"><label>Attributes <span class="hint">one per line: Strength: 8</span></label><textarea id="rpg-attributes" class="tall" placeholder="Strength: 8\nAgility: 6">' + esc(rpgAttributesText(current.attributes)) + '</textarea></div>' +
             '<div class="field"><label>Skills <span class="hint">one per line</span></label><textarea id="rpg-skills" class="tall" placeholder="Swordsmanship\nPersuasion">' + esc(current.skills.join('\n')) + '</textarea></div>' +
@@ -2365,6 +2393,11 @@
           /* Under a curve the target the player typed is not a fact about the
              ledger, it is a wish: leave it out so the derived one stands. */
           xpToNext: v.curve ? null : (result.xpToNext === '' || result.xpToNext === undefined ? null : result.xpToNext),
+          /* Typing an XP total in this sheet is the player speaking, so it moves
+             the floor the log adds to — never the log itself. A floor low enough
+             to look negative is what "the story never earned those 120" means;
+             clamping it here would hand the XP straight back on the next open. */
+          xpBase: ledger.awards ? (Math.max(0, Math.floor(Number(result.xp) || 0)) - ledger.sum) : null,
           rule: result.rule,
           attributes: parseRpgAttributes(result.attributes),
           skills: rpgLines(result.skills), inventory: rpgLines(result.inventory), notes: rpgLines(result.notes),
@@ -2407,9 +2440,24 @@
      than per line, and reports what it had to throw away. `notes` is an optional
      object the caller hands in to read that report — a refusal trimmed silently
      is a cap nobody can see working. */
-  function applyRpgProposal(status, proposal, notes) {
-    var res = API.rpgApplyUpdate(status, proposal.changes, { at: (App.state.session && App.state.session.messageCount) || 0 });
-    if (notes) { notes.dropped = res.dropped; notes.label = res.label; }
+  /* The durable row is written by its own owner; the copy held in memory follows
+     it in the same breath, because the next request and the ⋮ row read that copy,
+     and a total the transcript contradicts is the bug this release exists to
+     kill. No arithmetic here — the same `API.rpgLedger` the store calls. */
+  function syncRpgLedger(session, messages) {
+    if (!session || !session.rpgStatus || session.rpgStatus.enabled !== true) return false;
+    var led = API.rpgLedger(session.rpgStatus, messages || []);
+    if (!led.changed) return false;
+    session.rpgStatus = led.status;
+    return true;
+  }
+
+  function applyRpgProposal(status, proposal, notes, row) {
+    var res = API.rpgApplyUpdate(status, proposal.changes, {
+      at: (App.state.session && App.state.session.messageCount) || 0,
+      reason: proposal.reason, speaker: row && row.speakerName
+    });
+    if (notes) { notes.dropped = res.dropped; notes.label = res.label; notes.award = res.award; }
     return res.status;
   }
 
@@ -2440,6 +2488,7 @@
           '<div class="hint">Nothing changes unless you choose Apply. The fictional characters will not be told about this bookkeeping unless the story establishes they know.</div>' +
           (v.curve ? '<div class="hint">Level and target come from your curve (' + esc(v.text) + (v.limits.max ? ', at most ' + v.limits.max + ' XP per turn' : '') + '), not from the model.</div>' : '') +
           '<div class="hint">Your ledger after Apply: level ' + esc(String(after.status.level)) + ' · ' + after.status.xp + ' XP' + (after.status.xpToNext == null ? '' : ' · ' + Math.max(0, after.status.xpToNext - after.status.xp) + ' to the next one') + '</div>' +
+          '<div class="hint">' + (after.award ? 'This is logged on the reply that earned it: reroll it, swipe past it or delete it and the change comes back off.' : 'Nothing in this moves your XP, so there is nothing to log.') + '</div>' +
           (after.dropped && after.dropped.length ? '<div class="hint">The curve will cut this down: ' + esc(after.dropped.join('; ')) + '</div>' : '') +
           (v.status.declined && v.status.declined.length ? '<div class="hint">Dismissed here are not offered again: ' + esc(v.status.declined.map(function (d) { return d.label; }).join('; ')) + '</div>' : ''),
         actions: [
@@ -2451,9 +2500,16 @@
         if (!choice) return;
         var notes = {};
         if (choice === 'apply') {
-          session.rpgStatus = applyRpgProposal(session.rpgStatus, proposal, notes);
+          session.rpgStatus = applyRpgProposal(session.rpgStatus, proposal, notes, message);
           proposal.state = 'applied';
           if (notes.dropped && notes.dropped.length) proposal.dropped = notes.dropped;
+          /* v1.48.8: the award is written on the reply that earned it, and the
+             number in the session is then a cache of what the replies say — so an
+             edit-and-resend that deletes this reply takes the award with it, and
+             a group chat can be read back to who granted what. `updateMessage` is
+             already in the batch below, so this costs no extra write. */
+          if (notes.award) message.rpgAward = notes.award;
+          else delete message.rpgAward;
         } else {
           /* Dismissal used to be invisible: the tag is stripped from the reply
              before the reply is stored, so the model never learned it had been
@@ -2470,7 +2526,8 @@
             Views.thread(App.state.char, session, App.state.messages);
           }
           UI.toast(choice === 'apply'
-            ? 'RPG status updated' + (notes.dropped && notes.dropped.length ? ' — the curve refused: ' + notes.dropped.join('; ') : '')
+            ? 'RPG status updated' + (notes.award ? ' · logged on that reply' : ' · nothing to log') +
+              (notes.dropped && notes.dropped.length ? ' — the curve refused: ' + notes.dropped.join('; ') : '')
             : 'Dismissed — the model was told not to ask for that again', 3800);
         });
       });
@@ -3401,7 +3458,15 @@
       var continuityProposal = API.parseContinuityUpdate ? API.parseContinuityUpdate(text) : null;
       text = API.stripRpgUpdate ? API.stripRpgUpdate(text) : text;
       text = API.stripContinuityUpdate ? API.stripContinuityUpdate(text) : text;
-      if (opts.rerollFor || opts.replaceBubble) { delete msg.rpgStatusProposal; delete msg.continuityProposal; }
+      if (opts.rerollFor || opts.replaceBubble) {
+        delete msg.rpgStatusProposal; delete msg.continuityProposal;
+        /* The new take did not earn what the old one did: the award goes with
+           the words that earned it. The number in memory follows the rows
+           immediately and the row itself is written by `persist` below, so the
+           cap and the curve are still applied by their one owner. */
+        delete msg.rpgAward;
+        syncRpgLedger(App.state.session, App.state.messages);
+      }
       if (statusProposal && session.rpgStatus && session.rpgStatus.enabled === true &&
           session.rpgStatus.suggestionsEnabled !== false && !(opts.rerollFor || opts.replaceBubble || opts.continueFor)) {
         msg.rpgStatusProposal = {
@@ -3572,6 +3637,10 @@
             Store.updateMessage(msg).catch(function (e) {
               UI.toast('Partial reply kept on screen, but it could not be saved: ' + (e && e.message), 6000);
             });
+            /* No ledger repair here on purpose: a stopped re-spin never reached
+               the code that withdraws an award, so the reply still says what it
+               said and its award still stands. Reconciling here would write a
+               session row for a fact that did not change. */
           }
           UI.toast('Stopped');
         } else if (opts.rerollFor || opts.continueFor) {
@@ -6464,8 +6533,14 @@
           msg.text = v;
           delete msg.rpgStatusProposal;
           delete msg.continuityProposal;
+          /* An award logged on this reply was earned by words that are gone now —
+             including when the player edits the reply by hand. */
+          delete msg.rpgAward;
+          syncRpgLedger(App.state.session, App.state.messages);
           if (msg.alts && msg.alts.length) msg.alts[msg.altIdx || 0] = v;
           Store.updateMessage(msg).then(function () {
+            if (App.state.session) return Store.recountSession(App.state.session.id);
+          }).then(function () {
             Views.thread(App.state.char, App.state.session, App.state.messages, null, false, editAnchor);
           });
         });
@@ -6535,7 +6610,13 @@
         msg.text = msg.alts[msg.altIdx];
         delete msg.rpgStatusProposal;
         delete msg.continuityProposal;
-        Store.updateMessage(msg).then(function () { Views.thread(App.state.char, App.state.session, App.state.messages); });
+        /* Swiping to another take changes what the reply says, and the log reads
+           the reply: the award the other take earned is withdrawn with it. */
+        delete msg.rpgAward;
+        syncRpgLedger(App.state.session, App.state.messages);
+        Store.updateMessage(msg).then(function () {
+          if (App.state.session) return Store.recountSession(App.state.session.id);
+        }).then(function () { Views.thread(App.state.char, App.state.session, App.state.messages); });
       }
     });
 

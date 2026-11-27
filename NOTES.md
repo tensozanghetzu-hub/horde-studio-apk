@@ -1,6 +1,69 @@
 # Horde Studio Mobile — release notes
 
-## v1.48.7, 2026-11-27 — the ledger does its own arithmetic, and a refusal is a fact
+## v1.48.8, 2026-11-27 — the ledger has a history: every XP award lives on the reply that earned it
+
+**The number was right and the answer to "why" did not exist.** v1.48.7 made XP arithmetically
+trustworthy — one curve, one cap, `level` derived from the total — and the first thing it made
+possible was the complaint that follows a single mutable counter: a chat said `305 XP`, and nothing
+in the app could say which turn earned it, whether the model had been greedy, whether a delete had
+taken its share back, or whether the player had typed the number themselves. `session.rpgStatus.xp`
+was a sum with no addends. A group chat made it worse: `speakerName` was dropped before
+`parseRpgUpdate` saw the proposal, so an award granted by Sera and one granted by the narrator were
+the same event with the same right to the same number, and no way to tell them apart afterwards.
+
+**The fix is the v1.48.6 lesson, taken literally.** A *count* is the sum of rows, so v1.48.6 stopped
+trusting the number in the cache and recomputed it from the rows on open, after every batch delete,
+after edit-and-resend and after a failed generation. XP is the same shape of fact: an award is an
+event that happened at a turn, and the total is what the events add up to. So an approved change is
+now written **on the reply that earned it**, as `msg.rpgAward = {xp, from, at, label?, reason?,
+speaker?, cut?}`, and `session.rpgStatus.xp` is derived from those rows by `API.rpgLedger` rather
+than accumulated. Edit-and-resend and single-delete need no special case: the reply goes, its award
+goes with it, the total comes down. The sheet reads the same rows the total is computed from, so a
+disagreement between them is a bug that shows itself.
+
+**Two owners had to be settled first.** `putSession` copies the stored `messageCount` forward because
+a caller's in-memory session is a snapshot from before the write — v1.48.6's lesson, and the same
+trap here: `Store.reconcile` and `Store.recountSession` were both wired to `Store.reconcileLedger`,
+which delegates the *arithmetic* to `API.rpgLedger` and mutates only when the numbers actually move.
+Store does not own the maths (its harnesses don't load `api.js`, hence the `typeof API === 'undefined'`
+guard), and it must not recompute the whole `rpgStatus`, or it would rewrite the player's rule and cap
+on every open.
+
+**The floor, because the player is also a writer.** Typing `50` into the XP field is a fact with a
+date, not a row to derive, so it moves `xpBase` — the ledger keeps saying `+100 XP` for the turn that
+earned it, and the total becomes `xpBase + Σ awards`. The alternative, rebasing `xpBase` away on every
+open, would silently eat the player's own numbers. `xpBase` is deliberately **not** clamped to ≥ 0: a
+player who types 50 over a log that says 120 has corrected it by −70, and a floor clamped at 0 hands
+the 70 back on the next re-open. A chat with no log and no floor keeps its typed number exactly —
+`changed` is false, nothing is written, nothing is rebased.
+
+**One clamp, in one direction.** `rpgAwardIn(entry, row)` is the single validator for the writer, the
+reader and the importer: `xp` ±1e6, `label` 160, `reason` 200, `speaker` 40 (taken from
+`m.speakerName`, `e.speaker` only as fallback), `cut` ≤ 3 entries of 200, whitespace collapsed, and
+`null` for an award that moved nothing and explains nothing — a blank receipt is not a line of the
+ledger. Import runs through the same function, so a hand-edited JSON file cannot smuggle a 1e9 award
+or a log entry that is a script. Export carries `rpgAward` verbatim, which is what makes a chat
+portable *with* its history.
+
+**Measured**: `tests/rpg-log-test.js` is new (54 checks: award construction, `rpgLedger` derivation
+against forged and negative rows, the oldest-award delete, an award that moved nothing not becoming a
+line, a real-`Store` heal of a poisoned cache, a chat with nothing logged not being written at all,
+plus the source-contract block) and `tests/rpg-progression-test.js` grew to 57 with the sheet's log
+rendering, the floor rebase and the review's "logged on the reply that earned it" line. All 141
+suites pass. `tools/mutation-check.py` gained 12 rows (99 in all), one per decision the ledger now
+relies on — and one of them is the bug this release nearly shipped with: my own patch script replaced an anchor that
+*contained* `delete msg.rpgAward;` with text that omitted it, so the award-withdrawal line vanished
+from all three sites (reroll, reply edit, alt swipe) while every anchor assertively matched exactly
+once. `grep -c` found it; the source-contract check now pins the count to three, so it cannot recur.
+The harness that is supposed to catch stale anchors had its own hole, found while adding these rows:
+`tests/mutation-harness-test.js` re-parsed `mutation-check.py` with a regex that only recognised
+double-quoted literals and unescaped `\n` into the letter `n` — so every row a patch script emitted
+with `repr()` (all 9 of this release's first batch) was anchor-checked by nobody, and the list
+reported itself clean. `mutation-check.py --dump` now prints the rows as JSON and the test reads
+that, so the strings compared are the strings the sweep will use; a deliberately stale row injected
+into the list fails it (checked, then removed).
+**Not measured**: no browser in this workspace — the sheet's log lines are asserted as text, not as
+pixels on the phone.
 
 **What was wrong is not that the RPG status was missing. It was that nothing in it could be
 depended on.** The sheet had a `level` and an `xpToNext`, and the prompt called them

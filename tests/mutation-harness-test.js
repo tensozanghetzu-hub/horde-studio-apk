@@ -35,24 +35,21 @@ if (!fs.existsSync(HARNESS)) {
 var listed = cp.spawnSync('python3', [HARNESS, '--list'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
 ok('…and answers --list without error', listed.status === 0, (listed.stderr || listed.error || '').toString().slice(0, 200));
 
-var src = fs.readFileSync(HARNESS, 'utf8');
+var dump = cp.spawnSync('python3', [HARNESS, '--dump'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
 var entries = [];
-(function parse() {
-  /* Read the tuples the same way Python would, roughly: the harness keeps them as
-     plain literals, so a regex over the source is enough to know what it claims. */
-  var re = /\(\s*"((?:[^"\\]|\\.)*)",\s*'((?:[^']|\\')*)',\s*"((?:[^"\\]|\\.)*)",\s*"((?:[^"\\]|\\.)*)",\s*\[([^\]]*)\]\s*,?\s*\)/g;
-  var m;
-  while ((m = re.exec(src))) {
-    var suites = (m[5].match(/'([^']+)'/g) || []).map(function (x) { return x.replace(/'/g, ''); });
-    /* Unescape the way Python would, for every escape it understands — not just
-       \". An anchor that carries a regex (`/\*\s*$/`) is written in the harness as
-       a doubled backslash, and reading it literally looks for a string that no
-       file contains, so the anchor check would report a missing break instead of
-       a broken one. */
-    function unquote(x) { return x.replace(/\\([^\n])/g, '$1'); }
-    entries.push({ name: unquote(m[1]), file: m[2], find: unquote(m[3]), repl: unquote(m[4]), suites: suites });
-  }
-})();
+var src = fs.readFileSync(HARNESS, 'utf8');
+if (dump.status !== 0) {
+  ok('the harness can say what it holds', false, (dump.stderr || dump.error || '').toString().slice(0, 200));
+} else {
+  try { entries = JSON.parse(dump.stdout); }
+  catch (e) { ok('…and the answer is readable', false, String(e).slice(0, 120)); }
+}
+/* Why the list is asked rather than re-read: this test used to grep `mutation-check.py`
+   with a regex, and it got it wrong twice in the same direction — a row whose literals
+   were single-quoted (every row a patch script emits) and an anchor carrying a newline
+   were both skipped by the anchor check, which then reported a clean list. `--dump` is
+   the harness printing its own data, so the strings compared here are the strings the
+   sweep will use, escapes and all. */
 ok('the list has entries to check', entries.length >= 10, entries.length + ' parsed');
 
 console.log('\nevery break is aimed at source that is still there');

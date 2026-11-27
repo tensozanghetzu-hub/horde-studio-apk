@@ -1626,6 +1626,112 @@
      curve, the cap and the refused list cannot be three different truths: the
      number a player sees on the bar is the number the model was told, and the
      number the model was told is the number the apply path enforces. */
+  /* ---- v1.48.8: the ledger has a history, so a total can be checked.
+     Until now `xp` was a number the app happened to be holding. It is now a
+     cache of what the transcript says: every change the player approves is
+     written ON THE REPLY THAT EARNED IT (`msg.rpgAward`), and the total is
+     `floor + Σ`. Which is what makes deleting the turn subtract the award —
+     edit-and-resend, a swipe to another alt, an edited reply, a deleted
+     message — and what makes a group chat auditable to the speaker and the
+     turn that granted it. It is the same shape as v1.48.6's message count: the
+     rows own the fact, the session field is a copy, and opening a chat
+     reconciles the two. */
+  function rpgAwardIn(e, row) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+    var xp = Math.floor(Number(e.xp));
+    if (!isFinite(xp)) return null;
+    var cut = Array.isArray(e.cut) ? e.cut.map(function (x) {
+      return String(x === undefined || x === null ? '' : x).replace(/\s+/g, ' ').trim().slice(0, 200);
+    }).filter(Boolean).slice(0, 3) : [];
+    var reason = String(e.reason === undefined || e.reason === null ? '' : e.reason).replace(/\s+/g, ' ').trim().slice(0, 200);
+    /* A row that carries nothing an award means — no XP, no recorded refusal, no
+       reason — is a scratch field, not history: drop it rather than let it be
+       counted and listed. */
+    if (!xp && !cut.length && !reason) return null;
+    var out = {
+      xp: Math.max(-1000000, Math.min(1000000, xp)),
+      from: Math.max(0, Math.floor(Number(e.from) || 0)),
+      at: Math.max(0, Math.floor(Number(e.at) || 0)),
+      label: String(e.label === undefined || e.label === null ? '' : e.label).replace(/\s+/g, ' ').trim().slice(0, 160),
+      reason: reason,
+      speaker: String((row && row.speakerName) || e.speaker || '').replace(/\s+/g, ' ').trim().slice(0, 40)
+    };
+    if (cut.length) out.cut = cut;
+    return out;
+  }
+
+  function rpgAwardList(rows) {
+    var out = [];
+    (rows || []).forEach(function (m) {
+      var e = m && m.rpgAward ? rpgAwardIn(m.rpgAward, m) : null;
+      if (!e) return;
+      e.id = m.id;
+      out.push(e);
+    });
+    return out;
+  }
+
+  function rpgAwardSum(rows) {
+    return rpgAwardList(rows).reduce(function (n, e) { return n + e.xp; }, 0);
+  }
+
+  /* The ledger the rows describe. The floor is the total before the log began;
+     it is stored with the first logged award (`xpBase`) because a floor read off
+     the surviving entries moves when you delete the oldest one, and "the award
+     you just deleted" cannot be the thing that decides what the rest are worth.
+     With no floor and no entries there is nothing to check — a chat that has
+     never approved a proposal keeps the number its player typed, exactly as it
+     did before this release. */
+  function rpgLedger(raw, rows) {
+    var status = rpgNormalize(raw);
+    var entries = rpgAwardList(rows);
+    var sum = entries.reduce(function (n, e) { return n + e.xp; }, 0);
+    var floor = (status.xpBase === null || status.xpBase === undefined)
+      ? (entries.length ? entries[0].from : null) : status.xpBase;
+    var out = { status: status, changed: false, entries: entries, awards: entries.length,
+      sum: sum, floor: floor, xp: status.xp, expected: status.xp };
+    if (floor === null) return out;
+    var expected = Math.max(0, floor + sum);
+    out.expected = expected;
+    if (expected === status.xp) return out;
+    out.changed = true;
+    out.status = rpgNormalize(Object.assign({}, status, { xp: expected }));
+    out.note = 'the log says ' + expected + ' XP, the ledger said ' + status.xp;
+    return out;
+  }
+
+  /* A change the player approved becomes a row-level event. It records what was
+     APPLIED, after the curve and the cap have had their say — not what was
+     asked for, which is the difference between a log and a wish list. */
+  function rpgAwardOf(before, after, changes, info) {
+    var o = info || {};
+    var from = Math.max(0, Math.floor(Number(before && before.xp) || 0));
+    var to = Math.max(0, Math.floor(Number(after && after.xp) || 0));
+    var dropped = o.dropped || [];
+    if (to === from && !dropped.length && !o.reason) return null;
+    var award = { xp: to - from, from: from, at: Math.max(0, Math.floor(Number(o.at) || 0)) };
+    if (o.speaker) award.speaker = String(o.speaker).replace(/\s+/g, ' ').trim().slice(0, 40);
+    var label = rpgDeclinedLabel(changes);
+    if (label) award.label = label.slice(0, 160);
+    if (o.reason) award.reason = String(o.reason).replace(/\s+/g, ' ').trim().slice(0, 200);
+    if (dropped.length) award.cut = dropped.slice(0, 3).map(function (x) { return String(x).slice(0, 200); });
+    return award;
+  }
+
+  /* One line of the history, for the sheet. Built here rather than in the UI so
+     the row the player reads and the sentence the log means cannot be written
+     twice. */
+  function rpgAwardText(e) {
+    if (!e) return '';
+    var bits = [(e.xp >= 0 ? '+' : '') + e.xp + ' XP'];
+    if (e.label && e.label.indexOf('XP') === -1) bits.push(e.label);
+    if (e.reason) bits.push('“' + e.reason + '”');
+    if (e.speaker) bits.push('· ' + e.speaker);
+    if (e.at) bits.push('· turn ' + e.at);
+    if (e.cut && e.cut.length) bits.push('(cut down: ' + e.cut.join('; ') + ')');
+    return bits.join(' ');
+  }
+
   function rpgView(raw) {
     var status = rpgNormalize(raw);
     var rule = rpgRule(status.rule);
@@ -1650,7 +1756,7 @@
      that chat: a card cannot rewrite the numbers a player has been playing by,
      and two chats with the same character can run on different systems. */
   function rpgStatusDefaults() {
-    return { enabled: true, level: '1', xp: 0, xpToNext: null, rule: 'manual',
+    return { enabled: true, level: '1', xp: 0, xpBase: null, xpToNext: null, rule: 'manual',
       declined: [], attributes: {}, skills: [], inventory: [], notes: [], suggestionsEnabled: true };
   }
 
@@ -1670,6 +1776,12 @@
     out.rule = (rule.curve === 'manual' && !rule.max) ? 'manual' : rule;
     out.level = String(out.level === undefined || out.level === null ? '' : out.level).trim().slice(0, 40) || '1';
     out.xp = Math.max(0, Math.floor(Number(out.xp) || 0));
+    /* The floor can be negative on purpose: a player whose log says 120 and who
+       types 50 has corrected the log by -70, and clamping it here would hand
+       those 70 XP back every time the chat is opened. `xp` itself stays ≥ 0. */
+    var floor = Number(out.xpBase);
+    out.xpBase = (out.xpBase === '' || out.xpBase === undefined || out.xpBase === null || !isFinite(floor))
+      ? null : Math.max(-1000000000, Math.min(1000000000, Math.floor(floor)));
     var next = Number(out.xpToNext);
     out.xpToNext = (out.xpToNext === '' || out.xpToNext === undefined || out.xpToNext === null || !isFinite(next)) ? null : Math.max(0, Math.floor(next));
     if (rule.curve !== 'manual') {
@@ -1770,8 +1882,16 @@
       next.xp = Math.max(0, Math.floor(Number(before.xp) || 0) + (asked < 0 ? -lim.max : lim.max));
       dropped.push((asked > 0 ? '+' : '') + asked + ' XP in one turn is over the cap of ' + lim.max + ', so ' + (asked < 0 ? '-' : '') + lim.max + ' is what was applied');
     }
+    if (Math.floor(Number(next.xp) || 0) !== Math.floor(Number(before.xp) || 0) &&
+        (before.xpBase === undefined || before.xpBase === null)) {
+      /* The log starts here, so it starts knowing what it starts from. */
+      next.xpBase = Math.max(0, Math.floor(Number(before.xp) || 0));
+    }
     next = rpgNormalize(next);
-    return { status: next, dropped: dropped, label: rpgDeclinedLabel(changes) };
+    var award = rpgAwardOf(rpgNormalize(before), next, changes, {
+      at: o.at, reason: o.reason, speaker: o.speaker, dropped: dropped
+    });
+    return { status: next, dropped: dropped, label: rpgDeclinedLabel(changes), award: award };
   }
 
   function rpgStatusPrompt(session) {
@@ -5047,6 +5167,8 @@
        ceiling the app enforces are the same read of the same object. */
     rpgRule: rpgRule, rpgRuleText: rpgRuleText, rpgCost: rpgCost, rpgStanding: rpgStanding,
     rpgLimits: rpgLimits, rpgView: rpgView, rpgNormalize: rpgNormalize, rpgRuleInput: rpgRuleInput,
+    rpgAwardList: rpgAwardList, rpgAwardSum: rpgAwardSum, rpgAwardIn: rpgAwardIn, rpgLedger: rpgLedger,
+    rpgAwardOf: rpgAwardOf, rpgAwardText: rpgAwardText,
     rpgApplyUpdate: rpgApplyUpdate, rpgStatusDefaults: rpgStatusDefaults,
     rpgChangeLabel: rpgChangeLabel, rpgDeclinedLabel: rpgDeclinedLabel,
     emptyContinuity: emptyContinuity, normalizeContinuity: normalizeContinuity,
