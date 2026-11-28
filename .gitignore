@@ -19,6 +19,18 @@ apk-build/*.keystore.*
 apk-build/*.jks
 /keystore-backup/
 
+# --- the dev <-> fixer bridge: never published, never shipped -----------------
+# Two Google Docs used as a message queue between agents, at the human's
+# direction. The doc URLs are the only credential-shaped thing in this project
+# that a reader could actually use, so the rule is not "keep it tidy" but "keep
+# it out": out of the repo, out of docs/ (the Pages channel the app downloads),
+# out of the APK, out of the release notes. uploads/ already covers anything
+# written under it; .bridge/ is the folder itself, listed so the ignore does not
+# depend on a wildcard someone later "cleans up".
+.bridge/
+uploads/BRIDGE*
+uploads/*bridge*
+
 # --- big / generated / not source ---------------------------------------
 .cache/
 .local/
