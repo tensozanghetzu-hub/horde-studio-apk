@@ -7,6 +7,6 @@
   "apkSize": 589290,
   "webSize": 464774,
   "files": 25,
-  "updated": "2026-11-28T07:57:27Z",
+  "updated": "2026-11-28T08:55:23Z",
   "note": "Fixes to the interface arrive as a small download, no reinstall. Only a change to the app wrapper itself needs Android to install it."
 }
