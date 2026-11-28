@@ -322,6 +322,16 @@ to read them: the reply pipeline reads one tag, `<rpg_update>`, and nothing else
 your prose or in your own JSON are simply part of the sentence. Do not claim a change was applied
 either; the prompt forbids it and the player has the counter-evidence in their own sheet.
 
+**When a run misbehaves, the export says so.** *Chat → ⋮ → Export → Markdown* (or `.txt`) puts a
+`## RPG ledger` block at the foot of the file: the curve and cap the chat was actually running on, how
+many approved changes are logged, how many proposals are still unreviewed, and two lines that settle
+most card questions without guessing. If the replies print a `[Level:`-style line of their own while the
+ledger says otherwise, the export counts them and says the prose is the model's arithmetic, not the
+app's — which is what a card that demands its own status block produces. If a reply still carries a raw
+`<rpg_update>` block, the export names it, and that is the `first_mes` trap above showing up in the file.
+A chat that never turned the ledger on gets no block at all, because an export that comments on every
+system it does not use stops being read.
+
 **One class, on purpose.** The ledger is one XP pool with one derived level — no tracks, no
 multiclass, no subclass — because a derived level is only checkable if there is exactly one total it
 comes from. A second specialisation is a `skills` string (`Smithing (journeyman)`), and if the chat

@@ -1,5 +1,54 @@
 # Horde Studio Mobile — release notes
 
+## v1.48.9, 2026-11-28 — the transcript now says what the ledger recorded
+
+**A run nobody could diagnose.** A player tested the Solo Leveling card for 38 turns, exported the
+chat, and the file showed the story and nothing else. The card had been printing its own
+`[Level: 2] [Exp: 40/60]` lines the whole way — a counter frozen for eight turns, then a numerator
+running to `280/40` with the level never moving, then a quiet re-base to `40/60` that stayed there
+through a giant and a dragon. The screenshots that came with it showed the real ledger: tracking ON,
+curve `20 max:40`, and **0 XP after 38 turns**. Two ledgers in one chat, one of them fiction — and the
+one artefact that could have proved which was which said nothing about either.
+
+**The export could not have said anything, in its old shape.** `App.transcriptParts` returned
+`who`, `text`, `image`, `caption` and the memory, and `renderTranscriptMd` rendered exactly that; the
+ledger's facts live in `msg.rpgAward` and `msg.rpgStatusProposal.state`, which no renderer read. The
+tag is stripped from a reply before it is stored, so the file could not even show that a proposal had
+been *offered*. Silence in the export was indistinguishable from silence in the chat.
+
+**So the file now reads the ledger the sheet reads.** `rpgLedgerNotes(session, rows)` walks the rows
+once — through `API.rpgLedger`, `API.rpgAwardText`, `API.rpgStanding`, `API.rpgRuleInput`, the same four
+the prompt, the review and the sheet use — and produces a per-reply note plus a `## RPG ledger` block
+naming the curve as the player typed it, the level, the total, what is left to the next one, the cap,
+and how many changes were approved, how many proposals are still unreviewed, how many were dismissed,
+how many moved no XP. The running total in each note comes from `floor + Σ` in row order, so the number
+beside a reply is the same number the sheet shows at the top. Nothing in api.js changed; there is no
+second arithmetic to drift.
+
+**Two sentences that settle most card questions without guessing.** When replies print a
+`[Level:`-style line, the export counts them and says plainly that the prose is the model's arithmetic
+and the ledger above is the app's — the diagnosis the screenshots needed, made from the file itself.
+And a stored reply still carrying a raw `<rpg_update>` block is named as such, because the reply
+pipeline strips the tag before storage: a raw one arrived by another route, which is the `first_mes`
+trap `CARDS.md` warns about showing up in evidence rather than in a doc.
+
+**Quiet is part of it**: a chat that never turned the ledger on gets no block at all, which is the
+assertion `tests/export-md-test.js` already made about the memory section and which broke the first
+time I shipped this — "helpful about a system nobody enabled" is noise, and noise gets the whole
+section unread. A ledger switched off *after* awards exist is different, and says which of the two it
+is.
+
+**Measured**: `tests/transcript-rpg-test.js` is new (22 checks: the header's curve/level/total/cap, the
+per-reply award line asserted equal to `API.rpgAwardText` plus the derived level rather than to a number
+written into the test, pending and dismissed and XP-less approvals counted once, a reply with nothing
+to say saying nothing, both renderers, the poisoned-cache line, and both silence rules).
+`tools/mutation-check.py` gained 12 rows (111 in all) — one per sentence the export can print,
+including the one that decides whether to print at all — and all 111 kill. `CARDS.md`'s ledger section
+gained the paragraph telling authors the export is where to look, pinned by two new checks in
+`tests/card-rpg-doc-test.js` (65 now). **Not measured**: no browser here, so the file's shape is
+asserted as text; and the export reports what the rows hold, which means a run with no ledger on tells
+you nothing about what the model was asked.
+
 ## v1.48.8, 2026-11-27 — the ledger has a history: every XP award lives on the reply that earned it
 
 **The number was right and the answer to "why" did not exist.** v1.48.7 made XP arithmetically

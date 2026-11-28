@@ -197,6 +197,11 @@ ok('and the example really is that chat', /405 XP on `100 x1.5`/.test(section) &
 var stripLines = appSrc.split('\n').filter(function (l) { return l.indexOf('API.stripRpgUpdate') !== -1; });
 ok('the greeting warning is true: only the reply pipeline strips the tag', stripLines.length === 1,
   stripLines.length + ' lines strip it, want 1: ' + stripLines.join(' / ').slice(0, 90));
+/* v1.48.9: the export is a card author's instrument, so the section has to point at
+   it and describe what it says — otherwise the advice is "read the app's mind". */
+ok('the section says the transcript carries the ledger, and what that shows',
+  section.indexOf('## RPG ledger') !== -1 && section.indexOf('Export') !== -1 &&
+  section.indexOf('[Level:') !== -1, 'no export paragraph');
 ok('one class, and the doc says it is on purpose',
   !/tracks|multiclass/i.test(Object.keys(API.rpgStatusDefaults()).join(' ')) && /One class, on purpose/.test(section));
 same('the ledger is the documented set of keys', Object.keys(API.rpgStatusDefaults()).sort().join(' '),

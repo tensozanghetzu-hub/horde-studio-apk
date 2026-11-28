@@ -2766,16 +2766,110 @@
      decided once here, speaker labels and retired facts included, and each renderer
      only says them in its own voice. Display scripts are NOT applied: a transcript is
      what the model wrote, not what your screen showed. */
+  /* v1.48.9: the transcript is how a finished run gets read back, and until now it
+     could not answer the first question anybody asks about a level system — did the
+     app record anything? The exported replies carry prose only, while the ledger's
+     facts sit in fields the renderers never looked at, so "it seemed to work and
+     then it didn't" was undiagnosable from the one file a player can send. The
+     export now says once at the top what the ledger holds, and once per reply what
+     happened there. Nothing is worked out twice: `rpgLedger` is the same read the
+     sheet makes, `rpgAwardText` the same sentence the log shows, `rpgStanding` the
+     same level the prompt is told — and when the replies print a level line of
+     their own, the export says which of the two numbers is the app's. */
+  function rpgLedgerNotes(session, msgs) {
+    var rows = msgs || [];
+    var raw = session && session.rpgStatus;
+    var on = !!(raw && raw.enabled === true);
+    var v = API.rpgView(raw || {});
+    var ledger = API.rpgLedger(raw || {}, rows);
+    var byId = {}, total = ledger.floor === null ? v.xp : ledger.floor;
+    (ledger.entries || []).forEach(function (e) {
+      total = Math.max(0, total + e.xp);
+      byId[e.id] = API.rpgAwardText(e) + ' \u2192 ' + total + ' XP' +
+        (v.curve ? ' \u00b7 level ' + API.rpgStanding(total, v.rule).level : '');
+    });
+    var out = { on: on, view: v, ledger: ledger, byId: byId, awards: (ledger.entries || []).length,
+      pending: 0, dismissed: 0, quiet: 0, bars: 0, leaks: 0 };
+    rows.forEach(function (m) {
+      if (!m) return;
+      var p = m.rpgStatusProposal;
+      if (p && p.state === 'pending') {
+        out.pending++;
+        if (!byId[m.id]) byId[m.id] = 'a status change was proposed here and never reviewed' +
+          (p.reason ? ': ' + p.reason : '');
+      } else if (p && p.state === 'dismissed') {
+        out.dismissed++;
+        if (!byId[m.id]) byId[m.id] = 'the proposal here was dismissed; the model is told not to offer it again';
+      } else if (p && p.state === 'applied' && !m.rpgAward) {
+        /* Approved and nothing to show for it: a skill added, an attribute set. The
+           ledger did move, its total did not, and without this line the reply looks
+           untouched. */
+        out.quiet++;
+        if (!byId[m.id]) byId[m.id] = 'a change was applied here; it moved no XP, so there is nothing to log';
+      }
+      if (m.role !== 'user') {
+        if (/<rpg_update/i.test(m.text || '')) out.leaks++;
+        if (/\[(?:level|exp|xp)[:\s]/i.test(m.text || '')) out.bars++;
+      }
+    });
+    return out;
+  }
+
+  function rpgLedgerLines(notes) {
+    if (!notes.on) {
+      /* A chat that never used the ledger gets no section for it: the export has
+         said "nothing here" about a system nobody turned on since v1.48.9 tried to
+         be helpful, and a player reading a debug dump they cannot switch off stops
+         reading it. Tracking off *with* something on the rows is different — that
+         is a chat that had a ledger and lost it, and it has to say which. */
+      if (!(notes.awards || notes.pending || notes.dismissed || notes.quiet || notes.leaks)) return [];
+      /* Turning tracking off does not delete the awards the replies carry, and a
+         reader of the file deserves to know which of the two happened. */
+      return ['RPG tracking: off. No proposal was read in this chat, ' +
+        (notes.awards
+          ? 'though ' + notes.awards + ' approved change' + (notes.awards === 1 ? '' : 's') +
+            ' logged while it was on are still on the replies below'
+          : 'nothing was logged') +
+        ', and any level or XP line below is prose the model wrote.'];
+    }
+    var v = notes.view, ledger = notes.ledger;
+    var lines = ['RPG tracking: on \u00b7 curve ' + API.rpgRuleInput(v.rule) + ' \u00b7 level ' + String(v.level) +
+      ' \u00b7 ' + ledger.expected + ' XP' + (v.limits.toNext > 0 ? ' \u00b7 ' + v.limits.toNext + ' to go' : '') +
+      (v.limits.max ? ' \u00b7 at most ' + v.limits.max + ' XP a turn' : '')];
+    lines.push(notes.awards + ' approved change' + (notes.awards === 1 ? '' : 's') + ' logged on replies' +
+      (ledger.floor === null ? '' : ' \u00b7 your own ' + ledger.floor + ' XP, then ' +
+        (ledger.sum >= 0 ? '+' : '') + ledger.sum + ' from the log') +
+      (notes.pending ? ' \u00b7 ' + notes.pending + ' proposal' + (notes.pending === 1 ? '' : 's') + ' still waiting to be reviewed' : '') +
+      (notes.dismissed ? ' \u00b7 ' + notes.dismissed + ' dismissed here (not offered again)' : '') +
+      (notes.quiet ? ' \u00b7 ' + notes.quiet + ' applied with no XP to log' : ''));
+    if (ledger.changed) lines.push('The log and the stored total disagree: ' + ledger.note + '.');
+    if (notes.bars) {
+      lines.push(notes.bars + ' repl' + (notes.bars === 1 ? 'y' : 'ies') + ' print a `[Level:`-style line of ' +
+        'their own while the ledger says ' + ledger.expected + ' XP. The app\u2019s number is the one above; the ' +
+        'lines in the story are the model doing arithmetic in prose.');
+    }
+    if (notes.leaks) {
+      lines.push(notes.leaks + ' repl' + (notes.leaks === 1 ? 'y' : 'ies') +
+        (notes.leaks === 1 ? ' still carries' : ' still carry') + ' a raw <rpg_update> block. The reply pipeline ' +
+        'strips that tag before a reply is stored, so this one arrived some other way \u2014 a greeting, a hand ' +
+        'edit, or an import \u2014 and the model was never asked about it.');
+    }
+    return lines;
+  }
+
   App.transcriptParts = function (s, c, msgs) {
+    var rpg = rpgLedgerNotes(s, msgs);
     var turns = (msgs || []).map(function (m) {
       if (m.role === 'user') {
-        return { who: Store.settings.userName, text: m.text || '', image: m.image || null, caption: m.imageCaption || null, me: true };
+        return { who: Store.settings.userName, text: m.text || '', image: m.image || null, caption: m.imageCaption || null, me: true, note: rpg.byId[m.id] || '' };
       }
       var sp = API.splitSpeaker(c, s, m.text || '');
-      return { who: sp.name, text: sp.text, image: m.image || null, caption: m.imageCaption || null, me: false };
+      return { who: sp.name, text: sp.text, image: m.image || null, caption: m.imageCaption || null, me: false, note: rpg.byId[m.id] || '' };
     });
     return {
       turns: turns,
+      rpg: rpg,
+      rpgLines: rpgLedgerLines(rpg),
       createdAt: s && s.createdAt,
       summary: (s && s.summary) || '',
       facts: API.chatFactObjects(s).filter(function (f) { return f.to === null || f.to === undefined; }),
@@ -2787,8 +2881,12 @@
     return '# ' + charName + ' — ' + title + '\n' +
       '# ' + new Date(parts.createdAt || Date.now()).toLocaleString() + '\n\n' +
       parts.turns.map(function (t) {
-        return t.who + ': ' + t.text + (t.image ? '\n[image: ' + t.image + ']' : '');
+        return t.who + ': ' + t.text + (t.image ? '\n[image: ' + t.image + ']' : '') +
+          (t.note ? '\n(ledger: ' + t.note + ')' : '');
       }).join('\n\n') +
+      ((parts.rpgLines || []).length
+        ? '\n\n---\n' + parts.rpgLines.map(function (l) { return '# ' + l; }).join('\n')
+        : '') +
       (parts.hasMemory
         ? '\n\n---\nMemory: ' + parts.summary +
           parts.facts.map(function (f) { return '\n- ' + f.text; }).join('') +
@@ -2806,8 +2904,14 @@
     out += parts.turns.map(function (t) {
       var block = '**' + t.who + ':** ' + String(t.text || '').trim();
       if (t.image) block += '\n\n' + (t.caption ? '![' + t.caption + '](' + t.image + ')' : '_(image attached)_');
+      /* The award belongs to the reply that earned it, and so does its line here:
+         one reply read on its own says what it changed and what is still owed. */
+      if (t.note) block += '\n\n*(' + t.note + ')*';
       return block;
     }).join('\n\n');
+    if ((parts.rpgLines || []).length) {
+      out += '\n\n---\n\n## RPG ledger\n\n' + parts.rpgLines.join('\n\n');
+    }
     if (parts.hasMemory) {
       out += '\n\n---\n\n## What the chat remembered';
       if (parts.summary) out += '\n\n> ' + String(parts.summary).split('\n').join('\n> ');
